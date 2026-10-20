@@ -25,4 +25,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 19 | 20/10 | Cần **link web** để thử ngay → làm bản chạy thử chạy trong trình duyệt | Không dùng chung dữ liệu giữa các máy |
 | 20 | 20/10 | Quán có **ca sáng và ca chiều**; checklist cần theo từng ca | Đề xuất đã gửi, chờ đồng ý + giờ ca |
 | 21 | 20/10 | Lưu toàn bộ vào bộ nhớ md trong repo (`CLAUDE.md` + `memory/`) | |
-| 22 | 20/10 | Tách app quán ra **repo riêng `quanly-quan`** (riêng tư) | |
+| 22 | 20/10 | Tách app quán ra **repo riêng `C-u-Long-Tr-n`** (chủ quán đặt tên) | |

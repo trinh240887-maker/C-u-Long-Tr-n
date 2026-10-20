@@ -22,7 +22,7 @@
 | Nhóm Zalo "Mua đồ" | Nhận đơn đặt hàng NCC | Nhóm cá nhân: OA không gửi được vào, cần nhóm OA |
 | MISA meInvoice | Hoá đơn điện tử | Đã chọn; chưa đọc được docs |
 | dathangsi / ordership | Hệ thống đặt hàng sỉ (1688) | Nơi host chưa rõ |
-| GitHub `trinh240887-maker/quanly-quan` | Repo app quán (tách từ `dathangsi`) | |
+| GitHub `trinh240887-maker/C-u-Long-Tr-n` | Repo app quán (tách từ `dathangsi`) | |
 
 ## Môi trường Claude (hạn chế đã gặp)
 - Mạng chặn: sapo.vn, developer.misa.vn, bot.zaloplatforms.com, các dịch vụ tunnel. Cho phép npm, GitHub.

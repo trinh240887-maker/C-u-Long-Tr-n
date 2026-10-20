@@ -1,6 +1,6 @@
 # Dự án: Quản lý quán (Steak & Lẩu bò Thái tay)
 
-**Repo:** `trinh240887-maker/quanly-quan` (tách từ `dathangsi/quanly`) · **Cũng gọi là:** app quản lý, quanly
+**Repo:** `trinh240887-maker/C-u-Long-Tr-n` (tách từ `dathangsi/quanly`) · **Cũng gọi là:** app quản lý, quanly
 **Trạng thái (cập nhật 20/10/2026):** GĐ1 xong, có bản chạy thử trên web; chưa deploy thật cho nhân viên.
 
 ## Mục tiêu

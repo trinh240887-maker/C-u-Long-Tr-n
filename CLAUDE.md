@@ -40,7 +40,7 @@ Công cụ import đơn 1688 nằm riêng ở repo `trinh240887-maker/dathangsi`
 
 ## Link
 - Bản chạy thử: https://claude.ai/artifact/4BLaeEpr4EZzDJGroCDHNa (riêng tư)
-- Repo: `trinh240887-maker/quanly-quan` (nhánh chính `main`)
+- Repo: `trinh240887-maker/C-u-Long-Tr-n` (nhánh chính `main`)
 
 ## Đang chờ tôi trả lời
 → `memory/projects/quanly-quan.md` mục "Câu hỏi mở"
