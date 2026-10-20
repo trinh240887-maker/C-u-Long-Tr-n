@@ -1,0 +1,9 @@
+{
+  "name": "Quản lý quán",
+  "short_name": "Quản lý",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f3ef",
+  "theme_color": "#7c2d12",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

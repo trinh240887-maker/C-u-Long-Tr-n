@@ -9,7 +9,7 @@ export default function (r, ctx) {
 
   function templates({ activeOnly = true } = {}) {
     const tpls = db.prepare(`SELECT c.*, t.name AS team_name FROM checklist_templates c LEFT JOIN teams t ON t.id = c.team_id
-      ${activeOnly ? 'WHERE c.active = 1' : ''} ORDER BY t.sort, c.phase, c.sort, c.id`).all();
+      ${activeOnly ? 'WHERE c.active = 1' : ''} ORDER BY t.sort, CASE c.phase WHEN 'open' THEN 0 WHEN 'during' THEN 1 ELSE 2 END, c.sort, c.id`).all();
     const items = db.prepare('SELECT * FROM checklist_items ORDER BY sort, id').all();
     return tpls.map((c) => ({ ...c, active: !!c.active, items: items.filter((i) => i.template_id === c.id).map((i) => ({ ...i, required: !!i.required })) }));
   }
