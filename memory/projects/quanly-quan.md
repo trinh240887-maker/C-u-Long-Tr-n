@@ -54,6 +54,10 @@ Một app web dùng chung cho cả quán (điện thoại phục vụ, màn hìn
 9. Mở quyền mạng `developer.misa.vn`, `*.misa.vn`, `*.meinvoice.vn` để đọc tài liệu HĐĐT.
 10. Bảng mô tả công việc theo vị trí (đầu việc cố định của từng vai): đã đề xuất, chưa chốt.
 
+## Trạng thái chờ (20/10 tối)
+- Chủ quán **tự kiểm tra lại GĐ1 + GĐ2 trên app thật** rồi mới làm tiếp. Phiên sau: hỏi kết quả kiểm tra, sửa lỗi họ gặp trước.
+- Đề xuất kaizen chưa chốt: (1) `memory/bai-hoc.md` + quy tắc ghi lỗi & thêm test, (2) báo cáo hao hụt tuần + bảng cải tiến cho nhân viên, (3) GĐ3 gợi ý tự chỉnh định lượng.
+
 ## Việc nên làm tiếp (khi được duyệt)
 - Deploy Railway (chủ quán tạo tài khoản; Root Directory để trống, Volume `/data`).
 - Nhập dữ liệu thật: nhân viên, loại ca, nguyên liệu, NCC.
