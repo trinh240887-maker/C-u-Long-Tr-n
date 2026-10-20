@@ -364,7 +364,7 @@ export function tx(db, fn) {
 }
 
 const DEFAULT_SETTINGS = {
-  shop_name: 'Steak & Lẩu bò',
+  shop_name: 'Cửu Long Trấn',
   tz_offset: '+07:00',
   day_cutoff_hour: '5',          // trước 5h sáng tính là ngày hôm trước
   late_grace_minutes: '5',

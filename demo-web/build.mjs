@@ -21,7 +21,7 @@ const out = await build({
 });
 const js = out.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
 const css = fs.readFileSync(path.join(pub, 'style.css'), 'utf8');
-const html = `<title>Quản lý quán</title>
+const html = `<title>Cửu Long Trấn</title>
 <meta name="theme-color" content="#7c2d12">
 <style>${css}</style>
 <div id="root"><div style="padding:32px;text-align:center;font-family:system-ui;color:#74675d">Đang mở bản chạy thử…</div></div>

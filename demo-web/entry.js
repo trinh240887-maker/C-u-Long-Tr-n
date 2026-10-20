@@ -2,7 +2,7 @@
 import initSqlJs from 'sql.js/dist/sql-wasm.js';
 import wasmBinary from 'sql.js/dist/sql-wasm.wasm';
 
-const KEY = 'quanly-demo-db-v2';
+const KEY = 'quanly-demo-db-v3';
 const OWNER_PIN = '135790';
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },

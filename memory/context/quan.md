@@ -1,7 +1,7 @@
 # Bối cảnh quán
 
 ## Quán
-- **Steak & Lẩu bò Thái tay**, 100 bàn, 3 khu (Tầng 1 / Tầng 2 / Sân vườn).
+- Tên quán: **Cửu Long Trấn** (repo `C-u-Long-Tr-n` là tên này bị GitHub bỏ dấu). Bán **Steak & Lẩu bò Thái tay**, 100 bàn, 3 khu (Tầng 1 / Tầng 2 / Sân vườn).
 - Có **ca sáng và ca chiều** (giờ cụ thể chưa có). Chủ quán tự xếp lịch.
 - Có **kho tổng**; mỗi khu (Bếp, Lẩu, Bar) có kho riêng và **1 nhà cung cấp riêng**.
 

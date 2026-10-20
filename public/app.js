@@ -49,7 +49,7 @@ function Login({ onDone }) {
   const press = (k) => setPin((p) => (k === '⌫' ? p.slice(0, -1) : p.length < 8 ? p + k : p));
   useEffect(() => { if (pin.length === 8) submit(); }, [pin]);
   return html`<div class="login">
-    <div class="login-mark">S&L</div>
+    <div class="login-mark">CLT</div>
     <h1>Đăng nhập</h1>
     <p class="muted">Nhập mã PIN của bạn</p>
     <form onSubmit=${submit}>
@@ -101,14 +101,14 @@ function Shell({ me, children, path, online }) {
   useEffect(() => setMore(false), [path]);
   return html`<div class="shell">
     <aside class="side">
-      <div class="brand"><span class="mark">S&L</span><span>${me.shop_name}</span></div>
+      <div class="brand"><span class="mark">CLT</span><span>${me.shop_name}</span></div>
       <nav>${items.map((n) => html`<${Link} href=${n.path} class=${active(n.path) ? 'on' : ''}><i>${n.icon}</i>${n.label}
         ${n.path === '/ho-so' && me.unread ? html`<b class="dotn">${me.unread}</b>` : null}<//>`)}</nav>
       <div class="side-foot"><span class=${`conn ${online ? '' : 'off'}`}></span>${online ? 'Đang đồng bộ' : 'Mất kết nối'}</div>
     </aside>
     <div class="main">
       <header class="top">
-        <span class="mark">S&L</span>
+        <span class="mark">CLT</span>
         <b class="grow">${items.find((n) => active(n.path))?.label || ''}</b>
         <span class=${`conn ${online ? '' : 'off'}`} title=${online ? 'Đang đồng bộ' : 'Mất kết nối'}></span>
         <${Link} href="/ho-so" class="who">${me.name}${me.unread ? html`<b class="dotn">${me.unread}</b>` : null}<//>

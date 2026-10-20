@@ -1,4 +1,4 @@
-# Quản lý quán: Steak & Lẩu bò
+# Cửu Long Trấn: app quản lý quán (Steak & Lẩu bò)
 
 App web quản lý vận hành quán. **Giai đoạn 1 (đã làm): nhân sự & công việc.**
 

@@ -30,3 +30,5 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 24 | 20/10 | Checklist gắn theo **loại ca**; checklist "Mọi ca" chạy 1 lượt/ngày | |
 | 25 | 20/10 | Chưa có bán hàng: **lượng dùng = chênh lệch kiểm kho cuối ca của khu** | Đổi khi có GĐ3 |
 | 26 | 20/10 | Đơn đã duyệt gửi Zalo nhóm bằng **nút chép nội dung** tới khi xác nhận API nhóm OA | |
+| 27 | 20/10 | Tên quán **Cửu Long Trấn**: đặt làm tên mặc định của app, logo chữ CLT | |
+| 28 | 20/10 | Chạy song song 2 web trên Railway: dathangsi (project cũ) và Cửu Long Trấn (project mới), sửa code liên tục | Đề xuất nhánh `dev` + môi trường thử |

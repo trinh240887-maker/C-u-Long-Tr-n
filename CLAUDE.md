@@ -3,7 +3,7 @@
 > Claude tự đọc file này mỗi phiên làm việc. Chi tiết nằm trong `memory/`. Cập nhật file này khi có quyết định mới.
 
 ## Tôi (chủ repo)
-Chủ quán **Steak & Lẩu bò Thái tay** (100 bàn). Cũng vận hành hệ thống **dathangsi / ordership** (đặt hàng sỉ từ 1688). Dùng Claude Code chủ yếu trên **điện thoại**.
+Chủ quán **Cửu Long Trấn**: Steak & Lẩu bò Thái tay (100 bàn). Cũng vận hành hệ thống **dathangsi / ordership** (đặt hàng sỉ từ 1688). Dùng Claude Code chủ yếu trên **điện thoại**.
 
 ## Dự án
 **Quản lý quán**: app vận hành nhà hàng (repo này). GĐ1 Nhân sự + GĐ2 Kho **xong, đang chạy thử**; chờ deploy thật.
