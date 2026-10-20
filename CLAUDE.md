@@ -6,7 +6,7 @@
 Chủ quán **Cửu Long Trấn**: Steak & Lẩu bò Thái tay (100 bàn). Cũng vận hành hệ thống **dathangsi / ordership** (đặt hàng sỉ từ 1688). Dùng Claude Code chủ yếu trên **điện thoại**.
 
 ## Dự án
-**Quản lý quán**: app vận hành nhà hàng (repo này). GĐ1 Nhân sự + GĐ2 Kho **xong, đang chạy thử**; chờ deploy thật.
+**Quản lý quán**: app vận hành nhà hàng (repo này). GĐ1 Nhân sự + GĐ2 Kho **xong**; **đã deploy Railway** (project `marvelous-spirit`, Volume `/data`).
 Công cụ import đơn 1688 nằm riêng ở repo `trinh240887-maker/dathangsi`.
 → Chi tiết: `memory/projects/quanly-quan.md`, yêu cầu gốc: `memory/projects/quanly-yeu-cau.md`, quyết định: `memory/projects/quanly-quyet-dinh.md`
 
@@ -39,6 +39,7 @@ Công cụ import đơn 1688 nằm riêng ở repo `trinh240887-maker/dathangsi`
 - Deploy cloud: `Dockerfile`, `railway.json` (Volume `/data`).
 
 ## Link
+- **App thật:** https://c-u-long-tr-n-production.up.railway.app (Railway, cổng 8080, tự deploy khi push `main`)
 - Bản chạy thử: https://claude.ai/artifact/4BLaeEpr4EZzDJGroCDHNa (riêng tư)
 - Repo: `trinh240887-maker/C-u-Long-Tr-n` (nhánh chính `main`)
 

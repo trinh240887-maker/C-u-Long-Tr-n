@@ -44,7 +44,7 @@ Một app web dùng chung cho cả quán (điện thoại phục vụ, màn hìn
 
 ## Câu hỏi mở (chờ chủ quán)
 1. ~~Checklist theo ca~~: **đã làm** (ô "Áp dụng cho ca"). Vẫn cần giờ thật của ca sáng/chiều để tạo loại ca.
-2. **Deploy thật cho nhân viên**: Railway (đề xuất; Root Directory để trống vì app ở gốc repo) / VPS / máy ở quán + Cloudflare Tunnel. Chờ chủ quán tạo tài khoản. (Chủ quán hỏi "giống dathangsi": chưa biết dathangsi đang host ở đâu.)
+2. ~~Deploy~~: **xong 20/10** trên Railway: https://c-u-long-tr-n-production.up.railway.app (project `marvelous-spirit`, Volume `c-u-long-tr-n-volume` ở `/data`). dathangsi cũng chạy trên Railway (project `dathangsi`, 7 dịch vụ). Railway GitHub App được cấp All repositories.
 3. Cách chấm công: chỉ wifi quán / máy cố định ở quầy / có chụp ảnh.
 4. Lịch phân ca thật (ảnh/Excel).
 5. Danh sách tổ đủ chưa, có tổ phó không, có kiêm nhiệm không.

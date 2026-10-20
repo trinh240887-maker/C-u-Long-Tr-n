@@ -32,3 +32,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 26 | 20/10 | Đơn đã duyệt gửi Zalo nhóm bằng **nút chép nội dung** tới khi xác nhận API nhóm OA | |
 | 27 | 20/10 | Tên quán **Cửu Long Trấn**: đặt làm tên mặc định của app, logo chữ CLT | |
 | 28 | 20/10 | Chạy song song 2 web trên Railway: dathangsi (project cũ) và Cửu Long Trấn (project mới), sửa code liên tục | Đề xuất nhánh `dev` + môi trường thử |
+| 29 | 20/10 | Deploy Railway: project `marvelous-spirit`, link c-u-long-tr-n-production.up.railway.app, Volume `/data` | Dockerfile không dùng lệnh VOLUME |
