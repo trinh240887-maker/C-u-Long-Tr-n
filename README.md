@@ -91,7 +91,7 @@ Dùng khi quán chưa có máy chạy cả ngày, hoặc muốn có link dùng n
 
 1. Tạo tài khoản ở https://railway.com (gói Hobby khoảng 5 USD/tháng), đăng nhập bằng GitHub.
 2. **New Project → Deploy from GitHub repo** → chọn repo này.
-3. Vào service vừa tạo → **Settings → Root Directory**: điền `quanly`. Railway tự dùng `Dockerfile` và `railway.json` có sẵn.
+3. Railway tự dùng `Dockerfile` và `railway.json` có sẵn ở gốc repo (Root Directory để trống).
 4. **Settings → Volumes → Add Volume**, mount path: `/data` (bắt buộc, nếu không mỗi lần khởi động lại sẽ mất dữ liệu).
 5. **Settings → Networking → Generate Domain** để có link dạng `https://xxx.up.railway.app` (hoặc gắn tên miền riêng).
 6. Mở link, đăng nhập bằng PIN chủ `123456` và **đổi PIN ngay**. Gửi link cho nhân viên.
