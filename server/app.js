@@ -14,6 +14,7 @@ import checklistRoutes from './routes/checklists.js';
 import taskRoutes from './routes/tasks.js';
 import homeRoutes from './routes/home.js';
 import settingsRoutes from './routes/settings.js';
+import stockRoutes from './routes/stock.js';
 
 const SESSION_DAYS = 30;
 const MIME = {
@@ -58,7 +59,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   ctx.notify = (...args) => ctx.notifier.notify(...args);
 
   const router = createRouter();
-  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes]) {
+  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes]) {
     register(router, ctx);
   }
 

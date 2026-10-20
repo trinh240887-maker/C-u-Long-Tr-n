@@ -194,6 +194,128 @@ CREATE TABLE IF NOT EXISTS audit_log (
   detail TEXT NOT NULL DEFAULT '',
   at INTEGER NOT NULL
 );
+-- ================= KHO (GĐ2) =================
+CREATE TABLE IF NOT EXISTS suppliers (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  active INTEGER NOT NULL DEFAULT 1
+);
+-- Kho tổng (kind = main) và kho từng khu (kind = area, gắn với tổ, mỗi khu 1 NCC)
+CREATE TABLE IF NOT EXISTS stores (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'area',
+  team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+  supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+  sort INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1
+);
+-- Nguyên liệu. unit = đơn vị dùng (g, ml, quả, lon…); purchase_unit = đơn vị mua (kg, thùng…), 1 đơn vị mua = purchase_factor đơn vị dùng
+CREATE TABLE IF NOT EXISTS ingredients (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL,
+  freshness TEXT NOT NULL DEFAULT 'dry',         -- fresh | chilled | dry
+  home_store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL, -- khu chính; NULL = kho chung
+  supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL, -- NULL = theo NCC của khu chính
+  purchase_unit TEXT NOT NULL DEFAULT '',
+  purchase_factor REAL NOT NULL DEFAULT 1,
+  order_step REAL NOT NULL DEFAULT 1,           -- làm tròn số lượng đặt (theo đơn vị mua)
+  price INTEGER NOT NULL DEFAULT 0,              -- đồng / 1 đơn vị mua (giá nhập gần nhất)
+  min_stock REAL NOT NULL DEFAULT 0,             -- tồn tối thiểu cả quán (đơn vị dùng)
+  shelf_days INTEGER NOT NULL DEFAULT 0,         -- số ngày dùng được sau khi nhập (0 = không theo dõi)
+  lead_days INTEGER NOT NULL DEFAULT 1,          -- NCC giao sau bao nhiêu ngày
+  cycle_days INTEGER NOT NULL DEFAULT 1,         -- đặt đủ dùng bao nhiêu ngày
+  safety_pct INTEGER NOT NULL DEFAULT 10,        -- dự phòng %
+  active INTEGER NOT NULL DEFAULT 1
+);
+-- Tồn kho theo lô (để biết hạn dùng, xuất trước hết hạn trước)
+CREATE TABLE IF NOT EXISTS stock_lots (
+  id INTEGER PRIMARY KEY,
+  store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  ingredient_id INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+  qty REAL NOT NULL,
+  expires_on TEXT,
+  received_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS lots_by_store ON stock_lots(store_id, ingredient_id);
+-- Lịch sử: receive (nhập NCC) | transfer (kho tổng → khu) | consume (dùng) | waste (hao hụt/hỏng) | adjust (kiểm kho thừa)
+CREATE TABLE IF NOT EXISTS stock_moves (
+  id INTEGER PRIMARY KEY,
+  at INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  type TEXT NOT NULL,
+  ingredient_id INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+  from_store INTEGER,
+  to_store INTEGER,
+  qty REAL NOT NULL,
+  cost INTEGER NOT NULL DEFAULT 0,
+  ref TEXT NOT NULL DEFAULT '',
+  staff_id INTEGER,
+  note TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS moves_by_date ON stock_moves(date);
+CREATE INDEX IF NOT EXISTS moves_by_ing ON stock_moves(ingredient_id, date);
+CREATE TABLE IF NOT EXISTS stock_counts (
+  id INTEGER PRIMARY KEY,
+  store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  staff_id INTEGER,
+  at INTEGER NOT NULL,
+  note TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS stock_count_lines (
+  count_id INTEGER NOT NULL REFERENCES stock_counts(id) ON DELETE CASCADE,
+  ingredient_id INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+  expected REAL NOT NULL,
+  actual REAL NOT NULL,
+  PRIMARY KEY (count_id, ingredient_id)
+);
+-- Phiếu lĩnh hàng: khu xin → kho tổng xuất → khu nhận
+CREATE TABLE IF NOT EXISTS transfers (
+  id INTEGER PRIMARY KEY,
+  from_store INTEGER NOT NULL REFERENCES stores(id),
+  to_store INTEGER NOT NULL REFERENCES stores(id),
+  status TEXT NOT NULL DEFAULT 'requested',     -- requested | sent | received | cancelled
+  note TEXT NOT NULL DEFAULT '',
+  created_by INTEGER, created_at INTEGER NOT NULL,
+  sent_by INTEGER, sent_at INTEGER,
+  received_by INTEGER, received_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS transfer_lines (
+  transfer_id INTEGER NOT NULL REFERENCES transfers(id) ON DELETE CASCADE,
+  ingredient_id INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+  qty_requested REAL NOT NULL DEFAULT 0,
+  qty_sent REAL,
+  qty_received REAL,
+  expires_on TEXT,
+  PRIMARY KEY (transfer_id, ingredient_id)
+);
+-- Đơn đặt hàng NCC: draft → submitted (tổ trưởng gửi) → approved (quản lý duyệt, gửi Zalo) → received (nhập kho)
+CREATE TABLE IF NOT EXISTS purchase_orders (
+  id INTEGER PRIMARY KEY,
+  supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+  store_id INTEGER NOT NULL REFERENCES stores(id),
+  status TEXT NOT NULL DEFAULT 'draft',
+  deliver_on TEXT,
+  note TEXT NOT NULL DEFAULT '',
+  created_by INTEGER, created_at INTEGER NOT NULL,
+  submitted_by INTEGER, submitted_at INTEGER,
+  approved_by INTEGER, approved_at INTEGER,
+  received_by INTEGER, received_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS po_lines (
+  po_id INTEGER NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+  ingredient_id INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+  qty REAL NOT NULL,                 -- theo đơn vị mua
+  suggested REAL NOT NULL DEFAULT 0,
+  price INTEGER NOT NULL DEFAULT 0,  -- đồng / đơn vị mua
+  qty_received REAL,
+  price_received INTEGER,
+  PRIMARY KEY (po_id, ingredient_id)
+);
 `;
 
 export const DEFAULT_OWNER_PIN = '123456';
@@ -207,8 +329,8 @@ export function openDb(file, { now = Date.now() } = {}) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
-  migrate(db);
   seedBase(db, now);
+  migrate(db);
   return db;
 }
 
@@ -217,6 +339,15 @@ function migrate(db) {
   const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
   if (!cols('checklist_templates').includes('shift_template_id')) {
     db.exec('ALTER TABLE checklist_templates ADD COLUMN shift_template_id INTEGER REFERENCES shift_templates(id) ON DELETE SET NULL');
+  }
+  // Kho mặc định: kho tổng + kho cho các tổ chế biến
+  if (!db.prepare('SELECT 1 FROM stores LIMIT 1').get()) {
+    const add = db.prepare('INSERT INTO stores (name, kind, team_id, sort) VALUES (?, ?, ?, ?)');
+    add.run('Kho tổng', 'main', null, 0);
+    ['Bếp steak', 'Lẩu', 'Bar'].forEach((name, i) => {
+      const team = db.prepare('SELECT id FROM teams WHERE name = ?').get(name);
+      add.run(`Kho ${name}`, 'area', team?.id ?? null, i + 1);
+    });
   }
 }
 
@@ -251,6 +382,8 @@ const DEFAULT_SETTINGS = {
   zalo_token_expires_at: '0',
   zalo_webhook_key: '',
   kho_tong_staff_id: '',
+  area_count_is_usage: '1',      // chưa có bán hàng: chênh lệch kiểm kho khu = lượng đã dùng
+  expiry_warn_days: '1',
 };
 
 function seedBase(db, now) {
