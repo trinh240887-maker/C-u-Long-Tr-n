@@ -1,0 +1,15 @@
+{
+  "name": "quanly-quan",
+  "version": "0.1.0",
+  "private": true,
+  "description": "App quản lý vận hành quán: nhân sự, ca làm, chấm công, checklist, giao việc",
+  "type": "module",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "demo": "node --disable-warning=ExperimentalWarning scripts/demo-data.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

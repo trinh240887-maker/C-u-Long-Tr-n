@@ -1,0 +1,299 @@
+import { DatabaseSync } from 'node:sqlite';
+import crypto from 'node:crypto';
+
+export const ROLES = ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'];
+export const ROLE_LABEL = { owner: 'Chủ', manager: 'Quản lý', shift_lead: 'Trưởng ca', team_lead: 'Tổ trưởng', staff: 'Nhân viên' };
+export const rank = (role) => ROLES.indexOf(role);
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS teams (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  sort INTEGER NOT NULL DEFAULT 0,
+  min_staff INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS staff (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL DEFAULT 'staff',
+  team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+  pin_lookup TEXT UNIQUE,
+  pay_type TEXT NOT NULL DEFAULT 'hour',
+  pay_rate INTEGER NOT NULL DEFAULT 0,
+  weekly_limit_hours INTEGER NOT NULL DEFAULT 48,
+  zalo_user_id TEXT NOT NULL DEFAULT '',
+  zalo_link_code TEXT,
+  must_change_pin INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS staff_skills (
+  staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  level INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (staff_id, team_id)
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL
+);
+
+-- Loại ca do chủ/quản lý tự tạo. segments = JSON [{ "start": "17:00", "end": "00:30" }, ...]
+CREATE TABLE IF NOT EXISTS shift_templates (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#c2410c',
+  segments TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1
+);
+
+-- Mỗi dòng là một khúc ca. Ca gãy có nhiều khúc cùng group_id.
+CREATE TABLE IF NOT EXISTS assignments (
+  id INTEGER PRIMARY KEY,
+  group_id TEXT NOT NULL,
+  staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+  date TEXT NOT NULL,
+  start_min INTEGER NOT NULL,
+  end_min INTEGER NOT NULL,
+  template_id INTEGER REFERENCES shift_templates(id) ON DELETE SET NULL,
+  label TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_by INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS assignments_by_date ON assignments(date);
+CREATE INDEX IF NOT EXISTS assignments_by_staff ON assignments(staff_id, date);
+CREATE INDEX IF NOT EXISTS assignments_by_group ON assignments(group_id);
+
+CREATE TABLE IF NOT EXISTS leave_requests (
+  id INTEGER PRIMARY KEY,
+  staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  group_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | rejected | cancelled
+  replacement_id INTEGER REFERENCES staff(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL,
+  decided_by INTEGER,
+  decided_at INTEGER,
+  decision_note TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS leave_by_status ON leave_requests(status, date);
+
+CREATE TABLE IF NOT EXISTS cover_offers (
+  id INTEGER PRIMARY KEY,
+  leave_id INTEGER NOT NULL REFERENCES leave_requests(id) ON DELETE CASCADE,
+  staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'invited',   -- invited | accepted | declined | closed
+  invited_by INTEGER,
+  created_at INTEGER NOT NULL,
+  answered_at INTEGER,
+  UNIQUE (leave_id, staff_id)
+);
+
+CREATE TABLE IF NOT EXISTS attendance (
+  id INTEGER PRIMARY KEY,
+  staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  assignment_id INTEGER REFERENCES assignments(id) ON DELETE SET NULL,
+  date TEXT NOT NULL,
+  clock_in INTEGER NOT NULL,
+  clock_out INTEGER,
+  late_minutes INTEGER NOT NULL DEFAULT 0,
+  auto_closed INTEGER NOT NULL DEFAULT 0,
+  edited_by INTEGER,
+  note TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS attendance_by_date ON attendance(date);
+CREATE INDEX IF NOT EXISTS attendance_by_staff ON attendance(staff_id, clock_in);
+CREATE UNIQUE INDEX IF NOT EXISTS one_open_attendance ON attendance(staff_id) WHERE clock_out IS NULL;
+
+-- Checklist mẫu theo tổ và thời điểm (mở ca / trong ca / đóng ca)
+CREATE TABLE IF NOT EXISTS checklist_templates (
+  id INTEGER PRIMARY KEY,
+  team_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
+  phase TEXT NOT NULL DEFAULT 'open',       -- open | during | close
+  title TEXT NOT NULL,
+  sort INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS checklist_items (
+  id INTEGER PRIMARY KEY,
+  template_id INTEGER NOT NULL REFERENCES checklist_templates(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'check',       -- check | number | text
+  unit TEXT NOT NULL DEFAULT '',
+  required INTEGER NOT NULL DEFAULT 1,
+  sort INTEGER NOT NULL DEFAULT 0
+);
+-- Mỗi checklist mẫu sinh một "lượt" cho mỗi ngày làm việc
+CREATE TABLE IF NOT EXISTS checklist_runs (
+  id INTEGER PRIMARY KEY,
+  template_id INTEGER NOT NULL REFERENCES checklist_templates(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  completed_at INTEGER,
+  completed_by INTEGER,
+  UNIQUE (template_id, date)
+);
+CREATE TABLE IF NOT EXISTS checklist_entries (
+  run_id INTEGER NOT NULL REFERENCES checklist_runs(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES checklist_items(id) ON DELETE CASCADE,
+  value TEXT NOT NULL DEFAULT '',
+  done_by INTEGER,
+  done_at INTEGER NOT NULL,
+  PRIMARY KEY (run_id, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  assignee_id INTEGER REFERENCES staff(id) ON DELETE SET NULL,
+  team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+  due_at INTEGER,
+  priority INTEGER NOT NULL DEFAULT 2,      -- 1 cao, 2 thường, 3 thấp
+  status TEXT NOT NULL DEFAULT 'todo',      -- todo | doing | done
+  created_by INTEGER,
+  created_at INTEGER NOT NULL,
+  done_by INTEGER,
+  done_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS tasks_by_status ON tasks(status, due_at);
+
+-- Thông báo trong app + hàng đợi gửi Zalo
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY,
+  staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  link TEXT NOT NULL DEFAULT '',
+  urgent INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  read_at INTEGER,
+  zalo_status TEXT NOT NULL DEFAULT 'pending', -- pending | sent | failed | skipped
+  zalo_attempts INTEGER NOT NULL DEFAULT 0,
+  zalo_next_at INTEGER NOT NULL DEFAULT 0,
+  zalo_error TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS notifications_by_staff ON notifications(staff_id, created_at);
+CREATE INDEX IF NOT EXISTS notifications_queue ON notifications(zalo_status, zalo_next_at);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY,
+  staff_id INTEGER,
+  action TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  at INTEGER NOT NULL
+);
+`;
+
+export const DEFAULT_OWNER_PIN = '123456';
+
+export function pinLookup(db, pin) {
+  const secret = db.prepare("SELECT value FROM settings WHERE key = 'pin_secret'").get().value;
+  return crypto.createHmac('sha256', secret).update(String(pin)).digest('hex');
+}
+
+export function openDb(file, { now = Date.now() } = {}) {
+  const db = new DatabaseSync(file);
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+  db.exec(SCHEMA);
+  seedBase(db, now);
+  return db;
+}
+
+export function tx(db, fn) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const out = fn();
+    db.exec('COMMIT');
+    return out;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+const DEFAULT_SETTINGS = {
+  shop_name: 'Steak & Lẩu bò',
+  tz_offset: '+07:00',
+  day_cutoff_hour: '5',          // trước 5h sáng tính là ngày hôm trước
+  late_grace_minutes: '5',
+  clock_early_minutes: '60',     // được chấm vào sớm nhất trước giờ ca
+  auto_close_after_minutes: '120', // quên chấm ra: tự đóng sau giờ hết ca
+  clock_ip_prefixes: '',         // vd "192.168.1." — để trống là không giới hạn
+  night_bonus_pct: '30',
+  quiet_from: '23:00',
+  quiet_to: '07:00',
+  zalo_enabled: '0',
+  zalo_app_id: '',
+  zalo_secret_key: '',
+  zalo_access_token: '',
+  zalo_refresh_token: '',
+  zalo_token_expires_at: '0',
+  zalo_webhook_key: '',
+  kho_tong_staff_id: '',
+};
+
+function seedBase(db, now) {
+  const get = db.prepare('SELECT value FROM settings WHERE key = ?');
+  const put = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+  put.run('pin_secret', crypto.randomBytes(32).toString('hex'));
+  put.run('zalo_webhook_key', crypto.randomBytes(16).toString('hex'));
+  for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) put.run(k, v);
+  if (get.get('seeded')) return;
+
+  tx(db, () => {
+    const addTeam = db.prepare('INSERT INTO teams (name, sort, min_staff) VALUES (?, ?, ?)');
+    const teams = [['Bếp steak', 2], ['Lẩu', 2], ['Bar', 1], ['Phục vụ', 4], ['Thu ngân', 1], ['Tạp vụ', 1]];
+    const ids = {};
+    teams.forEach(([name, min], i) => { ids[name] = Number(addTeam.run(name, i, min).lastInsertRowid); });
+
+    db.prepare(`INSERT INTO staff (name, role, pin_lookup, must_change_pin, created_at) VALUES (?, 'owner', ?, 1, ?)`)
+      .run('Chủ quán', pinLookup(db, DEFAULT_OWNER_PIN), now);
+
+    // Checklist MẪU — sửa lại theo thực tế của quán
+    const addTpl = db.prepare('INSERT INTO checklist_templates (team_id, phase, title, sort) VALUES (?, ?, ?, ?)');
+    const addItem = db.prepare('INSERT INTO checklist_items (template_id, text, kind, unit, required, sort) VALUES (?, ?, ?, ?, ?, ?)');
+    const lists = [
+      ['Bếp steak', 'open', 'Mở ca bếp steak (mẫu)', [
+        ['Nhiệt độ tủ mát', 'number', '°C'], ['Nhiệt độ tủ đông', 'number', '°C'],
+        ['Rã đông thịt theo kế hoạch', 'check'], ['Chuẩn bị sốt tiêu đen, sốt nấm', 'check'],
+        ['Khoai cắt sẵn, bơ tỏi', 'check'], ['Kiểm tra bếp gas, máy hút khói', 'check'],
+      ]],
+      ['Bếp steak', 'close', 'Đóng ca bếp steak (mẫu)', [
+        ['Vệ sinh bếp, vỉ nướng', 'check'], ['Bọc màng, dán ngày thịt còn lại', 'check'],
+        ['Khoá van gas', 'check'], ['Ghi chú bàn giao', 'text', '', 0],
+      ]],
+      ['Lẩu', 'open', 'Mở ca lẩu (mẫu)', [
+        ['Nấu nước lẩu', 'number', 'lít'], ['Thái bò (bắp, gầu)', 'number', 'kg'],
+        ['Rau, nấm, topping sẵn sàng', 'check'], ['Nhiệt độ tủ mát', 'number', '°C'],
+      ]],
+      ['Bar', 'open', 'Mở ca bar (mẫu)', [
+        ['Đá viên đủ dùng', 'check'], ['Chanh, cam, bạc hà', 'check'],
+        ['Siro, trà, sữa còn hạn', 'check'], ['Kiểm nước đóng chai trong tủ mát', 'check'],
+      ]],
+      ['Phục vụ', 'open', 'Mở ca phục vụ (mẫu)', [
+        ['Setup bàn, khăn, menu', 'check'], ['Kiểm tra bếp lẩu mini, bình gas mini', 'check'],
+        ['Vệ sinh khu vực được phân', 'check'],
+      ]],
+      ['Phục vụ', 'close', 'Đóng ca phục vụ (mẫu)', [
+        ['Thu dọn, lau bàn ghế', 'check'], ['Tắt bếp mini, cất bình gas', 'check'],
+      ]],
+    ];
+    lists.forEach(([team, phase, title, items], i) => {
+      const tplId = addTpl.run(ids[team], phase, title, i).lastInsertRowid;
+      items.forEach(([text, kind, unit = '', required = 1], j) => addItem.run(tplId, text, kind, unit, required, j));
+    });
+    db.prepare("INSERT INTO settings (key, value) VALUES ('seeded', '1')").run();
+  });
+}
