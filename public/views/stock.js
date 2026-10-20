@@ -1,0 +1,375 @@
+import { useState, useEffect } from 'preact/hooks';
+import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays } from '../ui.js';
+
+const TABS = [['ton', 'Tồn kho'], ['kiem', 'Kiểm kho'], ['linh', 'Lĩnh hàng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['ls', 'Lịch sử']];
+const STATUS = { out: ['Hết', 'bad'], low: ['Sắp hết', 'warn'], ok: ['Đủ', 'ok'] };
+const FRESH = { fresh: 'Đồ tươi', chilled: 'Đồ mát', dry: 'Đồ khô/đông' };
+const TR = { requested: ['Chờ kho tổng xuất', 'warn'], sent: ['Đã xuất, chờ khu nhận', 'warn'], received: ['Đã nhận', 'ok'], cancelled: ['Đã huỷ', 'muted'] };
+const PO = { draft: ['Nháp', ''], submitted: ['Chờ duyệt', 'warn'], approved: ['Đã duyệt, chờ hàng về', 'ok'], received: ['Đã nhận hàng', 'muted'], cancelled: ['Đã huỷ', 'muted'] };
+const MOVE = { receive: 'Nhập NCC', transfer: 'Xuất cho khu', consume: 'Dùng', waste: 'Hao hụt', adjust: 'Kiểm thừa' };
+
+// 4500 g → "4,5 kg"; 1200 ml → "1,2 lít"
+export function qty(n, unit) {
+  const v = Number(n) || 0;
+  const f = (x, d = 2) => (Math.round(x * 10 ** d) / 10 ** d).toLocaleString('vi-VN');
+  if ((unit === 'g' || unit === 'ml') && Math.abs(v) >= 1000) return `${f(v / 1000, 2)} ${unit === 'g' ? 'kg' : 'lít'}`;
+  if (unit === 'g' || unit === 'ml' || ['quả', 'lon', 'chai', 'phần', 'cái', 'gói', 'bó'].includes(unit)) return `${f(v, 0)} ${unit}`;
+  return `${f(v, 1)} ${unit}`;
+}
+const numIn = (v) => (v === '' || v === null || v === undefined ? '' : String(v));
+
+// ---------- Tồn kho ----------
+function Overview() {
+  const st = useData('/api/stock/overview');
+  const [store, setStore] = useState('all');
+  const [filter, setFilter] = useState('');
+  const [q, setQ] = useState('');
+  if (!st.data) return html`<${Loading} state=${st} />`;
+  const d = st.data;
+  let items = d.items;
+  if (store !== 'all') items = items.filter((i) => (i.stock[store] || 0) > 0 || String(i.home_store_id) === store || (store === String(d.stores.find((s) => s.kind === 'main')?.id)));
+  if (filter === 'warn') items = items.filter((i) => i.status !== 'ok');
+  if (filter === 'exp') items = items.filter((i) => i.expiring.length);
+  if (q) items = items.filter((i) => i.name.toLowerCase().includes(q.toLowerCase()));
+  const nWarn = d.items.filter((i) => i.status !== 'ok').length;
+  const nExp = d.items.filter((i) => i.expiring.length).length;
+  return html`<div class="stack">
+    <div class="row wrap">
+      <select id="ov-store" class="auto" value=${store} onChange=${(e) => setStore(e.target.value)}>
+        <option value="all">Tất cả kho</option>${d.stores.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select>
+      <input id="ov-q" type="search" class="auto" placeholder="Tìm nguyên liệu" value=${q} onInput=${(e) => setQ(e.target.value)} />
+    </div>
+    <div class="chips">
+      <button class=${`chip ${filter === '' ? 'on' : ''}`} onClick=${() => setFilter('')}>Tất cả (${d.items.length})</button>
+      <button class=${`chip ${filter === 'warn' ? 'on' : ''}`} onClick=${() => setFilter('warn')}>Hết / sắp hết (${nWarn})</button>
+      <button class=${`chip ${filter === 'exp' ? 'on' : ''}`} onClick=${() => setFilter('exp')}>Sắp hết hạn (${nExp})</button>
+    </div>
+    ${items.length ? html`<div class="stock-list">${items.map((i) => html`<section class=${`card stock-row ${i.status}`}>
+      <div class="row between"><b>${i.name}</b><span class=${`pill ${STATUS[i.status][1]}`}>${STATUS[i.status][0]}</span></div>
+      <div class="row between small">
+        <span>Còn <b>${qty(i.available, i.unit)}</b>${i.days_left !== null ? html` <span class="muted">· đủ ~${Math.floor(i.days_left * 10) / 10} ngày</span>` : null}</span>
+        <span class="muted">Mai cần ~${qty(i.forecast_tomorrow, i.unit)}</span>
+      </div>
+      <div class="muted small">${d.stores.filter((s) => i.stock[s.id]).map((s) => `${s.name.replace('Kho ', '')}: ${qty(i.stock[s.id], i.unit)}`).join(' · ') || 'Không còn trong kho nào'}</div>
+      <div class="muted small">${FRESH[i.freshness]} · ${i.home_name} · ${i.supplier_name || 'chưa có NCC'}${i.min_stock ? ` · tối thiểu ${qty(i.min_stock, i.unit)}` : ''}</div>
+      ${i.expiring.map((e) => html`<div class=${`small ${e.expired ? 'bad-text' : 'warn-text'}`}>${e.expired ? 'Đã hết hạn' : 'Sắp hết hạn'} ${dayLabel(e.expires_on)}: ${qty(e.qty, i.unit)} ở ${d.stores.find((s) => s.id === e.store_id)?.name || ''}</div>`)}
+    </section>`)}</div>` : html`<div class="empty">${d.items.length ? 'Không có nguyên liệu nào khớp.' : 'Chưa có nguyên liệu. Quản lý thêm ở tab "Nguyên liệu & NCC".'}</div>`}
+    <p class="muted small">"Mai cần" tính từ lượng dùng thực tế các ngày trước (ưu tiên các ngày cùng thứ trong 4 tuần gần nhất). Càng kiểm kho đều, gợi ý càng chính xác.</p>
+  </div>`;
+}
+
+// ---------- Kiểm kho ----------
+function TransferForm({ store, lines: initLines, onClose, addOptions = [] }) {
+  const [lines, setLines] = useState(initLines.map((l) => ({ ...l, qty: l.need ?? l.qty ?? '' })));
+  const canAdd = addOptions.filter((i) => !lines.some((l) => l.ingredient_id === i.id));
+  const [note, setNote] = useState('');
+  return html`<${Modal} title=${`Xin lĩnh hàng cho ${store.name}`} onClose=${onClose}>
+    <div class="stack">
+      ${lines.map((l, i) => html`<div class="line-in">
+        <span class="grow"><b>${l.name}</b><br /><small class="muted">Kho tổng còn ${qty(l.main_stock ?? 0, l.unit)}${l.forecast !== undefined ? ` · mai cần ~${qty(l.forecast, l.unit)}` : ''}</small></span>
+        <input inputmode="decimal" class="num-in" value=${numIn(l.qty)} aria-label=${`Số lượng ${l.name}`}
+          onInput=${(e) => setLines(lines.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)))} /><span class="muted">${l.unit}</span>
+      </div>`)}
+      ${!lines.length ? html`<p class="muted small">Chưa có dòng nào. Chọn nguyên liệu cần lĩnh bên dưới.</p>` : null}
+      ${canAdd.length ? html`<select id="tf-add" onChange=${(e) => {
+        const i = addOptions.find((x) => x.id === Number(e.target.value));
+        if (i) setLines([...lines, { ingredient_id: i.id, name: i.name, unit: i.unit, qty: '' }]);
+        e.target.value = '';
+      }}><option value="">+ Thêm nguyên liệu vào phiếu</option>${canAdd.map((i) => html`<option value=${i.id}>${i.name}</option>`)}</select>` : null}
+      <${Field} label="Ghi chú"><input id="tf-note" value=${note} onInput=${(e) => setNote(e.target.value)} /><//>
+      <div class="row end"><button onClick=${onClose}>Thôi</button>
+        <button class="primary" disabled=${!lines.length} onClick=${async () => {
+          const body = { to_store_id: store.id, note, lines: lines.filter((l) => Number(String(l.qty).replace(',', '.')) > 0).map((l) => ({ ingredient_id: l.ingredient_id, qty: String(l.qty).replace(',', '.') })) };
+          if (await act(() => api('POST', '/api/stock/transfers', body), 'Đã gửi phiếu lĩnh cho kho tổng')) onClose();
+        }}>Gửi phiếu lĩnh</button></div>
+    </div>
+  <//>`;
+}
+
+function Count({ meta }) {
+  const mine = meta.stores.filter((s) => s.can_count);
+  const [storeId, setStoreId] = useState(mine.find((s) => s.kind === 'area')?.id || mine[0]?.id || '');
+  const sheet = useData(storeId ? `/api/stock/count-sheet?store=${storeId}` : null);
+  const [vals, setVals] = useState({});
+  const [extra, setExtra] = useState([]);
+  const [result, setResult] = useState(null);
+  const [transfer, setTransfer] = useState(null);
+  useEffect(() => { setVals({}); setExtra([]); setResult(null); }, [storeId]);
+  if (!mine.length) return html`<div class="empty">Bạn chưa được giao kiểm kho nào. Nhân viên kiểm kho của tổ mình; trưởng ca trở lên kiểm mọi kho.</div>`;
+  const store = meta.stores.find((s) => s.id === Number(storeId));
+  const lines = sheet.data ? [...sheet.data.lines, ...extra.filter((x) => !sheet.data.lines.some((l) => l.ingredient_id === x.ingredient_id)).map((x) => ({ ...x, expected: 0 }))] : [];
+  const filled = Object.values(vals).filter((x) => x !== '').length;
+  return html`<div class="stack">
+    <div class="row wrap">
+      <select id="ck-store" class="auto" value=${storeId} onChange=${(e) => setStoreId(Number(e.target.value))}>${mine.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select>
+      ${sheet.data?.last_count ? html`<span class="muted small">Lần kiểm trước: ${dt(sheet.data.last_count.at)} · ${sheet.data.last_count.staff_name || ''}</span>` : null}
+    </div>
+    ${store?.kind === 'area' ? html`<p class="muted small">Cuối ca đếm số <b>còn lại thực tế</b>. Phần chênh lệch so với sổ được tính là lượng đã dùng trong ngày, dùng để gợi ý lĩnh và đặt hàng.</p>`
+      : html`<p class="muted small">Kiểm kho tổng: phần thiếu so với sổ được ghi là hao hụt.</p>`}
+    ${!sheet.data ? html`<${Loading} state=${sheet} />` : html`<section class="card">
+      ${lines.length ? lines.map((l) => html`<div class="line-in" key=${l.ingredient_id}>
+        <span class="grow"><b>${l.name}</b><br /><small class="muted">Sổ: ${qty(l.expected, l.unit)}</small></span>
+        <input inputmode="decimal" class="num-in" placeholder="còn" value=${vals[l.ingredient_id] ?? ''} aria-label=${`Còn thực tế ${l.name}`}
+          onInput=${(e) => setVals({ ...vals, [l.ingredient_id]: e.target.value })} /><span class="muted unit-l">${l.unit}</span>
+      </div>`) : html`<p class="muted">Kho này chưa có nguyên liệu nào.</p>`}
+      ${sheet.data.shared.length && store?.kind === 'area' ? html`<div class="row"><select id="ck-add" class="auto" onChange=${(e) => {
+        const it = sheet.data.shared.find((x) => x.ingredient_id === Number(e.target.value)); if (it) setExtra([...extra, it]); e.target.value = '';
+      }}><option value="">+ Thêm nguyên liệu dùng chung (đá, chanh…)</option>${sheet.data.shared.map((x) => html`<option value=${x.ingredient_id}>${x.name}</option>`)}</select></div>` : null}
+      <div class="row end"><button class="primary" disabled=${!filled || !store} onClick=${async () => {
+        const body = { store_id: store.id, lines: Object.entries(vals).filter(([, x]) => x !== '').map(([id, x]) => ({ ingredient_id: Number(id), actual: String(x).replace(',', '.') })) };
+        const r = await act(() => api('POST', '/api/stock/count', body), 'Đã lưu kiểm kho');
+        if (r) { setResult(r); setVals({}); }
+      }}>Lưu kiểm kho (${filled})</button></div>
+    </section>`}
+    ${result ? html`<section class="card attn">
+      <h3>Kết quả kiểm kho</h3>
+      ${result.lines.map((l) => html`<div class="row between small"><span>${l.name}</span><span class=${l.diff < 0 ? '' : 'muted'}>${l.diff < 0 ? (store.kind === 'area' ? 'dùng ' : 'hao hụt ') : l.diff > 0 ? 'thừa ' : 'khớp '}${l.diff ? qty(Math.abs(l.diff), l.unit) : ''}</span></div>`)}
+      ${result.suggestion?.length ? html`<h4>Gợi ý lĩnh cho ngày mai</h4>
+        ${result.suggestion.map((s) => html`<div class="row between small"><span>${s.name}</span><span class=${s.short ? 'bad-text' : ''}>${qty(s.need, s.unit)}${s.short ? ` (kho tổng chỉ còn ${qty(s.main_stock, s.unit)})` : ''}</span></div>`)}
+        <div class="row end"><button class="primary" onClick=${() => setTransfer(result.suggestion)}>Tạo phiếu lĩnh theo gợi ý</button></div>`
+        : store.kind === 'area' ? html`<p class="muted small">Tồn hiện tại đủ dùng cho ngày mai.</p>` : null}
+    </section>` : null}
+    ${transfer ? html`<${TransferForm} store=${store} lines=${transfer} onClose=${() => { setTransfer(null); setResult(null); }}
+      addOptions=${meta.ingredients.filter((i) => i.active && (i.home_store_id === store.id || i.home_store_id === null))} />` : null}
+  </div>`;
+}
+
+// ---------- Lĩnh hàng ----------
+function QtyEdit({ title, lines, field, okLabel, onSave, onClose, hint }) {
+  const [vals, setVals] = useState(Object.fromEntries(lines.map((l) => [l.ingredient_id, l[field] ?? ''])));
+  return html`<${Modal} title=${title} onClose=${onClose}>
+    <div class="stack">
+      ${hint ? html`<p class="muted small">${hint}</p>` : null}
+      ${lines.map((l) => html`<div class="line-in"><span class="grow"><b>${l.name}</b><br /><small class="muted">Xin ${qty(l.qty_requested, l.unit)}${field === 'qty_sent' ? html` · <span class=${l.from_stock < l.qty_requested ? 'bad-text' : ''}>kho tổng còn ${qty(l.from_stock, l.unit)}</span>` : ''}${field === 'qty_received' ? ` · đã xuất ${qty(l.qty_sent, l.unit)}` : ''}</small></span>
+        <input inputmode="decimal" class="num-in" value=${numIn(vals[l.ingredient_id])} aria-label=${l.name} onInput=${(e) => setVals({ ...vals, [l.ingredient_id]: e.target.value })} /><span class="muted unit-l">${l.unit}</span></div>`)}
+      <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" onClick=${async () => {
+        if (await onSave(Object.entries(vals).map(([id, x]) => ({ ingredient_id: Number(id), qty: String(x).replace(',', '.') })))) onClose();
+      }}>${okLabel}</button></div>
+    </div>
+  <//>`;
+}
+
+function Transfers({ me, meta }) {
+  const st = useData('/api/stock/transfers');
+  const [dlg, setDlg] = useState(null);
+  const areas = meta.stores.filter((s) => s.kind === 'area' && s.can_count);
+  const [newFor, setNewFor] = useState(null);
+  const startNew = async (store) => {
+    const r = await act(() => api('GET', `/api/stock/suggest-transfer?store=${store.id}`));
+    if (!r) return;
+    const lines = r.lines.length ? r.lines : [];
+    if (!lines.length) toast('Theo tồn hiện tại khu này đủ dùng cho mai. Vẫn thêm tay được.');
+    setNewFor({ store, lines });
+  };
+  if (!st.data) return html`<${Loading} state=${st} />`;
+  return html`<div class="stack">
+    ${areas.length ? html`<div class="row wrap">${areas.map((s) => html`<button onClick=${() => startNew(s)}>+ Xin lĩnh cho ${s.name.replace('Kho ', '')}</button>`)}</div>` : null}
+    ${st.data.length ? st.data.map((t) => {
+      const toStore = meta.stores.find((s) => s.id === t.to_store);
+      return html`<section class="card">
+        <div class="row between"><b>Phiếu #${t.id} · ${t.to_name}</b><span class=${`pill ${TR[t.status][1]}`}>${TR[t.status][0]}</span></div>
+        <div class="muted small">${t.created_by_name || ''} xin lúc ${dt(t.created_at)}${t.sent_by_name ? ` · ${t.sent_by_name} xuất ${dt(t.sent_at)}` : ''}${t.received_by_name ? ` · ${t.received_by_name} nhận ${dt(t.received_at)}` : ''}${t.note ? ` · ${t.note}` : ''}</div>
+        ${t.lines.map((l) => html`<div class="row between small"><span>${l.name}</span><span>${qty(l.qty_requested, l.unit)}${l.qty_sent != null && l.qty_sent !== l.qty_requested ? ` → xuất ${qty(l.qty_sent, l.unit)}` : ''}${l.qty_received != null && l.qty_received !== l.qty_sent ? html` → <span class="bad-text">nhận ${qty(l.qty_received, l.unit)}</span>` : ''}</span></div>`)}
+        <div class="row end">
+          ${t.status === 'requested' && (t.created_by === me.id || meta.is_holder) ? html`<button class="small" onClick=${() => act(() => api('POST', `/api/stock/transfers/${t.id}/cancel`), 'Đã huỷ phiếu')}>Huỷ</button>` : null}
+          ${t.status === 'requested' && meta.is_holder ? html`<button class="primary" onClick=${() => setDlg({ t, mode: 'send' })}>Xuất kho</button>` : null}
+          ${t.status === 'sent' && toStore?.can_count ? html`<button class="primary" onClick=${() => setDlg({ t, mode: 'receive' })}>Đã nhận hàng</button>` : null}
+        </div>
+      </section>`;
+    }) : html`<div class="empty">Chưa có phiếu lĩnh nào. Kiểm kho cuối ca rồi bấm "Tạo phiếu lĩnh theo gợi ý".</div>`}
+    ${dlg?.mode === 'send' ? html`<${QtyEdit} title=${`Xuất kho tổng · phiếu #${dlg.t.id}`} lines=${dlg.t.lines.map((l) => ({ ...l, qty_sent: Math.min(l.qty_requested, Math.max(0, l.from_stock)) }))} field="qty_sent" okLabel="Xác nhận xuất"
+      hint="Sửa nếu kho tổng xuất ít hơn số xin. Hàng xuất theo lô hết hạn trước." onClose=${() => setDlg(null)}
+      onSave=${(lines) => act(() => api('POST', `/api/stock/transfers/${dlg.t.id}/send`, { lines }), 'Đã xuất kho')} />` : null}
+    ${dlg?.mode === 'receive' ? html`<${QtyEdit} title=${`Nhận hàng · phiếu #${dlg.t.id}`} lines=${dlg.t.lines.map((l) => ({ ...l, qty_received: l.qty_sent }))} field="qty_received" okLabel="Xác nhận đã nhận"
+      hint="Đếm lại khi nhận. Nhận thiếu thì sửa số, phần thiếu được ghi hao hụt và báo kho tổng." onClose=${() => setDlg(null)}
+      onSave=${(lines) => act(() => api('POST', `/api/stock/transfers/${dlg.t.id}/receive`, { lines }), 'Đã nhận hàng vào khu')} />` : null}
+    ${newFor ? html`<${TransferForm} store=${newFor.store} lines=${newFor.lines} onClose=${() => setNewFor(null)}
+      addOptions=${meta.ingredients.filter((i) => i.active && (i.home_store_id === newFor.store.id || i.home_store_id === null))} />` : null}
+  </div>`;
+}
+
+// ---------- Đặt hàng ----------
+function PoCard({ me, meta, po }) {
+  const [edit, setEdit] = useState(null);
+  const [recv, setRecv] = useState(null);
+  const [ask, setAsk] = useState(false);
+  const isManager = atLeast(me, 'manager');
+  const lead = atLeast(me, 'shift_lead') || (me.role === 'team_lead' && po.lead_store_ids.some((id) => meta.stores.find((s) => s.id === id)?.team_id === me.team?.id));
+  const copy = () => navigator.clipboard?.writeText(po.text).then(() => toast('Đã chép nội dung đơn, dán vào nhóm Zalo "Mua đồ"')).catch(() => toast('Không chép được, hãy chọn và sao chép nội dung bên dưới', true));
+  return html`<section class="card">
+    <div class="row between"><b>Đơn #${po.id} · ${po.supplier_name || 'Chưa chọn NCC'}</b><span class=${`pill ${PO[po.status][1]}`}>${PO[po.status][0]}</span></div>
+    <div class="muted small">Giao ${po.deliver_on ? dayLabel(po.deliver_on) : '—'} tới ${po.store_name} · khoảng <b>${money(po.total)}</b>${po.supplier_phone ? ` · NCC: ${po.supplier_phone}` : ''}</div>
+    ${edit ? html`<div class="stack">
+        ${edit.map((l, i) => html`<div class="line-in"><span class="grow"><b>${l.name}</b><br /><small class="muted">Gợi ý ${l.suggested} ${l.purchase_unit} · ${money(l.price)}/${l.purchase_unit}</small></span>
+          <input inputmode="decimal" class="num-in" value=${numIn(l.qty)} aria-label=${l.name} onInput=${(e) => setEdit(edit.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)))} /><span class="muted unit-l">${l.purchase_unit}</span></div>`)}
+        <div class="row end"><button onClick=${() => setEdit(null)}>Thôi</button><button class="primary" onClick=${async () => {
+          if (await act(() => api('PATCH', `/api/stock/po/${po.id}`, { lines: edit.map((l) => ({ ingredient_id: l.ingredient_id, qty: String(l.qty || 0).replace(',', '.') })) }), 'Đã lưu đơn')) setEdit(null);
+        }}>Lưu</button></div></div>`
+      : po.lines.map((l) => html`<div class="row between small"><span>${l.name}</span><span>${l.qty} ${l.purchase_unit}${l.qty_received != null ? ` · nhận ${l.qty_received}` : ''}${l.suggested && l.suggested !== l.qty ? html` <small class="muted">(gợi ý ${l.suggested})</small>` : ''}</span></div>`)}
+    ${po.status === 'approved' ? html`<pre class="po-text">${po.text}</pre>` : null}
+    ${po.note && po.status !== 'approved' ? html`<div class="small">Ghi chú: ${po.note}</div>` : null}
+    <div class="row end wrap">
+      ${po.status === 'draft' && lead && !edit ? html`<button onClick=${() => setEdit(po.lines.map((l) => ({ ...l })))}>Sửa số lượng</button>
+        <button class="small" onClick=${() => setAsk(true)}>Huỷ</button>
+        <button class="primary" onClick=${() => act(() => api('POST', `/api/stock/po/${po.id}/submit`), 'Đã gửi quản lý duyệt')}>Gửi duyệt</button>` : null}
+      ${['draft', 'submitted'].includes(po.status) && isManager && !edit ? html`${po.status === 'submitted' ? html`<button onClick=${() => act(() => api('POST', `/api/stock/po/${po.id}/reject`, { note: 'Cần sửa lại' }), 'Đã trả lại đơn')}>Trả lại</button>` : null}
+        <button class="primary" onClick=${() => act(() => api('POST', `/api/stock/po/${po.id}/approve`), 'Đã duyệt. Chép nội dung gửi nhóm Zalo')}>Duyệt</button>` : null}
+      ${po.status === 'approved' ? html`<button onClick=${copy}>Chép nội dung gửi Zalo</button>
+        ${meta.is_holder ? html`<button class="primary" onClick=${() => setRecv(po.lines.map((l) => ({ ...l, qty_in: l.qty, price_in: l.price, exp: '' })))}>Nhận hàng</button>` : null}` : null}
+    </div>
+    ${recv ? html`<${Modal} title=${`Nhận hàng · đơn #${po.id}`} onClose=${() => setRecv(null)}>
+      <div class="stack">
+        <p class="muted small">Đếm, cân thực tế khi hàng về. Hạn dùng để trống thì app tự tính theo số ngày dùng được của nguyên liệu.</p>
+        ${recv.map((l, i) => html`<div class="recv-line">
+          <b>${l.name}</b>
+          <div class="row">
+            <label class="field"><span>Số nhận (${l.purchase_unit})</span><input inputmode="decimal" value=${numIn(l.qty_in)} onInput=${(e) => setRecv(recv.map((x, j) => (j === i ? { ...x, qty_in: e.target.value } : x)))} /></label>
+            <label class="field"><span>Giá / ${l.purchase_unit}</span><input inputmode="numeric" value=${numIn(l.price_in)} onInput=${(e) => setRecv(recv.map((x, j) => (j === i ? { ...x, price_in: e.target.value } : x)))} /></label>
+            <label class="field"><span>Hạn dùng</span><input type="date" value=${l.exp} onInput=${(e) => setRecv(recv.map((x, j) => (j === i ? { ...x, exp: e.target.value } : x)))} /></label>
+          </div></div>`)}
+        <div class="row end"><button onClick=${() => setRecv(null)}>Thôi</button><button class="primary" onClick=${async () => {
+          const lines = recv.map((l) => ({ ingredient_id: l.ingredient_id, qty: String(l.qty_in || 0).replace(',', '.'), price: l.price_in === '' ? undefined : Number(l.price_in), expires_on: l.exp || undefined }));
+          if (await act(() => api('POST', `/api/stock/po/${po.id}/receive`, { lines }), 'Đã nhập hàng vào kho')) setRecv(null);
+        }}>Nhập kho</button></div>
+      </div>
+    <//>` : null}
+    ${ask ? html`<${Confirm} text=${`Huỷ đơn #${po.id}?`} danger yes="Huỷ đơn" onClose=${() => setAsk(false)} onYes=${() => act(() => api('POST', `/api/stock/po/${po.id}/cancel`), 'Đã huỷ đơn')} />` : null}
+  </section>`;
+}
+
+function Orders({ me, meta }) {
+  const st = useData('/api/stock/po');
+  const [loose, setLoose] = useState(false);
+  if (!st.data) return html`<${Loading} state=${st} />`;
+  return html`<div class="stack">
+    <div class="row wrap">
+      ${atLeast(me, 'team_lead') ? html`<button class="primary" onClick=${() => act(() => api('POST', '/api/stock/po/generate'), 'Đã tạo đề xuất từ tồn kho và tốc độ dùng')}>Tạo đề xuất đặt hàng</button>` : null}
+      ${meta.is_holder ? html`<button onClick=${() => setLoose(true)}>Nhập kho lẻ</button>` : null}
+    </div>
+    <p class="muted small">Quy trình: tạo đề xuất (app tự tính từ tồn và tốc độ dùng, mỗi NCC một đơn) → tổ trưởng sửa → <b>Gửi duyệt</b> → quản lý <b>Duyệt</b> → chép nội dung gửi nhóm Zalo "Mua đồ" → hàng về bấm <b>Nhận hàng</b>.
+      <br />Đồ tươi: đặt đủ dùng ngày mai. Đồ mát, đồ khô/đông: chỉ đặt khi tồn chạm điểm đặt hàng, và đặt đủ dùng một chu kỳ.</p>
+    ${st.data.length ? st.data.map((po) => html`<${PoCard} key=${po.id} me=${me} meta=${meta} po=${po} />`) : html`<div class="empty">Chưa có đơn đặt hàng.</div>`}
+    ${loose ? html`<${LooseReceive} meta=${meta} onClose=${() => setLoose(false)} />` : null}
+  </div>`;
+}
+
+function LooseReceive({ meta, onClose }) {
+  const [lines, setLines] = useState([]);
+  const [store, setStore] = useState(meta.stores.find((s) => s.kind === 'main')?.id);
+  const ings = meta.ingredients.filter((i) => i.active);
+  return html`<${Modal} title="Nhập kho lẻ (mua ngoài)" onClose=${onClose}>
+    <div class="stack">
+      <${Field} label="Nhập vào"><select id="lr-store" value=${store} onChange=${(e) => setStore(Number(e.target.value))}>${meta.stores.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
+      ${lines.map((l, i) => {
+        const ing = ings.find((x) => x.id === l.ingredient_id);
+        return html`<div class="line-in"><span class="grow"><b>${ing.name}</b></span>
+          <input inputmode="decimal" class="num-in" placeholder="SL" value=${l.qty} onInput=${(e) => setLines(lines.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)))} /><span class="muted unit-l">${ing.purchase_unit}</span>
+          <input inputmode="numeric" class="num-in" placeholder="giá" value=${l.price} onInput=${(e) => setLines(lines.map((x, j) => (j === i ? { ...x, price: e.target.value } : x)))} /></div>`;
+      })}
+      <select id="lr-add" onChange=${(e) => { const id = Number(e.target.value); if (id) setLines([...lines, { ingredient_id: id, qty: '', price: '' }]); e.target.value = ''; }}>
+        <option value="">+ Thêm nguyên liệu</option>${ings.filter((i) => !lines.some((l) => l.ingredient_id === i.id)).map((i) => html`<option value=${i.id}>${i.name}</option>`)}</select>
+      <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" disabled=${!lines.length} onClick=${async () => {
+        const body = { store_id: store, lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, qty: String(l.qty || 0).replace(',', '.'), price: l.price === '' ? undefined : Number(l.price) })) };
+        if (await act(() => api('POST', '/api/stock/receive', body), 'Đã nhập kho')) onClose();
+      }}>Nhập kho</button></div>
+    </div>
+  <//>`;
+}
+
+// ---------- Nguyên liệu & NCC ----------
+function IngForm({ init, meta, onClose }) {
+  const [f, setF] = useState({
+    name: '', unit: 'g', freshness: 'fresh', home_store_id: '', supplier_id: '', purchase_unit: 'kg', purchase_factor: 1000, order_step: 0.5,
+    price: 0, min_stock: 0, shelf_days: 0, lead_days: 1, cycle_days: 1, safety_pct: 10, active: true, ...init,
+  });
+  const set = (k, v) => setF({ ...f, [k]: v });
+  const inp = (k, label, props = {}, hint) => html`<${Field} label=${label} hint=${hint}><input id=${`ig-${k}`} value=${numIn(f[k])} onInput=${(e) => set(k, e.target.value)} ...${props} /><//>`;
+  const save = async () => {
+    const body = { ...f, home_store_id: f.home_store_id || null, supplier_id: f.supplier_id || null };
+    if (await act(() => (init.id ? api('PATCH', `/api/stock/ingredients/${init.id}`, body) : api('POST', '/api/stock/ingredients', body)), 'Đã lưu nguyên liệu')) onClose();
+  };
+  return html`<${Modal} title=${init.id ? `Sửa: ${init.name}` : 'Thêm nguyên liệu'} onClose=${onClose} wide>
+    <div class="form-grid">
+      ${inp('name', 'Tên nguyên liệu', { placeholder: 'vd Bò bắp' })}
+      <${Field} label="Nhóm hàng"><select id="ig-fresh" value=${f.freshness} onChange=${(e) => set('freshness', e.target.value)}>
+        <option value="fresh">Đồ tươi (đặt hằng ngày)</option><option value="chilled">Đồ mát (trữ vài ngày)</option><option value="dry">Đồ khô/đông (trữ lâu)</option></select><//>
+      <${Field} label="Khu chính" hint="Kho chung = để ở kho tổng, khu nào cần thì lĩnh"><select id="ig-home" value=${f.home_store_id ?? ''} onChange=${(e) => set('home_store_id', e.target.value)}>
+        <option value="">Kho chung</option>${meta.stores.filter((s) => s.kind === 'area').map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
+      <${Field} label="Nhà cung cấp" hint="Để trống = NCC của khu chính"><select id="ig-sup" value=${f.supplier_id ?? ''} onChange=${(e) => set('supplier_id', e.target.value)}>
+        <option value="">(theo khu chính)</option>${meta.suppliers.filter((s) => s.active).map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
+      ${inp('unit', 'Đơn vị dùng', { placeholder: 'g, ml, quả, lon…' }, 'Đơn vị đếm khi kiểm kho')}
+      ${inp('purchase_unit', 'Đơn vị mua', { placeholder: 'kg, thùng…' })}
+      ${inp('purchase_factor', `1 ${f.purchase_unit || 'đơn vị mua'} = ? ${f.unit}`, { inputmode: 'decimal' }, 'vd 1 kg = 1000 g, 1 thùng = 24 lon')}
+      ${inp('price', `Giá nhập / ${f.purchase_unit || 'đơn vị mua'} (đ)`, { inputmode: 'numeric' })}
+      ${inp('min_stock', `Tồn tối thiểu (${f.unit})`, { inputmode: 'decimal' })}
+      ${inp('order_step', `Làm tròn khi đặt (${f.purchase_unit})`, { inputmode: 'decimal' }, 'vd 0,5 kg; 1 thùng')}
+      ${inp('shelf_days', 'Dùng được bao nhiêu ngày', { inputmode: 'numeric' }, '0 = không theo dõi hạn')}
+      ${inp('lead_days', 'NCC giao sau (ngày)', { inputmode: 'numeric' })}
+      ${inp('cycle_days', 'Mỗi lần đặt đủ dùng (ngày)', { inputmode: 'numeric' }, 'Dùng cho đồ mát/khô')}
+      ${inp('safety_pct', 'Dự phòng (%)', { inputmode: 'numeric' })}
+    </div>
+    ${init.id ? html`<label class="check-row"><input type="checkbox" checked=${!!f.active} onChange=${(e) => set('active', e.target.checked)} /> Đang dùng</label>` : null}
+    <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" onClick=${save}>Lưu</button></div>
+  <//>`;
+}
+
+function Setup({ meta }) {
+  const [edit, setEdit] = useState(null);
+  const [sup, setSup] = useState({ name: '', phone: '' });
+  return html`<div class="stack">
+    <section class="card">
+      <h3>Kho & nhà cung cấp của từng khu</h3>
+      <p class="muted small">Mỗi khu 1 NCC. Đơn đặt hàng tự tách theo NCC.</p>
+      ${meta.stores.map((s) => html`<div class="row team-row">
+        <b class="grow">${s.name}</b><small class="muted">${s.kind === 'main' ? 'Kho tổng' : s.team_name || ''}</small>
+        ${s.kind === 'area' ? html`<select class="auto" value=${s.supplier_id ?? ''} onChange=${(e) => act(() => api('PATCH', `/api/stock/stores/${s.id}`, { supplier_id: e.target.value || null }), 'Đã gán NCC')}>
+          <option value="">(chưa có NCC)</option>${meta.suppliers.filter((x) => x.active).map((x) => html`<option value=${x.id}>${x.name}</option>`)}</select>` : null}
+      </div>`)}
+      <h4>Nhà cung cấp</h4>
+      ${meta.suppliers.map((x) => html`<div class="row team-row"><b class="grow">${x.name}</b><span class="muted small">${x.phone}</span>
+        <label class="check-row small"><input type="checkbox" checked=${!!x.active} onChange=${(e) => act(() => api('PATCH', `/api/stock/suppliers/${x.id}`, { active: e.target.checked }), 'Đã lưu')} /> Dùng</label></div>`)}
+      <div class="row"><input id="sp-name" class="grow" placeholder="Tên NCC mới" value=${sup.name} onInput=${(e) => setSup({ ...sup, name: e.target.value })} />
+        <input id="sp-phone" class="auto" placeholder="SĐT / Zalo" value=${sup.phone} onInput=${(e) => setSup({ ...sup, phone: e.target.value })} />
+        <button class="primary" disabled=${!sup.name.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/stock/suppliers', sup), 'Đã thêm NCC')) setSup({ name: '', phone: '' }); }}>Thêm</button></div>
+    </section>
+    <section class="card">
+      <div class="row between"><h3>Nguyên liệu (${meta.ingredients.length})</h3><button class="primary" onClick=${() => setEdit({})}>+ Thêm</button></div>
+      ${meta.ingredients.map((i) => html`<button class=${`tpl-row ${i.active ? '' : 'off'}`} onClick=${() => setEdit(i)}>
+        <b class="grow">${i.name}</b><span class="muted small">${FRESH[i.freshness]} · ${i.home_name || 'Kho chung'} · ${money(i.price)}/${i.purchase_unit}</span></button>`)}
+    </section>
+    ${edit ? html`<${IngForm} init=${edit} meta=${meta} onClose=${() => setEdit(null)} />` : null}
+  </div>`;
+}
+
+// ---------- Lịch sử ----------
+function History({ me }) {
+  const [from, setFrom] = useState(addDays(me.today, -7));
+  const [to, setTo] = useState(me.today);
+  const st = useData(`/api/stock/moves?from=${from}&to=${to}`);
+  return html`<div class="stack">
+    <div class="row"><input id="h-from" type="date" class="auto" value=${from} onInput=${(e) => e.target.value && setFrom(e.target.value)} /><span>đến</span>
+      <input id="h-to" type="date" class="auto" value=${to} onInput=${(e) => e.target.value && setTo(e.target.value)} /></div>
+    ${!st.data ? html`<${Loading} state=${st} />` : st.data.length ? html`<div class="table-wrap"><table class="list">
+      <thead><tr><th>Lúc</th><th>Loại</th><th>Nguyên liệu</th><th class="r">Số lượng</th><th>Kho</th><th>Ai</th></tr></thead>
+      <tbody>${st.data.map((m) => html`<tr><td>${dt(m.at)}</td><td>${MOVE[m.type] || m.type}</td><td>${m.name}${m.note ? html`<br /><small class="muted">${m.note}</small>` : null}</td>
+        <td class="r num">${qty(m.qty, m.unit)}${m.cost ? html`<br /><small class="muted">${money(m.cost)}</small>` : null}</td>
+        <td><small>${[m.from_name, m.to_name].filter(Boolean).join(' → ')}</small></td><td><small>${m.staff_name || ''}</small></td></tr>`)}</tbody></table></div>`
+      : html`<div class="empty">Không có biến động kho trong khoảng này.</div>`}
+  </div>`;
+}
+
+export function StockView({ me, query }) {
+  const tab = query.get('tab') || 'ton';
+  const meta = useData('/api/stock/meta');
+  const tabs = TABS.filter(([, , role]) => !role || atLeast(me, role));
+  return html`<div class="stack">
+    <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/kho?tab=${k}`)}>${l}</button>`)}</div>
+    ${!meta.data ? html`<${Loading} state=${meta} />`
+      : tab === 'kiem' ? html`<${Count} meta=${meta.data} />`
+      : tab === 'linh' ? html`<${Transfers} me=${me} meta=${meta.data} />`
+      : tab === 'dat' ? html`<${Orders} me=${me} meta=${meta.data} />`
+      : tab === 'nl' && atLeast(me, 'manager') ? html`<${Setup} meta=${meta.data} />`
+      : tab === 'ls' ? html`<${History} me=${me} />`
+      : html`<${Overview} />`}
+  </div>`;
+}

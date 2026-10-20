@@ -26,3 +26,7 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 20 | 20/10 | Quán có **ca sáng và ca chiều**; checklist cần theo từng ca | Đề xuất đã gửi, chờ đồng ý + giờ ca |
 | 21 | 20/10 | Lưu toàn bộ vào bộ nhớ md trong repo (`CLAUDE.md` + `memory/`) | |
 | 22 | 20/10 | Tách app quán ra **repo riêng `C-u-Long-Tr-n`** (chủ quán đặt tên) | |
+| 23 | 20/10 | Làm luôn 3 bước: checklist theo ca, GĐ2 Kho, deploy | Deploy cần chủ quán tạo tài khoản Railway |
+| 24 | 20/10 | Checklist gắn theo **loại ca**; checklist "Mọi ca" chạy 1 lượt/ngày | |
+| 25 | 20/10 | Chưa có bán hàng: **lượng dùng = chênh lệch kiểm kho cuối ca của khu** | Đổi khi có GĐ3 |
+| 26 | 20/10 | Đơn đã duyệt gửi Zalo nhóm bằng **nút chép nội dung** tới khi xác nhận API nhóm OA | |

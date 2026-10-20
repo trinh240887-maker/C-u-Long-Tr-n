@@ -5,6 +5,24 @@ const STATUS = {
   done: ['Đã xong', 'muted'], break: ['Nghỉ giữa ca', ''], leave: ['Nghỉ phép', 'muted'],
 };
 
+function StockCard() {
+  const st = useData('/api/stock/alerts');
+  if (!st.data) return null;
+  const a = st.data;
+  const rows = [
+    [a.out.length, 'nguyên liệu đã hết', 'bad', '/kho?tab=ton'], [a.low.length, 'sắp hết (không đủ cho mai)', 'warn', '/kho?tab=ton'],
+    [a.expiring.length, 'lô sắp/đã hết hạn', 'warn', '/kho?tab=ton'], [a.po_submitted, 'đơn đặt hàng chờ duyệt', 'warn', '/kho?tab=dat'],
+    [a.po_approved, 'đơn đã duyệt chờ hàng về', '', '/kho?tab=dat'], [a.transfers_requested, 'phiếu lĩnh chờ kho tổng xuất', 'warn', '/kho?tab=linh'],
+    [a.transfers_sent, 'phiếu lĩnh chờ khu nhận', '', '/kho?tab=linh'],
+  ].filter((x) => x[0]);
+  return html`<section class="card">
+    <div class="row between"><h3>Kho</h3><${Link} href="/kho">Mở kho<//></div>
+    ${rows.length ? rows.map(([n, l, tone, href]) => html`<${Link} href=${href} class="person"><span class="grow">${l}</span><span class=${`pill ${tone}`}>${n}</span><//>`)
+      : html`<p class="muted">Kho ổn, không có cảnh báo.</p>`}
+    ${a.out.length || a.low.length ? html`<div class="muted small">${[...a.out, ...a.low].slice(0, 6).map((x) => x.name).join(', ')}</div>` : null}
+  </section>`;
+}
+
 export function Dashboard() {
   const st = useData('/api/dashboard');
   if (!st.data) return html`<${Loading} state=${st} />`;
@@ -41,6 +59,7 @@ export function Dashboard() {
       </section>
 
       <div class="stack">
+        <${StockCard} />
         <section class="card">
           <div class="row between"><h3>Checklist theo tổ</h3><${Link} href="/checklist">Chi tiết<//></div>
           ${d.checklists.filter((c) => c.total).map((c) => {

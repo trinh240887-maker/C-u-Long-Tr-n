@@ -6,7 +6,7 @@
 Chủ quán **Steak & Lẩu bò Thái tay** (100 bàn). Cũng vận hành hệ thống **dathangsi / ordership** (đặt hàng sỉ từ 1688). Dùng Claude Code chủ yếu trên **điện thoại**.
 
 ## Dự án
-**Quản lý quán**: app vận hành nhà hàng (repo này). GĐ1 Nhân sự **xong, đang chạy thử**; chờ deploy thật.
+**Quản lý quán**: app vận hành nhà hàng (repo này). GĐ1 Nhân sự + GĐ2 Kho **xong, đang chạy thử**; chờ deploy thật.
 Công cụ import đơn 1688 nằm riêng ở repo `trinh240887-maker/dathangsi`.
 → Chi tiết: `memory/projects/quanly-quan.md`, yêu cầu gốc: `memory/projects/quanly-yeu-cau.md`, quyết định: `memory/projects/quanly-quyet-dinh.md`
 

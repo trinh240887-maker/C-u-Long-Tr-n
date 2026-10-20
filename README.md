@@ -17,7 +17,22 @@ App web quản lý vận hành quán. **Giai đoạn 1 (đã làm): nhân sự &
 - **Tự sao lưu mỗi giờ**, giữ 7 ngày.
 - Cập nhật **thời gian thực** giữa các máy. Dùng được trên điện thoại (cài lên màn hình chính như app).
 
-Các giai đoạn sau: Kho (kho tổng, kho từng khu, đề xuất đặt hàng gửi Zalo), Bán hàng (sơ đồ 100 bàn, gọi món, bếp/lẩu/bar), Báo cáo doanh thu & chi phí, Hoá đơn điện tử MISA meInvoice.
+**Giai đoạn 2 (đã làm): Kho.**
+
+- **Kho tổng** và **kho từng khu** (Bếp steak, Lẩu, Bar), mỗi khu gắn **1 nhà cung cấp**. Nguyên liệu dùng chung (đá, rau thơm…) chọn "Kho chung".
+- Nguyên liệu chia **Đồ tươi / Đồ mát / Đồ khô-đông**, có đơn vị dùng (g, quả, lon…) và đơn vị mua (kg, thùng…), giá nhập, tồn tối thiểu, số ngày dùng được, số ngày NCC giao.
+- Tồn kho theo **lô có hạn dùng**: xuất kho lấy lô hết hạn trước; cảnh báo lô sắp/đã hết hạn.
+- **Kiểm kho cuối ca**: nhân viên khu nhập số còn lại → phần chênh lệch là **lượng đã dùng trong ngày** (chưa có bán hàng). Kho tổng kiểm thì chênh lệch là hao hụt.
+- **Dự báo ngày mai** từ lượng dùng thực tế (ưu tiên các ngày cùng thứ trong 4 tuần, vì cuối tuần bán khác) → **gợi ý lĩnh hàng** cho khu và **gợi ý đặt hàng**:
+  đồ tươi đặt đủ dùng ngày mai; đồ mát/khô chỉ đặt khi tồn chạm điểm đặt hàng (dùng TB/ngày × số ngày giao + tối thiểu), đặt đủ một chu kỳ.
+- **Phiếu lĩnh**: khu xin → người giữ kho tổng xuất → khu xác nhận đã nhận (nhận thiếu ghi hao hụt).
+- **Đơn đặt hàng**: app tự tạo mỗi NCC một đơn → tổ trưởng sửa → gửi duyệt → quản lý duyệt → **chép nội dung gửi nhóm Zalo "Mua đồ"** → hàng về bấm Nhận hàng (cập nhật giá nhập). Có **nhập kho lẻ** khi mua ngoài.
+- Bảng việc quản lý có ô **Kho**: món hết, sắp hết, sắp hết hạn, đơn chờ duyệt, phiếu chờ xuất/nhận.
+- Checklist gắn được theo **loại ca** (ca sáng / ca chiều…).
+
+> Gửi đơn thẳng vào nhóm Zalo bằng bot cần tính năng nhóm của Zalo OA, chưa xác nhận được API nên hiện dùng nút **Chép nội dung**.
+
+Các giai đoạn sau: Bán hàng (sơ đồ 100 bàn, gọi món, bếp/lẩu/bar), Báo cáo doanh thu & chi phí, Hoá đơn điện tử MISA meInvoice.
 
 ## Cài đặt trên máy chủ của quán
 

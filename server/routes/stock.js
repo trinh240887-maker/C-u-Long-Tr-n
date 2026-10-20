@@ -291,7 +291,8 @@ export default function (r, ctx) {
       FROM transfers t JOIN stores fs ON fs.id = t.from_store JOIN stores ts ON ts.id = t.to_store
       LEFT JOIN staff c ON c.id = t.created_by LEFT JOIN staff sb ON sb.id = t.sent_by LEFT JOIN staff rb ON rb.id = t.received_by WHERE t.id = ?`).get(id);
     if (!t) fail(404, 'Không tìm thấy phiếu lĩnh');
-    t.lines = db.prepare(`SELECT l.*, i.name, i.unit FROM transfer_lines l JOIN ingredients i ON i.id = l.ingredient_id WHERE l.transfer_id = ? ORDER BY i.name`).all(id);
+    t.lines = db.prepare(`SELECT l.*, i.name, i.unit FROM transfer_lines l JOIN ingredients i ON i.id = l.ingredient_id WHERE l.transfer_id = ? ORDER BY i.name`).all(id)
+      .map((l) => ({ ...l, from_stock: stockQty(db, t.from_store, l.ingredient_id) }));
     return t;
   }
 

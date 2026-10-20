@@ -340,3 +340,16 @@ table.sched { border-collapse: separate; border-spacing: 0; width: 100%; min-wid
   .toast { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Kho */
+select.auto, input.auto { width: auto; max-width: 100%; }
+.stock-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.stock-row { gap: 4px; }
+.stock-row.out { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.stock-row.low { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.line-in { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.line-in:first-child { border-top: 0; }
+.line-in .num-in { width: 92px; text-align: right; font-size: 16px; }
+.unit-l { min-width: 30px; }
+.po-text { white-space: pre-wrap; font: 13.5px/1.5 var(--font); background: var(--panel-2); border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px; margin: 0; user-select: all; }
+.recv-line { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); }
