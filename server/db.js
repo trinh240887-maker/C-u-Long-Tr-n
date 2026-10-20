@@ -207,8 +207,17 @@ export function openDb(file, { now = Date.now() } = {}) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  migrate(db);
   seedBase(db, now);
   return db;
+}
+
+// Nâng cấp dữ liệu cũ khi thêm cột mới
+function migrate(db) {
+  const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  if (!cols('checklist_templates').includes('shift_template_id')) {
+    db.exec('ALTER TABLE checklist_templates ADD COLUMN shift_template_id INTEGER REFERENCES shift_templates(id) ON DELETE SET NULL');
+  }
 }
 
 export function tx(db, fn) {

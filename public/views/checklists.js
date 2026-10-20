@@ -41,7 +41,7 @@ export function ChecklistView({ me }) {
       <div class="tabs">${[['', 'Tất cả'], ['open', 'Mở ca'], ['during', 'Trong ca'], ['close', 'Đóng ca']].map(([k, l]) => html`<button class=${phase === k ? 'on' : ''} onClick=${() => setPhase(k)}>${l}</button>`)}</div>
     </div>
     ${runs.length ? runs.map((r) => html`<section class="card" id=${`run-${r.run_id}`}>
-      <div class="row between"><div><h3>${r.title}</h3><small class="muted">${r.team_name} · ${PHASE_LABEL[r.phase]}</small></div>
+      <div class="row between"><div><h3>${r.title}</h3><small class="muted">${r.team_name} · ${r.shift_name || 'Mọi ca'} · ${PHASE_LABEL[r.phase]}</small></div>
         <span class=${`pill ${r.done === r.total ? 'ok' : r.done ? 'warn' : ''}`}>${r.done === r.total ? 'Xong' : `${r.done}/${r.total}`}</span></div>
       <div class="meter wide"><span style=${`width:${r.total ? Math.round((r.done / r.total) * 100) : 0}%`} class=${r.done === r.total ? 'full' : ''}></span></div>
       <ul class="cklist">${r.items.map((i) => html`<${Item} key=${`${r.run_id}-${i.id}-${i.entry?.done_at || 0}`} run=${r} item=${i} disabled=${old} />`)}</ul>

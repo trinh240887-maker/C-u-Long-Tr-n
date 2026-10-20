@@ -91,13 +91,14 @@ function Templates() {
   </section>`;
 }
 
-function ChecklistForm({ init, teams, onClose }) {
+function ChecklistForm({ init, teams, shifts, onClose }) {
   const [f, setF] = useState({ title: init.title || '', team_id: init.team_id ?? '', phase: init.phase || 'open', active: init.active ?? true,
+    shift_template_id: init.shift_template_id ?? '',
     items: init.items?.map((i) => ({ ...i })) || [{ text: '', kind: 'check', unit: '', required: true }] });
   const item = (i, k, v) => setF({ ...f, items: f.items.map((x, j) => (j === i ? { ...x, [k]: v } : x)) });
   const move = (i, d) => { const items = [...f.items]; const [x] = items.splice(i, 1); items.splice(i + d, 0, x); setF({ ...f, items }); };
   const save = async () => {
-    const body = { ...f, team_id: f.team_id || null, items: f.items.filter((x) => x.text.trim()) };
+    const body = { ...f, team_id: f.team_id || null, shift_template_id: f.shift_template_id || null, items: f.items.filter((x) => x.text.trim()) };
     const ok = await act(() => (init.id ? api('PATCH', `/api/checklist-templates/${init.id}`, body) : api('POST', '/api/checklist-templates', body)), 'Đã lưu checklist');
     if (ok) onClose();
   };
@@ -109,6 +110,9 @@ function ChecklistForm({ init, teams, onClose }) {
           <option value="">Cả quán</option>${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
         <${Field} label="Thời điểm"><select id="cl-phase" value=${f.phase} onChange=${(e) => setF({ ...f, phase: e.target.value })}>
           ${Object.entries(PHASE_LABEL).map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select><//>
+        <${Field} label="Áp dụng cho ca" hint="Người làm ca nào chỉ thấy checklist của ca đó">
+          <select id="cl-shift" value=${f.shift_template_id} onChange=${(e) => setF({ ...f, shift_template_id: e.target.value })}>
+            <option value="">Mọi ca</option>${shifts.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
       </div>
       <div class="field"><span>Các việc</span>
         ${f.items.map((x, i) => html`<div class="item-row">
@@ -132,14 +136,16 @@ function ChecklistForm({ init, teams, onClose }) {
 
 function Checklists({ teams }) {
   const st = useData('/api/checklist-templates?all=1');
+  const shifts = useData('/api/shift-templates');
   const [edit, setEdit] = useState(null);
   if (!st.data) return html`<${Loading} state=${st} />`;
   return html`<section class="card stack">
-    <p class="muted small">Checklist có chữ "(mẫu)" là ví dụ, hãy sửa lại theo cách làm của quán. Mỗi ngày mỗi checklist có một lượt mới.</p>
+    <p class="muted small">Checklist có chữ "(mẫu)" là ví dụ, hãy sửa lại theo cách làm của quán. Mỗi ngày mỗi checklist có một lượt mới.
+      Muốn ca sáng và ca chiều có việc riêng: tạo 2 checklist, chọn "Áp dụng cho ca" tương ứng (loại ca tạo ở tab Loại ca).</p>
     ${st.data.map((c) => html`<button class=${`tpl-row ${c.active ? '' : 'off'}`} onClick=${() => setEdit(c)}>
-      <b class="grow">${c.title}</b><span class="muted">${c.team_name || 'Cả quán'} · ${PHASE_LABEL[c.phase]} · ${c.items.length} việc</span></button>`)}
+      <b class="grow">${c.title}</b><span class="muted">${c.team_name || 'Cả quán'} · ${c.shift_name || 'Mọi ca'} · ${PHASE_LABEL[c.phase]} · ${c.items.length} việc</span></button>`)}
     <div><button class="primary" onClick=${() => setEdit({})}>+ Thêm checklist</button></div>
-    ${edit ? html`<${ChecklistForm} init=${edit} teams=${teams} onClose=${() => setEdit(null)} />` : null}
+    ${edit ? html`<${ChecklistForm} init=${edit} teams=${teams} shifts=${(shifts.data || []).filter((t) => t.active)} onClose=${() => setEdit(null)} />` : null}
   </section>`;
 }
 

@@ -85,7 +85,7 @@ export function Home({ me }) {
     <section class="card">
       <div class="row between"><h3>Checklist hôm nay</h3><${Link} href="/checklist">Mở checklist<//></div>
       ${lists.data?.runs?.length ? html`<div class="progress-list">${lists.data.runs.map((r) => html`<${Link} href=${`/checklist#run-${r.run_id}`} class="prog">
-          <span class="grow"><b>${r.title}</b><small class="muted"> ${r.team_name} · ${PHASE_LABEL[r.phase]}</small></span>
+          <span class="grow"><b>${r.title}</b><small class="muted"> ${r.team_name}${r.shift_name ? ` · ${r.shift_name}` : ''} · ${PHASE_LABEL[r.phase]}</small></span>
           <span class=${`pill ${r.done === r.total ? 'ok' : ''}`}>${r.done}/${r.total}</span><//>`)}</div>`
         : html`<p class="muted">Không có checklist cho tổ của bạn hôm nay.</p>`}
     </section>

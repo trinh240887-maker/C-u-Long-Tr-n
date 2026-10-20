@@ -234,3 +234,31 @@ test('Zalo: liên kết bằng mã qua webhook và gửi thông báo qua hàng �
   assert.ok(env.sent.some((m) => m.userId === 'zalo-123' && m.text.startsWith('Thử')));
   assert.equal(env.app.ctx.notifier.matchWebhook('POST', '/webhooks/zalo/' + '0'.repeat(32)), null);
 });
+
+test('checklist theo ca: người làm ca sáng chỉ thấy checklist ca sáng', async (t) => {
+  const env = await setup();
+  t.after(env.close);
+  const o = env.client();
+  await o.login(DEFAULT_OWNER_PIN);
+  const bar = (await o.get('/api/teams')).data.find((x) => x.name === 'Bar').id;
+  const sang = (await o.post('/api/shift-templates', { name: 'Ca sáng', segments: [{ start: '09:00', end: '15:00' }] })).data.id;
+  const chieu = (await o.post('/api/shift-templates', { name: 'Ca chiều', segments: [{ start: '15:00', end: '23:00' }] })).data.id;
+  for (const [title, shift] of [['Mở ca sáng bar', sang], ['Mở ca chiều bar', chieu]]) {
+    assert.equal((await o.post('/api/checklist-templates', { title, team_id: bar, phase: 'open', shift_template_id: shift, items: [{ text: 'Đá viên' }] })).status, 200);
+  }
+  const a = (await o.post('/api/staff', { name: 'An', team_id: bar, pin: '4821' })).data.id;
+  const b = (await o.post('/api/staff', { name: 'Bình', team_id: bar, pin: '5932' })).data.id;
+  await o.post('/api/shifts', { staff_id: a, date: '2026-10-19', template_id: sang });
+  await o.post('/api/shifts', { staff_id: b, date: '2026-10-19', segments: [{ start: '15:00', end: '23:00' }], label: 'Ca chiều' });
+  const an = env.client(); await an.login('4821');
+  const binh = env.client(); await binh.login('5932');
+  const titles = async (c) => (await c.get('/api/checklists?date=2026-10-19')).data.runs.map((r) => r.title);
+  const tA = await titles(an);
+  const tB = await titles(binh);
+  assert.ok(tA.includes('Mở ca sáng bar') && !tA.includes('Mở ca chiều bar'));
+  assert.ok(tB.includes('Mở ca chiều bar') && !tB.includes('Mở ca sáng bar'));
+  assert.ok(tA.includes('Mở ca bar (mẫu)')); // checklist "Mọi ca" vẫn hiện
+  const run = (await o.get('/api/checklists?date=2026-10-19')).data.runs.find((r) => r.title === 'Mở ca chiều bar');
+  assert.equal(run.shift_name, 'Ca chiều');
+  assert.equal((await an.post('/api/checklists/entry', { run_id: run.run_id, item_id: run.items[0].id })).status, 403);
+});

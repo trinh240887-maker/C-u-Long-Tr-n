@@ -50,7 +50,7 @@ export function Dashboard() {
               <span class="meter"><span style=${`width:${pct}%`} class=${pct === 100 ? 'full' : ''}></span></span>
               <span class="num">${c.done}/${c.total}</span>
             </div>
-            <div class="sub muted small">${c.runs.map((r) => `${PHASE_LABEL[r.phase]} ${r.done}/${r.total}`).join(' · ')}</div>`;
+            <div class="sub muted small">${c.runs.map((r) => `${r.shift_name ? `${r.shift_name} ` : ''}${PHASE_LABEL[r.phase]} ${r.done}/${r.total}`).join(' · ')}</div>`;
           })}
           ${!d.checklists.some((c) => c.total) ? html`<p class="muted">Chưa có checklist. <${Link} href="/cai-dat?tab=checklist">Tạo checklist<//></p>` : null}
         </section>
