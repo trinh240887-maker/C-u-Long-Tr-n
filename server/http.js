@@ -51,6 +51,9 @@ export function createRouter() {
 }
 
 export async function readJson(req, limit = 2_000_000) {
+  if (typeof req.rawBody === 'string') { // bản chạy thử trong trình duyệt
+    try { const b = req.rawBody ? JSON.parse(req.rawBody) : {}; return b && typeof b === 'object' ? b : {}; } catch { fail(400, 'Dữ liệu gửi lên không đúng định dạng'); }
+  }
   let size = 0;
   const chunks = [];
   for await (const c of req) {

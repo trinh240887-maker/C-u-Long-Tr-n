@@ -85,6 +85,29 @@ Dùng **Cloudflare Tunnel** (miễn phí, không cần mở cổng modem):
 
 Khi bật "chỉ chấm công trong wifi quán", truy cập qua tunnel **không chấm công được**, nên nhân viên không chấm công từ nhà được.
 
+## Chạy trên máy chủ cloud (Railway)
+
+Dùng khi quán chưa có máy chạy cả ngày, hoặc muốn có link dùng ngay. Lưu ý: **mất internet ở quán thì không dùng được**.
+
+1. Tạo tài khoản ở https://railway.com (gói Hobby khoảng 5 USD/tháng), đăng nhập bằng GitHub.
+2. **New Project → Deploy from GitHub repo** → chọn repo này.
+3. Vào service vừa tạo → **Settings → Root Directory**: điền `quanly`. Railway tự dùng `Dockerfile` và `railway.json` có sẵn.
+4. **Settings → Volumes → Add Volume**, mount path: `/data` (bắt buộc, nếu không mỗi lần khởi động lại sẽ mất dữ liệu).
+5. **Settings → Networking → Generate Domain** để có link dạng `https://xxx.up.railway.app` (hoặc gắn tên miền riêng).
+6. Mở link, đăng nhập bằng PIN chủ `123456` và **đổi PIN ngay**. Gửi link cho nhân viên.
+
+Trên cloud, "chỉ chấm công trong wifi quán" so khớp với **IP internet của quán**: mở app bằng wifi quán, xem IP ở trang https://ifconfig.me, rồi điền IP đó vào Cài đặt → Chung (IP này có thể đổi nếu nhà mạng cấp IP động).
+
+Sao lưu trên cloud nằm trong volume `/data/backups`. Nên tải bản sao lưu về máy định kỳ.
+
+## Bản chạy thử trên web (một file HTML)
+
+`demo-web/` đóng gói cả máy chủ và giao diện thành **một file HTML chạy hoàn toàn trong trình duyệt** (SQLite bản WebAssembly), kèm dữ liệu mẫu và nút chọn tài khoản. Dữ liệu chỉ lưu trên trình duyệt đang mở, **không dùng chung giữa các máy**, nên chỉ để xem thử.
+
+```bash
+cd demo-web && npm install && npm run build   # ra file dist/quanly-chay-thu.html
+```
+
 ## Sao lưu
 
 - App tự sao lưu **mỗi giờ** vào `data/backups/` (giữ 7 ngày), và một bản khi tắt app. Bấm **Cài đặt → Sao lưu → Sao lưu ngay** khi cần.

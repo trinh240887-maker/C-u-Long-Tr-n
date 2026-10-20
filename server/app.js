@@ -74,7 +74,9 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   function clientIp(req) {
     // Qua Cloudflare Tunnel: có header cf-connecting-ip → là truy cập từ xa
     const cf = req.headers['cf-connecting-ip'];
-    return { ip: String(cf || req.socket.remoteAddress || '').replace(/^::ffff:/, ''), remote: Boolean(cf) };
+    // Chạy sau proxy của nhà cung cấp cloud (Railway, Render…): đặt TRUST_PROXY=1 để lấy IP thật của người dùng
+    const fwd = process.env.TRUST_PROXY === '1' ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+    return { ip: String(cf || fwd || req.socket.remoteAddress || '').replace(/^::ffff:/, ''), remote: Boolean(cf) };
   }
 
   ctx.login = (req, res, staff) => {

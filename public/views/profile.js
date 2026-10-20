@@ -12,7 +12,7 @@ export function Profile({ me, reloadMe }) {
     <section class="card">
       <h3>${me.name}</h3>
       <p class="muted">${me.role_label}${me.team ? ` · ${me.team.name}` : ''}${me.skills.length ? ` · làm thay được: ${me.skills.map((s) => s.name).join(', ')}` : ''}</p>
-      <button onClick=${async () => { await api('POST', '/api/logout'); location.href = '/'; }}>Đăng xuất</button>
+      <button onClick=${async () => { await api('POST', '/api/logout'); window.dispatchEvent(new Event('auth:lost')); }}>Đăng xuất</button>
     </section>
 
     <section class="card">

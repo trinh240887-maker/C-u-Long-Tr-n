@@ -68,16 +68,20 @@ export async function act(fn, okMessage) {
 }
 
 // ---------- Điều hướng ----------
+// Bản chạy thử (window.__DEMO__) giữ đường dẫn trong bộ nhớ thay vì thanh địa chỉ
+let memPath = '/';
+const currentPath = () => (window.__DEMO__ ? memPath : location.pathname + location.search);
 export function navigate(path) {
-  if (location.pathname + location.search === path) return;
-  history.pushState(null, '', path);
+  if (currentPath() === path) return;
+  if (window.__DEMO__) memPath = path;
+  else history.pushState(null, '', path);
   window.dispatchEvent(new Event('route'));
   window.scrollTo(0, 0);
 }
 export function useRoute() {
-  const [p, setP] = useState(location.pathname + location.search);
+  const [p, setP] = useState(currentPath());
   useEffect(() => {
-    const on = () => setP(location.pathname + location.search);
+    const on = () => setP(currentPath());
     window.addEventListener('popstate', on);
     window.addEventListener('route', on);
     return () => { window.removeEventListener('popstate', on); window.removeEventListener('route', on); };

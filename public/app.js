@@ -58,6 +58,12 @@ function Login({ onDone }) {
           class=${k === '→' ? 'primary' : ''} disabled=${busy} onClick=${k === '→' ? undefined : () => press(k)}>${k}</button>`)}
       </div>
     </form>
+    ${window.__DEMO__ ? html`<div class="demo-accounts">
+      <p><b>Bản chạy thử</b>: bấm một tài khoản mẫu để vào xem theo vai trò đó.</p>
+      ${window.__DEMO__.accounts.map((a) => html`<button type="button" onClick=${async () => {
+        try { await api('POST', '/api/login', { pin: a.pin }); onDone(); } catch (err) { toast(err.message, true); }
+      }}><b>${a.name}</b><span>${a.role}${a.team ? ` · ${a.team}` : ''}</span><small>PIN ${a.pin}</small></button>`)}
+    </div>` : null}
   </div>`;
 }
 
@@ -105,6 +111,9 @@ function Shell({ me, children, path, online }) {
         <span class=${`conn ${online ? '' : 'off'}`} title=${online ? 'Đang đồng bộ' : 'Mất kết nối'}></span>
         <${Link} href="/ho-so" class="who">${me.name}${me.unread ? html`<b class="dotn">${me.unread}</b>` : null}<//>
       </header>
+      ${window.__DEMO__ ? html`<div class="banner demo">Bản chạy thử · dữ liệu mẫu chỉ lưu trên máy này
+        <button class="small" onClick=${() => window.__DEMO__.reset()}>Làm lại từ đầu</button>
+        <button class="small" onClick=${async () => { await api('POST', '/api/logout'); window.dispatchEvent(new Event('auth:lost')); }}>Đổi tài khoản</button></div>` : null}
       ${!online ? html`<div class="banner">Mất kết nối tới máy chủ của quán. Đang thử kết nối lại…</div>` : null}
       <main class="content">${children}</main>
     </div>
