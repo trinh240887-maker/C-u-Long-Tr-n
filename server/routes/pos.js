@@ -104,14 +104,15 @@ export default function (r, ctx) {
     for (const rv of db.prepare("SELECT * FROM reservations WHERE date = ? AND kind = 'booking' AND status = 'booked'").all(today)) {
       const at = clock.toEpoch(today, rv.time_min);
       if (at - now > 3 * 3600_000 || now - at > hold * 60_000) continue;
-      for (const n of parseTableList(rv.tables)) if (!upcoming.has(n)) upcoming.set(n, { id: rv.id, name: rv.name, guests: rv.guests, time_min: rv.time_min, late: now > at });
+      const locked = at - now <= Number(ctx.setting('reserve_block_minutes') || 15) * 60_000;
+      for (const n of parseTableList(rv.tables)) if (!upcoming.has(n)) upcoming.set(n, { id: rv.id, name: rv.name, guests: rv.guests, time_min: rv.time_min, late: now > at, locked });
     }
     const zones = db.prepare('SELECT * FROM zones WHERE active = 1 ORDER BY sort, id').all();
     const tables = db.prepare('SELECT * FROM dining_tables ORDER BY number').all();
     const sitting = (sid) => { const s = bySession.get(sid); return s ? Math.round((now - s.opened_at) / 60_000) : 0; };
     const longSit = Number(ctx.setting('dining_minutes') || 70);
     const sessIds = new Set(tableSession.values());
-    const freeNums = tables.filter((t) => !tableSession.has(t.number) && !upcoming.has(t.number)).map((t) => t.number);
+    const freeNums = tables.filter((t) => !tableSession.has(t.number) && !upcoming.get(t.number)?.locked).map((t) => t.number);
     const zoneOfT = new Map(tables.map((t) => [t.number, t.zone_id]));
     const waitRows = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(guests), 0) AS g FROM reservations WHERE date = ? AND kind = 'walkin' AND status = 'waiting'").get(today);
     // Thời gian ngồi trung bình hôm nay (bàn đã tính tiền), chưa có thì dùng số trong Cài đặt
@@ -131,14 +132,14 @@ export default function (r, ctx) {
     }).sort((a, b) => a.minutes - b.minutes);
     // Nhóm chờ thứ k sẽ có bàn khi bàn sắp trống thứ (k − số bàn trống) trống
     const waitList = db.prepare("SELECT id, name, guests, created_at FROM reservations WHERE date = ? AND kind = 'walkin' AND status = 'waiting' ORDER BY created_at, id").all(today);
-    const freeCount = tables.filter((t) => !tableSession.has(t.number) && !upcoming.has(t.number)).length;
+    const freeCount = freeNums.length;
     const etaOf = (k) => (k < freeCount ? 0 : soon[k - freeCount]?.minutes ?? null);
     const summary = {
       total: tables.length,
       free: freeNums.length,
       // cặp bàn trống liền nhau cùng khu (cho nhóm đông 6–10 người)
       free_pairs: freeNums.filter((n) => freeNums.includes(n + 1) && zoneOfT.get(n) === zoneOfT.get(n + 1)).length,
-      held: [...upcoming.keys()].filter((n) => !tableSession.has(n)).length,
+      held: [...upcoming.entries()].filter(([n, x]) => x.locked && !tableSession.has(n)).length,
       busy: tableSession.size,
       paying: [...sessIds].filter((sid) => bySession.get(sid)?.status === 'paying').length,
       long_sitting: [...sessIds].filter((sid) => sitting(sid) >= longSit && bySession.get(sid)?.status !== 'paying').length,
@@ -187,9 +188,10 @@ export default function (r, ctx) {
     const clock = ctx.clock();
     const today = clock.businessDate(now);
     const hold = Number(ctx.setting('reserve_hold_minutes') || 15);
+    const block = Number(ctx.setting('reserve_block_minutes') || 15);
     for (const rv of db.prepare("SELECT * FROM reservations WHERE date = ? AND kind = 'booking' AND status = 'booked'").all(today)) {
       const at = clock.toEpoch(today, rv.time_min);
-      if (at - now <= 90 * 60_000 && now - at <= hold * 60_000 && parseTableList(rv.tables).includes(n)) return rv;
+      if (at - now <= block * 60_000 && now - at <= hold * 60_000 && parseTableList(rv.tables).includes(n)) return rv;
     }
     return null;
   };

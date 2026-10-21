@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { html, api, act, useData, Loading, Modal, Field, dayLabel, addDays, navigate } from '../ui.js';
+import { html, api, act, useData, Loading, Modal, Field, dayLabel, addDays, navigate, atLeast } from '../ui.js';
 
 const fmtMin = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const LABEL = { booked: 'Đã đặt', waiting: 'Đang chờ', arrived: 'Đã đến', no_show: 'Không đến', cancelled: 'Đã huỷ' };
@@ -88,6 +88,7 @@ export function ReservationsView({ me, query }) {
     </section>`;
   };
   return html`<div class="stack">
+    ${atLeast(me, 'manager') ? html`<${HoldSettings} d=${d} />` : null}
     <div class="row between wrap">
       <div class="row">
         <button class="icon" aria-label="Hôm trước" onClick=${() => setDate(addDays(date, -1))}>‹</button>
@@ -104,4 +105,20 @@ export function ReservationsView({ me, query }) {
     ${edit ? html`<${Form} init=${edit} date=${date} zones=${zonesD.data || []} onClose=${() => setEdit(null)} />` : null}
     ${arrive ? html`<${Arrive} rv=${arrive} onClose=${() => setArrive(null)} />` : null}
   </div>`;
+}
+
+// Quy định giữ bàn (quản lý chỉnh): khoá bàn trước giờ đặt X phút, giữ thêm Y phút nếu khách trễ
+function HoldSettings({ d }) {
+  const [b, setB] = useState(String(d.block_minutes));
+  const [h, setH] = useState(String(d.hold_minutes));
+  const dirty = b !== String(d.block_minutes) || h !== String(d.hold_minutes);
+  return html`<details class="card small">
+    <summary>Giữ bàn: khoá trước giờ đặt <b>${d.block_minutes}′</b> · chờ khách trễ <b>${d.hold_minutes}′</b></summary>
+    <div class="row wrap" style="margin-top:8px">
+      <label>Khoá trước <input type="number" min="0" max="240" style="width:5em" value=${b} onInput=${(e) => setB(e.target.value)} /> phút</label>
+      <label>Chờ trễ <input type="number" min="0" max="120" style="width:5em" value=${h} onInput=${(e) => setH(e.target.value)} /> phút</label>
+      ${dirty ? html`<button class="primary" onClick=${() => act(() => api('PUT', '/api/settings', { reserve_block_minutes: b, reserve_hold_minutes: h }), 'Đã lưu')}>Lưu</button>` : null}
+    </div>
+    <p class="muted">Trước giờ đặt quá ${d.block_minutes}′ thì bàn vẫn nhận khách vãng lai bình thường. Trong ${d.block_minutes}′ trước giờ đặt, phục vụ bấm vào bàn phải xác nhận. Khách trễ quá ${d.hold_minutes}′ thì bàn trả lại.</p>
+  </details>`;
 }

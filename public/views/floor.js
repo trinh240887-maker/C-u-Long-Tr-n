@@ -19,8 +19,9 @@ export function FloorView({ me }) {
   // Bấm bàn trống là nhận khách và vào gọi món luôn (không hỏi số khách)
   const tap = async (z, t) => {
     if (t.session) return navigate(`/goi-mon?s=${t.session.id}`);
-    if (t.reservation && !confirm(`Bàn ${t.number} đang giữ cho ${t.reservation.name} lúc ${fmtMin(t.reservation.time_min)}. Vẫn nhận khách khác vào bàn này?`)) return undefined;
-    const r = await act(() => api('POST', '/api/pos/sessions', { tables: [t.number], override_reserved: !!t.reservation }));
+    // Bàn có khách đặt: còn xa giờ đặt thì nhận khách bình thường; sát giờ (mặc định 15′) thì phải xác nhận
+    if (t.reservation?.locked && !confirm(`Bàn ${t.number} đã khoá cho ${t.reservation.name} lúc ${fmtMin(t.reservation.time_min)}. Vẫn nhận khách khác vào bàn này?`)) return undefined;
+    const r = await act(() => api('POST', '/api/pos/sessions', { tables: [t.number], override_reserved: !!t.reservation?.locked }));
     if (r?.id) navigate(`/goi-mon?s=${r.id}`);
     return undefined;
   };

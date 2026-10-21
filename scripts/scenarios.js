@@ -336,6 +336,21 @@ export async function run({ quiet = false } = {}) {
     expect(t.reservation?.name === 'Anh Hùng', 'không thấy giữ bàn');
     return 'bàn 50: "Đặt 20:00 · Anh Hùng"';
   });
+  await step('Bàn giữ cho khách đặt: còn 20′ vẫn nhận khách vãng lai; trong 15′ trước giờ đặt phải xác nhận', async () => {
+    await lead('POST', '/api/reservations', { name: 'Chị Lan', phone: '0912', guests: 4, date: DAY, time: '20:00', tables: '70' });
+    const r1 = await pv1('POST', '/api/pos/sessions', { tables: [70] }); // 19:40, còn 20′
+    expect(r1.status === 200, `còn 20′ mà bị chặn: ${r1.data?.error}`);
+    await pv1('POST', `/api/pos/sessions/${r1.data.id}/cancel`, {});
+    now = at(DAY, '19:46');
+    const r2 = await pv1('POST', '/api/pos/sessions', { tables: [70] });
+    const r3 = await pv1('POST', '/api/pos/sessions', { tables: [70], override_reserved: true });
+    expect(r2.status === 409 && r3.status === 200, `${r2.status}/${r3.status}`);
+    await pv1('POST', `/api/pos/sessions/${r3.data.id}/cancel`, {});
+    const sm = (await pv1('GET', '/api/pos/tables')).data.summary;
+    expect(sm.held >= 1, 'không đếm bàn khoá');
+    now = at(DAY, '19:40');
+    return r2.data.error;
+  });
   await step('Khách đặt đến → mở bàn 50-51, tự đánh dấu ưu tiên', async () => {
     const list = (await pv1('GET', `/api/reservations?date=${DAY}`)).data.items;
     const hung = list.find((x) => x.name === 'Anh Hùng');
