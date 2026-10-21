@@ -99,6 +99,9 @@ for (const name of ['Steak', 'Nước lẩu', 'Bò', 'Topping – Nướng – R
 }
 await o('PATCH', `/api/kitchen-stations/${S['Ưu tiên']}`, { printer_ip: '' });
 const token = (await o('GET', '/api/print/status')).data.token;
+// Nối SePay (ngân hàng báo tiền về), thu ngân ghi két đầu ngày
+await o('POST', '/api/bank/settings', { enabled: true });
+const sepayKey = (await o('GET', '/api/bank/settings')).data.api_key;
 
 // Khuyến mãi đang chạy
 const catId = (n) => menu0.categories.find((c) => c.name === n).id;
@@ -152,7 +155,7 @@ function cookTime(menuItemId, qty, sentAt, urgent) {
 // ---------- Hàng sự kiện theo giờ ----------
 const queue = [];
 const schedule = (t, fn, label = '') => { queue.push({ t, fn, label, seq: queue.length }); };
-const stats = { groups: 0, guests: 0, walkout: 0, waitlist: 0, waitMax: 0, soldOutBlocked: 0, unservedConfirm: 0, reminds: 0, redo: 0, cancelItem: 0, moves: 0, splits: 0, merges: 0, itemMoves: 0, tableCancels: 0, refunds: 0, refundAmount: 0, booking: 0, noShow: 0, pay: { cash: 0, transfer: 0, mixed: 0 }, peak: 0 };
+const stats = { ck: { auto: 0, delayed: 0, manual: 0, partial: 0, ghost: 0, tip: 0 }, handovers: 0, payAlerts: 0, groups: 0, guests: 0, walkout: 0, waitlist: 0, waitMax: 0, soldOutBlocked: 0, unservedConfirm: 0, reminds: 0, redo: 0, cancelItem: 0, moves: 0, splits: 0, merges: 0, itemMoves: 0, tableCancels: 0, refunds: 0, refundAmount: 0, booking: 0, noShow: 0, pay: { cash: 0, transfer: 0, mixed: 0 }, peak: 0 };
 const served = new Map(); // order_item id → thời điểm làm xong
 const groups = [];
 const waiting = [];
@@ -341,20 +344,87 @@ async function pay(g) {
 }
 
 const transferBills = [];
+// Ngân hàng (SePay) báo tiền về app
+let bankSeq = 0;
+const bankLog = [];
+async function bankIn(amount, content) {
+  bankLog.push(amount);
+  const r = await fetch(`${base}/api/bank/sepay`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Apikey ${sepayKey}` },
+    body: JSON.stringify({ id: `sim${++bankSeq}`, gateway: 'Techcombank', transactionDate: clock.fmt(now), accountNumber: '19031234567', code: null, content, transferType: 'in', transferAmount: amount, referenceCode: `FT${bankSeq}` }) });
+  if (r.status !== 200) issue(`SePay báo tiền về lỗi ${r.status}`);
+  return (await r.json()).id;
+}
+let ghostDone = false;
+let shortDone = false;
 async function payOne(g, sid, force) {
   const b = (await g.w('GET', `/api/pos/sessions/${sid}/bill`)).data;
   if (b.unsent) issue(`Bàn ${g.tables} còn món chưa gửi lúc tính tiền`);
   const x = rnd();
   const method = force || (x < 0.6 ? 'transfer' : x < 0.93 ? 'cash' : 'mixed');
-  const body = { method, print: chance(0.7) };
-  if (method === 'cash') body.cash_given = Math.ceil(b.total / 50000) * 50000 + (chance(0.3) ? 50000 : 0);
-  if (method === 'mixed') body.cash_amount = Math.min(b.total - 1000, 100000 * Math.ceil(between(1, 3)));
-  let r = await g.w('POST', `/api/pos/sessions/${sid}/pay`, body);
-  if (r.status === 409) { stats.unservedConfirm++; r = await g.w('POST', `/api/pos/sessions/${sid}/pay`, { ...body, confirm_unserved: true }); }
-  if (r.status !== 200) { issue(`Thanh toán bàn ${g.tables}: ${r.data?.error}`); return; }
+  const pay = async (body) => {
+    let r = await g.w('POST', `/api/pos/sessions/${sid}/pay`, body);
+    if (r.status === 409) { stats.unservedConfirm++; r = await g.w('POST', `/api/pos/sessions/${sid}/pay`, { ...body, confirm_unserved: true }); }
+    if (r.status !== 200) issue(`Thanh toán bàn ${g.tables}: ${r.data?.error}`);
+    return r;
+  };
   stats.pay[method]++;
-  if (method === 'cash' && r.data.change !== body.cash_given - b.total) issue(`Tiền thối sai bàn ${g.tables}`);
-  if (method !== 'cash') transferBills.push({ sid, g, amount: method === 'mixed' ? b.total - body.cash_amount : b.total, note: b.transfer_note });
+  if (method === 'transfer') {
+    const y = rnd();
+    if (!ghostDone && y < 0.04) {
+      // Phục vụ bấm "khách đã CK" nhưng tiền không bao giờ về
+      ghostDone = true;
+      await pay({ method: 'transfer' });
+      stats.ck.ghost++;
+      say(`Bill ${b.bill_no} (bàn ${g.tables}): phục vụ bấm "khách đã CK" nhưng tiền không về → 30′ sau app báo quản lý`);
+    } else if (y < 0.1) {
+      // Khách tự gõ số tài khoản, quên nội dung → tiền vào "chưa khớp"; khách đưa màn hình chuyển thành công
+      await bankIn(b.total, 'CHUYEN TIEN AN UONG');
+      await pay({ method: 'transfer' });
+      stats.ck.manual++;
+      schedule(now + between(5, 20) * MIN, async () => {
+        const t = db.prepare("SELECT id FROM bank_txns WHERE status = 'unmatched' AND amount = ? ORDER BY id LIMIT 1").get(b.total);
+        if (t) { const r = await thuNgan('POST', `/api/bank/txns/${t.id}/assign`, { bill_no: b.bill_no }); if (r.status !== 200) issue(`Ghép bill: ${r.data?.error}`); }
+      });
+    } else if (y < 0.2) {
+      // Ngân hàng chậm: phục vụ bấm "chờ tiền về", 2–10′ sau tiền mới về
+      await pay({ method: 'transfer' });
+      stats.ck.delayed++;
+      schedule(now + between(2, 10) * MIN, () => bankIn(b.total, `MBVCB.${bankSeq}.CLT${b.bill_no}.Ck`));
+    } else if (y < 0.24) {
+      // Khách chuyển thiếu (gõ nhầm số) rồi chuyển bù
+      await bankIn(b.total - 50000, `CLT${b.bill_no}`);
+      const mid = (await g.w('GET', `/api/pos/sessions/${sid}/bill`)).data;
+      if (mid.status !== 'open' || mid.qr_amount !== 50000) issue(`CK thiếu: bill ${b.bill_no} lẽ ra còn mở, QR 50.000đ`);
+      await bankIn(50000, `CLT${b.bill_no} bu`);
+      stats.ck.partial++;
+    } else {
+      // Bình thường: khách quét QR, tiền về, app tự đóng bill (thỉnh thoảng CK dư làm tip)
+      const tip = chance(0.08) ? 1000 * Math.round(between(10, 60)) : 0;
+      await bankIn(b.total + tip, `${pick(['MBVCB', 'ACB', 'VCB', 'TCB'])}.${bankSeq}.CLT${b.bill_no}.thanh toan`);
+      stats.ck.auto++;
+      if (tip) stats.ck.tip += tip;
+    }
+    const after = (await g.w('GET', `/api/pos/sessions/${sid}/bill`)).data;
+    if (after.status !== 'closed') issue(`Bill ${b.bill_no} CK xong mà bàn chưa đóng`);
+    transferBills.push({ sid, g, amount: b.total, note: b.transfer_note });
+  } else {
+    const body = { method, print: chance(0.7) };
+    if (method === 'cash') { body.cash_given = Math.ceil(b.total / 50000) * 50000 + (chance(0.3) ? 50000 : 0); body.keep_change = chance(0.12) && body.cash_given > b.total; }
+    if (method === 'mixed') body.cash_amount = Math.min(b.total - 1000, 100000 * Math.ceil(between(1, 3)));
+    const r = await pay(body);
+    if (r.status !== 200) return;
+    if (method === 'cash' && !body.keep_change && r.data.change !== body.cash_given - b.total) issue(`Tiền thối sai bàn ${g.tables}`);
+    if (method === 'mixed') await bankIn(b.total - body.cash_amount, `CLT${b.bill_no}`);
+    // Phục vụ mang tiền + bill giao thu ngân ngay (1–3 phút)
+    schedule(now + between(1, 3) * MIN, async () => {
+      const short = !shortDone && chance(0.05);
+      if (short) shortDone = true;
+      const hr = await thuNgan('POST', '/api/payments/handover', { ids: [sid], counted: r.data.hand_over - (short ? 20000 : 0) });
+      if (hr.status !== 200) issue(`Giao tiền bill ${b.bill_no}: ${hr.data?.error}`);
+      stats.handovers++;
+      if (short) say(`Bill ${b.bill_no}: ${g.w.staffName} giao thiếu 20.000đ → app ghi tên, báo chủ quán`);
+    });
+  }
   // Khách về rồi mới báo thiếu món → quản lý hoàn tiền mặt
   if (g.refund) schedule(now + 3 * MIN, async () => {
     const bb = (await g.w('GET', `/api/pos/sessions/${sid}/bill`)).data;
@@ -448,6 +518,7 @@ schedule(at('19:30'), async () => {
 // Mỗi phút: cầu in lấy phiếu in ra máy giả; mỗi 2 phút quản lý xem món trễ và nhắc bếp
 const reminded = new Set();
 const bridge = client('Cầu in');
+schedule(at('09:45'), async () => { const r = await thuNgan('POST', '/api/payments/drawer', { date: DAY, opening: 3000000 }); if (r.status !== 200) issue(`Két đầu ngày: ${r.data?.error}`); });
 async function bridgeTick() {
   const r = await bridge('GET', '/api/print/jobs', null, { token });
   for (const j of r.data?.jobs || []) {
@@ -462,6 +533,7 @@ for (let t = at('10:00'); t <= at('23:59'); t += MIN) {
     await seatWaiting();
     const open = db.prepare("SELECT COUNT(*) AS n FROM table_sessions WHERE status IN ('open','paying')").get().n;
     stats.peak = Math.max(stats.peak, open);
+    if ((t / MIN) % 5 === 0) stats.payAlerts += app.ctx.payTick();
     if ((t / MIN) % 2) return;
     const late = (await quan('GET', '/api/pos/late')).data || [];
     for (const i of late) {
@@ -540,22 +612,27 @@ for (const i of db.prepare("SELECT id, menu_item_id, sent_at FROM order_items WH
 }
 const lateLimit = Object.fromEntries(menu0.stations.map((s) => [s.name, s.late_minutes]));
 
-// ---------- Cuối ngày: thu ngân đối soát ----------
+// ---------- Cuối ngày: thu ngân ----------
 now = at('23:40');
-const ghost = transferBills[Math.floor(transferBills.length / 2)]; // khách bấm "chuyển" nhưng tiền không về
-const bank = transferBills.filter((b) => b !== ghost);
-const bankTotal = bank.reduce((n, b) => n + b.amount, 0);
 let day = (await thuNgan('GET', `/api/payments?date=${DAY}`)).data;
-const appCK = day.summary.transfer_in;
-const diff = appCK - bankTotal;
-const found = day.bills.filter((b) => b.transfer_amount > 0 && !bank.some((x) => x.sid === b.id));
-const okIds = day.bills.filter((b) => b.transfer_amount > 0 && !found.includes(b)).map((b) => b.id);
+const before = { ...day.summary, anomalies: day.anomalies.length };
+const bankTotal = bankLog.reduce((n, a) => n + a, 0);
+if (day.summary.bank_in !== bankTotal) issue(`App ghi tiền ngân hàng ${day.summary.bank_in} ≠ tổng SePay báo ${bankTotal}`);
+// Bill "chờ tiền về" mà sao kê không có → chưa thấy tiền; còn lại (ngân hàng đã báo) → xác nhận
+const ghostBills = day.bills.filter((b) => b.reconcile_status === 'pending');
+await thuNgan('POST', '/api/payments/reconcile', { ids: ghostBills.map((b) => b.id), status: 'missing', note: 'Không có trong sao kê' });
+const okIds = day.bills.filter((b) => b.reconcile_status === 'matched').map((b) => b.id);
 await thuNgan('POST', '/api/payments/reconcile', { ids: okIds, status: 'confirmed' });
-await thuNgan('POST', '/api/payments/reconcile', { ids: found.map((b) => b.id), status: 'missing', note: 'Không có trong sao kê' });
+day = (await thuNgan('GET', `/api/payments?date=${DAY}`)).data;
+// Đếm két: thu ngân đếm thấy đúng số phải có
+await thuNgan('POST', '/api/payments/drawer', { date: DAY, counted: day.summary.drawer_expected });
 const close = await thuNgan('POST', '/api/payments/close-day', { date: DAY });
 if (close.status !== 200) issue(`Chốt ngày: ${close.data?.error}`);
 day = (await thuNgan('GET', `/api/payments?date=${DAY}`)).data;
 const sm = day.summary;
+const appCK = sm.transfer_in;
+const diff = sm.transfer_missing;
+const found = day.bills.filter((b) => b.reconcile_status === 'missing');
 // Kiểm tra lại tổng tiền độc lập
 const sumPaid = db.prepare("SELECT SUM(paid_total) AS n FROM table_sessions WHERE status = 'closed'").get().n;
 if (sumPaid !== sm.gross) issue('Tổng bill không khớp');
@@ -613,10 +690,14 @@ P('## Thu ngân & cuối ngày');
 P(`- ${sm.bills} bill: CK ${stats.pay.transfer}, tiền mặt ${stats.pay.cash}, TM + CK ${stats.pay.mixed}`);
 P(`- Tổng bill ${f(sm.gross)}đ · khuyến mãi đã giảm ${f(sm.discount)}đ (${Object.entries(promoBreak).map(([k, v]) => `${k}: ${f(v)}đ`).join('; ')})`);
 P(`- Hoàn tiền mặt: ${stats.refunds} lần, ${f(stats.refundAmount)}đ (quản lý duyệt PIN, chủ quán nhận báo)`);
-P(`- **Tiền mặt phải có trong két: ${f(sm.cash_expected)}đ** (thu ${f(sm.cash_in)}đ − hoàn ${f(sm.refund_cash)}đ)`);
-P(`- CK theo app ${f(appCK)}đ · sao kê ngân hàng ${f(bankTotal)}đ → **lệch ${f(diff)}đ**`);
-P(`- Thu ngân dò nội dung: thiếu ${found.map((b) => `${b.transfer_note} (${f(b.transfer_amount)}đ, bàn ${b.header}, ${b.closed_by_name} đóng)`).join(', ')} → đánh "Chưa thấy tiền", app báo chủ quán`);
-P(`- Chốt doanh thu: ${close.status === 200 ? `✓ ${f(sm.net)}đ` : '✗'} · CK đã khớp ${f(sm.transfer_confirmed)}đ, chưa thấy ${f(sm.transfer_missing)}đ`);
+P(`- CK: ${stats.ck.auto} bill tiền về là **tự đóng**, ${stats.ck.delayed} ngân hàng chậm (bấm chờ, tiền về tự khớp), ${stats.ck.partial} khách CK thiếu rồi bù, ${stats.ck.manual} khách tự gõ số TK (tiền "chưa khớp" → thu ngân ghép bill), ${stats.ck.ghost} bill "khách đã CK" mà tiền không về (app báo quản lý ${stats.payAlerts} lần)`);
+P(`- Tiền mặt: ${stats.handovers} lần phục vụ giao thu ngân ngay sau bill · lệch ${f(sm.handover_diff)}đ`);
+P(`- **Két: đầu ngày ${f(sm.opening)}đ + nhận từ phục vụ ${f(sm.handed_in)}đ − hoàn ${f(sm.refund_cash)}đ = phải có ${f(sm.drawer_expected)}đ** · đếm ${f(sm.drawer_counted)}đ`);
+P(`- **Tip quỹ chung: ${f(sm.tip_cash + sm.tip_transfer)}đ** (tiền mặt ${f(sm.tip_cash)}đ, CK dư ${f(sm.tip_transfer)}đ) · không tính vào doanh thu`);
+P(`- Ngân hàng báo tiền vào ${f(bankTotal)}đ = app ghi ${f(sm.bank_in)}đ ${sm.bank_in === bankTotal ? '✓' : '✗'} · CK theo bill ${f(appCK)}đ, chưa thấy tiền ${f(diff)}đ (${found.map((b) => `${b.transfer_note} bàn ${b.header}, ${b.closed_by_name} đóng`).join(', ') || 'không'})`);
+P(`- Chốt doanh thu: ${close.status === 200 ? `✓ ${f(sm.net)}đ` : `✗ ${close.data?.error}`}`);
+P(`- Bất thường gửi chủ quán (${day.anomalies.length}):`);
+for (const a of day.anomalies) P(`  - ${a.text}`);
 P();
 P('## Tốc độ app');
 P(`- Trung bình ${pct(allMs, 0.5).toFixed(1)} ms, 95% dưới ${pct(allMs, 0.95).toFixed(1)} ms, chậm nhất ${Math.max(...allMs).toFixed(0)} ms`);

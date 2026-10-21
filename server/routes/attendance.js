@@ -101,6 +101,9 @@ export default function (r, ctx) {
     checkNetwork(net);
     const open = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id);
     if (!open) fail(409, 'Bạn chưa chấm vào ca');
+    // Còn giữ tiền mặt của khách chưa giao thu ngân thì không cho ra ca
+    const held = ctx.cashHeldBy ? ctx.cashHeldBy(me.id) : 0;
+    if (held) fail(409, `Bạn còn giữ ${held.toLocaleString('vi-VN')}đ tiền mặt chưa giao thu ngân. Giao tiền rồi chấm ra.`);
     db.prepare('UPDATE attendance SET clock_out = ? WHERE id = ?').run(ctx.now(), open.id);
     ctx.audit(me, 'clock.out', open.id);
     ctx.broadcast('attendance');

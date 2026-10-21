@@ -25,7 +25,7 @@ backup();
 try { app.ctx.cleanupPhotos(); app.ctx.promoTick(); } catch (e) { console.error(e); }
 const timers = [
   setInterval(backup, 3600_000),
-  setInterval(() => { try { app.ctx.autoCloseAttendance(); } catch (e) { console.error(e); } }, 5 * 60_000),
+  setInterval(() => { try { app.ctx.autoCloseAttendance(); app.ctx.payTick(); } catch (e) { console.error(e); } }, 5 * 60_000),
   setInterval(() => { try { app.ctx.cleanupPhotos(); app.ctx.promoTick(); } catch (e) { console.error(e); } }, 3600_000),
 ];
 

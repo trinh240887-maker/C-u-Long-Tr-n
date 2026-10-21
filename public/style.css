@@ -535,3 +535,5 @@ a.button.primary { background: var(--accent, #2563eb); color: #fff; border-color
 
 .eta-bar { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; padding: 10px 12px; }
 .eta-bar.busy b { color: var(--warn); }
+.paid-ok { font-size: 3rem; width: 80px; height: 80px; border-radius: 50%; display: grid; place-items: center; background: var(--ok-soft); color: var(--ok); }
+button.big { white-space: normal; }
