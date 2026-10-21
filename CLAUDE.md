@@ -15,7 +15,7 @@ Công cụ import đơn 1688 nằm riêng ở repo `trinh240887-maker/dathangsi`
 |----|-------|
 | **GĐ1…GĐ5** | Giai đoạn: 1 Nhân sự, 2 Kho, 3 Bán hàng (bàn/gọi món/bếp), 4 Báo cáo, 5 Hoá đơn điện tử |
 | **ca / ca gãy / ca đóng** | Ca làm; ca gãy = nhiều khúc; ca qua nửa đêm. Quán **tự tạo loại ca**, không cố định |
-| **tổ** | Bếp steak, Lẩu, Bar, Phục vụ, Thu ngân, Tạp vụ (sửa được) |
+| **bộ phận / vị trí** | Bộ phận: Bếp, Bar, Phục vụ, Thu ngân, Tạp vụ. Bếp chia vị trí (Steak, Lẩu, Nướng, Topping, Thái tay, Tiếp thực), chọn theo ca. Trong code bộ phận = bảng `teams` |
 | **3 điểm chế biến** | Bếp (steak) · Lẩu (nước lẩu, topping, bò thái tay) · Bar (pha chế + nước đóng chai) |
 | **kho tổng / kho khu** | Hàng nhập về kho tổng rồi xuất cho từng khu; NL dùng chung chọn "khu chính" hoặc "kho chung" |
 | **NCC** | Nhà cung cấp, **mỗi khu 1 NCC** |
@@ -40,6 +40,7 @@ Công cụ import đơn 1688 nằm riêng ở repo `trinh240887-maker/dathangsi`
 
 ## Link
 - **App thật:** https://c-u-long-tr-n-production.up.railway.app (Railway, cổng 8080, tự deploy khi push `main`)
+- Quy trình vận hành (chủ quán ghi ý kiến): https://claude.ai/artifact/HUtvNcqYj2RJdfWJ5vjUUm
 - Bản chạy thử: https://claude.ai/artifact/4BLaeEpr4EZzDJGroCDHNa (riêng tư)
 - Repo: `trinh240887-maker/C-u-Long-Tr-n` (nhánh chính `main`)
 

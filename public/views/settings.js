@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast } from '../ui.js';
 
-const TABS = [['chung', 'Chung'], ['to', 'Tổ'], ['khu', 'Khu & bàn'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
+const TABS = [['chung', 'Chung'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
 
 function General({ s, staff }) {
   const [f, setF] = useState(s);
@@ -39,17 +39,50 @@ function General({ s, staff }) {
 function Teams() {
   const st = useData('/api/teams');
   const [name, setName] = useState('');
+  const [newPos, setNewPos] = useState({});
+  const [combine, setCombine] = useState({ name: 'Bếp', ids: [] });
   if (!st.data) return html`<${Loading} state=${st} />`;
-  return html`<section class="card stack">
-    <p class="muted small">"Tối thiểu" là số người cần có mỗi ngày; lịch ca sẽ cảnh báo khi xếp thiếu. Đặt 0 để không cảnh báo.</p>
-    ${st.data.map((t) => html`<div class="row team-row" key=${t.id}>
-      <input id=${`tm-n${t.id}`} class="grow" value=${t.name} onChange=${(e) => act(() => api('PATCH', `/api/teams/${t.id}`, { name: e.target.value }), 'Đã đổi tên')} />
-      <label class="row small">Tối thiểu <input id=${`tm-m${t.id}`} class="num-in" type="number" min="0" value=${t.min_staff} onChange=${(e) => act(() => api('PATCH', `/api/teams/${t.id}`, { min_staff: e.target.value }), 'Đã lưu')} /></label>
-      <label class="check-row small"><input type="checkbox" checked=${!!t.active} onChange=${(e) => act(() => api('PATCH', `/api/teams/${t.id}`, { active: e.target.checked }), 'Đã lưu')} /> Dùng</label>
+  const active = st.data.filter((t) => t.active);
+  const toggle = (id) => setCombine({ ...combine, ids: combine.ids.includes(id) ? combine.ids.filter((x) => x !== id) : [...combine.ids, id] });
+  return html`<div class="stack">
+  <section class="card stack">
+    <p class="muted small"><b>Bộ phận</b> gán cố định cho nhân viên (Bếp, Bar, Phục vụ…). <b>Vị trí</b> nằm trong bộ phận (Bếp: Steak, Lẩu, Nướng…), chọn theo từng ca.
+      "Tối thiểu" là số người cần mỗi ngày; lịch ca báo vàng khi thiếu. Đặt 0 để không cảnh báo.</p>
+    ${active.map((t) => html`<div class="dept" key=${t.id}>
+      <div class="row team-row">
+        <input id=${`tm-n${t.id}`} class="grow" value=${t.name} aria-label="Tên bộ phận" onChange=${(e) => act(() => api('PATCH', `/api/teams/${t.id}`, { name: e.target.value }), 'Đã đổi tên')} />
+        <label class="row small">Tối thiểu <input id=${`tm-m${t.id}`} class="num-in" type="number" min="0" value=${t.min_staff} onChange=${(e) => act(() => api('PATCH', `/api/teams/${t.id}`, { min_staff: e.target.value }), 'Đã lưu')} /></label>
+        <label class="check-row small"><input type="checkbox" checked=${!!t.active} onChange=${(e) => act(() => api('PATCH', `/api/teams/${t.id}`, { active: e.target.checked }), 'Đã lưu')} /> Dùng</label>
+      </div>
+      <div class="pos-list">
+        ${t.positions.map((p) => html`<div class="row pos-row" key=${p.id}>
+          <span class="muted">↳</span>
+          <input class="grow" value=${p.name} aria-label="Tên vị trí" onChange=${(e) => act(() => api('PATCH', `/api/positions/${p.id}`, { name: e.target.value }), 'Đã đổi tên')} />
+          <label class="row small">Tối thiểu <input class="num-in" type="number" min="0" value=${p.min_staff} onChange=${(e) => act(() => api('PATCH', `/api/positions/${p.id}`, { min_staff: e.target.value }), 'Đã lưu')} /></label>
+          <button class="btn-link small" onClick=${() => confirm(`Bỏ vị trí ${p.name}? Ca cũ vẫn giữ.`) && act(() => api('PATCH', `/api/positions/${p.id}`, { active: false }), 'Đã bỏ vị trí')}>Bỏ</button>
+        </div>`)}
+        <div class="row pos-row"><span class="muted">+</span>
+          <input class="grow" placeholder=${t.positions.length ? 'Thêm vị trí' : 'Thêm vị trí, vd Lẩu'} value=${newPos[t.id] || ''} onInput=${(e) => setNewPos({ ...newPos, [t.id]: e.target.value })} />
+          <button disabled=${!(newPos[t.id] || '').trim()} onClick=${async () => { if (await act(() => api('POST', '/api/positions', { team_id: t.id, name: newPos[t.id] }), 'Đã thêm vị trí')) setNewPos({ ...newPos, [t.id]: '' }); }}>Thêm</button></div>
+      </div>
     </div>`)}
-    <div class="row"><input id="tm-new" class="grow" placeholder="Tên tổ mới, vd Bảo vệ" value=${name} onInput=${(e) => setName(e.target.value)} />
-      <button class="primary" disabled=${!name.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/teams', { name }), 'Đã thêm tổ')) setName(''); }}>Thêm tổ</button></div>
-  </section>`;
+    <div class="row"><input id="tm-new" class="grow" placeholder="Tên bộ phận mới, vd Bảo vệ" value=${name} onInput=${(e) => setName(e.target.value)} />
+      <button class="primary" disabled=${!name.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/teams', { name }), 'Đã thêm bộ phận')) setName(''); }}>Thêm bộ phận</button></div>
+    ${st.data.some((t) => !t.active) ? html`<details><summary class="muted small">Bộ phận đã tắt (${st.data.filter((t) => !t.active).length})</summary>
+      ${st.data.filter((t) => !t.active).map((t) => html`<label class="check-row small"><input type="checkbox" checked=${false} onChange=${() => act(() => api('PATCH', `/api/teams/${t.id}`, { active: true }), 'Đã bật lại')} /> ${t.name}</label>`)}</details>` : null}
+  </section>
+  <section class="card stack">
+    <h3>Gộp nhiều tổ thành 1 bộ phận</h3>
+    <p class="muted small">Ví dụ chọn Bếp steak, Lẩu, Topping, Thái tay, Tiếp thực → gộp thành <b>Bếp</b>. Mỗi tổ cũ thành 1 vị trí; nhân viên, ca đã xếp, checklist, kỹ năng chuyển theo, không mất dữ liệu.</p>
+    <div class="chips">${active.map((t) => html`<button class=${`chip ${combine.ids.includes(t.id) ? 'on' : ''}`} onClick=${() => toggle(t.id)}>${combine.ids.includes(t.id) ? '✓ ' : ''}${t.name}</button>`)}</div>
+    <div class="row"><input id="cb-name" class="grow" value=${combine.name} placeholder="Tên bộ phận sau khi gộp" onInput=${(e) => setCombine({ ...combine, name: e.target.value })} />
+      <button class="primary" disabled=${!combine.ids.length || !combine.name.trim()} onClick=${async () => {
+        const names = active.filter((t) => combine.ids.includes(t.id)).map((t) => t.name).join(', ');
+        if (!confirm(`Gộp ${names} thành bộ phận "${combine.name}"?`)) return;
+        if (await act(() => api('POST', '/api/teams/combine', { name: combine.name, team_ids: combine.ids }), 'Đã gộp')) setCombine({ name: combine.name, ids: [] });
+      }}>Gộp</button></div>
+  </section>
+  </div>`;
 }
 
 function Zones() {
@@ -112,13 +145,14 @@ function Templates() {
 }
 
 function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
+  const posD = useData('/api/positions');
   const [f, setF] = useState({ title: init.title || '', team_id: init.team_id ?? '', phase: init.phase || 'open', active: init.active ?? true,
-    shift_template_id: init.shift_template_id ?? '',
+    shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '',
     items: init.items?.map((i) => ({ ...i })) || [{ text: '', kind: 'check', unit: '', required: true }] });
   const item = (i, k, v) => setF({ ...f, items: f.items.map((x, j) => (j === i ? { ...x, [k]: v } : x)) });
   const move = (i, d) => { const items = [...f.items]; const [x] = items.splice(i, 1); items.splice(i + d, 0, x); setF({ ...f, items }); };
   const save = async () => {
-    const body = { ...f, team_id: f.team_id || null, shift_template_id: f.shift_template_id || null, items: f.items.filter((x) => x.text.trim()) };
+    const body = { ...f, team_id: f.team_id || null, shift_template_id: f.shift_template_id || null, position_id: (f.team_id && f.position_id) || null, items: f.items.filter((x) => x.text.trim()) };
     const ok = await act(() => (init.id ? api('PATCH', `/api/checklist-templates/${init.id}`, body) : api('POST', '/api/checklist-templates', body)), 'Đã lưu checklist');
     if (ok) onClose();
   };
@@ -126,8 +160,10 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
     <div class="stack">
       <div class="form-grid">
         <${Field} label="Tên checklist"><input id="cl-title" value=${f.title} onInput=${(e) => setF({ ...f, title: e.target.value })} /><//>
-        <${Field} label="Tổ"><select id="cl-team" value=${f.team_id} onChange=${(e) => setF({ ...f, team_id: e.target.value })}>
+        <${Field} label="Tổ"><select id="cl-team" value=${f.team_id} onChange=${(e) => setF({ ...f, team_id: e.target.value, position_id: '' })}>
           ${allowAll ? html`<option value="">Cả quán</option>` : null}${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
+        ${(() => { const ps = (posD.data || []).filter((p) => p.team_id === Number(f.team_id)); return ps.length ? html`<${Field} label="Vị trí" hint="Chỉ người đứng vị trí này trong ca thấy">
+          <select id="cl-pos" value=${f.position_id} onChange=${(e) => setF({ ...f, position_id: e.target.value })}><option value="">Cả bộ phận</option>${ps.map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>` : null; })()}
         <${Field} label="Thời điểm"><select id="cl-phase" value=${f.phase} onChange=${(e) => setF({ ...f, phase: e.target.value })}>
           ${Object.entries(PHASE_LABEL).map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select><//>
         <${Field} label="Áp dụng cho ca" hint="Người làm ca nào chỉ thấy checklist của ca đó">
@@ -167,7 +203,7 @@ export function Checklists({ me, teams }) {
     <p class="muted small">Checklist có chữ "(mẫu)" là ví dụ, hãy sửa lại theo cách làm của quán. Mỗi ngày mỗi checklist có một lượt mới.
       Muốn ca sáng và ca chiều có việc riêng: tạo 2 checklist, chọn "Áp dụng cho ca" tương ứng (loại ca tạo ở tab Loại ca).</p>
     ${list.map((c) => html`<button class=${`tpl-row ${c.active ? '' : 'off'}`} onClick=${() => setEdit(c)}>
-      <b class="grow">${c.title}</b><span class="muted">${c.team_name || 'Cả quán'} · ${c.shift_name || 'Mọi ca'} · ${PHASE_LABEL[c.phase]} · ${c.items.length} việc</span></button>`)}
+      <b class="grow">${c.title}</b><span class="muted">${c.team_name || 'Cả quán'}${c.position_name ? ` · ${c.position_name}` : ''} · ${c.shift_name || 'Mọi ca'} · ${PHASE_LABEL[c.phase]} · ${c.items.length} việc</span></button>`)}
     <div><button class="primary" onClick=${() => setEdit({})}>+ Thêm checklist</button></div>
     ${edit ? html`<${ChecklistForm} init=${own && !edit.id ? { team_id: me.team?.id, ...edit } : edit} teams=${myTeams} allowAll=${!own} shifts=${(shifts.data || []).filter((t) => t.active)} onClose=${() => setEdit(null)} />` : null}
   </section>`;

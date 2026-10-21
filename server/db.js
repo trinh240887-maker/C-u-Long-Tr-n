@@ -33,6 +33,23 @@ CREATE TABLE IF NOT EXISTS staff (
   created_at INTEGER NOT NULL
 );
 
+-- Vị trí trong bộ phận, vd Bếp: Steak, Lẩu, Nướng… Chọn theo từng ca.
+CREATE TABLE IF NOT EXISTS positions (
+  id INTEGER PRIMARY KEY,
+  team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  sort INTEGER NOT NULL DEFAULT 0,
+  min_staff INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS position_skills (
+  staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  position_id INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+  level INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (staff_id, position_id)
+);
+
 CREATE TABLE IF NOT EXISTS staff_skills (
   staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
   team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -357,6 +374,9 @@ function migrate(db) {
   const aCols = cols('assignments');
   if (!aCols.includes('zone_id')) db.exec('ALTER TABLE assignments ADD COLUMN zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL');
   if (!aCols.includes('tables_text')) db.exec("ALTER TABLE assignments ADD COLUMN tables_text TEXT NOT NULL DEFAULT ''");
+  if (!aCols.includes('position_id')) db.exec('ALTER TABLE assignments ADD COLUMN position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL');
+  if (!cols('staff').includes('position_id')) db.exec('ALTER TABLE staff ADD COLUMN position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL');
+  if (!cols('checklist_templates').includes('position_id')) db.exec('ALTER TABLE checklist_templates ADD COLUMN position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL');
   // Khu mặc định A, B, C (sửa số bàn trong Cài đặt → Khu & bàn)
   if (!db.prepare('SELECT 1 FROM zones LIMIT 1').get()) {
     const addZone = db.prepare('INSERT INTO zones (name, color, sort) VALUES (?, ?, ?)');

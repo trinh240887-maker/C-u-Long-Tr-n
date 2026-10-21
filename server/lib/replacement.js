@@ -13,8 +13,17 @@ export function suggestReplacements({ shift, candidates, busy = new Map(), onLea
   for (const c of candidates) {
     if (c.id === excludeId) continue;
     const reasons = [];
-    const primary = c.team_id === shift.team_id;
-    const level = primary ? 3 : Number(c.skills?.[shift.team_id] || 0);
+    // Ca có vị trí (vd Bếp · Lẩu): đúng vị trí chính = 3, có kỹ năng vị trí đó = mức đó,
+    // cùng bộ phận nhưng chưa ghi kỹ năng vị trí = 1. Ca không có vị trí: theo bộ phận như cũ.
+    let primary;
+    let level;
+    if (shift.position_id) {
+      primary = c.position_id === shift.position_id;
+      level = primary ? 3 : Number(c.pskills?.[shift.position_id] || 0) || (c.team_id === shift.team_id ? 1 : Number(c.skills?.[shift.team_id] || 0));
+    } else {
+      primary = c.team_id === shift.team_id;
+      level = primary ? 3 : Number(c.skills?.[shift.team_id] || 0);
+    }
     if (!level) reasons.push('Chưa được đào tạo vị trí này');
     if (onLeave.has(c.id)) reasons.push('Đang xin nghỉ ngày này');
     const clash = (busy.get(c.id) || []).some((b) => shift.ranges.some((r) => overlaps(r, b)));

@@ -71,8 +71,8 @@ export default function (r, ctx) {
     const start = weekStart(anchor);
     const end = addDays(start, 6);
     const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
-    const rows = db.prepare(`SELECT a.*, s.name AS staff_name, t.name AS team_name, st.color, z.name AS zone_name
-      FROM assignments a JOIN staff s ON s.id = a.staff_id
+    const rows = db.prepare(`SELECT a.*, s.name AS staff_name, t.name AS team_name, st.color, z.name AS zone_name, p.name AS position_name
+      FROM assignments a JOIN staff s ON s.id = a.staff_id LEFT JOIN positions p ON p.id = a.position_id
       LEFT JOIN teams t ON t.id = a.team_id LEFT JOIN shift_templates st ON st.id = a.template_id LEFT JOIN zones z ON z.id = a.zone_id
       WHERE a.date BETWEEN ? AND ? ORDER BY a.date, a.start_min`).all(start, end);
     const leaves = db.prepare(`SELECT l.id, l.group_id, l.staff_id, l.status, l.replacement_id, l.date FROM leave_requests l
@@ -85,6 +85,7 @@ export default function (r, ctx) {
         group_id: a.group_id, staff_id: a.staff_id, staff_name: a.staff_name, team_id: a.team_id, team_name: a.team_name || '',
         date: a.date, label: a.label, note: a.note, template_id: a.template_id, color: a.color || '#64748b', segments: [],
         zone_id: a.zone_id, zone_name: a.zone_name || '', tables_text: a.tables_text || '',
+        position_id: a.position_id ?? null, position_name: a.position_name || '',
         leave: leaveByGroup.get(a.group_id) || null,
       };
       g.segments.push({ start_min: a.start_min, end_min: a.end_min, start: fmtHM(a.start_min), end: fmtHM(a.end_min) });
@@ -94,6 +95,7 @@ export default function (r, ctx) {
 
     // Cảnh báo thiếu người theo số tối thiểu của từng tổ
     const teams = db.prepare('SELECT id, name, min_staff FROM teams WHERE active = 1 ORDER BY sort, id').all();
+    const positions = db.prepare('SELECT p.id, p.name, p.team_id, p.min_staff FROM positions p JOIN teams t ON t.id = p.team_id WHERE p.active = 1 AND t.active = 1').all();
     const warnings = [];
     const coverage = {};
     for (const d of days) {
@@ -105,11 +107,18 @@ export default function (r, ctx) {
           warnings.push({ date: d, team_id: t.id, text: `${WEEKDAY[isoWeekday(d)]} ${d.slice(8)}/${d.slice(5, 7)}: ${t.name} có ${people.size}/${t.min_staff} người` });
         }
       }
+      for (const p of positions) {
+        const n = new Set(shifts.filter((s) => s.date === d && s.position_id === p.id && s.leave?.status !== 'approved').map((s) => s.staff_id)).size;
+        coverage[d][`p${p.id}`] = n;
+        if (p.min_staff && n < p.min_staff) {
+          warnings.push({ date: d, team_id: p.team_id, position_id: p.id, text: `${WEEKDAY[isoWeekday(d)]} ${d.slice(8)}/${d.slice(5, 7)}: ${p.name} có ${n}/${p.min_staff} người` });
+        }
+      }
     }
     return { week_start: start, days, shifts, coverage, warnings, published_at: Number(ctx.setting(`published:${start}`) || 0) };
   });
 
-  function createGroup(me, { staffId, date, teamId, segs, templateId, label, note, replaceGroup, zoneId = null, tablesText = '' }) {
+  function createGroup(me, { staffId, date, teamId, segs, templateId, label, note, replaceGroup, zoneId = null, tablesText = '', positionId = null }) {
     const st = ctx.staff(staffId);
     if (!st || !st.active) fail(404, 'Không tìm thấy nhân viên');
     const clock = ctx.clock();
@@ -119,9 +128,12 @@ export default function (r, ctx) {
       const range = rangeOf(clock, { date, ...s });
       if (mine.some((b) => overlaps(range, b))) fail(409, `${st.name} đã có ca trùng giờ ${fmtHM(s.start_min)}–${fmtHM(s.end_min)}`);
     }
-    const insert = db.prepare(`INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, template_id, label, note, created_by, created_at, zone_id, tables_text)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    for (const s of segs) insert.run(groupId, staffId, teamId ?? st.team_id, date, s.start_min, s.end_min, templateId, label, note, me.id, ctx.now(), zoneId, tablesText);
+    const team = teamId ?? st.team_id;
+    // Không chọn vị trí: dùng vị trí chính của người đó nếu cùng bộ phận
+    const pos = positionId ?? (st.position_id && team === st.team_id ? st.position_id : null);
+    const insert = db.prepare(`INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, template_id, label, note, created_by, created_at, zone_id, tables_text, position_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const s of segs) insert.run(groupId, staffId, team, date, s.start_min, s.end_min, templateId, label, note, me.id, ctx.now(), zoneId, tablesText, pos);
     return groupId;
   }
 
@@ -141,7 +153,8 @@ export default function (r, ctx) {
       if (!label) label = t.name;
     }
     const segs = parseSegments(segsInput);
-    return { staffId, date, teamId, templateId, label, note: v.text(body.note, { name: 'Ghi chú', max: 200 }), segs, ...ctx.readZone(body) };
+    const positionId = ctx.readPosition(body.position_id, teamId ?? ctx.staff(staffId)?.team_id);
+    return { staffId, date, teamId, templateId, label, note: v.text(body.note, { name: 'Ghi chú', max: 200 }), segs, positionId, ...ctx.readZone(body) };
   }
 
   r.post('/api/shifts', 'manager', ({ me, body }) => {
@@ -197,7 +210,7 @@ export default function (r, ctx) {
         const has = db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(first.staff_id, date);
         if (has) { skipped++; continue; }
         try {
-          createGroup(me, { staffId: first.staff_id, date, teamId: first.team_id, segs, templateId: first.template_id, label: first.label, note: first.note, zoneId: first.zone_id, tablesText: first.tables_text });
+          createGroup(me, { staffId: first.staff_id, date, teamId: first.team_id, segs, templateId: first.template_id, label: first.label, note: first.note, zoneId: first.zone_id, tablesText: first.tables_text, positionId: first.position_id });
           copied++;
         } catch {
           skipped++;

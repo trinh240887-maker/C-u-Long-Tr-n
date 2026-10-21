@@ -75,6 +75,8 @@ export function Home({ me }) {
     </div>
     ${!me.zalo_linked ? html`<${Link} href="/ho-so" class="card hint">Liên kết Zalo để nhận lịch ca và lời nhờ làm thay trên điện thoại →<//>` : null}
     <${ClockCard} />
+    ${(() => { const ps = (shifts.data || []).find((s) => s.date === me.today && s.position_name && !s.zone_name);
+      return ps ? html`<section class="card hint"><span>▸ Hôm nay bạn đứng vị trí <b>${ps.position_name}</b>${ps.team_name ? ` (${ps.team_name})` : ''} · ${ps.text}</span></section>` : null; })()}
     ${(() => { const z = (shifts.data || []).find((s) => s.date === me.today && s.zone_name);
       return z ? html`<${Link} href="/ban" class="card hint"><span>📍 Hôm nay bạn phụ trách <b>${z.zone_name}</b>${z.tables_text ? `, bàn ${z.tables_text}` : ' (cả khu)'} · ${z.text}. Xem sơ đồ bàn →</span><//>` : null; })()}
     <${Offers} />
@@ -87,7 +89,7 @@ export function Home({ me }) {
     <section class="card">
       <div class="row between"><h3>Checklist hôm nay</h3><${Link} href="/checklist">Mở checklist<//></div>
       ${lists.data?.runs?.length ? html`<div class="progress-list">${lists.data.runs.map((r) => html`<${Link} href=${`/checklist#run-${r.run_id}`} class="prog">
-          <span class="grow"><b>${r.title}</b><small class="muted"> ${r.team_name}${r.shift_name ? ` · ${r.shift_name}` : ''} · ${PHASE_LABEL[r.phase]}</small></span>
+          <span class="grow"><b>${r.title}</b><small class="muted"> ${r.team_name}${r.position_name ? ` · ${r.position_name}` : ''}${r.shift_name ? ` · ${r.shift_name}` : ''} · ${PHASE_LABEL[r.phase]}</small></span>
           <span class=${`pill ${r.done === r.total ? 'ok' : ''}`}>${r.done}/${r.total}</span><//>`)}</div>`
         : html`<p class="muted">Không có checklist cho tổ của bạn hôm nay.</p>`}
     </section>
@@ -105,7 +107,7 @@ export function Home({ me }) {
       <div class="row between"><h3>Ca của tôi 7 ngày tới</h3><${Link} href="/lich">Lịch cả quán<//></div>
       ${shifts.data?.length ? shifts.data.map((s) => html`<div class="shift-line">
           <span class="date">${dayLabel(s.date)}</span>
-          <span class="grow"><b>${s.text}</b>${s.label ? html` <small class="muted">${s.label}</small>` : null}${s.zone_name ? html`<br /><small class="zone-tag">📍 ${s.zone_name}${s.tables_text ? ` · bàn ${s.tables_text}` : ' · cả khu'}</small>` : null}${s.team_name ? html`<br /><small class="muted">${s.team_name}${s.note ? ` · ${s.note}` : ''}</small>` : null}</span>
+          <span class="grow"><b>${s.text}</b>${s.label ? html` <small class="muted">${s.label}</small>` : null}${s.position_name ? html` <small class="pos-tag">▸ ${s.position_name}</small>` : null}${s.zone_name ? html`<br /><small class="zone-tag">📍 ${s.zone_name}${s.tables_text ? ` · bàn ${s.tables_text}` : ' · cả khu'}</small>` : null}${s.team_name ? html`<br /><small class="muted">${s.team_name}${s.note ? ` · ${s.note}` : ''}</small>` : null}</span>
           ${s.leave?.status === 'pending' ? html`<span class="pill warn">Chờ duyệt nghỉ</span>`
             : s.leave?.status === 'approved' ? html`<span class="pill">Đã nghỉ</span>`
             : html`<button class="small" onClick=${() => setLeaveFor(s)}>Xin nghỉ</button>`}

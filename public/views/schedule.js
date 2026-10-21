@@ -1,10 +1,11 @@
 import { useState } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, dayLabel, addDays, atLeast, navigate, Link } from '../ui.js';
 
-function ShiftForm({ init, staff, teams, templates, zones, onClose }) {
+function ShiftForm({ init, staff, teams, templates, zones, positions = [], onClose }) {
   const person = staff.find((s) => s.id === init.staff_id);
   const [f, setF] = useState({
     staff_id: init.staff_id, date: init.date, team_id: init.team_id ?? person?.team_id ?? '',
+    position_id: init.position_id ?? ((init.team_id ?? person?.team_id) === person?.team_id ? person?.position_id ?? '' : ''),
     template_id: init.template_id ?? '', label: init.label ?? '', note: init.note ?? '', zone_id: init.zone_id ?? '', tables_text: init.tables_text ?? '',
     segments: init.segments?.map((s) => ({ start: s.start, end: s.end })) ?? [{ start: '', end: '' }],
   });
@@ -13,7 +14,7 @@ function ShiftForm({ init, staff, teams, templates, zones, onClose }) {
   const pick = (t) => setF({ ...f, template_id: t.id, label: t.name, segments: t.segments.map((s) => ({ ...s })) });
   const seg = (i, k, v) => setF({ ...f, template_id: '', segments: f.segments.map((s, j) => (j === i ? { ...s, [k]: v } : s)) });
   const save = async () => {
-    const body = { ...f, team_id: f.team_id || null, template_id: f.template_id || null, zone_id: f.zone_id || null, tables_text: f.zone_id ? f.tables_text : '', replace_group_id: init.group_id || undefined };
+    const body = { ...f, team_id: f.team_id || null, position_id: f.position_id || null, template_id: f.template_id || null, zone_id: f.zone_id || null, tables_text: f.zone_id ? f.tables_text : '', replace_group_id: init.group_id || undefined };
     if (await act(() => api('POST', '/api/shifts', body), init.group_id ? 'Đã sửa ca' : 'Đã xếp ca')) onClose();
   };
   return html`<${Modal} title=${init.group_id ? 'Sửa ca' : 'Xếp ca'} onClose=${onClose}>
@@ -21,12 +22,17 @@ function ShiftForm({ init, staff, teams, templates, zones, onClose }) {
       <div class="row">
         <${Field} label="Nhân viên"><select id="sf-staff" value=${f.staff_id} onChange=${(e) => {
           const s = staff.find((x) => x.id === Number(e.target.value));
-          setF({ ...f, staff_id: Number(e.target.value), team_id: init.keepTeam ? f.team_id : s?.team_id ?? f.team_id });
+          const team = init.keepTeam ? f.team_id : s?.team_id ?? f.team_id;
+          setF({ ...f, staff_id: Number(e.target.value), team_id: team, position_id: Number(team) === s?.team_id ? s?.position_id ?? '' : '' });
         }}>${staff.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
         <${Field} label="Ngày"><input id="sf-date" type="date" value=${f.date} onInput=${(e) => set('date', e.target.value)} /><//>
       </div>
-      <${Field} label="Làm ở tổ"><select id="sf-team" value=${f.team_id} onChange=${(e) => set('team_id', e.target.value)}>
-        <option value="">(tổ chính của nhân viên)</option>${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
+      <div class="row">
+        <${Field} label="Bộ phận"><select id="sf-team" value=${f.team_id} onChange=${(e) => setF({ ...f, team_id: e.target.value, position_id: '' })}>
+          <option value="">(bộ phận của nhân viên)</option>${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
+        ${(() => { const ps = positions.filter((p) => p.team_id === Number(f.team_id || person?.team_id)); return ps.length ? html`<${Field} label="Vị trí ca này"><select id="sf-pos" value=${f.position_id} onChange=${(e) => set('position_id', e.target.value)}>
+          <option value="">(chưa chọn)</option>${ps.map((p) => html`<option value=${p.id}>${p.name}${(staff.find((x) => x.id === Number(f.staff_id))?.position_id === p.id) ? ' (vị trí chính)' : ''}</option>`)}</select><//>` : null; })()}
+      </div>
       ${templates.length ? html`<div class="field"><span>Chọn nhanh loại ca</span><div class="chips">
         ${templates.filter((t) => t.active).map((t) => html`<button type="button" class=${`chip ${Number(f.template_id) === t.id ? 'on' : ''}`} onClick=${() => pick(t)}>
           <i class="sw" style=${`background:${t.color}`}></i>${t.name} <small>${t.segments.map((s) => `${s.start}–${s.end}`).join(' + ')}</small></button>`)}
@@ -41,7 +47,7 @@ function ShiftForm({ init, staff, teams, templates, zones, onClose }) {
         ${f.segments.length < 4 ? html`<button type="button" class="link" onClick=${() => setF({ ...f, template_id: '', segments: [...f.segments, { start: '', end: '' }] })}>+ Thêm khúc (ca gãy)</button>` : null}
         <small class="muted">Giờ kết thúc nhỏ hơn giờ bắt đầu nghĩa là qua ngày hôm sau (vd 17:00 đến 00:30).</small>
       </div>
-      ${zones.length ? html`<div class="row">
+      ${zones.length && !positions.some((p) => p.team_id === Number(f.team_id || person?.team_id)) ? html`<div class="row">
         <${Field} label="Khu phụ trách"><select id="sf-zone" value=${f.zone_id} onChange=${(e) => set('zone_id', e.target.value)}>
           <option value="">(không phụ trách khu)</option>${zones.map((z) => html`<option value=${z.id}>${z.name} (bàn ${z.tables_text})</option>`)}</select><//>
         ${f.zone_id ? html`<${Field} label="Bàn phụ trách" hint="Để trống = cả khu. Ghi kiểu 1-10, 15"><input id="sf-tables" value=${f.tables_text} placeholder="cả khu" onInput=${(e) => set('tables_text', e.target.value)} /><//>` : null}
@@ -63,7 +69,7 @@ function ShiftForm({ init, staff, teams, templates, zones, onClose }) {
 function ShiftChip({ s, onClick, mine }) {
   const leave = s.leave?.status;
   return html`<button class=${`shift ${leave ? `lv-${leave}` : ''} ${mine ? 'mine' : ''}`} style=${`--c:${s.color}`} onClick=${onClick} disabled=${!onClick}>
-    <b>${s.text}</b>${s.label ? html`<small>${s.label}</small>` : null}${s.zone_name ? html`<small class="zone-tag">📍 ${s.zone_name}${s.tables_text ? ` · bàn ${s.tables_text}` : ''}</small>` : null}${leave === 'approved' ? html`<small>Nghỉ</small>` : leave === 'pending' ? html`<small>Xin nghỉ</small>` : null}
+    <b>${s.text}</b>${s.label ? html`<small>${s.label}</small>` : null}${s.position_name ? html`<small class="pos-tag">▸ ${s.position_name}</small>` : null}${s.zone_name ? html`<small class="zone-tag">📍 ${s.zone_name}${s.tables_text ? ` · bàn ${s.tables_text}` : ''}</small>` : null}${leave === 'approved' ? html`<small>Nghỉ</small>` : leave === 'pending' ? html`<small>Xin nghỉ</small>` : null}
   </button>`;
 }
 
@@ -89,8 +95,9 @@ export function hourlyCoverage(shifts, day, prevDay, key = 'team_id') {
   return rows;
 }
 
-function HourCoverage({ shifts, day, prevDay, teams, zones = [] }) {
+function HourCoverage({ shifts, day, prevDay, teams, zones = [], positions = [] }) {
   const rows = hourlyCoverage(shifts, day, prevDay);
+  const prows = hourlyCoverage(shifts, day, prevDay, 'position_id');
   const zrows = hourlyCoverage(shifts, day, prevDay, 'zone_id');
   const counts = (r) => r.map((set) => set.size);
   const total = Array.from({ length: 24 }, (_, h) => [...rows.values()].reduce((n, r) => n + r[h].size, 0));
@@ -110,7 +117,8 @@ function HourCoverage({ shifts, day, prevDay, teams, zones = [] }) {
     <div class="grid-wrap"><table class="hours">
       <thead><tr><th class="who">Tổ</th>${hours.map((h) => html`<th>${h}h</th>`)}</tr></thead>
       <tbody>
-        ${teams.filter((t) => rows.has(t.id)).map((t) => html`<tr><td class="who">${t.name}</td>${hours.map((h) => cell(counts(rows.get(t.id))[h], t.min_staff))}</tr>`)}
+        ${teams.filter((t) => rows.has(t.id)).map((t) => html`<tr><td class="who">${t.name}</td>${hours.map((h) => cell(counts(rows.get(t.id))[h], t.min_staff))}</tr>
+          ${positions.filter((p) => p.team_id === t.id && prows.has(p.id)).map((p) => html`<tr class="pr"><td class="who">↳ ${p.name}</td>${hours.map((h) => cell(prows.get(p.id)[h].size, p.min_staff))}</tr>`)}`)}
         ${rows.has(null) ? html`<tr><td class="who">Chưa có tổ</td>${hours.map((h) => cell(rows.get(null)[h].size, 0))}</tr>` : null}
         <tr class="sum"><td class="who">Cả quán</td>${hours.map((h) => cell(total[h], 0, true))}</tr>
         ${zones.filter((z) => zrows.has(z.id)).map((z) => html`<tr class="zr"><td class="who">📍 ${z.name}</td>${hours.map((h) => cell(zrows.get(z.id)[h].size, 0))}</tr>`)}
@@ -125,6 +133,8 @@ export function Schedule({ me, query }) {
   const staff = useData('/api/staff');
   const tpl = useData('/api/shift-templates');
   const zonesD = useData('/api/zones');
+  const posD = useData('/api/positions');
+  const positions = posD.data || [];
   const [edit, setEdit] = useState(null);
   const [mode, setMode] = useState(() => (window.innerWidth < 760 ? 'day' : 'week'));
   const [day, setDay] = useState(me.today);
@@ -156,7 +166,8 @@ export function Schedule({ me, query }) {
   const shiftTeam = (p, s) => s.team_id ?? p.team_id ?? null;
   const groups = [...teams.map((t) => ({ ...t,
     people: staff.data.filter((p) => p.active !== false && p.team_id === t.id),
-    helpers: staff.data.filter((p) => p.active !== false && p.team_id !== t.id && (p.skills || []).some((k) => k.team_id === t.id)) })),
+    helpers: staff.data.filter((p) => p.active !== false && p.team_id !== t.id && ((p.skills || []).some((k) => k.team_id === t.id)
+      || (p.pskills || []).some((k) => positions.some((x) => x.id === k.position_id && x.team_id === t.id)))) })),
     { id: null, name: 'Chưa có tổ', people: staff.data.filter((p) => p.active !== false && !p.team_id && p.role !== 'owner'), helpers: [] }]
     .filter((g) => g.id !== null || g.people.length || staff.data.some((p) => (byCell.get(`${p.id}:${activeDay}`) || []).some((s) => shiftTeam(p, s) === null)));
 
@@ -202,7 +213,7 @@ export function Schedule({ me, query }) {
         </tr>`)}`)}
       </tbody></table></div>`
     : html`<div class="daytabs">${d.days.map((x) => html`<button class=${`${x === activeDay ? 'on' : ''} ${x === me.today ? 'today' : ''}`} onClick=${() => setDay(x)}>${dayLabel(x)}</button>`)}</div>
-      <${HourCoverage} shifts=${d.shifts} day=${activeDay} prevDay=${addDays(activeDay, -1)} teams=${teams} zones=${zonesD.data || []} />
+      <${HourCoverage} shifts=${d.shifts} day=${activeDay} prevDay=${addDays(activeDay, -1)} teams=${teams} zones=${zonesD.data || []} positions=${positions} />
       ${groups.map((g) => {
         const people = g.people.map((p) => ({ p, cell: byCell.get(`${p.id}:${activeDay}`) || [] }));
         const on = staff.data.map((p) => ({ p, cell: (byCell.get(`${p.id}:${activeDay}`) || []).filter((s) => shiftTeam(p, s) === g.id) })).filter((x) => x.cell.length);
@@ -210,6 +221,10 @@ export function Schedule({ me, query }) {
         const min = teams.find((t) => t.id === g.id)?.min_staff;
         return html`<section class="card">
           <div class="row between"><h3>${g.name}</h3><span class=${`pill ${min && (d.coverage[activeDay]?.[g.id] ?? 0) < min ? 'warn' : ''}`}>${g.id ? d.coverage[activeDay]?.[g.id] ?? 0 : on.length}${min ? `/${min}` : ''} người</span></div>
+          ${g.id && positions.some((p) => p.team_id === g.id) ? html`<div class="chips pos-sum">${positions.filter((p) => p.team_id === g.id).map((p) => {
+            const n = d.coverage[activeDay]?.[`p${p.id}`] ?? 0;
+            return html`<span class=${`pill ${p.min_staff && n < p.min_staff ? 'warn' : n ? 'ok' : 'muted'}`}>${p.name} ${n}${p.min_staff ? `/${p.min_staff}` : ''}</span>`;
+          })}</div>` : null}
           ${!g.people.length && g.id ? html`<p class="muted small">Tổ này chưa có nhân viên nào. Gán người vào tổ ở <${Link} href="/so-do" class="btn-link">Sơ đồ tổ chức<//> hoặc khi sửa nhân viên (mục Tổ / kỹ năng phụ).</p>` : null}
           ${on.map(({ p, cell }) => html`<div class="person"><span class="grow"><b>${p.name}</b>${p.team_id !== g.id && g.id ? html` <small class="muted">(tăng cường)</small>` : null}<${DayBadge} pid=${p.id} date=${activeDay} /></span>
             <div class="row">${cell.map((s) => html`<${ShiftChip} s=${s} mine=${p.id === me.id} onClick=${canEdit ? () => setEdit(s) : null} />`)}</div></div>`)}
@@ -220,6 +235,6 @@ export function Schedule({ me, query }) {
         </section>`;
       })}`}
 
-    ${edit ? html`<${ShiftForm} init=${edit} staff=${staff.data.filter((s) => s.active)} teams=${teams} templates=${tpl.data || []} zones=${zonesD.data || []} onClose=${() => setEdit(null)} />` : null}
+    ${edit ? html`<${ShiftForm} init=${edit} staff=${staff.data.filter((s) => s.active)} teams=${teams} templates=${tpl.data || []} zones=${zonesD.data || []} positions=${positions} onClose=${() => setEdit(null)} />` : null}
   </div>`;
 }

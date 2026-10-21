@@ -381,3 +381,11 @@ table.hours tr.sum td.who { color: var(--accent); }
 .zone-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
 .zone-row input[type="color"] { width: 44px; height: 40px; }
 table.hours tr.zr td.who { color: var(--muted); }
+
+/* Bộ phận & vị trí */
+.pos-tag { color: var(--ink) !important; font-weight: 600; }
+.pos-sum { gap: 6px; margin: 2px 0 6px; }
+.dept { border-top: 1px solid var(--line); padding-top: 8px; }
+.pos-list { padding-left: 14px; display: grid; gap: 6px; margin-top: 6px; }
+.pos-row input.grow { min-width: 0; }
+table.hours tr.pr td.who { color: var(--muted); padding-left: 14px; }

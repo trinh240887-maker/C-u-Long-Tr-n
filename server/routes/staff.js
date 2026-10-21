@@ -8,7 +8,10 @@ export default function (r, ctx) {
   const teamExists = (id) => id === null || db.prepare('SELECT 1 FROM teams WHERE id = ?').get(id);
 
   // ---------- Tổ ----------
-  r.get('/api/teams', 'staff', () => db.prepare('SELECT * FROM teams ORDER BY active DESC, sort, id').all());
+  r.get('/api/teams', 'staff', () => {
+    const pos = db.prepare('SELECT * FROM positions WHERE active = 1 ORDER BY sort, id').all();
+    return db.prepare('SELECT * FROM teams ORDER BY active DESC, sort, id').all().map((t) => ({ ...t, positions: pos.filter((p) => p.team_id === t.id) }));
+  });
 
   r.post('/api/teams', 'manager', ({ me, body }) => {
     const name = v.text(body.name, { name: 'Tên tổ', required: true, max: 40 });
@@ -36,14 +39,17 @@ export default function (r, ctx) {
   // ---------- Nhân viên ----------
   function listStaff(me, { includeInactive = false } = {}) {
     const canSeePay = rank(me.role) >= rank('manager');
-    const rows = db.prepare(`SELECT s.*, t.name AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id
+    const rows = db.prepare(`SELECT s.*, t.name AS team_name, p.name AS position_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN positions p ON p.id = s.position_id
       ${includeInactive ? '' : 'WHERE s.active = 1'} ORDER BY s.active DESC, ${rankSql()} DESC, t.sort, s.name`).all();
     const skills = db.prepare('SELECT staff_id, team_id, level FROM staff_skills').all();
+    const pskills = db.prepare('SELECT staff_id, position_id, level FROM position_skills').all();
     return rows.map((s) => ({
       id: s.id, name: s.name, phone: rank(me.role) >= rank('team_lead') ? s.phone : '',
       role: s.role, role_label: ROLE_LABEL[s.role], team_id: s.team_id, team_name: s.team_name || '',
       active: !!s.active, zalo_linked: !!s.zalo_user_id, weekly_limit_hours: s.weekly_limit_hours,
+      position_id: s.position_id ?? null, position_name: s.position_name || '',
       skills: skills.filter((k) => k.staff_id === s.id).map(({ team_id, level }) => ({ team_id, level })),
+      pskills: pskills.filter((k) => k.staff_id === s.id).map(({ position_id, level }) => ({ position_id, level })),
       ...(canSeePay ? { pay_type: s.pay_type, pay_rate: s.pay_rate, zalo_user_id: s.zalo_user_id } : {}),
     }));
   }
@@ -61,11 +67,13 @@ export default function (r, ctx) {
     const role = body.role === undefined ? current.role ?? 'staff' : v.oneOf(body.role, ROLES, { name: 'Vai trò' });
     let teamId = body.team_id === undefined ? current.team_id ?? null : v.optInt(body.team_id, { min: 1, name: 'Tổ' });
     if (!teamExists(teamId)) fail(400, 'Tổ không tồn tại');
+    const positionId = body.position_id === undefined && body.team_id === undefined ? current.position_id ?? null
+      : teamId ? ctx.readPosition(body.position_id === undefined ? current.position_id : body.position_id, teamId) : null;
     const payType = body.pay_type === undefined ? current.pay_type ?? 'hour' : v.oneOf(body.pay_type, ['hour', 'shift', 'month'], { name: 'Cách tính lương' });
     const payRate = body.pay_rate === undefined ? current.pay_rate ?? 0 : v.int(body.pay_rate, { min: 0, max: 100_000_000, name: 'Mức lương' });
     const limit = body.weekly_limit_hours === undefined ? current.weekly_limit_hours ?? 48 : v.int(body.weekly_limit_hours, { min: 1, max: 100, name: 'Giới hạn giờ/tuần' });
     const zalo = body.zalo_user_id === undefined ? current.zalo_user_id ?? '' : v.text(body.zalo_user_id, { name: 'Zalo user ID', max: 64 });
-    return { name, phone, role, teamId, payType, payRate, limit, zalo };
+    return { name, phone, role, teamId, positionId, payType, payRate, limit, zalo };
   }
 
   function saveSkills(staffId, skills) {
@@ -79,6 +87,13 @@ export default function (r, ctx) {
     }
   }
 
+  function savePositionSkills(staffId, list) {
+    if (!Array.isArray(list)) return;
+    db.prepare('DELETE FROM position_skills WHERE staff_id = ?').run(staffId);
+    const add = db.prepare('INSERT OR REPLACE INTO position_skills (staff_id, position_id, level) VALUES (?, ?, ?)');
+    for (const s of list) add.run(staffId, ctx.readPosition(s.position_id), v.int(s.level ?? 1, { min: 1, max: 3, name: 'Mức kỹ năng' }));
+  }
+
   r.post('/api/staff', 'manager', ({ me, body }) => {
     const f = staffFields(body);
     if (!canManage(me, f.role)) fail(403, `Bạn không thể tạo tài khoản ${ROLE_LABEL[f.role]}`);
@@ -87,6 +102,8 @@ export default function (r, ctx) {
       const id = Number(db.prepare(`INSERT INTO staff (name, phone, role, team_id, pin_lookup, pay_type, pay_rate, weekly_limit_hours, zalo_user_id, must_change_pin, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`).run(f.name, f.phone, f.role, f.teamId, lookup, f.payType, f.payRate, f.limit, f.zalo, ctx.now()).lastInsertRowid);
       saveSkills(id, body.skills);
+      savePositionSkills(id, body.pskills);
+      db.prepare('UPDATE staff SET position_id = ? WHERE id = ?').run(f.positionId, id);
       return id;
     });
     ctx.audit(me, 'staff.create', { id, name: f.name, role: f.role });
@@ -109,6 +126,8 @@ export default function (r, ctx) {
       db.prepare(`UPDATE staff SET name = ?, phone = ?, role = ?, team_id = ?, pay_type = ?, pay_rate = ?, weekly_limit_hours = ?, zalo_user_id = ?, active = ? WHERE id = ?`)
         .run(f.name, f.phone, f.role, f.teamId, f.payType, f.payRate, f.limit, f.zalo, active, cur.id);
       saveSkills(cur.id, body.skills);
+      savePositionSkills(cur.id, body.pskills);
+      db.prepare('UPDATE staff SET position_id = ? WHERE id = ?').run(f.positionId, cur.id);
       if (body.pin) {
         db.prepare('UPDATE staff SET pin_lookup = ?, must_change_pin = 1 WHERE id = ?').run(validatePin(db, body.pin, f.role, cur.id), cur.id);
       }

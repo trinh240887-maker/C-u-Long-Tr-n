@@ -47,7 +47,7 @@ export function Dashboard() {
         ${d.teams.filter((t) => t.people.length).map((t) => html`<div class="team-block">
           <div class="team-name">${t.name} <small class="muted">${t.people.filter((p) => p.status !== 'leave').length}${t.min_staff ? `/${t.min_staff}` : ''}</small></div>
           ${t.people.map((p) => html`<div class="person">
-            <span class="grow"><b>${p.staff_name}</b> <small class="muted">${p.text}${p.zone_name ? ` · 📍 ${p.zone_name}${p.tables_text ? ` bàn ${p.tables_text}` : ''}` : ''}</small>
+            <span class="grow"><b>${p.staff_name}</b> <small class="muted">${p.text}${p.position_name ? ` · ${p.position_name}` : ''}${p.zone_name ? ` · 📍 ${p.zone_name}${p.tables_text ? ` bàn ${p.tables_text}` : ''}` : ''}</small>
               ${p.leave_pending ? html` <small class="pill warn">xin nghỉ</small>` : null}
               ${p.late_minutes ? html` <small class="bad-text">trễ ${p.late_minutes}′</small>` : null}</span>
             <span class=${`pill ${STATUS[p.status][1]}`}>${STATUS[p.status][0]}${p.status === 'working' && p.clock_in ? ` ${hm(p.clock_in)}` : ''}</span>

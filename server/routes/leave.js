@@ -19,7 +19,7 @@ export default function (r, ctx) {
     const segs = groupSegments(db, groupId);
     if (!segs.length) return null;
     const team = segs[0].team_id ? db.prepare('SELECT name FROM teams WHERE id = ?').get(segs[0].team_id) : null;
-    return { date: segs[0].date, team_id: segs[0].team_id, team_name: team?.name || '', label: segs[0].label, text: describeGroup(segs), segments: segs };
+    return { date: segs[0].date, team_id: segs[0].team_id, position_id: segs[0].position_id ?? null, team_name: team?.name || '', label: segs[0].label, text: describeGroup(segs), segments: segs };
   }
 
   function canSee(me, leave) {
@@ -87,12 +87,16 @@ export default function (r, ctx) {
     const info = shiftInfo(l.group_id);
     if (!info) fail(404, 'Ca của đơn này không còn');
     const clock = ctx.clock();
-    const candidates = db.prepare("SELECT id, name, team_id, weekly_limit_hours FROM staff WHERE active = 1 AND role != 'owner'").all();
+    const candidates = db.prepare("SELECT id, name, team_id, position_id, weekly_limit_hours FROM staff WHERE active = 1 AND role != 'owner'").all();
     const skills = db.prepare('SELECT staff_id, team_id, level FROM staff_skills').all();
-    for (const c of candidates) c.skills = Object.fromEntries(skills.filter((k) => k.staff_id === c.id).map((k) => [k.team_id, k.level]));
+    const pskills = db.prepare('SELECT staff_id, position_id, level FROM position_skills').all();
+    for (const c of candidates) {
+      c.skills = Object.fromEntries(skills.filter((k) => k.staff_id === c.id).map((k) => [k.team_id, k.level]));
+      c.pskills = Object.fromEntries(pskills.filter((k) => k.staff_id === c.id).map((k) => [k.position_id, k.level]));
+    }
     const onLeave = new Set(db.prepare("SELECT staff_id FROM leave_requests WHERE date = ? AND status IN ('pending','approved') AND id != ?").all(info.date, l.id).map((x) => x.staff_id));
     const list = suggestReplacements({
-      shift: { team_id: info.team_id ?? l.staff_team, ranges: info.segments.map((s) => rangeOf(clock, s)) },
+      shift: { team_id: info.team_id ?? l.staff_team, position_id: info.position_id, ranges: info.segments.map((s) => rangeOf(clock, s)) },
       candidates,
       busy: busyAround(db, clock, info.date),
       onLeave,
@@ -180,12 +184,12 @@ export default function (r, ctx) {
         const c = candidates.find((x) => x.staff_id === replacementId);
         if (!c?.eligible) fail(409, `Không xếp được người này: ${c?.reasons.join(', ') || 'không phù hợp'}`);
         const groupId = crypto.randomBytes(8).toString('hex');
-        const insert = db.prepare(`INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, template_id, label, note, created_by, created_at, zone_id, tables_text)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        const insert = db.prepare(`INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, template_id, label, note, created_by, created_at, zone_id, tables_text, position_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
         for (const s of info.segments) {
           const busy = busyAround(db, clock, info.date).get(replacementId) || [];
           if (busy.some((b) => overlaps(rangeOf(clock, s), b))) fail(409, 'Người làm thay vừa bị trùng ca');
-          insert.run(groupId, replacementId, s.team_id, s.date, s.start_min, s.end_min, s.template_id, s.label, `Làm thay ${l.staff_name}`, me.id, ctx.now(), s.zone_id, s.tables_text);
+          insert.run(groupId, replacementId, s.team_id, s.date, s.start_min, s.end_min, s.template_id, s.label, `Làm thay ${l.staff_name}`, me.id, ctx.now(), s.zone_id, s.tables_text, s.position_id ?? null);
         }
         db.prepare("UPDATE cover_offers SET status = CASE WHEN staff_id = ? THEN 'accepted' ELSE 'closed' END WHERE leave_id = ? AND status IN ('invited','accepted')").run(replacementId, l.id);
       } else {
