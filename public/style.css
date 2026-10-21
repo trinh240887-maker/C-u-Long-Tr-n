@@ -355,3 +355,13 @@ select.auto, input.auto { width: auto; max-width: 100%; }
 .recv-line { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); }
 
 .btn-link { display: inline-flex; align-items: center; min-height: 40px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--accent); font-weight: 600; }
+
+/* Số người theo giờ */
+table.hours { border-collapse: separate; border-spacing: 2px; font-size: 12.5px; min-width: 100%; }
+table.hours th { font-weight: 600; color: var(--muted); padding: 2px 4px; text-align: center; white-space: nowrap; }
+table.hours .who { position: sticky; left: 0; background: var(--panel); text-align: left; padding-right: 8px; white-space: nowrap; font-weight: 600; }
+td.hc { min-width: 30px; height: 30px; text-align: center; border-radius: 6px; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--accent) calc(var(--a, 0) * 100%), var(--panel-2)); }
+td.hc.zero { background: var(--panel-2); color: var(--muted); }
+td.hc.low { background: var(--warn-soft); color: var(--warn); outline: 1px solid color-mix(in srgb, var(--warn) 50%, transparent); }
+table.hours tr.sum td.who { color: var(--accent); }

@@ -62,6 +62,56 @@ function ShiftChip({ s, onClick, mine }) {
   </button>`;
 }
 
+
+// Số người theo từng giờ trong ngày (tính cả ca qua đêm từ hôm trước), mỗi tổ một hàng
+export function hourlyCoverage(shifts, day, prevDay) {
+  const rows = new Map();
+  const add = (teamId, staffId, fromMin, toMin) => {
+    for (let h = Math.max(0, Math.floor(fromMin / 60)); h < Math.min(24, Math.ceil(toMin / 60)); h++) {
+      if (Math.min(toMin, (h + 1) * 60) - Math.max(fromMin, h * 60) <= 0) continue;
+      const r = rows.get(teamId) || Array.from({ length: 24 }, () => new Set());
+      r[h].add(staffId);
+      rows.set(teamId, r);
+    }
+  };
+  for (const sh of shifts) {
+    if (sh.leave?.status === 'approved') continue;
+    for (const seg of sh.segments) {
+      if (sh.date === day) add(sh.team_id, sh.staff_id, seg.start_min, seg.end_min);
+      else if (sh.date === prevDay && seg.end_min > 1440) add(sh.team_id, sh.staff_id, 0, seg.end_min - 1440);
+    }
+  }
+  return rows;
+}
+
+function HourCoverage({ shifts, day, prevDay, teams }) {
+  const rows = hourlyCoverage(shifts, day, prevDay);
+  const counts = (r) => r.map((set) => set.size);
+  const total = Array.from({ length: 24 }, (_, h) => [...rows.values()].reduce((n, r) => n + r[h].size, 0));
+  const used = total.map((n, h) => (n ? h : null)).filter((h) => h !== null);
+  if (!used.length) return html`<section class="card"><h3>Số người theo giờ</h3><p class="muted small">Ngày này chưa xếp ca nào.</p></section>`;
+  const from = Math.min(...used);
+  const to = Math.max(...used);
+  const hours = Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  const max = Math.max(...total, 1);
+  const cell = (n, min, isTotal) => {
+    const tone = n === 0 ? 'zero' : !isTotal && min && n < min ? 'low' : '';
+    const alpha = n ? 0.15 + 0.6 * (n / (isTotal ? max : Math.max(min || 1, n))) : 0;
+    return html`<td class=${`hc ${tone}`} style=${tone ? '' : `--a:${Math.min(alpha, 0.75)}`}>${n || ''}</td>`;
+  };
+  return html`<section class="card">
+    <div class="row between"><h3>Số người theo giờ</h3><span class="muted small">ô vàng: ít hơn số tối thiểu của tổ</span></div>
+    <div class="grid-wrap"><table class="hours">
+      <thead><tr><th class="who">Tổ</th>${hours.map((h) => html`<th>${h}h</th>`)}</tr></thead>
+      <tbody>
+        ${teams.filter((t) => rows.has(t.id)).map((t) => html`<tr><td class="who">${t.name}</td>${hours.map((h) => cell(counts(rows.get(t.id))[h], t.min_staff))}</tr>`)}
+        ${rows.has(null) ? html`<tr><td class="who">Chưa có tổ</td>${hours.map((h) => cell(rows.get(null)[h].size, 0))}</tr>` : null}
+        <tr class="sum"><td class="who">Cả quán</td>${hours.map((h) => cell(total[h], 0, true))}</tr>
+      </tbody>
+    </table></div>
+  </section>`;
+}
+
 export function Schedule({ me, query }) {
   const week = query.get('week') || me.today;
   const st = useData(`/api/schedule?week=${week}`);
@@ -120,6 +170,7 @@ export function Schedule({ me, query }) {
         </tr>`)}`)}
       </tbody></table></div>`
     : html`<div class="daytabs">${d.days.map((x) => html`<button class=${`${x === activeDay ? 'on' : ''} ${x === me.today ? 'today' : ''}`} onClick=${() => setDay(x)}>${dayLabel(x)}</button>`)}</div>
+      <${HourCoverage} shifts=${d.shifts} day=${activeDay} prevDay=${addDays(activeDay, -1)} teams=${teams} />
       ${groups.map((g) => {
         const people = g.people.map((p) => ({ p, cell: byCell.get(`${p.id}:${activeDay}`) || [] }));
         const on = people.filter((x) => x.cell.length);
