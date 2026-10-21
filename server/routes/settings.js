@@ -1,10 +1,22 @@
 import { fail, v } from '../http.js';
 import { parseOffset, parseHM } from '../lib/time.js';
 import { runBackup, listBackups } from '../backup.js';
+import { readStatic } from '../lib/vietqr.js';
 
 const SECRET_KEYS = ['zalo_secret_key', 'zalo_access_token', 'zalo_refresh_token'];
 const FIELDS = {
   shop_name: (x) => v.text(x, { name: 'Tên quán', required: true, max: 80 }),
+  shop_address: (x) => v.text(x, { name: 'Địa chỉ quán', max: 160 }),
+  shop_phone: (x) => v.text(x, { name: 'SĐT quán', max: 20 }),
+  bank_name: (x) => v.text(x, { name: 'Tên ngân hàng', max: 40 }),
+  bank_qr: (x) => {
+    const s = v.text(x, { name: 'Mã QR ngân hàng', max: 512 });
+    if (!s) return '';
+    let info;
+    try { info = readStatic(s); } catch (e) { fail(400, e.message); }
+    if (!info.valid) fail(400, 'Mã QR sai mã kiểm tra, quét lại');
+    return s;
+  },
   public_url: (x) => {
     const s = v.text(x, { name: 'Địa chỉ truy cập từ xa', max: 200 });
     if (s && !/^https:\/\/[^\s/]+/.test(s)) fail(400, 'Địa chỉ truy cập từ xa phải bắt đầu bằng https://');

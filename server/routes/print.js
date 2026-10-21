@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { fail, v } from '../http.js';
 import { ticketBytes, testBytes } from '../lib/escpos.js';
+import { billQR } from '../lib/vietqr.js';
 
 // Cầu in: chương trình nhỏ chạy trên máy tính ở quán (cùng wifi với máy in).
 // Nó hỏi app mỗi 2 giây "có phiếu nào cần in?", nhận lệnh in đã dựng sẵn, gửi thẳng tới IP máy in (cổng 9100), rồi báo lại kết quả.
@@ -70,7 +71,7 @@ export default function (r, ctx) {
     for (const p of db.prepare("SELECT p.*, st.name, st.printer_ip, st.printer_port FROM print_tests p JOIN kitchen_stations st ON st.id = p.station_id WHERE p.status = 'pending'").all()) {
       if (!p.printer_ip) { db.prepare("UPDATE print_tests SET status = 'failed', error = 'Chưa nhập IP' WHERE id = ?").run(p.id); continue; }
       const t = [{ ip: p.printer_ip, port: p.printer_port || 9100, station: p.name }]; // in thử đúng máy, không chuyển dự phòng
-      jobs.push({ key: `p${p.id}`, station: p.name, targets: t, data: testBytes({ station: p.name, ip: p.printer_ip, time: hm(p.created_at) }).toString('base64') });
+      jobs.push({ key: `p${p.id}`, station: p.name, targets: t, data: testBytes({ station: p.name, ip: p.printer_ip, time: hm(p.created_at), qr: ctx.setting('bank_qr') ? billQR(ctx.setting('bank_qr'), { amount: 1000, content: 'IN THU' }) : '' }).toString('base64') });
     }
     return { jobs, stations: stations().filter((s) => s.printer_ip).map((s) => ({ id: s.id, name: s.name, ip: s.printer_ip, port: s.printer_port || 9100 })) };
   });

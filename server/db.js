@@ -531,6 +531,11 @@ const DEFAULT_SETTINGS = {
   utensil_reserve_pct: '10',    // dự phòng thêm
   avail_deadline_dow: '4',      // hạn báo lịch rảnh tuần sau: Thứ Năm
   avail_deadline_time: '21:00',
+  shop_address: 'Lô F13-80, Phường Rạch Giá, An Giang', // in trên bill
+  shop_phone: '0934030287',
+  // Mã VietQR tĩnh của tài khoản nhận tiền (đọc từ mã QR trên bill Sapo cũ); bill tự tạo mã có sẵn số tiền
+  bank_qr: '00020101021138630010A000000727013300069704070119MS00P000000016039960208QRIBFTTA53037045802VN8315P00000001603996840063049186',
+  bank_name: 'Techcombank',
 };
 
 function seedBase(db, now) {

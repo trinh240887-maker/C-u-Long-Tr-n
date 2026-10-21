@@ -499,3 +499,12 @@ button.primary.soft { opacity: .65; }
 .warn-card { border-color: #dc2626; background: color-mix(in srgb, #dc2626 8%, var(--panel)); }
 a.button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 1em; border-radius: 10px; border: 1px solid var(--line, #ccc); text-decoration: none; color: inherit; font-weight: 600; }
 a.button.primary { background: var(--accent, #2563eb); color: #fff; border-color: transparent; }
+
+/* Khuyến mãi */
+.promo-tag { display: block; margin-top: 2px; font-size: .75rem; font-weight: 700; color: #be185d; }
+.promo-line { color: #be185d; }
+.promo-note { flex-basis: 100%; font-size: .8rem; color: #be185d; }
+.promo-bar { padding: 8px 12px; border-radius: 10px; background: color-mix(in srgb, #db2777 12%, var(--panel)); color: #9d174d; font-weight: 600; }
+.totals { display: grid; gap: 4px; margin-top: 8px; }
+.promo-card { border-left: 4px solid #db2777; }
+.dim { opacity: .6; }

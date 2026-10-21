@@ -34,6 +34,16 @@ export function doc({ mode = 'khong_dau' } = {}) {
       if (cur.trim()) api.line(cur.trimEnd());
       return api;
     },
+    // Mã QR in bằng lệnh của máy (GS ( k), không cần ảnh. size 1–16 (chấm/ô)
+    qr: (data, size = 7) => {
+      const d = Buffer.from(String(data), 'utf8');
+      const n = d.length + 3;
+      cmd(GS, 0x28, 0x6b, 4, 0, 0x31, 0x41, 0x32, 0); // model 2
+      cmd(GS, 0x28, 0x6b, 3, 0, 0x31, 0x43, size);
+      cmd(GS, 0x28, 0x6b, 3, 0, 0x31, 0x45, 0x31); // sửa lỗi mức M
+      parts.push(Buffer.from([GS, 0x28, 0x6b, n & 0xff, n >> 8, 0x31, 0x50, 0x30]), d);
+      return cmd(GS, 0x28, 0x6b, 3, 0, 0x31, 0x51, 0x30);
+    },
     bytes: () => Buffer.concat(parts),
   };
   return api;
@@ -65,7 +75,7 @@ export function ticketBytes(t, { mode, time = '', by = '', lateMin = 0 } = {}) {
 }
 
 // Phiếu in thử: để chủ quán xem máy đọc được chữ có dấu không
-export function testBytes({ station = '', ip = '', time = '' } = {}) {
+export function testBytes({ station = '', ip = '', time = '', qr = '' } = {}) {
   const a = doc({ mode: 'khong_dau' });
   a.align('center').size(2, 2).bold(true).line('IN THU').size(1, 1).line(station).bold(false).line(`${ip}  ${time}`).rule();
   a.align('left').line('1) KHONG DAU: Ban 20 - 2 x Combo 2 - sot tieu den');
@@ -73,5 +83,6 @@ export function testBytes({ station = '', ip = '', time = '' } = {}) {
   b.line('2) CO DAU:  Bàn 20 - 2 x Combo 2 - sốt tiêu đen');
   const c = doc({ mode: 'khong_dau' });
   c.rule().line('Dong 2 doc dung -> bat "In co dau" trong Cai dat.').line('Dong 2 ra ky tu la -> giu che do khong dau.');
+  if (qr) c.rule().align('center').line('3) MA QR THU: quet bang app ngan hang').line('phai hien 1.000d, noi dung IN THU').qr(qr).line('').align('left');
   return Buffer.concat([a.bytes(), b.bytes().subarray(2), c.cut().bytes().subarray(2)]);
 }

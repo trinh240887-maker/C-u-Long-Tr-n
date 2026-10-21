@@ -27,7 +27,7 @@ export default function (r, ctx) {
       options: opts.filter((o) => o.item_id === i.id).map(({ id, group_name, name, price: p, required }) => ({ id, group_name, name, price: p, required: !!required })),
       recipe: recipes.filter((x) => x.item_id === i.id).map(({ ingredient_id, qty, ingredient_name, unit }) => ({ ingredient_id, qty, ingredient_name, unit })),
     }));
-    return { stations, categories: cats, items };
+    return { stations, categories: cats, items, promo: ctx.promoTags ? ctx.promoTags() : { tags: {}, bill: [] } };
   }
   ctx.menu = menu;
 

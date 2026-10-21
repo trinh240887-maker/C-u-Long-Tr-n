@@ -63,6 +63,7 @@ export function Home({ me }) {
   const lists = useData('/api/checklists');
   const tasks = useData('/api/tasks?status=open');
   const notes = useData('/api/notifications');
+  const promos = useData('/api/promotions');
   const must = ['staff', 'team_lead', 'shift_lead'].includes(me.role);
   const avail = useData(must ? '/api/availability/me' : null);
   const [leaveFor, setLeaveFor] = useState(null);
@@ -77,6 +78,8 @@ export function Home({ me }) {
     </div>
     ${!me.zalo_linked ? html`<${Link} href="/ho-so" class="card hint">Liên kết Zalo để nhận lịch ca và lời nhờ làm thay trên điện thoại →<//>` : null}
     <${ClockCard} />
+    ${(() => { const ps = (promos.data?.items || []).filter((p) => p.status === 'running' || p.status === 'upcoming');
+      return ps.length ? html`<${Link} href="/khuyen-mai" class="card promo-card stack"><b>🎁 Khuyến mãi</b>${ps.map((p) => html`<span><b>${p.name}</b>${p.status === 'upcoming' ? ' (sắp tới)' : ''}: ${p.summary}${p.note ? ` · ${p.note}` : ''}</span>`)}<//>` : null; })()}
     <${Link} href="/ban" class="card order-cta"><b>🍽 Order bàn</b><span>Bấm bàn trống để gọi món · đặt bàn ở Thêm → Đặt bàn →</span><//>
     ${avail.data && !avail.data.submitted_at ? html`<${Link} href="/ranh" class=${`card hint ${avail.data.late ? 'bad' : ''}`}><span>
       ◷ ${avail.data.late ? 'Đã quá hạn, bạn' : 'Bạn'} chưa báo <b>lịch rảnh tuần sau</b> (${avail.data.week_start.slice(8)}/${avail.data.week_start.slice(5, 7)}).

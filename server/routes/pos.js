@@ -1,6 +1,7 @@
 import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
 import { formatTableList, parseTableList } from '../lib/tables.js';
+import { applyPromos } from '../lib/promo.js';
 
 // GĐ3B: mở bàn, gọi món, gửi bếp (tạo phiếu theo điểm in), huỷ / làm lại, chuyển & gộp bàn
 const OPEN = ['open', 'paying'];
@@ -55,12 +56,19 @@ export default function (r, ctx) {
   function session(id) {
     const s = db.prepare('SELECT s.*, o.name AS opened_by_name FROM table_sessions s LEFT JOIN staff o ON o.id = s.opened_by WHERE s.id = ?').get(id);
     if (!s) fail(404, 'Không tìm thấy bàn');
-    const items = db.prepare(`SELECT i.*, c.name AS created_by_name FROM order_items i LEFT JOIN staff c ON c.id = i.created_by
-      WHERE i.session_id = ? ORDER BY i.id`).all(id).map(itemView);
+    const rows = db.prepare(`SELECT i.*, c.name AS created_by_name, m.category_id FROM order_items i LEFT JOIN staff c ON c.id = i.created_by
+      LEFT JOIN menu_items m ON m.id = i.menu_item_id WHERE i.session_id = ? ORDER BY i.id`).all(id).map(itemView);
+    // Khuyến mãi chỉ đổi tiền: tính lại mỗi lần xem bàn (huỷ / tách / gộp món thì tự đúng)
+    const pr = applyPromos(rows.filter((i) => i.status !== 'cancelled'), ctx.promosFor ? ctx.promosFor() : [], { clock: ctx.clock(), openedAt: s.opened_at || s.created_at });
+    const items = rows.map((i) => {
+      const promos = pr.lines.get(i.id) || [];
+      const discount = promos.reduce((n, x) => n + x.amount, 0);
+      return { ...i, promos, discount, net: i.total - discount };
+    });
     const live = items.filter((i) => i.status !== 'cancelled');
     return {
       ...s, priority: !!s.priority, tables: tablesOf(id), header: headerOf(id), items,
-      subtotal: live.reduce((n, i) => n + i.total, 0),
+      subtotal: pr.subtotal, item_discount: pr.item_discount, bill_promos: pr.bill, discount: pr.discount, total: pr.total,
       unsent: live.filter((i) => i.status === 'new').length,
       late: live.filter((i) => i.late_min > 0).length,
     };
@@ -214,7 +222,10 @@ export default function (r, ctx) {
         if (urgent && st?.priority_station_id) sid = st.priority_station_id;
         const key = `${sid}:${urgent ? 1 : 0}`;
         if (!byStation.has(key)) byStation.set(key, { station_id: sid, priority: urgent ? 1 : 0, lines: [] });
-        byStation.get(key).lines.push({ item_id: i.id, name: i.name, qty: i.qty, options: JSON.parse(i.options || '[]').map((o) => o.name), note: i.note, label: t.label, rush: !!i.rush });
+        const line = { item_id: i.id, name: i.name, qty: i.qty, options: JSON.parse(i.options || '[]').map((o) => o.name), note: i.note, label: t.label, rush: !!i.rush };
+        // Dòng giống hệt (cùng món, tuỳ chọn, ghi chú) thì cộng số lượng: bếp đọc 1 dòng "2 x" thay vì 2 dòng
+        const same = byStation.get(key).lines.find((l) => l.name === line.name && l.label === line.label && l.note === line.note && l.rush === line.rush && l.options.join('|') === line.options.join('|'));
+        if (same) same.qty += line.qty; else byStation.get(key).lines.push(line);
       }
     }
     return [...byStation.values()];

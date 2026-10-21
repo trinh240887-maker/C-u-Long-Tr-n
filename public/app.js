@@ -20,6 +20,7 @@ import { MenuView } from './views/menu.js';
 import { OrderView } from './views/order.js';
 import { ReservationsView } from './views/reservations.js';
 import { PrintersView } from './views/printers.js';
+import { PromotionsView } from './views/promotions.js';
 
 const NAV = [
   { path: '/', label: 'Hôm nay', icon: '◉', role: 'staff', main: true },
@@ -33,6 +34,7 @@ const NAV = [
   { path: '/thuc-don', label: 'Thực đơn', icon: '☰', role: 'team_lead' },
   { path: '/ranh', label: 'Lịch rảnh', icon: '◷', role: 'staff' },
   { path: '/duyet-anh', label: 'Duyệt ảnh', icon: '▣', role: 'team_lead' },
+  { path: '/khuyen-mai', label: 'Khuyến mãi', icon: '🎁', role: 'staff' },
   { path: '/may-in', label: 'Máy in', icon: '⎙', role: 'shift_lead' },
   { path: '/nghi', label: 'Nghỉ & thay ca', icon: '⇄', role: 'staff' },
   { path: '/cham-cong', label: 'Chấm công', icon: '⏱', role: 'shift_lead' },
@@ -173,7 +175,7 @@ function App() {
   const query = new URLSearchParams(path.split('?')[1] || '');
   const routes = {
     '/': Home, '/quan-ly': Dashboard, '/lich': Schedule, '/nhan-vien': StaffView, '/cham-cong': AttendanceView,
-    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/thuc-don': MenuView, '/goi-mon': OrderView, '/dat-ban': ReservationsView, '/may-in': PrintersView, '/cai-dat': SettingsView, '/ho-so': Profile,
+    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/thuc-don': MenuView, '/goi-mon': OrderView, '/dat-ban': ReservationsView, '/may-in': PrintersView, '/khuyen-mai': PromotionsView, '/cai-dat': SettingsView, '/ho-so': Profile,
   };
   const nav = NAV.find((n) => n.path === base);
   const View = routes[base] && (!nav || atLeast(me, nav.role)) ? routes[base] : Home;

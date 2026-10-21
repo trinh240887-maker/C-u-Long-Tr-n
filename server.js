@@ -22,11 +22,11 @@ app.ctx.notifier.start();
 // Sao lưu mỗi giờ, giữ 7 ngày; tự đóng ca quên chấm ra mỗi 5 phút
 const backup = () => { try { runBackup(db, backupDir); } catch (e) { console.error('Sao lưu lỗi:', e.message); } };
 backup();
-try { app.ctx.cleanupPhotos(); } catch (e) { console.error(e); }
+try { app.ctx.cleanupPhotos(); app.ctx.promoTick(); } catch (e) { console.error(e); }
 const timers = [
   setInterval(backup, 3600_000),
   setInterval(() => { try { app.ctx.autoCloseAttendance(); } catch (e) { console.error(e); } }, 5 * 60_000),
-  setInterval(() => { try { app.ctx.cleanupPhotos(); } catch (e) { console.error(e); } }, 3600_000),
+  setInterval(() => { try { app.ctx.cleanupPhotos(); app.ctx.promoTick(); } catch (e) { console.error(e); } }, 3600_000),
 ];
 
 const server = http.createServer(app.handler);
