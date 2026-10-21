@@ -86,6 +86,28 @@ test('gộp tổ Bếp steak + Lẩu thành bộ phận Bếp, xếp ca theo v�
   assert.ok(wk.warnings.some((w) => w.position_id === posSteak && w.date === '2026-10-20')); // Steak cần 2, ngày 20 không có ai
 });
 
+test('lần đầu chạy: tự gộp các tổ bếp (Bếp steak, Lẩu, topping, tiếp thực) thành bộ phận Bếp', async (t) => {
+  const now = at('2026-10-19', '09:00');
+  const db = openDb(':memory:', { now });
+  db.prepare("INSERT INTO teams (name, sort) VALUES ('topping', 7), ('tiếp thực', 8)").run();
+  const lau = db.prepare("SELECT id FROM teams WHERE name = 'Lẩu'").get().id;
+  db.prepare("INSERT INTO staff (name, role, team_id, created_at) VALUES ('Phát', 'team_lead', (SELECT id FROM teams WHERE name = 'tiếp thực'), 0), ('Dũng', 'staff', ?, 0)").run(lau);
+  const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  t.after(() => app.close());
+  const active = db.prepare('SELECT name FROM teams WHERE active = 1 ORDER BY sort, id').all().map((x) => x.name);
+  assert.deepEqual(active, ['Bếp', 'Bar', 'Phục vụ', 'Thu ngân', 'Tạp vụ']);
+  const bep = db.prepare("SELECT id FROM teams WHERE name = 'Bếp' AND active = 1").get().id;
+  const pos = db.prepare('SELECT name FROM positions WHERE team_id = ? AND active = 1 ORDER BY sort, id').all(bep).map((x) => x.name);
+  assert.deepEqual(pos, ['Steak', 'Lẩu', 'Topping', 'Tiếp thực', 'Nướng']);
+  const phat = db.prepare("SELECT s.team_id, p.name FROM staff s JOIN positions p ON p.id = s.position_id WHERE s.name = 'Phát'").get();
+  assert.equal(phat.team_id, bep);
+  assert.equal(phat.name, 'Tiếp thực');
+  // Chỉ gộp một lần: tạo lại tổ "Lẩu" sau đó thì không tự gộp nữa
+  db.prepare("INSERT INTO teams (name) VALUES ('Lẩu'), ('topping'), ('tiếp thực')").run();
+  createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } }).close();
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM teams WHERE name = 'Lẩu' AND active = 1").get().n, 1);
+});
+
 test('đọc và viết danh sách bàn', () => {
   assert.deepEqual(parseTableList('1-3, 5 7-8'), [1, 2, 3, 5, 7, 8]);
   assert.equal(formatTableList([8, 1, 2, 3, 5, 7]), '1-3, 5, 7-8');

@@ -42,20 +42,16 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
-  // Gộp nhiều tổ thành 1 bộ phận: mỗi tổ cũ thành 1 vị trí, người/ca/checklist/việc/kho chuyển theo.
-  r.post('/api/teams/combine', 'manager', ({ me, body }) => {
-    const name = v.text(body.name, { name: 'Tên bộ phận', required: true, max: 40 });
-    const ids = [...new Set((Array.isArray(body.team_ids) ? body.team_ids : []).map((x) => v.int(x, { min: 1, name: 'Tổ' })))];
-    if (!ids.length) fail(400, 'Chọn ít nhất 1 tổ để gộp');
-    const sources = ids.map((id) => db.prepare('SELECT * FROM teams WHERE id = ?').get(id) || fail(400, 'Tổ không tồn tại'));
-    const result = tx(db, () => {
+  // Gộp nhiều tổ thành 1 bộ phận (dùng cho nút Gộp và tự gộp tổ bếp lần đầu)
+  function combineTeams(name, sources, rename = {}) {
+    return tx(db, () => {
       // Bộ phận đích: tổ trùng tên nếu có, không thì lấy tổ đầu tiên đổi tên
       const target = db.prepare('SELECT * FROM teams WHERE name = ? AND active = 1').get(name) || sources[0];
       db.prepare('UPDATE teams SET name = ?, active = 1 WHERE id = ?').run(name, target.id);
       const moved = [];
       for (const t of sources) {
-        const existing = db.prepare('SELECT id FROM positions WHERE team_id = ? AND name = ? AND active = 1').get(target.id, t.name);
-        const posId = existing?.id ?? addPosition(target.id, t.name, t.min_staff);
+        const existing = db.prepare('SELECT id FROM positions WHERE team_id = ? AND name = ? AND active = 1').get(target.id, rename[t.name.trim().toLowerCase()] || t.name);
+        const posId = existing?.id ?? addPosition(target.id, rename[t.name.trim().toLowerCase()] || t.name, t.min_staff);
         const where = t.id === target.id ? 'team_id = ? AND position_id IS NULL' : 'team_id = ?';
         db.prepare(`UPDATE staff SET team_id = ?, position_id = ? WHERE ${where}`).run(target.id, posId, t.id);
         db.prepare(`UPDATE assignments SET team_id = ?, position_id = ? WHERE ${where}`).run(target.id, posId, t.id);
@@ -79,12 +75,40 @@ export default function (r, ctx) {
       db.prepare('UPDATE teams SET min_staff = MAX(min_staff, ?) WHERE id = ?').run(min, target.id);
       return { id: target.id, positions: moved };
     });
+  }
+
+  // Gộp nhiều tổ thành 1 bộ phận: mỗi tổ cũ thành 1 vị trí, người/ca/checklist/việc/kho chuyển theo.
+  r.post('/api/teams/combine', 'manager', ({ me, body }) => {
+    const name = v.text(body.name, { name: 'Tên bộ phận', required: true, max: 40 });
+    const ids = [...new Set((Array.isArray(body.team_ids) ? body.team_ids : []).map((x) => v.int(x, { min: 1, name: 'Tổ' })))];
+    if (!ids.length) fail(400, 'Chọn ít nhất 1 tổ để gộp');
+    const sources = ids.map((id) => db.prepare('SELECT * FROM teams WHERE id = ?').get(id) || fail(400, 'Tổ không tồn tại'));
+    const result = combineTeams(name, sources);
     ctx.audit(me, 'team.combine', { name, from: result.positions });
     ctx.broadcast('teams');
     ctx.broadcast('staff');
     ctx.broadcast('schedule');
     return result;
   });
+
+  // Tự gộp các tổ bếp cũ thành bộ phận "Bếp" một lần (chủ quán chốt 21/10: Bếp chọn chung, vị trí chia theo ca).
+  // Chỉ chạy khi có từ 3 tổ bếp trở lên, để không đụng dữ liệu mẫu/test.
+  const KITCHEN = { 'bếp': 'Bếp', 'bếp steak': 'Steak', 'steak': 'Steak', 'lẩu': 'Lẩu', 'nướng': 'Nướng', 'topping': 'Topping', 'thái tay': 'Thái tay', 'tiếp thực': 'Tiếp thực' };
+  if (!ctx.setting('kitchen_merged')) {
+    const found = db.prepare('SELECT * FROM teams WHERE active = 1 ORDER BY sort, id').all()
+      .filter((t) => KITCHEN[t.name.trim().toLowerCase()]);
+    if (found.length >= 3) {
+      // Tổ "Bếp" (nếu có) hoặc "Bếp steak" làm gốc để giữ kho và lịch sử
+      found.sort((x, y) => ['bếp', 'bếp steak'].indexOf(y.name.trim().toLowerCase()) - ['bếp', 'bếp steak'].indexOf(x.name.trim().toLowerCase()));
+      const res = combineTeams('Bếp', found, KITCHEN);
+      const bep = res.id;
+      if (!db.prepare("SELECT 1 FROM positions WHERE team_id = ? AND name = 'Nướng' AND active = 1").get(bep)) addPosition(bep, 'Nướng', 0);
+      // Tổ "Bếp" gốc không phải vị trí: bỏ vị trí trùng tên bộ phận nếu không ai dùng
+      db.prepare("UPDATE positions SET active = 0 WHERE team_id = ? AND name = 'Bếp' AND id NOT IN (SELECT position_id FROM staff WHERE position_id IS NOT NULL) AND id NOT IN (SELECT position_id FROM assignments WHERE position_id IS NOT NULL)").run(bep);
+      ctx.audit(null, 'team.combine.auto', res.positions);
+    }
+    ctx.setSetting('kitchen_merged', '1');
+  }
 
   // Kiểm tra vị trí khi xếp ca / lưu nhân viên: phải thuộc đúng bộ phận
   ctx.readPosition = (value, teamId) => {
