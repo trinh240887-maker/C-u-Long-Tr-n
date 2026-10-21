@@ -6,6 +6,7 @@ import { rank, ROLE_LABEL } from './db.js';
 import { makeClock } from './lib/time.js';
 import { createNotifier } from './notify/index.js';
 import authRoutes from './routes/auth.js';
+import printRoutes from './routes/print.js';
 import staffRoutes from './routes/staff.js';
 import scheduleRoutes from './routes/schedule.js';
 import attendanceRoutes from './routes/attendance.js';
@@ -66,7 +67,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   ctx.notify = (...args) => ctx.notifier.notify(...args);
 
   const router = createRouter();
-  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes]) {
+  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes, printRoutes]) {
     register(router, ctx);
   }
 
@@ -161,7 +162,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
         const body = req.method === 'GET' ? {} : await readJson(req);
         const out = await route.fn({ req, res, url, query: url.searchParams, params, body, me, token, net });
         if (out && out.__binary) {
-          res.writeHead(200, { 'Content-Type': out.type, 'Cache-Control': 'private, max-age=86400', 'Content-Length': out.__binary.length });
+          res.writeHead(200, { 'Content-Type': out.type, 'Cache-Control': out.filename ? 'no-store' : 'private, max-age=86400', 'Content-Length': out.__binary.length, ...(out.filename ? { 'Content-Disposition': `attachment; filename="${out.filename}"` } : {}) });
           return res.end(out.__binary);
         }
         return sendJson(res, 200, out ?? { ok: true });
