@@ -86,3 +86,62 @@ export function testBytes({ station = '', ip = '', time = '', qr = '' } = {}) {
   if (qr) c.rule().align('center').line('3) MA QR THU: quet bang app ngan hang').line('phai hien 1.000d, noi dung IN THU').qr(qr).line('').align('left');
   return Buffer.concat([a.bytes(), b.bytes().subarray(2), c.cut().bytes().subarray(2)]);
 }
+
+const vnd = (n) => Number(n || 0).toLocaleString('vi-VN');
+const lr = (l, r, w = WIDTH) => {
+  const L = String(l); const R = String(r);
+  const space = w - L.length - R.length;
+  return space >= 1 ? L + ' '.repeat(space) + R : `${L}\n${' '.repeat(Math.max(0, w - R.length))}${R}`;
+};
+
+// Bill khách (tạm tính trước khi trả, hoặc hoá đơn sau khi trả). b = dữ liệu từ payments.billData()
+export function billBytes(b, { mode } = {}) {
+  const d = doc({ mode });
+  const t = (s) => (mode === 'utf8' ? String(s) : noAccent(s)); // độ dài để canh lề
+  d.align('center').size(2, 2).bold(true).line(b.shop.name).size(1, 1).bold(false);
+  if (b.shop.address) d.wrap(b.shop.address);
+  if (b.shop.phone) d.line(`SĐT: ${b.shop.phone}`);
+  d.bold(true).size(1, 2).line(b.paid ? 'HOÁ ĐƠN THANH TOÁN' : 'PHIẾU TẠM TÍNH').size(1, 1).bold(false);
+  d.line(`Số: ${b.bill_no}`).align('left').rule();
+  d.bold(true).line(t(`Bàn: ${b.header}`)).bold(false);
+  d.line(t(lr(`Vào: ${b.opened}`, `In: ${b.printed}`)));
+  if (b.staff) d.line(t(`Phục vụ: ${b.staff}`));
+  if (b.cashier) d.line(t(`Thu ngân: ${b.cashier}`));
+  d.rule();
+  b.lines.forEach((l, k) => {
+    d.bold(true).wrap(t(`${k + 1}. ${l.name}`)).bold(false);
+    if (l.options) d.wrap(t(`   ${l.options}`));
+    d.line(t(lr(`   ${l.qty} x ${vnd(l.unit_price)}`, vnd(l.total))));
+    for (const p of l.promos) d.line(t(lr(`   KM ${p.name}${p.free_qty ? ` (tặng ${p.free_qty})` : ''}`.slice(0, 36), `-${vnd(p.amount)}`)));
+  });
+  d.rule();
+  d.line(t(lr(`Tiền hàng (${b.count})`, vnd(b.subtotal))));
+  if (b.item_discount) d.line(t(lr('Khuyến mãi món', `-${vnd(b.item_discount)}`)));
+  for (const p of b.bill_promos) d.line(t(lr(`KM ${p.name}`.slice(0, 36), `-${vnd(p.amount)}`)));
+  d.bold(true).size(1, 2).line(t(lr('TỔNG CỘNG', `${vnd(b.total)}đ`))).size(1, 1).bold(false);
+  if (b.paid) {
+    if (b.cash_amount) d.line(t(lr('Tiền mặt', vnd(b.cash_amount))));
+    if (b.transfer_amount) d.line(t(lr('Chuyển khoản', vnd(b.transfer_amount))));
+    if (b.cash_given) { d.line(t(lr('Khách đưa', vnd(b.cash_given)))); d.line(t(lr('Tiền thối', vnd(b.change)))); }
+    for (const r of b.refunds || []) d.line(t(lr(`Hoàn tiền mặt (${r.reason})`.slice(0, 36), `-${vnd(r.amount)}`)));
+  }
+  if (b.qr) {
+    d.rule().align('center').bold(true).line(t('QUÉT MÃ ĐỂ CHUYỂN KHOẢN')).bold(false);
+    d.qr(b.qr, 6).line('');
+    d.line(t(`${b.bank_name}  ·  ${vnd(b.qr_amount)}đ`)).bold(true).line(t(`Nội dung: ${b.transfer_note}`)).bold(false);
+  }
+  d.align('center').rule().line(t('Cảm ơn quý khách, hẹn gặp lại!'));
+  return d.cut().bytes();
+}
+
+// Phiếu hoàn tiền: khách ký nhận, quản lý giữ lại
+export function refundBytes(r, { mode } = {}) {
+  const d = doc({ mode });
+  const t = (s) => (mode === 'utf8' ? String(s) : noAccent(s));
+  d.align('center').size(1, 2).bold(true).line('PHIẾU HOÀN TIỀN').size(1, 1).bold(false).line(`Bill ${r.bill_no} · ${r.header}`).line(r.time).align('left').rule();
+  for (const l of r.lines) d.line(t(lr(`${l.qty} x ${l.name}`.slice(0, 36), vnd(l.amount))));
+  d.rule().bold(true).line(t(lr('HOÀN TIỀN MẶT', `${vnd(r.amount)}đ`))).bold(false);
+  d.line(t(`Lý do: ${r.reason}`)).line(t(`Người hoàn: ${r.by}`)).line(t(`Quản lý duyệt: ${r.approver}`));
+  d.feed(2).line(t(lr('Khách ký nhận', 'Quản lý ký'))).feed(4);
+  return d.cut().bytes();
+}

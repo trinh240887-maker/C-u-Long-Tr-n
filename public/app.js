@@ -21,6 +21,7 @@ import { OrderView } from './views/order.js';
 import { ReservationsView } from './views/reservations.js';
 import { PrintersView } from './views/printers.js';
 import { PromotionsView } from './views/promotions.js';
+import { CashierView } from './views/pay.js';
 
 const NAV = [
   { path: '/', label: 'Hôm nay', icon: '◉', role: 'staff', main: true },
@@ -34,6 +35,7 @@ const NAV = [
   { path: '/thuc-don', label: 'Thực đơn', icon: '☰', role: 'team_lead' },
   { path: '/ranh', label: 'Lịch rảnh', icon: '◷', role: 'staff' },
   { path: '/duyet-anh', label: 'Duyệt ảnh', icon: '▣', role: 'team_lead' },
+  { path: '/thu-ngan', label: 'Thu ngân & doanh thu', icon: '₫', role: 'staff', show: (me) => atLeast(me, 'shift_lead') || me.team?.name === 'Thu ngân' },
   { path: '/khuyen-mai', label: 'Khuyến mãi', icon: '🎁', role: 'staff' },
   { path: '/may-in', label: 'Máy in', icon: '⎙', role: 'shift_lead' },
   { path: '/nghi', label: 'Nghỉ & thay ca', icon: '⇄', role: 'staff' },
@@ -109,7 +111,7 @@ function ChangePin({ me, onDone }) {
 }
 
 function Shell({ me, children, path, online }) {
-  const items = NAV.filter((n) => atLeast(me, n.role));
+  const items = NAV.filter((n) => (n.show ? n.show(me) : atLeast(me, n.role)));
   const main = items.filter((n) => n.main).slice(0, 4);
   const [more, setMore] = useState(false);
   const active = (p) => (p === '/' ? path === '/' : path.startsWith(p));
@@ -175,7 +177,7 @@ function App() {
   const query = new URLSearchParams(path.split('?')[1] || '');
   const routes = {
     '/': Home, '/quan-ly': Dashboard, '/lich': Schedule, '/nhan-vien': StaffView, '/cham-cong': AttendanceView,
-    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/thuc-don': MenuView, '/goi-mon': OrderView, '/dat-ban': ReservationsView, '/may-in': PrintersView, '/khuyen-mai': PromotionsView, '/cai-dat': SettingsView, '/ho-so': Profile,
+    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/thuc-don': MenuView, '/goi-mon': OrderView, '/dat-ban': ReservationsView, '/may-in': PrintersView, '/khuyen-mai': PromotionsView, '/thu-ngan': CashierView, '/cai-dat': SettingsView, '/ho-so': Profile,
   };
   const nav = NAV.find((n) => n.path === base);
   const View = routes[base] && (!nav || atLeast(me, nav.role)) ? routes[base] : Home;

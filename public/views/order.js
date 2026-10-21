@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
-import { html, api, act, useData, Loading, Modal, Field, money, hm, navigate, atLeast } from '../ui.js';
+import { html, api, act, useData, Loading, Modal, Field, money, hm, navigate, atLeast, toast, bump } from '../ui.js';
+import { PayModal, PaidPanel } from './pay.js';
 
 const STATUS = { new: 'Chưa gửi', sent: 'Đã gửi bếp', done: 'Đã ra', cancelled: 'Đã huỷ' };
 
@@ -86,6 +87,7 @@ export function OrderView({ me, query }) {
   const [reason, setReason] = useState(null);
   const [prompt, setPrompt] = useState(null);
   const [tab, setTab] = useState('menu');
+  const [paying, setPaying] = useState(false);
   if (!id) return html`<div class="empty">Chọn bàn ở Sơ đồ bàn.</div>`;
   if (!st.data || !menuD.data) return html`<${Loading} state=${st.data ? menuD : st} />`;
   const s = st.data;
@@ -106,7 +108,9 @@ export function OrderView({ me, query }) {
       <div><h2>Bàn ${s.header}</h2><small class="muted">Vào lúc ${hm(s.opened_at)} bởi ${s.opened_by_name || ''}${s.status === 'paying' ? ' · đang chờ thanh toán' : ''}</small></div>
       <button onClick=${async () => { if (!closed && !s.items.length) await api('POST', `/api/pos/sessions/${id}/cancel`, { reason: 'Nhận nhầm bàn, chưa gọi món' }).catch(() => {}); navigate('/ban'); }}>← Sơ đồ bàn</button>
     </div>
-    ${closed ? html`<p class="warn-text">Bàn này đã đóng (${s.status === 'cancelled' ? 'huỷ' : 'đã thanh toán'}).</p>` : html`
+    ${s.status === 'closed' ? html`<${PaidPanel} me=${me} id=${id} />` : null}
+    ${s.status === 'cancelled' ? html`<p class="warn-text">Bàn này đã huỷ.</p>` : null}
+    ${closed ? null : html`
     <div class="row wrap">
       <label class="check-row"><input type="checkbox" checked=${s.priority} onChange=${(e) => act(() => api('PATCH', `/api/pos/sessions/${id}`, { priority: e.target.checked }))} /> Ưu tiên</label>
       <button onClick=${() => { const g = prompt_(s.guests); if (g) act(() => api('PATCH', `/api/pos/sessions/${id}`, { guests: g }), 'Đã sửa số khách'); }}>Số khách${s.guests > 1 ? `: ${s.guests}` : ''}</button>
@@ -125,7 +129,7 @@ export function OrderView({ me, query }) {
       <div class="menu-grid">${items.map((i) => html`<button class=${`menu-btn ${i.sold_out ? 'soldout' : ''}`} disabled=${i.sold_out} onClick=${() => quick(i)}>
         <b>${i.name}</b><small>${i.sold_out ? 'Hết món' : money(i.price)}</small>${!i.sold_out && m.promo?.tags?.[i.id] ? html`<span class="promo-tag">🎁 ${m.promo.tags[i.id]}</span>` : null}</button>`)}</div>` : null}
 
-    ${tab === 'bill' || closed ? html`<section class="card">
+    ${tab === 'bill' || s.status === 'cancelled' ? html`<section class="card">
       ${sent.length ? html`<ul class="plain order-lines">${sent.map((i) => html`<li class=${`ol ${i.status}`}>
         <div class="grow"><b>${i.qty} × ${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}
           ${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.note ? html`<br /><small class="muted">${i.note}</small>` : null}
@@ -151,12 +155,13 @@ export function OrderView({ me, query }) {
       </section>` : null}
       <div class="row">
         <button class="primary big grow" disabled=${!drafts.length} onClick=${send}>${drafts.length ? `Gửi bếp (${drafts.reduce((n, i) => n + i.qty, 0)} món)` : 'Chọn món để gửi bếp'}</button>
-        ${s.status === 'open' && !drafts.length && sent.length ? html`<button class="big" onClick=${() => act(() => api('POST', `/api/pos/sessions/${id}/request-bill`), 'Đã báo thu ngân')}>Xin thanh toán</button>` : null}
+        ${!drafts.length && sent.length ? html`<button class="big" onClick=${() => setPaying(true)}>₫ Tính tiền</button>` : null}
       </div>
       ${!sent.length ? html`<button class="link danger-text" onClick=${() => act(() => api('POST', `/api/pos/sessions/${id}/cancel`, {}), 'Đã huỷ bàn').then((ok) => ok && navigate('/ban'))}>Huỷ bàn (mở nhầm / khách về)</button>`
         : atLeast(me, 'shift_lead') ? html`<button class="link danger-text" onClick=${() => setReason({ kind: 'close' })}>Huỷ cả bàn…</button>` : null}
     </div>` : null}
 
+    ${paying ? html`<${PayModal} id=${id} onClose=${() => setPaying(false)} onDone=${(r) => { setPaying(false); toast(r.change ? `Đã đóng bill. Thối khách ${money(r.change)}` : 'Đã đóng bill, bàn trống'); bump(); navigate('/ban'); }} />` : null}
     ${adding ? html`<${AddItem} item=${adding} onAdd=${add} onClose=${() => setAdding(null)} />` : null}
     ${reason ? html`<${Reason} title=${reason.kind === 'redo' ? `Làm lại: ${reason.item.name}` : reason.kind === 'cancel' ? `Huỷ: ${reason.item.name}` : 'Huỷ cả bàn'}
       chips=${reason.kind === 'redo' ? ['Khách chê', 'Làm hỏng', 'Sai món', 'Rơi đổ'] : ['Khách đổi ý', 'Gọi nhầm', 'Ra lâu, khách huỷ', 'Hết nguyên liệu']}

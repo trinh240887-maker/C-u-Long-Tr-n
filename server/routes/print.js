@@ -20,6 +20,17 @@ export default function (r, ctx) {
   const scols = db.prepare('PRAGMA table_info(kitchen_stations)').all().map((c) => c.name);
   if (!scols.includes('printer_ok')) db.exec('ALTER TABLE kitchen_stations ADD COLUMN printer_ok INTEGER');
   if (!scols.includes('printer_checked_at')) db.exec('ALTER TABLE kitchen_stations ADD COLUMN printer_checked_at INTEGER');
+  // Giấy in khác phiếu bếp (bill, phiếu hoàn tiền): đã dựng sẵn byte
+  db.exec(`CREATE TABLE IF NOT EXISTS print_docs (
+    id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, title TEXT NOT NULL DEFAULT '', data TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, printed_at INTEGER
+  )`);
+  ctx.printDoc = (stationId, title, bytes) => {
+    const id = Number(db.prepare('INSERT INTO print_docs (station_id, title, data, created_at) VALUES (?, ?, ?, ?)').run(stationId, title, bytes.toString('base64'), ctx.now()).lastInsertRowid);
+    ctx.broadcast('print');
+    return id;
+  };
+  ctx.printMode = () => (ctx.setting('print_text_mode') === 'utf8' ? 'utf8' : 'khong_dau');
   if (!ctx.setting('print_token')) ctx.setSetting('print_token', crypto.randomBytes(16).toString('hex'));
 
   const auth = (req) => {
@@ -73,16 +84,29 @@ export default function (r, ctx) {
       const t = [{ ip: p.printer_ip, port: p.printer_port || 9100, station: p.name }]; // in thử đúng máy, không chuyển dự phòng
       jobs.push({ key: `p${p.id}`, station: p.name, targets: t, data: testBytes({ station: p.name, ip: p.printer_ip, time: hm(p.created_at), qr: ctx.setting('bank_qr') ? billQR(ctx.setting('bank_qr'), { amount: 1000, content: 'IN THU' }) : '' }).toString('base64') });
     }
+    db.prepare("UPDATE print_docs SET status = 'expired' WHERE status = 'pending' AND created_at < ?").run(now - 30 * 60_000);
+    for (const d of db.prepare("SELECT d.*, st.name AS station_name FROM print_docs d LEFT JOIN kitchen_stations st ON st.id = d.station_id WHERE d.status = 'pending' ORDER BY d.id LIMIT 10").all()) {
+      const to = targets(d.station_id);
+      if (to.length) jobs.push({ key: `d${d.id}`, station: `${d.station_name} (${d.title})`, targets: to, data: d.data });
+    }
     return { jobs, stations: stations().filter((s) => s.printer_ip).map((s) => ({ id: s.id, name: s.name, ip: s.printer_ip, port: s.printer_port || 9100 })) };
   });
 
   r.post('/api/print/result', null, ({ req, body }) => {
     auth(req);
-    const m = /^([tp])(\d+)$/.exec(String(body.key || ''));
+    const m = /^([tpd])(\d+)$/.exec(String(body.key || ''));
     if (!m) fail(400, 'Mã phiếu không hợp lệ');
     const ok = !!body.ok;
     const err = v.text(body.error, { name: 'Lỗi', max: 200 }) || '';
     const now = ctx.now();
+    if (m[1] === 'd') {
+      const d = db.prepare('SELECT * FROM print_docs WHERE id = ?').get(m[2]);
+      if (!d || d.status !== 'pending') return { ok: true };
+      const attempts = d.attempts + 1;
+      db.prepare('UPDATE print_docs SET status = ?, attempts = ?, error = ?, printed_at = ? WHERE id = ?').run(ok ? 'printed' : attempts >= MAX_ATTEMPTS ? 'failed' : 'pending', attempts, err, ok ? now : null, d.id);
+      ctx.broadcast('print');
+      return { ok: true };
+    }
     if (m[1] === 'p') {
       db.prepare('UPDATE print_tests SET status = ?, printed_at = ?, error = ? WHERE id = ?').run(ok ? 'printed' : 'failed', ok ? now : null, err, m[2]);
       ctx.broadcast('print');

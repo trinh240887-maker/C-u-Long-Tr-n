@@ -59,7 +59,12 @@ export default function (r, ctx) {
     const rows = db.prepare(`SELECT i.*, c.name AS created_by_name, m.category_id FROM order_items i LEFT JOIN staff c ON c.id = i.created_by
       LEFT JOIN menu_items m ON m.id = i.menu_item_id WHERE i.session_id = ? ORDER BY i.id`).all(id).map(itemView);
     // Khuyến mãi chỉ đổi tiền: tính lại mỗi lần xem bàn (huỷ / tách / gộp món thì tự đúng)
-    const pr = applyPromos(rows.filter((i) => i.status !== 'cancelled'), ctx.promosFor ? ctx.promosFor() : [], { clock: ctx.clock(), openedAt: s.opened_at || s.created_at });
+    let pr = applyPromos(rows.filter((i) => i.status !== 'cancelled'), ctx.promosFor ? ctx.promosFor() : [], { clock: ctx.clock(), openedAt: s.opened_at || s.created_at });
+    // Bill đã thanh toán: dùng số đã chốt lúc thu tiền (sửa / hết khuyến mãi sau này không làm đổi bill cũ)
+    if (s.bill_snapshot) {
+      const snap = JSON.parse(s.bill_snapshot);
+      pr = { ...snap, lines: new Map(snap.lines) };
+    }
     const items = rows.map((i) => {
       const promos = pr.lines.get(i.id) || [];
       const discount = promos.reduce((n, x) => n + x.amount, 0);
@@ -238,6 +243,8 @@ export default function (r, ctx) {
     }
     return out;
   }
+
+  ctx.posMakeTickets = makeTickets;
 
   r.post('/api/pos/sessions/:id/send', 'staff', ({ me, params }) => {
     const s = openSession(params.id);

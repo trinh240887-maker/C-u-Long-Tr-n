@@ -6,7 +6,7 @@ export const html = htm.bind(h);
 export const TZ = 'Asia/Ho_Chi_Minh';
 
 // ---------- Gọi máy chủ ----------
-export class ApiError extends Error {}
+export class ApiError extends Error { constructor(msg, status) { super(msg); this.status = status; } }
 export async function api(method, url, body) {
   const opts = { method, headers: {} };
   if (method !== 'GET') {
@@ -23,7 +23,7 @@ export async function api(method, url, body) {
   if (res.status === 401 && url !== '/api/login') {
     window.dispatchEvent(new Event('auth:lost'));
   }
-  if (!res.ok) throw new ApiError(data.error || `Lỗi ${res.status}`);
+  if (!res.ok) throw new ApiError(data.error || `Lỗi ${res.status}`, res.status);
   return data;
 }
 

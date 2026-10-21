@@ -508,3 +508,16 @@ a.button.primary { background: var(--accent, #2563eb); color: #fff; border-color
 .totals { display: grid; gap: 4px; margin-top: 8px; }
 .promo-card { border-left: 4px solid #db2777; }
 .dim { opacity: .6; }
+
+/* Thanh toán */
+.qr { background: #fff; border-radius: 12px; max-width: 80vw; height: auto; }
+.center { align-items: center; text-align: center; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.grid-2 .card h3 { margin: 4px 0; }
+.ok-text { color: var(--ok); }
+.plain-link { text-decoration: none; color: inherit; padding: 6px 0; border-bottom: 1px solid var(--line); }
+/* Hàng danh mục cuộn ngang không được đẩy trang rộng ra (iPhone) */
+.stack > *, .order > * { min-width: 0; }
+.chips.scroll-x { max-width: 100%; min-width: 0; }
+.menu-btn b { overflow-wrap: anywhere; }
+.menu-btn { white-space: normal; min-width: 0; overflow: hidden; }
