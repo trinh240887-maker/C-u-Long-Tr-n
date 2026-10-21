@@ -31,10 +31,15 @@ export function Dashboard() {
     ['Đang làm', d.counts.working, 'ok'], ['Chưa vào ca', d.counts.late, d.counts.late ? 'warn' : ''],
     ['Vắng', d.counts.absent, d.counts.absent ? 'bad' : ''], ['Xin nghỉ chờ duyệt', d.pending_leave.length, d.pending_leave.length ? 'warn' : ''],
     ['Việc quá hạn', d.overdue.length, d.overdue.length ? 'bad' : ''],
+    ['Ảnh chờ duyệt', d.photos_pending, d.photos_pending ? 'warn' : '', '/duyet-anh'],
   ];
   return html`<div class="stack">
     <div class="row between"><h2>${dayLabel(d.today, { long: true })}</h2><span class="muted">${d.counts.scheduled} người có lịch hôm nay</span></div>
-    <div class="tiles">${tiles.map(([label, n, tone]) => html`<div class=${`tile ${tone}`}><div class="n">${n}</div><div class="l">${label}</div></div>`)}</div>
+    <div class="tiles">${tiles.map(([label, n, tone, href]) => (href
+      ? html`<${Link} href=${href} class=${`tile ${tone}`}><div class="n">${n}</div><div class="l">${label} →</div><//>`
+      : html`<div class=${`tile ${tone}`}><div class="n">${n}</div><div class="l">${label}</div></div>`))}</div>
+    ${d.avail?.total ? html`<${Link} href=${`/ranh?tab=all&week=${d.avail.week_start}`} class=${`card hint ${d.avail.missing ? '' : 'ok'}`}><span>
+      Lịch rảnh tuần sau: <b>${d.avail.total - d.avail.missing}/${d.avail.total}</b> người đã gửi${d.avail.missing ? ` · còn ${d.avail.missing} người chưa gửi (hạn ${d.avail.deadline.date.slice(8)}/${d.avail.deadline.date.slice(5, 7)} ${d.avail.deadline.time})` : ''} →</span><//>` : null}
 
     ${d.gaps.length ? html`<section class="card attn">
       <h3>Thiếu người 7 ngày tới</h3>

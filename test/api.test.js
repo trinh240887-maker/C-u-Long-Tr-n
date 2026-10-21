@@ -51,6 +51,8 @@ async function setup() {
   };
 }
 
+const TINY_JPG = `data:image/jpeg;base64,${Buffer.alloc(800, 7).toString('base64')}`;
+
 test('luồng nhân sự: tạo người, xếp ca, chấm công qua đêm, xin nghỉ & người thay, checklist, việc, bảng công', async (t) => {
   const env = await setup();
   t.after(env.close);
@@ -153,6 +155,11 @@ test('luồng nhân sự: tạo người, xếp ca, chấm công qua đêm, xin 
   assert.ok(cl.runs.every((x) => x.team_name === 'Bar'));
   const run = cl.runs[0];
   for (const item of run.items) {
+    if (item.photo_required) {
+      // Việc bắt buộc ảnh: chưa có ảnh thì không bấm xong được
+      assert.equal((await lanC.post('/api/checklists/entry', { run_id: run.run_id, item_id: item.id, value: 'ok' })).status, 400);
+      assert.equal((await lanC.post('/api/checklists/photo', { run_id: run.run_id, item_id: item.id, data: TINY_JPG })).status, 200);
+    }
     const r = await lanC.post('/api/checklists/entry', { run_id: run.run_id, item_id: item.id, value: item.kind === 'number' ? '4' : 'ok' });
     assert.equal(r.status, 200, JSON.stringify(r.data));
   }

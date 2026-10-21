@@ -29,6 +29,17 @@ const FIELDS = {
   zalo_secret_key: (x) => v.text(x, { name: 'Zalo Secret key', max: 200 }),
   zalo_access_token: (x) => v.text(x, { name: 'Access token', max: 2000 }),
   zalo_refresh_token: (x) => v.text(x, { name: 'Refresh token', max: 2000 }),
+  avail_deadline_dow: (x) => String(v.int(x, { min: 1, max: 7, name: 'Ngày hạn báo lịch rảnh' })),
+  avail_deadline_time: (x) => { parseHM(x); return String(x); },
+  avail_slots: (x) => {
+    const list = typeof x === 'string' ? JSON.parse(x) : x;
+    if (!Array.isArray(list) || !list.length || list.length > 6) fail(400, 'Buổi không hợp lệ');
+    return JSON.stringify(list.map((s, i) => {
+      const label = v.text(s.label, { name: 'Tên buổi', required: true, max: 20 });
+      if (!/^\d\d:\d\d$/.test(s.start) || !/^\d\d:\d\d$/.test(s.end)) fail(400, `Giờ của buổi ${label} không hợp lệ`);
+      return { key: String(s.key || `b${i}`).slice(0, 12), label, start: s.start, end: s.end };
+    }));
+  },
   kho_tong_staff_id: (x) => (x === '' || x === null ? '' : String(v.int(x, { min: 1, name: 'Người giữ kho tổng' }))),
 };
 

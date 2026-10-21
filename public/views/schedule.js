@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, dayLabel, addDays, atLeast, navigate, Link } from '../ui.js';
 
-function ShiftForm({ init, staff, teams, templates, zones, positions = [], onClose }) {
+function ShiftForm({ init, staff, teams, templates, zones, positions = [], avail = null, onClose }) {
   const person = staff.find((s) => s.id === init.staff_id);
   const [f, setF] = useState({
     staff_id: init.staff_id, date: init.date, team_id: init.team_id ?? person?.team_id ?? '',
@@ -24,7 +24,8 @@ function ShiftForm({ init, staff, teams, templates, zones, positions = [], onClo
           const s = staff.find((x) => x.id === Number(e.target.value));
           const team = init.keepTeam ? f.team_id : s?.team_id ?? f.team_id;
           setF({ ...f, staff_id: Number(e.target.value), team_id: team, position_id: Number(team) === s?.team_id ? s?.position_id ?? '' : '' });
-        }}>${staff.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
+        }}>${(avail ? [...staff].sort((a, b) => Number(!!avail.slotsOf(b.id, f.date).length) - Number(!!avail.slotsOf(a.id, f.date).length)) : staff)
+          .map((s) => html`<option value=${s.id}>${s.name}${avail ? avail.label(s.id, f.date) : ''}</option>`)}</select><//>
         <${Field} label="Ngày"><input id="sf-date" type="date" value=${f.date} onInput=${(e) => set('date', e.target.value)} /><//>
       </div>
       <div class="row">
@@ -135,6 +136,15 @@ export function Schedule({ me, query }) {
   const zonesD = useData('/api/zones');
   const posD = useData('/api/positions');
   const positions = posD.data || [];
+  // Lịch rảnh nhân viên đã báo (chỉ để quản lý xem khi xếp, không tự xếp)
+  const avail = st.data ? {
+    slotsOf: (id, date) => st.data.availability?.[id]?.[date] || [],
+    label(id, date) {
+      const ks = this.slotsOf(id, date);
+      if (ks.length) return ` · rảnh ${ks.map((k) => st.data.slots.find((s) => s.key === k)?.label || k).join(', ')}`;
+      return st.data.avail_submitted?.includes(id) ? ' · báo bận' : ' · chưa báo rảnh';
+    },
+  } : null;
   const [edit, setEdit] = useState(null);
   const [mode, setMode] = useState(() => (window.innerWidth < 760 ? 'day' : 'week'));
   const [day, setDay] = useState(me.today);
@@ -186,6 +196,7 @@ export function Schedule({ me, query }) {
             const r = await api('POST', '/api/schedule/copy', { from_week: addDays(d.week_start, -7), to_week: d.week_start });
             return r;
           }, 'Đã chép lịch tuần trước (bỏ qua ô đã có ca)')}>Chép tuần trước</button>
+          <button onClick=${() => navigate(`/ranh?tab=all&week=${d.week_start}`)}>◷ Lịch rảnh (${d.avail_submitted?.length || 0} người gửi)</button>
           <button class="primary" onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã gửi lịch cho nhân viên')}>
             ${d.published_at ? 'Gửi lại lịch' : 'Gửi lịch cho nhân viên'}</button>` : null}
       </div>
@@ -229,12 +240,15 @@ export function Schedule({ me, query }) {
           ${on.map(({ p, cell }) => html`<div class="person"><span class="grow"><b>${p.name}</b>${p.team_id !== g.id && g.id ? html` <small class="muted">(tăng cường)</small>` : null}<${DayBadge} pid=${p.id} date=${activeDay} /></span>
             <div class="row">${cell.map((s) => html`<${ShiftChip} s=${s} mine=${p.id === me.id} onClick=${canEdit ? () => setEdit(s) : null} />`)}</div></div>`)}
           ${canEdit ? html`<details open=${!g.people.length && !on.length}><summary class="muted small">Xếp thêm người (${free.length} người chưa có ca)</summary>
-            <div class="chips">${free.map(({ p, helper }) => html`<button class="chip" onClick=${() => setEdit({ staff_id: p.id, date: activeDay, team_id: g.id ?? p.team_id })}>+ ${p.name}${helper ? ' (biết làm)' : ''}</button>`)}
+            <div class="chips">${[...free].sort((a, b) => Number(!!avail.slotsOf(b.p.id, activeDay).length) - Number(!!avail.slotsOf(a.p.id, activeDay).length)).map(({ p, helper }) => {
+              const ks = avail.slotsOf(p.id, activeDay);
+              return html`<button class=${`chip ${ks.length ? 'free' : 'nofree'}`} onClick=${() => setEdit({ staff_id: p.id, date: activeDay, team_id: g.id ?? p.team_id })}>+ ${p.name}${helper ? ' (biết làm)' : ''}${ks.length ? html` <small>✓ ${ks.map((k) => d.slots.find((s) => s.key === k)?.label || k).join(', ')}</small>` : html` <small>${d.avail_submitted?.includes(p.id) ? 'bận' : 'chưa báo'}</small>`}</button>`;
+            })}
               ${g.id ? html`<button class="chip" onClick=${() => setEdit({ staff_id: (free[0]?.p || staff.data.find((x) => x.active !== false && x.role !== 'owner'))?.id, date: activeDay, team_id: g.id, keepTeam: true })}>+ Người tổ khác…</button>` : null}</div></details>`
             : !on.length ? html`<p class="muted small">Chưa có ai.</p>` : null}
         </section>`;
       })}`}
 
-    ${edit ? html`<${ShiftForm} init=${edit} staff=${staff.data.filter((s) => s.active)} teams=${teams} templates=${tpl.data || []} zones=${zonesD.data || []} positions=${positions} onClose=${() => setEdit(null)} />` : null}
+    ${edit ? html`<${ShiftForm} init=${edit} staff=${staff.data.filter((s) => s.active)} teams=${teams} templates=${tpl.data || []} zones=${zonesD.data || []} positions=${positions} avail=${avail} onClose=${() => setEdit(null)} />` : null}
   </div>`;
 }

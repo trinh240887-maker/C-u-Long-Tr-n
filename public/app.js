@@ -14,6 +14,8 @@ import { SettingsView } from './views/settings.js';
 import { Profile } from './views/profile.js';
 import { StockView } from './views/stock.js';
 import { FloorView } from './views/floor.js';
+import { AvailabilityView } from './views/availability.js';
+import { ReviewView } from './views/review.js';
 
 const NAV = [
   { path: '/', label: 'Hôm nay', icon: '◉', role: 'staff', main: true },
@@ -23,6 +25,8 @@ const NAV = [
   { path: '/kho', label: 'Kho', icon: '▣', role: 'staff', main: true },
   { path: '/checklist', label: 'Checklist', icon: '☑', role: 'staff', main: true },
   { path: '/viec', label: 'Việc', icon: '✎', role: 'staff', main: true },
+  { path: '/ranh', label: 'Lịch rảnh', icon: '◷', role: 'staff' },
+  { path: '/duyet-anh', label: 'Duyệt ảnh', icon: '▣', role: 'team_lead' },
   { path: '/nghi', label: 'Nghỉ & thay ca', icon: '⇄', role: 'staff' },
   { path: '/cham-cong', label: 'Chấm công', icon: '⏱', role: 'shift_lead' },
   { path: '/nhan-vien', label: 'Nhân viên', icon: '☺', role: 'manager' },
@@ -162,7 +166,7 @@ function App() {
   const query = new URLSearchParams(path.split('?')[1] || '');
   const routes = {
     '/': Home, '/quan-ly': Dashboard, '/lich': Schedule, '/nhan-vien': StaffView, '/cham-cong': AttendanceView,
-    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/cai-dat': SettingsView, '/ho-so': Profile,
+    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/cai-dat': SettingsView, '/ho-so': Profile,
   };
   const nav = NAV.find((n) => n.path === base);
   const View = routes[base] && (!nav || atLeast(me, nav.role)) ? routes[base] : Home;

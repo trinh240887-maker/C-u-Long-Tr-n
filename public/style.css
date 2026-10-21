@@ -393,3 +393,39 @@ table.hours tr.pr td.who { color: var(--muted); padding-left: 14px; }
 .dept-chips { gap: 6px; }
 .dept-chips .chip small { opacity: .7; margin-left: 4px; }
 .dept-chips .chip.warn:not(.on) { border-color: var(--warn, #d97706); }
+
+/* Lịch rảnh */
+.avail { display: grid; gap: 10px; }
+.av-day { display: grid; grid-template-columns: 88px 1fr; gap: 8px; align-items: stretch; }
+.av-name { padding: 6px; font-weight: 600; text-align: left; }
+.av-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 6px; }
+.av-slot { min-height: 54px; display: grid; place-content: center; gap: 2px; border-radius: 10px; }
+.av-slot small { opacity: .7; font-size: 11px; }
+.av-slot.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.big { min-height: 52px; font-size: 17px; }
+table.avail-grid td.av-cell { text-align: center; cursor: pointer; min-width: 64px; }
+table.avail-grid td.av-cell small { opacity: .75; }
+.av-cell.low { background: color-mix(in srgb, #dc2626 18%, var(--panel)); }
+.av-cell.ok { background: color-mix(in srgb, #16a34a 14%, var(--panel)); }
+.av-cell.many { background: color-mix(in srgb, #16a34a 32%, var(--panel)); }
+.av-cell.zero { color: var(--muted); }
+.chip.free small { color: #15803d; font-weight: 600; }
+.chip.nofree { opacity: .75; }
+.card.hint.bad { background: color-mix(in srgb, #dc2626 14%, var(--panel)); }
+/* Ảnh checklist */
+.thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.thumb { position: relative; width: 76px; height: 76px; border-radius: 8px; overflow: hidden; background: var(--panel-2); display: grid; place-items: center; font-size: 11px; color: var(--muted); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
+.thumb.old { opacity: .45; }
+.thumb .x { position: absolute; top: 2px; right: 2px; min-height: 0; width: 24px; height: 24px; padding: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; border: 0; font-size: 12px; }
+.btn-photo { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px dashed var(--line); cursor: pointer; font-weight: 600; margin: 4px 0; }
+.btn-photo.need { border: 2px solid var(--accent); color: var(--accent); }
+.viewer { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.88); display: grid; place-items: center; padding: 12px; }
+.viewer img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+.redo-box { background: color-mix(in srgb, #dc2626 12%, var(--panel)); border-left: 4px solid #dc2626; padding: 6px 10px; border-radius: 6px; margin: 4px 0; }
+li.ck.redo { background: color-mix(in srgb, #dc2626 5%, transparent); }
+.pill.bad { background: color-mix(in srgb, #dc2626 18%, var(--panel)); color: #b91c1c; }
+.card.rv-redo { border-left: 4px solid #dc2626; }
+.card.rv-ok { border-left: 4px solid #16a34a; }
+.card.rv-pending { border-left: 4px solid #d97706; }
+a.tile { text-decoration: none; color: inherit; }

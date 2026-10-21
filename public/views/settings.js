@@ -3,6 +3,8 @@ import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LAB
 
 const TABS = [['chung', 'Chung'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
 
+const DEF_SLOTS = [{ key: 'sang', label: 'Sáng', start: '06:00', end: '12:00' }, { key: 'chieu', label: 'Chiều', start: '12:00', end: '17:00' }, { key: 'toi', label: 'Tối', start: '17:00', end: '24:00' }];
+
 function General({ s, staff }) {
   const [f, setF] = useState(s);
   useEffect(() => setF(s), [s]);
@@ -12,7 +14,10 @@ function General({ s, staff }) {
     shop_name: f.shop_name, public_url: f.public_url, day_cutoff_hour: f.day_cutoff_hour, late_grace_minutes: f.late_grace_minutes,
     clock_early_minutes: f.clock_early_minutes, auto_close_after_minutes: f.auto_close_after_minutes, clock_ip_prefixes: f.clock_ip_prefixes,
     night_bonus_pct: f.night_bonus_pct, month_standard_days: f.month_standard_days, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
+    avail_deadline_dow: f.avail_deadline_dow, avail_deadline_time: f.avail_deadline_time, avail_slots: JSON.stringify(slots),
   }), 'Đã lưu cài đặt');
+  const slots = (() => { try { const x = JSON.parse(f.avail_slots || '[]'); return x.length ? x : DEF_SLOTS; } catch { return DEF_SLOTS; } })();
+  const setSlot = (i, k, val) => set('avail_slots', JSON.stringify(slots.map((s, j) => (j === i ? { ...s, [k]: val } : s))));
   return html`<div class="stack">
     <section class="card"><h3>Quán</h3><div class="form-grid">
       ${inp('shop_name', 'Tên quán')}
@@ -30,6 +35,16 @@ function General({ s, staff }) {
       ${inp('night_bonus_pct', 'Phụ cấp làm đêm 22h–6h (%)', { type: 'number', min: 0 })}
       ${inp('month_standard_days', 'Ngày công chuẩn / tháng (lương tháng)', { type: 'number', min: 0, max: 31 }, 'vd 26. Điền 0 nếu trả đủ lương tháng cố định.')}
     </div></section>
+    <section class="card"><h3>Lịch rảnh</h3><p class="muted small">Nhân viên báo buổi rảnh của tuần sau trước hạn này. Giờ của buổi dùng để so với ca đã xếp.</p>
+      <div class="row">
+        <${Field} label="Hạn nộp (tuần trước đó)"><select id="set-avdow" value=${f.avail_deadline_dow || '4'} onChange=${(e) => set('avail_deadline_dow', e.target.value)}>
+          ${['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ nhật'].map((l, i) => html`<option value=${i + 1}>${l}</option>`)}</select><//>
+        ${inp('avail_deadline_time', 'Lúc', { type: 'time' })}
+      </div>
+      ${slots.map((s, i) => html`<div class="row"><input class="grow" value=${s.label} aria-label="Tên buổi" onInput=${(e) => setSlot(i, 'label', e.target.value)} />
+        <input type="time" value=${s.start} aria-label="Từ" onInput=${(e) => setSlot(i, 'start', e.target.value)} /><span>–</span>
+        <input type="time" value=${s.end === '24:00' ? '23:59' : s.end} aria-label="Đến" onInput=${(e) => setSlot(i, 'end', e.target.value === '23:59' ? '24:00' : e.target.value)} /></div>`)}
+    </section>
     <section class="card"><h3>Giờ yên lặng</h3><p class="muted small">Không gửi Zalo trong khung giờ này, trừ tin gấp (nhờ làm thay, việc gấp).</p><div class="row">
       ${inp('quiet_from', 'Từ', { type: 'time' })}${inp('quiet_to', 'Đến', { type: 'time' })}</div></section>
     <div class="row end"><button class="primary" onClick=${save}>Lưu cài đặt</button></div>
@@ -146,13 +161,14 @@ function Templates() {
 
 function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
   const posD = useData('/api/positions');
+  const zonesD = useData('/api/zones');
   const [f, setF] = useState({ title: init.title || '', team_id: init.team_id ?? '', phase: init.phase || 'open', active: init.active ?? true,
-    shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '',
-    items: init.items?.map((i) => ({ ...i })) || [{ text: '', kind: 'check', unit: '', required: true }] });
+    shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '', zone_id: init.zone_id ?? '',
+    items: init.items?.map((i) => ({ ...i })) || [{ text: '', kind: 'check', unit: '', required: true, photo_required: true }] });
   const item = (i, k, v) => setF({ ...f, items: f.items.map((x, j) => (j === i ? { ...x, [k]: v } : x)) });
   const move = (i, d) => { const items = [...f.items]; const [x] = items.splice(i, 1); items.splice(i + d, 0, x); setF({ ...f, items }); };
   const save = async () => {
-    const body = { ...f, team_id: f.team_id || null, shift_template_id: f.shift_template_id || null, position_id: (f.team_id && f.position_id) || null, items: f.items.filter((x) => x.text.trim()) };
+    const body = { ...f, team_id: f.team_id || null, shift_template_id: f.shift_template_id || null, position_id: (f.team_id && f.position_id) || null, zone_id: f.zone_id || null, items: f.items.filter((x) => x.text.trim()) };
     const ok = await act(() => (init.id ? api('PATCH', `/api/checklist-templates/${init.id}`, body) : api('POST', '/api/checklist-templates', body)), 'Đã lưu checklist');
     if (ok) onClose();
   };
@@ -164,6 +180,8 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
           ${allowAll ? html`<option value="">Cả quán</option>` : null}${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
         ${(() => { const ps = (posD.data || []).filter((p) => p.team_id === Number(f.team_id)); return ps.length ? html`<${Field} label="Vị trí" hint="Chỉ người đứng vị trí này trong ca thấy">
           <select id="cl-pos" value=${f.position_id} onChange=${(e) => setF({ ...f, position_id: e.target.value })}><option value="">Cả bộ phận</option>${ps.map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>` : null; })()}
+        ${(zonesD.data || []).length ? html`<${Field} label="Khu" hint="Chỉ người phụ trách khu này trong ca thấy">
+          <select id="cl-zone" value=${f.zone_id} onChange=${(e) => setF({ ...f, zone_id: e.target.value })}><option value="">Mọi khu</option>${zonesD.data.map((z) => html`<option value=${z.id}>${z.name}</option>`)}</select><//>` : null}
         <${Field} label="Thời điểm"><select id="cl-phase" value=${f.phase} onChange=${(e) => setF({ ...f, phase: e.target.value })}>
           ${Object.entries(PHASE_LABEL).map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select><//>
         <${Field} label="Áp dụng cho ca" hint="Người làm ca nào chỉ thấy checklist của ca đó">
@@ -173,16 +191,17 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
       <div class="field"><span>Các việc</span>
         ${f.items.map((x, i) => html`<div class="item-row">
           <input class="grow" value=${x.text} placeholder="Tên việc" onInput=${(e) => item(i, 'text', e.target.value)} aria-label="Tên việc" />
-          <select value=${x.kind} onChange=${(e) => item(i, 'kind', e.target.value)} aria-label="Kiểu">
+          <select value=${x.kind} onChange=${(e) => setF({ ...f, items: f.items.map((y, j) => (j === i ? { ...y, kind: e.target.value, photo_required: e.target.value === 'check' } : y)) })} aria-label="Kiểu">
             <option value="check">Tick</option><option value="number">Nhập số</option><option value="text">Ghi chữ</option></select>
           ${x.kind === 'number' ? html`<input class="unit" value=${x.unit} placeholder="đơn vị" onInput=${(e) => item(i, 'unit', e.target.value)} aria-label="Đơn vị" />` : null}
           <label class="check-row small"><input type="checkbox" checked=${x.required} onChange=${(e) => item(i, 'required', e.target.checked)} />Bắt buộc</label>
+          <label class="check-row small"><input type="checkbox" checked=${x.photo_required ?? x.kind === 'check'} onChange=${(e) => item(i, 'photo_required', e.target.checked)} />📷 Phải có ảnh</label>
           <span class="row tight">
             <button class="icon" aria-label="Lên" disabled=${i === 0} onClick=${() => move(i, -1)}>↑</button>
             <button class="icon" aria-label="Xuống" disabled=${i === f.items.length - 1} onClick=${() => move(i, 1)}>↓</button>
             <button class="icon" aria-label="Bỏ" onClick=${() => setF({ ...f, items: f.items.filter((_, j) => j !== i) })}>✕</button></span>
         </div>`)}
-        <button class="link" onClick=${() => setF({ ...f, items: [...f.items, { text: '', kind: 'check', unit: '', required: true }] })}>+ Thêm việc</button>
+        <button class="link" onClick=${() => setF({ ...f, items: [...f.items, { text: '', kind: 'check', unit: '', required: true, photo_required: true }] })}>+ Thêm việc</button>
       </div>
       ${init.id ? html`<label class="check-row"><input type="checkbox" checked=${f.active} onChange=${(e) => setF({ ...f, active: e.target.checked })} /> Đang dùng (bỏ chọn để ẩn, vẫn giữ lịch sử)</label>` : null}
       <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" onClick=${save}>Lưu</button></div>
@@ -203,7 +222,7 @@ export function Checklists({ me, teams }) {
     <p class="muted small">Checklist có chữ "(mẫu)" là ví dụ, hãy sửa lại theo cách làm của quán. Mỗi ngày mỗi checklist có một lượt mới.
       Muốn ca sáng và ca chiều có việc riêng: tạo 2 checklist, chọn "Áp dụng cho ca" tương ứng (loại ca tạo ở tab Loại ca).</p>
     ${list.map((c) => html`<button class=${`tpl-row ${c.active ? '' : 'off'}`} onClick=${() => setEdit(c)}>
-      <b class="grow">${c.title}</b><span class="muted">${c.team_name || 'Cả quán'}${c.position_name ? ` · ${c.position_name}` : ''} · ${c.shift_name || 'Mọi ca'} · ${PHASE_LABEL[c.phase]} · ${c.items.length} việc</span></button>`)}
+      <b class="grow">${c.title}</b><span class="muted">${c.team_name || 'Cả quán'}${c.position_name ? ` · ${c.position_name}` : ''}${c.zone_name ? ` · ${c.zone_name}` : ''} · ${c.shift_name || 'Mọi ca'} · ${PHASE_LABEL[c.phase]} · ${c.items.length} việc</span></button>`)}
     <div><button class="primary" onClick=${() => setEdit({})}>+ Thêm checklist</button></div>
     ${edit ? html`<${ChecklistForm} init=${own && !edit.id ? { team_id: me.team?.id, ...edit } : edit} teams=${myTeams} allowAll=${!own} shifts=${(shifts.data || []).filter((t) => t.active)} onClose=${() => setEdit(null)} />` : null}
   </section>`;

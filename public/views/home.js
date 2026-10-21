@@ -63,6 +63,8 @@ export function Home({ me }) {
   const lists = useData('/api/checklists');
   const tasks = useData('/api/tasks?status=open');
   const notes = useData('/api/notifications');
+  const must = ['staff', 'team_lead', 'shift_lead'].includes(me.role);
+  const avail = useData(must ? '/api/availability/me' : null);
   const [leaveFor, setLeaveFor] = useState(null);
   const myTasks = (tasks.data || []).filter((t) => t.assignee_id === me.id || (!t.assignee_id && t.team_id === me.team_id));
   const unread = (notes.data || []).filter((n) => !n.read_at).slice(0, 3);
@@ -75,6 +77,9 @@ export function Home({ me }) {
     </div>
     ${!me.zalo_linked ? html`<${Link} href="/ho-so" class="card hint">Liên kết Zalo để nhận lịch ca và lời nhờ làm thay trên điện thoại →<//>` : null}
     <${ClockCard} />
+    ${avail.data && !avail.data.submitted_at ? html`<${Link} href="/ranh" class=${`card hint ${avail.data.late ? 'bad' : ''}`}><span>
+      ◷ ${avail.data.late ? 'Đã quá hạn, bạn' : 'Bạn'} chưa báo <b>lịch rảnh tuần sau</b> (${avail.data.week_start.slice(8)}/${avail.data.week_start.slice(5, 7)}).
+      Hạn ${avail.data.deadline.time} ngày ${avail.data.deadline.date.slice(8)}/${avail.data.deadline.date.slice(5, 7)}. Bấm để báo →</span><//>` : null}
     ${(() => { const ps = (shifts.data || []).find((s) => s.date === me.today && s.position_name && !s.zone_name);
       return ps ? html`<section class="card hint"><span>▸ Hôm nay bạn đứng vị trí <b>${ps.position_name}</b>${ps.team_name ? ` (${ps.team_name})` : ''} · ${ps.text}</span></section>` : null; })()}
     ${(() => { const z = (shifts.data || []).find((s) => s.date === me.today && s.zone_name);

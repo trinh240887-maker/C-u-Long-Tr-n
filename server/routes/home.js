@@ -102,6 +102,12 @@ export default function (r, ctx) {
       unscheduled: unscheduled.map((u) => ({ staff_name: u.staff_name, clock_in: u.clock_in, clock_out: u.clock_out })),
       checklists: checklistByTeam,
       overdue, open_tasks: openTasks, pending_leave: pendingLeave, gaps,
+      photos_pending: db.prepare(`SELECT COUNT(*) AS n FROM checklist_entries e JOIN checklist_runs r ON r.id = e.run_id JOIN checklist_items i ON i.id = e.item_id
+        WHERE r.date = ? AND i.photo_required = 1 AND e.review_status IS NULL`).get(today).n,
+      avail: (() => {
+        const s = ctx.availabilitySummary(addDays(today, 7));
+        return { week_start: s.week_start, missing: s.people.filter((p) => !p.submitted_at).length, total: s.people.length, deadline: s.deadline };
+      })(),
       counts: {
         working: people.filter((p) => p.status === 'working').length + unscheduled.filter((u) => !u.clock_out).length,
         late: people.filter((p) => p.status === 'late').length,

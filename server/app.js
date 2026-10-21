@@ -17,6 +17,7 @@ import settingsRoutes from './routes/settings.js';
 import stockRoutes from './routes/stock.js';
 import zoneRoutes from './routes/zones.js';
 import positionRoutes from './routes/positions.js';
+import availabilityRoutes from './routes/availability.js';
 
 const SESSION_DAYS = 30;
 const MIME = {
@@ -24,14 +25,14 @@ const MIME = {
   '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json',
 };
 
-export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport, backupDir } = {}) {
+export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport, backupDir, photoDir } = {}) {
   const clients = new Set();
   const failedLogins = new Map();
   const qSetting = db.prepare('SELECT value FROM settings WHERE key = ?');
   const qSetSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
 
   const ctx = {
-    db, now, backupDir,
+    db, now, backupDir, photoDir,
     setting: (key) => qSetting.get(key)?.value ?? '',
     setSetting: (key, value) => qSetSetting.run(key, String(value)),
     clock: () => makeClock({ offset: ctx.setting('tz_offset') || '+07:00', cutoffHour: Number(ctx.setting('day_cutoff_hour') || 5) }),
@@ -61,7 +62,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   ctx.notify = (...args) => ctx.notifier.notify(...args);
 
   const router = createRouter();
-  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes]) {
+  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes]) {
     register(router, ctx);
   }
 
@@ -155,6 +156,10 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
         }
         const body = req.method === 'GET' ? {} : await readJson(req);
         const out = await route.fn({ req, res, url, query: url.searchParams, params, body, me, token, net });
+        if (out && out.__binary) {
+          res.writeHead(200, { 'Content-Type': out.type, 'Cache-Control': 'private, max-age=86400', 'Content-Length': out.__binary.length });
+          return res.end(out.__binary);
+        }
         return sendJson(res, 200, out ?? { ok: true });
       }
 

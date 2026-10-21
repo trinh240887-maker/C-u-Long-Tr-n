@@ -50,6 +50,21 @@ CREATE TABLE IF NOT EXISTS position_skills (
   PRIMARY KEY (staff_id, position_id)
 );
 
+-- Lịch rảnh nhân viên tự báo (theo buổi) và lần nộp mỗi tuần
+CREATE TABLE IF NOT EXISTS availability (
+  staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  slot TEXT NOT NULL,
+  PRIMARY KEY (staff_id, date, slot)
+);
+CREATE TABLE IF NOT EXISTS availability_weeks (
+  staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  week_start TEXT NOT NULL,
+  submitted_at INTEGER NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (staff_id, week_start)
+);
+
 CREATE TABLE IF NOT EXISTS staff_skills (
   staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
   team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -168,6 +183,18 @@ CREATE TABLE IF NOT EXISTS checklist_entries (
   done_by INTEGER,
   done_at INTEGER NOT NULL,
   PRIMARY KEY (run_id, item_id)
+);
+
+-- Ảnh báo cáo checklist; file tự xoá sau 7 ngày (deleted_at), kết quả duyệt vẫn giữ
+CREATE TABLE IF NOT EXISTS checklist_photos (
+  id INTEGER PRIMARY KEY,
+  run_id INTEGER NOT NULL REFERENCES checklist_runs(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES checklist_items(id) ON DELETE CASCADE,
+  staff_id INTEGER REFERENCES staff(id) ON DELETE SET NULL,
+  file TEXT NOT NULL,
+  size INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  deleted_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -376,6 +403,20 @@ function migrate(db) {
   if (!aCols.includes('tables_text')) db.exec("ALTER TABLE assignments ADD COLUMN tables_text TEXT NOT NULL DEFAULT ''");
   if (!aCols.includes('position_id')) db.exec('ALTER TABLE assignments ADD COLUMN position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL');
   if (!cols('staff').includes('position_id')) db.exec('ALTER TABLE staff ADD COLUMN position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL');
+  const iCols = cols('checklist_items');
+  if (!iCols.includes('photo_required')) {
+    db.exec('ALTER TABLE checklist_items ADD COLUMN photo_required INTEGER NOT NULL DEFAULT 1');
+    // Chủ quán chốt 21/10: mọi khu đều phải có ảnh; mục nhập số/chữ thì không bắt ảnh
+    db.exec("UPDATE checklist_items SET photo_required = CASE WHEN kind = 'check' THEN 1 ELSE 0 END");
+  }
+  const eCols = cols('checklist_entries');
+  if (!eCols.includes('review_status')) {
+    db.exec("ALTER TABLE checklist_entries ADD COLUMN review_status TEXT");      // null = chờ duyệt | ok | redo
+    db.exec("ALTER TABLE checklist_entries ADD COLUMN review_note TEXT NOT NULL DEFAULT ''");
+    db.exec('ALTER TABLE checklist_entries ADD COLUMN reviewed_by INTEGER');
+    db.exec('ALTER TABLE checklist_entries ADD COLUMN reviewed_at INTEGER');
+  }
+  if (!cols('checklist_templates').includes('zone_id')) db.exec('ALTER TABLE checklist_templates ADD COLUMN zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL');
   if (!cols('checklist_templates').includes('position_id')) db.exec('ALTER TABLE checklist_templates ADD COLUMN position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL');
   // Khu mặc định A, B, C (sửa số bàn trong Cài đặt → Khu & bàn)
   if (!db.prepare('SELECT 1 FROM zones LIMIT 1').get()) {
@@ -431,6 +472,8 @@ const DEFAULT_SETTINGS = {
   kho_tong_staff_id: '',
   area_count_is_usage: '1',      // chưa có bán hàng: chênh lệch kiểm kho khu = lượng đã dùng
   expiry_warn_days: '1',
+  avail_deadline_dow: '4',      // hạn báo lịch rảnh tuần sau: Thứ Năm
+  avail_deadline_time: '21:00',
 };
 
 function seedBase(db, now) {

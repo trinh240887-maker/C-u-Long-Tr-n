@@ -115,7 +115,12 @@ export default function (r, ctx) {
         }
       }
     }
-    return { week_start: start, days, shifts, coverage, warnings, published_at: Number(ctx.setting(`published:${start}`) || 0) };
+    const availability = {};
+    for (const a of db.prepare('SELECT staff_id, date, slot FROM availability WHERE date BETWEEN ? AND ?').all(start, end)) {
+      ((availability[a.staff_id] ||= {})[a.date] ||= []).push(a.slot);
+    }
+    const submitted = db.prepare('SELECT staff_id FROM availability_weeks WHERE week_start = ?').all(start).map((x) => x.staff_id);
+    return { week_start: start, days, shifts, coverage, availability, avail_submitted: submitted, slots: ctx.availSlots(), warnings, published_at: Number(ctx.setting(`published:${start}`) || 0) };
   });
 
   function createGroup(me, { staffId, date, teamId, segs, templateId, label, note, replaceGroup, zoneId = null, tablesText = '', positionId = null }) {
