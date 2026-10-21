@@ -2,7 +2,7 @@
 import initSqlJs from 'sql.js/dist/sql-wasm.js';
 import wasmBinary from 'sql.js/dist/sql-wasm.wasm';
 
-const KEY = 'quanly-demo-db-v3';
+const KEY = 'quanly-demo-db-v4';
 const OWNER_PIN = '135790';
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -14,6 +14,8 @@ const fromB64 = (b) => Uint8Array.from(atob(b), (c) => c.charCodeAt(0));
 
 async function main() {
   globalThis.setImmediate ||= (fn) => setTimeout(fn, 0);
+  // Buffer tối thiểu cho ảnh checklist (máy chủ chạy trong trình duyệt)
+  globalThis.Buffer ||= { from: (x, enc) => (enc === 'base64' ? fromB64(x) : new TextEncoder().encode(String(x))), alloc: (n, v = 0) => new Uint8Array(n).fill(v) };
   globalThis.__SQL = await initSqlJs({ wasmBinary });
   const saved = store.get(KEY);
   try { globalThis.__DEMO_DB_BYTES = saved ? fromB64(saved) : null; } catch { globalThis.__DEMO_DB_BYTES = null; }

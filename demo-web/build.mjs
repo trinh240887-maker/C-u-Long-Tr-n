@@ -14,7 +14,7 @@ const out = await build({
   alias: {
     'node:sqlite': shim('sqlite.js'), 'node:crypto': shim('crypto.js'), crypto: shim('crypto.js'),
     'node:fs': shim('fs.js'), 'node:fs/promises': shim('fs.js'), fs: shim('fs.js'),
-    'node:path': shim('path.js'), path: shim('path.js'),
+    'node:path': shim('path.js'), path: shim('path.js'), 'node:os': shim('os.js'), os: shim('os.js'),
     preact: path.join(pub, 'vendor', 'preact.js'), 'preact/hooks': path.join(pub, 'vendor', 'hooks.js'), htm: path.join(pub, 'vendor', 'htm.js'),
   },
   logLevel: 'warning',
