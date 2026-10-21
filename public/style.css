@@ -521,3 +521,17 @@ a.button.primary { background: var(--accent, #2563eb); color: #fff; border-color
 .chips.scroll-x { max-width: 100%; min-width: 0; }
 .menu-btn b { overflow-wrap: anywhere; }
 .menu-btn { white-space: normal; min-width: 0; overflow: hidden; }
+
+/* Thanh đếm bàn ở Sơ đồ bàn */
+.floor-sum { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.floor-sum .fs { display: grid; gap: 1px; padding: 8px 6px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); text-align: center; text-decoration: none; color: inherit; min-width: 0; }
+.floor-sum .fs b { font-size: 1.5rem; line-height: 1.1; }
+.floor-sum .fs small { font-size: .72rem; color: var(--muted); }
+.floor-sum .fs em { font-style: normal; font-size: .66rem; color: var(--muted); overflow-wrap: anywhere; }
+.floor-sum .free b { color: var(--ok); }
+.floor-sum .soon b { color: var(--warn); }
+.floor-sum .wait.on { border-color: #dc2626; }
+.floor-sum .wait.on b { color: #dc2626; }
+
+.eta-bar { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; padding: 10px 12px; }
+.eta-bar.busy b { color: var(--warn); }

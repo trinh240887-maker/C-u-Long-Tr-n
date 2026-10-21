@@ -92,7 +92,7 @@ export default function (r, ctx) {
     const today = ctx.today();
     const sessions = db.prepare("SELECT * FROM table_sessions WHERE status IN ('open','paying')").all();
     const bySession = new Map(sessions.map((s) => [s.id, s]));
-    const totals = new Map(db.prepare(`SELECT session_id, SUM(unit_price * qty) AS total, SUM(status = 'new') AS unsent, COUNT(*) AS n
+    const totals = new Map(db.prepare(`SELECT session_id, SUM(unit_price * qty) AS total, SUM(status = 'new') AS unsent, SUM(status = 'sent') AS cooking, MAX(created_at) AS last_order, COUNT(*) AS n
       FROM order_items WHERE status != 'cancelled' GROUP BY session_id`).all().map((x) => [x.session_id, x]));
     const lateBySession = new Map();
     for (const i of lateItems()) lateBySession.set(i.session_id, (lateBySession.get(i.session_id) || 0) + 1);
@@ -108,8 +108,48 @@ export default function (r, ctx) {
     }
     const zones = db.prepare('SELECT * FROM zones WHERE active = 1 ORDER BY sort, id').all();
     const tables = db.prepare('SELECT * FROM dining_tables ORDER BY number').all();
+    const sitting = (sid) => { const s = bySession.get(sid); return s ? Math.round((now - s.opened_at) / 60_000) : 0; };
+    const longSit = Number(ctx.setting('dining_minutes') || 70);
+    const sessIds = new Set(tableSession.values());
+    const freeNums = tables.filter((t) => !tableSession.has(t.number) && !upcoming.has(t.number)).map((t) => t.number);
+    const zoneOfT = new Map(tables.map((t) => [t.number, t.zone_id]));
+    const waitRows = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(guests), 0) AS g FROM reservations WHERE date = ? AND kind = 'walkin' AND status = 'waiting'").get(today);
+    // Thời gian ngồi trung bình hôm nay (bàn đã tính tiền), chưa có thì dùng số trong Cài đặt
+    const dwellRows = db.prepare("SELECT closed_at - opened_at AS d FROM table_sessions WHERE status = 'closed' AND closed_date = ? AND closed_at IS NOT NULL").all(today).map((x) => x.d / 60_000).filter((d) => d > 10 && d < 300);
+    const avgDwell = dwellRows.length >= 5 ? Math.round(dwellRows.reduce((a, b) => a + b, 0) / dwellRows.length) : longSit;
+    // Ước tính bàn nào trống trước: xin tính tiền ~5′; ăn xong (món đã ra hết, 15′ không gọi thêm) ~10′; còn lại theo thời gian ngồi trung bình
+    const soon = [...sessIds].map((sid) => {
+      const ss = bySession.get(sid);
+      const tot = totals.get(sid) || {};
+      const sat = sitting(sid);
+      let min;
+      let why;
+      if (ss.status === 'paying') { min = 5; why = 'xin tính tiền'; }
+      else if (tot.n && !tot.cooking && !tot.unsent && now - (tot.last_order || 0) > 15 * 60_000) { min = Math.min(15, Math.max(5, avgDwell - sat)); why = 'đã ra đủ món'; }
+      else { min = Math.max(10, avgDwell - sat); why = tot.cooking ? `còn ${tot.cooking} món chưa ra` : `ngồi ${sat}′`; }
+      return { session_id: sid, tables: tablesOf(sid), sitting: sat, minutes: min, reason: why };
+    }).sort((a, b) => a.minutes - b.minutes);
+    // Nhóm chờ thứ k sẽ có bàn khi bàn sắp trống thứ (k − số bàn trống) trống
+    const waitList = db.prepare("SELECT id, name, guests, created_at FROM reservations WHERE date = ? AND kind = 'walkin' AND status = 'waiting' ORDER BY created_at, id").all(today);
+    const freeCount = tables.filter((t) => !tableSession.has(t.number) && !upcoming.has(t.number)).length;
+    const etaOf = (k) => (k < freeCount ? 0 : soon[k - freeCount]?.minutes ?? null);
+    const summary = {
+      total: tables.length,
+      free: freeNums.length,
+      // cặp bàn trống liền nhau cùng khu (cho nhóm đông 6–10 người)
+      free_pairs: freeNums.filter((n) => freeNums.includes(n + 1) && zoneOfT.get(n) === zoneOfT.get(n + 1)).length,
+      held: [...upcoming.keys()].filter((n) => !tableSession.has(n)).length,
+      busy: tableSession.size,
+      paying: [...sessIds].filter((sid) => bySession.get(sid)?.status === 'paying').length,
+      long_sitting: [...sessIds].filter((sid) => sitting(sid) >= longSit && bySession.get(sid)?.status !== 'paying').length,
+      waiting: waitRows.n, waiting_guests: waitRows.g, long_minutes: longSit,
+      avg_dwell: avgDwell,
+      soon: soon.slice(0, 8),
+      queue: waitList.map((w, k) => ({ ...w, waited: Math.round((now - w.created_at) / 60_000), eta: etaOf(k) })),
+      next_eta: etaOf(waitList.length), // khách mới tới lúc này phải chờ khoảng bao lâu
+    };
     return {
-      now,
+      now, summary,
       zones: zones.map((z) => ({
         id: z.id, name: z.name, color: z.color,
         tables: tables.filter((t) => t.zone_id === z.id).map((t) => {
@@ -141,8 +181,28 @@ export default function (r, ctx) {
     return id;
   };
 
+  // Bàn đang giữ cho khách đặt trong 90 phút tới (hoặc khách đặt đang trễ trong thời gian giữ)
+  ctx.reservedSoon = (n) => {
+    const now = ctx.now();
+    const clock = ctx.clock();
+    const today = clock.businessDate(now);
+    const hold = Number(ctx.setting('reserve_hold_minutes') || 15);
+    for (const rv of db.prepare("SELECT * FROM reservations WHERE date = ? AND kind = 'booking' AND status = 'booked'").all(today)) {
+      const at = clock.toEpoch(today, rv.time_min);
+      if (at - now <= 90 * 60_000 && now - at <= hold * 60_000 && parseTableList(rv.tables).includes(n)) return rv;
+    }
+    return null;
+  };
+  const fmtM = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
   r.post('/api/pos/sessions', 'staff', ({ me, body }) => {
     const tables = readTables(body.tables);
+    if (!body.override_reserved) {
+      for (const n of tables) {
+        const rv = ctx.reservedSoon(n);
+        if (rv) fail(409, `Bàn ${n} đang giữ cho ${rv.name} lúc ${fmtM(rv.time_min)}. Chọn bàn khác, hoặc xác nhận vẫn nhận khách.`);
+      }
+    }
     const guests = v.int(body.guests ?? 1, { min: 1, max: 500, name: 'Số khách' });
     const id = tx(db, () => ctx.openTableSession(me, { tables, guests, priority: v.bool(body.priority), note: v.text(body.note, { name: 'Ghi chú', max: 200 }) }));
     ctx.audit(me, 'pos.open', { id, tables, guests });

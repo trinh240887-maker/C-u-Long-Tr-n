@@ -99,7 +99,7 @@ export function RefundModal({ me, id, onClose }) {
   const b = st.data;
   const manager = atLeast(me, 'manager');
   const chosen = b.lines.filter((l) => pick[l.id] > 0);
-  const est = chosen.reduce((n, l) => n + Math.round((l.net * pick[l.id]) / l.qty), 0);
+  const est = chosen.reduce((n, l) => n + Math.round((l.net * pick[l.id]) / l.qty / 1000) * 1000, 0);
   const send = async () => {
     const r = await act(() => api('POST', `/api/pos/sessions/${id}/refund`, { items: chosen.map((l) => ({ id: l.id, qty: pick[l.id] })), reason, approver_pin: manager ? undefined : pin }), 'Đã hoàn tiền, đang in phiếu');
     if (r) { alert(`Đưa khách ${money(r.amount)} tiền mặt, nhờ khách ký phiếu hoàn tiền.`); onClose(); }

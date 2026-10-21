@@ -147,6 +147,14 @@ export default function (r, ctx) {
     if (!nums.length) fail(400, 'Chọn bàn cho khách');
     tables = formatTableList(nums);
     const guests = body.guests === undefined ? cur.guests : v.int(body.guests, { min: 1, max: 500, name: 'Số khách' });
+    // Bàn giữ đang có khách khác ngồi → gợi ý bàn trống cùng khu để chọn
+    const busy = nums.filter((n) => db.prepare("SELECT 1 FROM session_tables t JOIN table_sessions s ON s.id = t.session_id WHERE t.table_number = ? AND s.status IN ('open','paying')").get(n));
+    if (busy.length) {
+      const zone = db.prepare('SELECT zone_id FROM dining_tables WHERE number = ?').get(busy[0])?.zone_id;
+      const free = db.prepare(`SELECT number FROM dining_tables d WHERE NOT EXISTS (SELECT 1 FROM session_tables t JOIN table_sessions s ON s.id = t.session_id WHERE t.table_number = d.number AND s.status IN ('open','paying'))
+        ORDER BY (zone_id = ?) DESC, ABS(number - ?) LIMIT 5`).all(zone, busy[0]).map((x) => x.number).filter((n) => !(ctx.reservedSoon && ctx.reservedSoon(n) && ctx.reservedSoon(n).id !== cur.id));
+      fail(409, `Bàn ${busy.join(', ')} đang có khách. Bàn trống gần nhất: ${free.join(', ') || 'hết bàn, cho khách vào danh sách chờ'}`);
+    }
     const sid = tx(db, () => {
       const id = ctx.openTableSession(me, { tables: nums, guests, priority: !!cur.priority, note: cur.note, reservationId: cur.id });
       db.prepare("UPDATE reservations SET status = 'arrived', session_id = ?, tables = ?, guests = ?, updated_at = ? WHERE id = ?").run(id, tables, guests, ctx.now(), cur.id);

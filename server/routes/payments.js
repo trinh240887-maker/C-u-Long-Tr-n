@@ -162,12 +162,12 @@ export default function (r, ctx) {
       const left = it.qty - (it.refunded_qty || 0);
       const q = v.int(x.qty ?? left, { min: 1, max: left, name: `Số lượng hoàn của ${it.name}` });
       // Tiền hoàn = số khách thật sự đã trả cho phần đó (đã trừ khuyến mãi món)
-      const amount = Math.round((it.net * q) / it.qty);
+      const amount = Math.round((it.net * q) / it.qty / 1000) * 1000;
       lines.push({ item: it, qty: q, amount });
     }
     let amount = lines.reduce((n, l) => n + l.amount, 0);
     // Khuyến mãi bill chia đều theo tỉ lệ
-    if (s.bill_promos?.length && s.subtotal - s.item_discount > 0) amount = Math.round(amount * (1 - s.bill_promos[0].amount / (s.subtotal - s.item_discount)));
+    if (s.bill_promos?.length && s.subtotal - s.item_discount > 0) amount = Math.round((amount * (1 - s.bill_promos[0].amount / (s.subtotal - s.item_discount))) / 1000) * 1000;
     const already = refundsOf(s.id).reduce((n, x) => n + x.amount, 0);
     if (amount + already > s.paid_total) fail(400, 'Số tiền hoàn vượt quá số khách đã trả');
     const id = tx(db, () => {

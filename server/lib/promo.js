@@ -12,6 +12,8 @@ export const isBill = (p) => p.type === 'bill_percent' || p.type === 'bill_amoun
 const DOW = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const dm = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+// Tiền giảm làm tròn tới 1.000đ (lên, có lợi cho khách) để bill luôn chẵn nghìn, thối tiền mặt được
+export const round1k = (n) => Math.ceil(n / 1000) * 1000;
 const vnd = (n) => `${Number(n).toLocaleString('vi-VN')}đ`;
 
 // Chương trình có hiệu lực tại thời điểm ms không
@@ -96,7 +98,7 @@ export function applyPromos(items, promos, { clock, openedAt }) {
       }
     } else {
       for (const it of its) {
-        const amount = p.type === 'percent' ? Math.round((it.unit_price * it.qty * p.value) / 100) : Math.min(it.unit_price, p.value) * it.qty;
+        const amount = p.type === 'percent' ? Math.min(it.unit_price * it.qty, round1k((it.unit_price * it.qty * p.value) / 100)) : Math.min(it.unit_price, p.value) * it.qty;
         if (amount > 0) { push(it.id, { promo_id: p.id, name: p.name, amount }); itemDiscount += amount; }
       }
     }
@@ -108,7 +110,7 @@ export function applyPromos(items, promos, { clock, openedAt }) {
   for (const p of promos.filter((x) => isBill(x) && validAt(x, openedAt, clock))) {
     if (p.min_bill && after < p.min_bill) continue;
     const base = p.stack ? after : plain;
-    const amount = Math.min(base, p.type === 'bill_percent' ? Math.round((base * p.value) / 100) : p.value);
+    const amount = Math.min(base, p.type === 'bill_percent' ? round1k((base * p.value) / 100) : p.value);
     if (amount > 0 && (!bill || amount > bill.amount)) bill = { promo_id: p.id, name: p.name, amount };
   }
   const discount = itemDiscount + (bill?.amount || 0);

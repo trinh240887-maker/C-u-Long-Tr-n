@@ -104,14 +104,14 @@ test('khuyến mãi: mua 1 tặng 1 theo ngày, tự hết hạn, báo nhân vi�
   now = at('2026-10-23', '18:00');
   await H('POST', `/api/pos/sessions/${s2}/items`, { menu_item_id: M('Combo 1').id, option_ids: [M('Combo 1').options[0].id] });
   v = (await H('GET', `/api/pos/sessions/${s2}`)).data;
-  assert.equal(v.discount, Math.round(69000 * 0.3));
+  assert.equal(v.discount, Math.ceil((69000 * 0.3) / 1000) * 1000); // 20.700 → làm tròn 21.000
 
   // Giảm 10% bill từ 300k, không chồng lên món đã KM
   await o('POST', '/api/promotions', { name: 'Bill 300k giảm 10%', type: 'bill_percent', value: 10, min_bill: 300000, start_date: '2026-10-23', end_date: '2026-10-23' });
   await H('POST', `/api/pos/sessions/${s2}/items`, { menu_item_id: M('Combo 3').id, option_ids: [M('Combo 3').options[0].id], qty: 3 });
   v = (await H('GET', `/api/pos/sessions/${s2}`)).data;
   const plain = v.items.filter((i) => !i.discount).reduce((n, i) => n + i.total, 0);
-  assert.equal(v.bill_promos[0].amount, Math.round(plain * 0.1));
+  assert.equal(v.bill_promos[0].amount, Math.ceil((plain * 0.1) / 1000) * 1000);
 
   // Hết hạn 1/11 → không còn giảm, trạng thái "đã hết"
   now = at('2026-11-01', '18:00');

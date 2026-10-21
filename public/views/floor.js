@@ -20,7 +20,7 @@ export function FloorView({ me }) {
   const tap = async (z, t) => {
     if (t.session) return navigate(`/goi-mon?s=${t.session.id}`);
     if (t.reservation && !confirm(`Bàn ${t.number} đang giữ cho ${t.reservation.name} lúc ${fmtMin(t.reservation.time_min)}. Vẫn nhận khách khác vào bàn này?`)) return undefined;
-    const r = await act(() => api('POST', '/api/pos/sessions', { tables: [t.number] }));
+    const r = await act(() => api('POST', '/api/pos/sessions', { tables: [t.number], override_reserved: !!t.reservation }));
     if (r?.id) navigate(`/goi-mon?s=${r.id}`);
     return undefined;
   };
@@ -29,6 +29,7 @@ export function FloorView({ me }) {
       <div class="tabs"><button class=${view === 'ban' ? 'on' : ''} onClick=${() => setV('ban')}>Bàn & gọi món</button><button class=${view === 'nguoi' ? 'on' : ''} onClick=${() => setV('nguoi')}>Ai phụ trách</button></div>
       <span class="muted small">${busy}/${all.length} bàn có khách</span>
     </div>
+    <${Summary} s=${pos.data.summary} />
     ${view === 'nguoi' ? html`<${People} me=${me} data=${st.data} />` : html`
       <div class="legend small"><span class="tbl-l free">Trống</span><span class="tbl-l busy">Có khách</span><span class="tbl-l unsent">Chưa gửi bếp</span><span class="tbl-l paying">Xin thanh toán</span><span class="tbl-l held">Đã đặt</span>
         <${Link} href="/dat-ban" class="btn-link">Đặt bàn →<//></div>
@@ -50,6 +51,29 @@ export function FloorView({ me }) {
         </section>`;
       })}`}
   </div>`;
+}
+
+// Quản lý nhìn 1 dòng là biết còn đón được bao nhiêu khách
+function Summary({ s }) {
+  const [open, setOpen] = useState(false);
+  if (!s) return null;
+  const soon = s.paying + s.long_sitting;
+  const eta = (m) => (m == null ? 'chưa ước được' : m === 0 ? 'có bàn ngay' : `~${m} phút`);
+  return html`<div class="floor-sum">
+    <div class="fs free"><b>${s.free}</b><small>bàn trống</small>${s.free_pairs ? html`<em>${s.free_pairs} cặp ghép được</em>` : null}</div>
+    <div class="fs soon"><b>${soon}</b><small>sắp trống</small><em>${s.paying} xin tính tiền · ${s.long_sitting} ngồi ≥${s.long_minutes}′</em></div>
+    <div class="fs held"><b>${s.held}</b><small>giữ khách đặt</small></div>
+    <${Link} href="/dat-ban" class=${`fs wait ${s.waiting ? 'on' : ''}`}><b>${s.waiting}</b><small>nhóm đang chờ</small>${s.waiting ? html`<em>${s.waiting_guests} khách</em>` : null}<//>
+  </div>
+  <button class=${`card eta-bar ${s.next_eta ? 'busy' : ''}`} onClick=${() => setOpen(!open)}>
+    <span>Khách mới tới lúc này: <b>${eta(s.next_eta)}</b></span><small class="muted">${open ? 'Ẩn' : 'Bàn sắp trống ›'}</small>
+  </button>
+  ${open ? html`<section class="card stack small">
+    ${s.queue.length ? html`<b>Danh sách chờ</b>${s.queue.map((w, k) => html`<div class="row between"><span>${k + 1}. ${w.name} · ${w.guests} khách · đã chờ ${w.waited}′</span><b>${eta(w.eta)}</b></div>`)}` : null}
+    <b>Bàn sắp trống (ngồi trung bình hôm nay ${s.avg_dwell}′)</b>
+    ${s.soon.length ? s.soon.map((x) => html`<div class="row between"><span>Bàn ${x.tables.join(', ')} · ${x.reason}</span><b>~${x.minutes}′</b></div>`) : html`<span class="muted">Chưa có bàn nào có khách.</span>`}
+    <p class="muted">Ước tính: bàn xin tính tiền ~5′, bàn đã ra đủ món ~10′, còn lại theo thời gian ngồi trung bình. Báo khách "khoảng", đừng hứa chính xác.</p>
+  </section>` : null}`;
 }
 
 // Ai đang phụ trách khu / bàn nào (từ lịch ca)
