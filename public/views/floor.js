@@ -1,37 +1,12 @@
 import { useState, useEffect } from 'preact/hooks';
-import { html, api, act, useData, Loading, Link, hm, atLeast, navigate, Modal, Field, money } from '../ui.js';
+import { html, api, act, useData, Loading, Link, hm, atLeast, navigate } from '../ui.js';
 
 const mins = (from, now) => Math.max(0, Math.round((now - from) / 60_000));
 const fmtMin = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
-function OpenTable({ table, zone, onClose }) {
-  const [guests, setGuests] = useState(table.reservation?.guests || 2);
-  const [extra, setExtra] = useState('');
-  const [priority, setPriority] = useState(false);
-  const open = async () => {
-    const extraNums = extra.split(/[,\s]+/).map(Number).filter(Boolean);
-    const r = await act(() => api('POST', '/api/pos/sessions', { tables: [table.number, ...extraNums], guests: Number(guests), priority }));
-    if (r?.id) navigate(`/goi-mon?s=${r.id}`);
-  };
-  return html`<${Modal} title=${`Mở bàn ${table.number} · ${zone.name}`} onClose=${onClose}>
-    <div class="stack">
-      ${table.reservation ? html`<p class="hint card"><span>Bàn này đã giữ cho <b>${table.reservation.name}</b> lúc ${fmtMin(table.reservation.time_min)} (${table.reservation.guests} khách).
-        Nếu đúng khách, mở từ trang <${Link} href="/dat-ban">Đặt bàn<//> → Khách đến.</span></p>` : null}
-      <${Field} label="Số khách"><div class="row">
-        <button class="icon" onClick=${() => setGuests(Math.max(1, guests - 1))}>−</button>
-        <input id="ot-guests" class="num-in big-num" inputmode="numeric" value=${guests} onInput=${(e) => setGuests(Number(e.target.value.replace(/\D/g, '')) || 1)} />
-        <button class="icon" onClick=${() => setGuests(guests + 1)}>+</button></div><//>
-      <${Field} label="Gộp thêm bàn (nhóm đông)" hint="vd 21, 22"><input id="ot-extra" inputmode="numeric" value=${extra} placeholder="để trống nếu 1 bàn" onInput=${(e) => setExtra(e.target.value)} /><//>
-      <label class="check-row"><input type="checkbox" checked=${priority} onChange=${(e) => setPriority(e.target.checked)} /> Bàn ưu tiên (VIP, nhóm đông): steak in máy Ưu tiên</label>
-      <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary big" onClick=${open}>Mở bàn & gọi món</button></div>
-    </div>
-  <//>`;
-}
-
 export function FloorView({ me }) {
   const pos = useData('/api/pos/tables');
   const st = useData('/api/floor');
-  const [pick, setPick] = useState(null);
   const [view, setView] = useState(() => { try { return localStorage.getItem('floor-view') || 'ban'; } catch { return 'ban'; } });
   const [, tick] = useState(0);
   useEffect(() => { const id = setInterval(() => tick((x) => x + 1), 30_000); return () => clearInterval(id); }, []);
@@ -41,7 +16,14 @@ export function FloorView({ me }) {
   const people = new Map(st.data.zones.map((z) => [z.id, z]));
   const all = pos.data.zones.flatMap((z) => z.tables);
   const busy = all.filter((t) => t.session).length;
-  const tap = (z, t) => (t.session ? navigate(`/goi-mon?s=${t.session.id}`) : setPick({ z, t }));
+  // Bấm bàn trống là nhận khách và vào gọi món luôn (không hỏi số khách)
+  const tap = async (z, t) => {
+    if (t.session) return navigate(`/goi-mon?s=${t.session.id}`);
+    if (t.reservation && !confirm(`Bàn ${t.number} đang giữ cho ${t.reservation.name} lúc ${fmtMin(t.reservation.time_min)}. Vẫn nhận khách khác vào bàn này?`)) return undefined;
+    const r = await act(() => api('POST', '/api/pos/sessions', { tables: [t.number] }));
+    if (r?.id) navigate(`/goi-mon?s=${r.id}`);
+    return undefined;
+  };
   return html`<div class="stack">
     <div class="row between wrap">
       <div class="tabs"><button class=${view === 'ban' ? 'on' : ''} onClick=${() => setV('ban')}>Bàn & gọi món</button><button class=${view === 'nguoi' ? 'on' : ''} onClick=${() => setV('nguoi')}>Ai phụ trách</button></div>
@@ -60,13 +42,12 @@ export function FloorView({ me }) {
             const cls = s ? (s.status === 'paying' ? 'paying' : s.unsent ? 'unsent' : 'busy') : t.reservation ? 'held' : 'free';
             return html`<button class=${`tbl ${cls} ${s?.priority ? 'vip' : ''}`} onClick=${() => tap(z, t)}>
               <b>${t.number}</b>
-              ${s ? html`<small>${s.guests}k · ${mins(s.opened_at, now)}′</small>${s.total ? html`<small>${Math.round(s.total / 1000)}k</small>` : null}`
+              ${s ? html`<small>${mins(s.opened_at, now)}′</small>${s.total ? html`<small>${Math.round(s.total / 1000)}k</small>` : null}`
                 : t.reservation ? html`<small>${fmtMin(t.reservation.time_min)}</small>` : null}
             </button>`;
           })}</div>
         </section>`;
       })}`}
-    ${pick ? html`<${OpenTable} table=${pick.t} zone=${pick.z} onClose=${() => setPick(null)} />` : null}
   </div>`;
 }
 

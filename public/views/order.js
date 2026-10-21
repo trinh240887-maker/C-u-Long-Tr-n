@@ -63,7 +63,9 @@ export function OrderView({ me, query }) {
   const s = st.data;
   const m = menuD.data;
   const closed = !['open', 'paying'].includes(s.status);
-  const items = m.items.filter((i) => (!cat || i.category_id === Number(cat)) && (!q || i.name.toLowerCase().includes(q.toLowerCase())));
+  const catOrder = (cid) => { const k = m.categories.findIndex((c) => c.id === cid); return k < 0 ? 999 : k; };
+  const items = m.items.filter((i) => (!cat || i.category_id === Number(cat)) && (!q || i.name.toLowerCase().includes(q.toLowerCase())))
+    .sort((a, b) => catOrder(a.category_id) - catOrder(b.category_id) || a.sort - b.sort || a.id - b.id);
   const drafts = s.items.filter((i) => i.status === 'new');
   const sent = s.items.filter((i) => i.status !== 'new');
   const add = async (body) => { if (await act(() => api('POST', `/api/pos/sessions/${id}/items`, body), 'Đã thêm')) setAdding(null); };
@@ -73,13 +75,13 @@ export function OrderView({ me, query }) {
     .map((t) => t.session).filter((x, k, a) => a.findIndex((y) => y.id === x.id) === k);
   return html`<div class="stack order">
     <div class="row between wrap">
-      <div><h2>Bàn ${s.header}</h2><small class="muted">${s.guests} khách · mở ${hm(s.opened_at)} bởi ${s.opened_by_name || ''}${s.status === 'paying' ? ' · đang chờ thanh toán' : ''}</small></div>
-      <button onClick=${() => navigate('/ban')}>← Sơ đồ bàn</button>
+      <div><h2>Bàn ${s.header}</h2><small class="muted">Vào lúc ${hm(s.opened_at)} bởi ${s.opened_by_name || ''}${s.status === 'paying' ? ' · đang chờ thanh toán' : ''}</small></div>
+      <button onClick=${async () => { if (!closed && !s.items.length) await api('POST', `/api/pos/sessions/${id}/cancel`, { reason: 'Nhận nhầm bàn, chưa gọi món' }).catch(() => {}); navigate('/ban'); }}>← Sơ đồ bàn</button>
     </div>
     ${closed ? html`<p class="warn-text">Bàn này đã đóng (${s.status === 'cancelled' ? 'huỷ' : 'đã thanh toán'}).</p>` : html`
     <div class="row wrap">
       <label class="check-row"><input type="checkbox" checked=${s.priority} onChange=${(e) => act(() => api('PATCH', `/api/pos/sessions/${id}`, { priority: e.target.checked }))} /> Ưu tiên</label>
-      <button onClick=${() => { const g = prompt_(s.guests); if (g) act(() => api('PATCH', `/api/pos/sessions/${id}`, { guests: g }), 'Đã sửa số khách'); }}>Số khách: ${s.guests}</button>
+      <button onClick=${() => { const g = prompt_(s.guests); if (g) act(() => api('PATCH', `/api/pos/sessions/${id}`, { guests: g }), 'Đã sửa số khách'); }}>Số khách${s.guests > 1 ? `: ${s.guests}` : ''}</button>
       <button onClick=${() => setPrompt('move')}>Chuyển bàn</button>
       <button onClick=${() => setPrompt('merge')}>Gộp bàn</button>
     </div>
@@ -135,7 +137,7 @@ export function OrderView({ me, query }) {
       onOk=${async (txt) => { if (await act(() => api('POST', `/api/pos/sessions/${id}/move`, { tables: txt }), 'Đã chuyển bàn')) setPrompt(null); }} />` : null}
     ${prompt === 'merge' ? html`<${Modal} title="Gộp bàn khác vào bàn này" onClose=${() => setPrompt(null)}><div class="stack">
       <p class="muted small">Món và khách của bàn được chọn sẽ chuyển sang bàn ${s.header}.</p>
-      ${sessions.length ? html`<div class="chips">${sessions.map((x) => html`<button class="chip big" onClick=${async () => { if (await act(() => api('POST', `/api/pos/sessions/${id}/merge`, { from_session_id: x.id }), 'Đã gộp bàn')) setPrompt(null); }}>Bàn ${x.tables.join(', ')} · ${x.guests}k</button>`)}</div>` : html`<p class="muted">Không có bàn nào khác đang mở.</p>`}
+      ${sessions.length ? html`<div class="chips">${sessions.map((x) => html`<button class="chip big" onClick=${async () => { if (await act(() => api('POST', `/api/pos/sessions/${id}/merge`, { from_session_id: x.id }), 'Đã gộp bàn')) setPrompt(null); }}>Bàn ${x.tables.join(', ')}</button>`)}</div>` : html`<p class="muted">Không có bàn nào khác đang mở.</p>`}
     </div><//>` : null}
   </div>`;
 }
