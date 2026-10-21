@@ -21,7 +21,7 @@ function ShiftForm({ init, staff, teams, templates, zones, onClose }) {
       <div class="row">
         <${Field} label="Nhân viên"><select id="sf-staff" value=${f.staff_id} onChange=${(e) => {
           const s = staff.find((x) => x.id === Number(e.target.value));
-          setF({ ...f, staff_id: Number(e.target.value), team_id: s?.team_id ?? f.team_id });
+          setF({ ...f, staff_id: Number(e.target.value), team_id: init.keepTeam ? f.team_id : s?.team_id ?? f.team_id });
         }}>${staff.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
         <${Field} label="Ngày"><input id="sf-date" type="date" value=${f.date} onInput=${(e) => set('date', e.target.value)} /><//>
       </div>
@@ -152,8 +152,13 @@ export function Schedule({ me, query }) {
   };
   const doubles = [];
   for (const p of staff.data) for (const x of d.days) { const i = dayInfo(p.id, x); if (i.count >= 2 || i.over) doubles.push({ p, x, i }); }
-  const groups = [...teams.map((t) => ({ ...t, people: staff.data.filter((p) => p.team_id === t.id) })),
-    { id: null, name: 'Chưa có tổ', people: staff.data.filter((p) => !p.team_id && p.role !== 'owner') }].filter((g) => g.people.length);
+  // Ca thuộc tổ nào: theo tổ ghi trên ca, không có thì theo tổ của người đó
+  const shiftTeam = (p, s) => s.team_id ?? p.team_id ?? null;
+  const groups = [...teams.map((t) => ({ ...t,
+    people: staff.data.filter((p) => p.active !== false && p.team_id === t.id),
+    helpers: staff.data.filter((p) => p.active !== false && p.team_id !== t.id && (p.skills || []).some((k) => k.team_id === t.id)) })),
+    { id: null, name: 'Chưa có tổ', people: staff.data.filter((p) => p.active !== false && !p.team_id && p.role !== 'owner'), helpers: [] }]
+    .filter((g) => g.id !== null || g.people.length || staff.data.some((p) => (byCell.get(`${p.id}:${activeDay}`) || []).some((s) => shiftTeam(p, s) === null)));
 
   return html`<div class="stack">
     <div class="row between wrap">
@@ -200,14 +205,17 @@ export function Schedule({ me, query }) {
       <${HourCoverage} shifts=${d.shifts} day=${activeDay} prevDay=${addDays(activeDay, -1)} teams=${teams} zones=${zonesD.data || []} />
       ${groups.map((g) => {
         const people = g.people.map((p) => ({ p, cell: byCell.get(`${p.id}:${activeDay}`) || [] }));
-        const on = people.filter((x) => x.cell.length);
+        const on = staff.data.map((p) => ({ p, cell: (byCell.get(`${p.id}:${activeDay}`) || []).filter((s) => shiftTeam(p, s) === g.id) })).filter((x) => x.cell.length);
+        const free = [...people, ...g.helpers.map((p) => ({ p, helper: true, cell: byCell.get(`${p.id}:${activeDay}`) || [] }))].filter((x) => !x.cell.length);
         const min = teams.find((t) => t.id === g.id)?.min_staff;
         return html`<section class="card">
           <div class="row between"><h3>${g.name}</h3><span class=${`pill ${min && (d.coverage[activeDay]?.[g.id] ?? 0) < min ? 'warn' : ''}`}>${g.id ? d.coverage[activeDay]?.[g.id] ?? 0 : on.length}${min ? `/${min}` : ''} người</span></div>
-          ${on.map(({ p, cell }) => html`<div class="person"><span class="grow"><b>${p.name}</b><${DayBadge} pid=${p.id} date=${activeDay} /></span>
+          ${!g.people.length && g.id ? html`<p class="muted small">Tổ này chưa có nhân viên nào. Gán người vào tổ ở <${Link} href="/so-do" class="btn-link">Sơ đồ tổ chức<//> hoặc khi sửa nhân viên (mục Tổ / kỹ năng phụ).</p>` : null}
+          ${on.map(({ p, cell }) => html`<div class="person"><span class="grow"><b>${p.name}</b>${p.team_id !== g.id && g.id ? html` <small class="muted">(tăng cường)</small>` : null}<${DayBadge} pid=${p.id} date=${activeDay} /></span>
             <div class="row">${cell.map((s) => html`<${ShiftChip} s=${s} mine=${p.id === me.id} onClick=${canEdit ? () => setEdit(s) : null} />`)}</div></div>`)}
-          ${canEdit ? html`<details><summary class="muted small">Xếp thêm người (${people.length - on.length} người chưa có ca)</summary>
-            <div class="chips">${people.filter((x) => !x.cell.length).map(({ p }) => html`<button class="chip" onClick=${() => setEdit({ staff_id: p.id, date: activeDay, team_id: p.team_id })}>+ ${p.name}</button>`)}</div></details>`
+          ${canEdit ? html`<details open=${!g.people.length && !on.length}><summary class="muted small">Xếp thêm người (${free.length} người chưa có ca)</summary>
+            <div class="chips">${free.map(({ p, helper }) => html`<button class="chip" onClick=${() => setEdit({ staff_id: p.id, date: activeDay, team_id: g.id ?? p.team_id })}>+ ${p.name}${helper ? ' (biết làm)' : ''}</button>`)}
+              ${g.id ? html`<button class="chip" onClick=${() => setEdit({ staff_id: (free[0]?.p || staff.data.find((x) => x.active !== false && x.role !== 'owner'))?.id, date: activeDay, team_id: g.id, keepTeam: true })}>+ Người tổ khác…</button>` : null}</div></details>`
             : !on.length ? html`<p class="muted small">Chưa có ai.</p>` : null}
         </section>`;
       })}`}
