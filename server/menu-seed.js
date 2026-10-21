@@ -56,11 +56,11 @@ CREATE TABLE IF NOT EXISTS menu_recipes (
 `;
 
 const STATIONS = [
-  ['Steak', '192.168.1.234'], ['Ưu tiên', ''], ['Nước lẩu', '192.168.1.238'], ['Thái tay', ''],
+  ['Steak', '192.168.1.234'], ['Ưu tiên', ''], ['Nước lẩu', '192.168.1.238'], ['Bò', '192.168.1.236'],
   ['Rau', '192.168.1.248'], ['Topping', ''], ['Pha chế', '192.168.1.244'],
 ];
 const SOT = ['Tứ xuyên', 'Kem phô mai', 'Tiêu đen'];
-const LAU_PARTS = (nuoc) => [[`Ngăn nước lẩu ${nuoc}`, 'Nước lẩu'], ['Bò tươi 150g (thăn, bắp hoa, gù)', 'Thái tay'], ['Rau tổng hợp', 'Rau'], ['Mì trứng 2 vắt', 'Rau']];
+const LAU_PARTS = (nuoc) => [[`Ngăn nước lẩu ${nuoc}`, 'Nước lẩu'], ['Bò tươi 150g (thăn, bắp hoa, gù)', 'Bò'], ['Rau tổng hợp', 'Rau'], ['Mì trứng 2 vắt', 'Rau']];
 // [danh mục, điểm in, kiểu dụng cụ, [[tên, giá, mô tả, {sot, parts}]]]
 const MENU = [
   ['Steak', 'Steak', 'Steak', [
@@ -76,7 +76,7 @@ const MENU = [
     ['Set 3 Cà chua Quý Châu', 150000, '1 ngăn nước lẩu, 150g bò tươi, rau tổng hợp, mì trứng 2 vắt, quầy nước chấm', { parts: LAU_PARTS('Cà chua Quý Châu') }],
   ]],
   ['Ngăn nước lẩu thêm', 'Nước lẩu', null, [['Nước lẩu Thảo mộc Triều Châu', 29000, ''], ['Nước lẩu Mala Tứ Xuyên', 29000, ''], ['Nước lẩu Cà chua Quý Châu', 29000, '']]],
-  ['Bò tươi', 'Thái tay', null, [
+  ['Bò tươi', 'Bò', null, [
     ['Bò ướp mala 100g', 69000, ''], ['Bò tắm trứng 100g', 69000, ''], ['Gù hoa bò Úc 100g', 79000, ''], ['Aukobe bông tuyết 100g', 79000, ''],
     ['Lõi vai bò Úc 100g', 79000, ''], ['Bắp hoa tươi 100g', 69000, ''], ['Gù bò tươi 100g', 69000, ''], ['Thăn bò tươi 100g', 69000, ''], ['Ba chỉ Mỹ 100g', 59000, ''],
   ]],
