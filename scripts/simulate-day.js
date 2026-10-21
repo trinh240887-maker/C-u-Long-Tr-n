@@ -36,7 +36,7 @@ let now = at('09:30');
 const db = openDb(':memory:', { now });
 const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), photoDir: fs.mkdtempSync(path.join(os.tmpdir(), 'sd-')), zaloTransport: { send: async () => {} } });
 const server = http.createServer(app.handler);
-await new Promise((r) => server.listen(0, '127.0.0.1', r));
+await new Promise((r) => server.listen(Number(process.env.EOD_PORT || 0), '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 const lat = [];
 const client = (label) => {
@@ -614,6 +614,24 @@ const lateLimit = Object.fromEntries(menu0.stations.map((s) => [s.name, s.late_m
 
 // ---------- Cuối ngày: thu ngân ----------
 now = at('23:40');
+// Chế độ EOD_PORT: dừng ở cuối ngày, để lại vài việc cho thu ngân làm tay trên app (giả lập kế toán)
+if (process.env.EOD_PORT) {
+  const w = waiters[4];
+  // 1 bill tiền mặt bàn cuối, phục vụ chưa kịp giao tiền
+  const s1 = (await w('POST', '/api/pos/sessions', { tables: [5] })).data.id;
+  for (const n of ['Combo 3', 'Trà vải', 'Heineken lùn']) await w('POST', `/api/pos/sessions/${s1}/items`, { menu_item_id: items.find((i) => i.name === n).id, option_ids: items.find((i) => i.name === n).options.slice(0, 1).map((x) => x.id) });
+  await w('POST', `/api/pos/sessions/${s1}/send`);
+  await w('POST', `/api/pos/sessions/${s1}/pay`, { method: 'cash', cash_given: 200000, confirm_unserved: true });
+  // 1 khách tự gõ số TK (tiền chưa khớp), phục vụ đã bấm "chờ tiền về"
+  const s2 = (await w('POST', '/api/pos/sessions', { tables: [6] })).data.id;
+  for (const n of ['Set 1 Thảo mộc Triều Châu', 'Coca', 'Coca']) await w('POST', `/api/pos/sessions/${s2}/items`, { menu_item_id: items.find((i) => i.name === n).id });
+  await w('POST', `/api/pos/sessions/${s2}/send`);
+  const b2 = (await w('GET', `/api/pos/sessions/${s2}/bill`)).data;
+  await w('POST', `/api/pos/sessions/${s2}/pay`, { method: 'transfer', confirm_unserved: true });
+  await bankIn(b2.total, 'TRAN THI B CHUYEN TIEN');
+  console.log(JSON.stringify({ ready: true, port: server.address().port, cashier_pin: thuNgan.pin, owner_pin: DEFAULT_OWNER_PIN, manual_bill: b2.bill_no, manual_amount: b2.total }));
+  await new Promise(() => {}); // giữ máy chủ chạy
+}
 let day = (await thuNgan('GET', `/api/payments?date=${DAY}`)).data;
 const before = { ...day.summary, anomalies: day.anomalies.length };
 const bankTotal = bankLog.reduce((n, a) => n + a, 0);

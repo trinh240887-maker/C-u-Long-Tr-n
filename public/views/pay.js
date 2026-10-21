@@ -304,7 +304,8 @@ export function CashierView({ me }) {
       })}
       ${ids.length && !locked ? html`<div class="stack">
         <div class="row between total"><b>Đã chọn ${ids.length} bill</b><b class="num">${money(selTotal)}</b></div>
-        <div class="row wrap"><button class="primary grow" onClick=${() => mark('confirmed')}>✓ Xác nhận đã thấy tiền</button><button class="danger" onClick=${() => mark('missing')}>Chưa thấy tiền</button><button onClick=${() => mark('pending')}>Bỏ đánh dấu</button></div>
+        <button class="primary big" onClick=${() => mark('confirmed')}>✓ Xác nhận đã thấy tiền (${ids.length} bill)</button>
+        <div class="row wrap"><button class="danger grow" onClick=${() => mark('missing')}>Chưa thấy tiền</button><button class="grow" onClick=${() => mark('pending')}>Bỏ đánh dấu</button></div>
       </div>` : null}
     </section>
 
