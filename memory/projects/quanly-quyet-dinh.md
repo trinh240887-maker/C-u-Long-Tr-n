@@ -47,3 +47,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 41 | 21/10 | **Tiếp thực là bộ phận riêng**, không thuộc Bếp (chủ quán sửa lại). Nếu đã lỡ gộp, app tự tách ra 1 lần (cờ `tiep_thuc_split`) | |
 | 42 | 21/10 | Kế hoạch mới (chờ duyệt thứ tự): Đợt 1 **lịch rảnh hằng tuần** cho nhân sự thời vụ + xếp tự động + phân khu nhanh; Đợt 2 **checklist bắt buộc ảnh** + quản lý chấm Đạt/Chưa đạt; Đợt 3 **AI chấm ảnh** (Claude API, ảnh mẫu chuẩn, báo chủ khi dưới chuẩn; nhân viên nhập số đếm kèm ảnh); Đợt 4 **dự trù muỗng/đũa/nĩa** | Chờ: buổi hay giờ, hạn nộp lịch rảnh, tài khoản Claude API, bộ dụng cụ/khách, số khách cao điểm |
 | 43 | 21/10 | Ảnh checklist **tự xoá sau 7 ngày** cho nhẹ máy (chủ quán chốt) | |
+| 44 | 21/10 | **Không làm "Xếp tự động"**: quản lý xem bảng lịch rảnh rồi tự xếp ca. App chỉ hiện ai rảnh / dư / thiếu và gợi ý người rảnh khi xếp | |
