@@ -18,7 +18,39 @@ export default function (r, ctx) {
     const zone = ts.length ? zoneOf(ts[0]) : '';
     return `${zone ? `${zone.toUpperCase()} - ` : ''}${formatTableList(ts)}`;
   };
-  const itemView = (i) => ({ ...i, options: JSON.parse(i.options || '[]'), rush: !!i.rush, total: i.unit_price * i.qty });
+  // Ngưỡng trễ của món = số phút lớn nhất trong các điểm làm món đó (combo nhiều điểm thì lấy điểm chậm nhất)
+  const lateCache = new Map();
+  function lateLimit(menuItemId) {
+    if (!menuItemId) return 15;
+    if (lateCache.has(menuItemId)) return lateCache.get(menuItemId);
+    const ids = db.prepare('SELECT station_id FROM menu_item_parts WHERE item_id = ? AND station_id IS NOT NULL').all(menuItemId).map((x) => x.station_id);
+    if (!ids.length) { const m = db.prepare('SELECT station_id FROM menu_items WHERE id = ?').get(menuItemId)?.station_id; if (m) ids.push(m); }
+    const lim = ids.length ? Math.max(...ids.map((id) => db.prepare('SELECT late_minutes FROM kitchen_stations WHERE id = ?').get(id)?.late_minutes ?? 10)) : 15;
+    lateCache.set(menuItemId, lim);
+    setTimeout(() => lateCache.delete(menuItemId), 60_000);
+    return lim;
+  }
+  const stationNames = (menuItemId) => {
+    if (!menuItemId) return [];
+    const parts = db.prepare('SELECT DISTINCT s.name FROM menu_item_parts p JOIN kitchen_stations s ON s.id = p.station_id WHERE p.item_id = ?').all(menuItemId).map((x) => x.name);
+    if (parts.length) return parts;
+    const m = db.prepare('SELECT s.name FROM menu_items i JOIN kitchen_stations s ON s.id = i.station_id WHERE i.id = ?').get(menuItemId);
+    return m ? [m.name] : [];
+  };
+  const waitInfo = (i) => {
+    if (i.status !== 'sent' || !i.sent_at) return { wait_min: null, late_min: 0 };
+    const wait = Math.floor((ctx.now() - i.sent_at) / 60_000);
+    const lim = lateLimit(i.menu_item_id);
+    return { wait_min: wait, limit_min: lim, late_min: Math.max(0, wait - lim) };
+  };
+  const itemView = (i) => ({ ...i, options: JSON.parse(i.options || '[]'), rush: !!i.rush, total: i.unit_price * i.qty, ...waitInfo(i) });
+  // Món đã gửi bếp quá ngưỡng mà chưa ra (dùng cho sơ đồ bàn, màn Quản lý, nhắc bếp)
+  function lateItems() {
+    const rows = db.prepare(`SELECT i.* FROM order_items i JOIN table_sessions s ON s.id = i.session_id
+      WHERE i.status = 'sent' AND s.status IN ('open','paying') ORDER BY i.sent_at`).all();
+    return rows.map(itemView).filter((i) => i.late_min > 0).map((i) => ({ ...i, header: headerOf(i.session_id), stations: stationNames(i.menu_item_id) }));
+  }
+  ctx.posLateItems = lateItems;
 
   function session(id) {
     const s = db.prepare('SELECT s.*, o.name AS opened_by_name FROM table_sessions s LEFT JOIN staff o ON o.id = s.opened_by WHERE s.id = ?').get(id);
@@ -30,6 +62,7 @@ export default function (r, ctx) {
       ...s, priority: !!s.priority, tables: tablesOf(id), header: headerOf(id), items,
       subtotal: live.reduce((n, i) => n + i.total, 0),
       unsent: live.filter((i) => i.status === 'new').length,
+      late: live.filter((i) => i.late_min > 0).length,
     };
   }
   ctx.posSession = session;
@@ -48,6 +81,8 @@ export default function (r, ctx) {
     const bySession = new Map(sessions.map((s) => [s.id, s]));
     const totals = new Map(db.prepare(`SELECT session_id, SUM(unit_price * qty) AS total, SUM(status = 'new') AS unsent, COUNT(*) AS n
       FROM order_items WHERE status != 'cancelled' GROUP BY session_id`).all().map((x) => [x.session_id, x]));
+    const lateBySession = new Map();
+    for (const i of lateItems()) lateBySession.set(i.session_id, (lateBySession.get(i.session_id) || 0) + 1);
     const tableSession = new Map();
     for (const t of db.prepare("SELECT t.* FROM session_tables t JOIN table_sessions s ON s.id = t.session_id WHERE s.status IN ('open','paying')").all()) tableSession.set(t.table_number, t.session_id);
     // Đặt bàn sắp tới trong 3 giờ (hoặc đang tới giờ) giữ các bàn đã gán
@@ -70,7 +105,7 @@ export default function (r, ctx) {
           const tot = sid ? totals.get(sid) : null;
           return {
             number: t.number, seats: t.seats, reservation: upcoming.get(t.number) || null,
-            session: s ? { id: s.id, status: s.status, guests: s.guests, priority: !!s.priority, opened_at: s.opened_at, total: tot?.total || 0, unsent: tot?.unsent || 0, items: tot?.n || 0, tables: tablesOf(s.id) } : null,
+            session: s ? { id: s.id, status: s.status, guests: s.guests, priority: !!s.priority, opened_at: s.opened_at, total: tot?.total || 0, unsent: tot?.unsent || 0, items: tot?.n || 0, late: lateBySession.get(s.id) || 0, tables: tablesOf(s.id) } : null,
           };
         }),
       })),
@@ -218,13 +253,18 @@ export default function (r, ctx) {
     }
     const reason = v.text(body.reason, { name: 'Lý do huỷ', required: true, max: 120 });
     const late = i.status === 'done' || ctx.now() - (i.sent_at || 0) > CANCEL_GRACE_MS;
-    if (late && rank(me.role) < rank('shift_lead')) fail(403, 'Món đã gửi bếp quá 2 phút: nhờ trưởng ca huỷ');
+    // Quá 2 phút: trưởng ca, hoặc tổ trưởng (vd tổ trưởng bếp báo hết nguyên liệu) mới huỷ được
+    if (late && rank(me.role) < rank('team_lead')) fail(403, 'Món đã gửi bếp quá 2 phút: nhờ trưởng ca hoặc tổ trưởng huỷ');
+    const soldOut = v.bool(body.sold_out);
+    if (soldOut && rank(me.role) < rank('team_lead')) fail(403, 'Chỉ tổ trưởng trở lên mới báo hết món');
     const s = session(i.session_id);
     tx(db, () => {
       db.prepare("UPDATE order_items SET status = 'cancelled', cancelled_at = ?, cancelled_by = ?, cancel_reason = ? WHERE id = ?").run(ctx.now(), me.id, reason, i.id);
       makeTickets(me, s, [{ ...i, note: reason }], 'cancel');
+      if (soldOut && i.menu_item_id) db.prepare('UPDATE menu_items SET sold_out = 1 WHERE id = ?').run(i.menu_item_id);
     });
-    ctx.audit(me, 'pos.item.cancel', { id: i.id, name: i.name, qty: i.qty, reason });
+    if (soldOut) ctx.broadcast('menu');
+    ctx.audit(me, 'pos.item.cancel', { id: i.id, name: i.name, qty: i.qty, reason, sold_out: soldOut });
     ctx.broadcast('pos');
     ctx.broadcast('tickets');
     return { ok: true };
@@ -239,6 +279,59 @@ export default function (r, ctx) {
     ctx.audit(me, 'pos.item.served', { id: i.id, done });
     ctx.broadcast('pos');
     return { ok: true };
+  });
+
+  // Nhắc bếp món ra trễ: in phiếu NHẮC ra máy ưu tiên của điểm đó; mỗi món nhắc cách nhau ít nhất 3 phút
+  r.post('/api/pos/items/:id/remind', 'staff', ({ me, params }) => {
+    const i = loadItem(params.id);
+    if (i.status !== 'sent') fail(400, 'Món này không còn chờ bếp');
+    if (i.reminded_at && ctx.now() - i.reminded_at < 3 * 60_000) fail(429, 'Vừa nhắc rồi, đợi 3 phút rồi nhắc lại');
+    const s = session(i.session_id);
+    const w = waitInfo(i);
+    tx(db, () => {
+      makeTickets(me, s, [{ ...i, note: `Khách chờ ${w.wait_min} phút` }], 'remind', { priority: true });
+      db.prepare('UPDATE order_items SET reminded_at = ? WHERE id = ?').run(ctx.now(), i.id);
+    });
+    ctx.audit(me, 'pos.item.remind', { id: i.id, name: i.name, wait: w.wait_min });
+    ctx.broadcast('tickets');
+    ctx.broadcast('pos');
+    return { ok: true };
+  });
+
+  r.get('/api/pos/late', 'staff', () => lateItems());
+
+  // Tách bàn: chuyển một số món (có thể một phần số lượng) sang bàn khác để tính riêng; không in phiếu
+  r.post('/api/pos/sessions/:id/split', 'staff', ({ me, params, body }) => {
+    const s = openSession(params.id);
+    const [n] = readTables([v.int(body.table, { min: 1, name: 'Bàn' })]);
+    const list = Array.isArray(body.items) ? body.items : [];
+    if (!list.length) fail(400, 'Chọn món cần tách');
+    const out = tx(db, () => {
+      const cur = busyTable(n);
+      const target = cur ? cur.id : ctx.openTableSession(me, { tables: [n] });
+      if (target === s.id) fail(400, 'Chọn bàn khác để tách');
+      let moved = 0;
+      for (const x of list) {
+        const it = db.prepare("SELECT * FROM order_items WHERE id = ? AND session_id = ? AND status != 'cancelled'").get(v.int(x.id, { min: 1, name: 'Món' }), s.id);
+        if (!it) fail(400, 'Món không thuộc bàn này');
+        const qty = v.int(x.qty ?? it.qty, { min: 1, max: it.qty, name: `Số lượng tách của ${it.name}` });
+        if (qty === it.qty) {
+          db.prepare('UPDATE order_items SET session_id = ? WHERE id = ?').run(target, it.id);
+        } else {
+          db.prepare('UPDATE order_items SET qty = qty - ? WHERE id = ?').run(qty, it.id);
+          db.prepare(`INSERT INTO order_items (session_id, menu_item_id, name, unit_price, qty, options, note, rush, status, created_by, created_at, sent_at, sent_by)
+            SELECT ?, menu_item_id, name, unit_price, ?, options, note, rush, status, created_by, created_at, sent_at, sent_by FROM order_items WHERE id = ?`).run(target, qty, it.id);
+        }
+        moved += qty;
+      }
+      // Bàn cũ không còn món nào thì tự đóng
+      const left = db.prepare("SELECT COUNT(*) AS n FROM order_items WHERE session_id = ? AND status != 'cancelled'").get(s.id).n;
+      if (!left) db.prepare("UPDATE table_sessions SET status = 'cancelled', closed_at = ?, closed_by = ?, note = 'Tách hết sang bàn khác' WHERE id = ?").run(ctx.now(), me.id, s.id);
+      return { target, moved };
+    });
+    ctx.audit(me, 'pos.split', { from: s.id, to: out.target, qty: out.moved });
+    ctx.broadcast('pos');
+    return { session_id: out.target, moved: out.moved };
   });
 
   // Làm lại (khách chê, làm hỏng): in lại ra máy ưu tiên, không tính tiền thêm

@@ -32,12 +32,34 @@ function AddItem({ item, onAdd, onClose }) {
   <//>`;
 }
 
-function Reason({ title, chips, onOk, onClose }) {
+function Reason({ title, chips, onOk, onClose, soldOutOption = false }) {
   const [txt, setTxt] = useState('');
+  const [soldOut, setSoldOut] = useState(false);
   return html`<${Modal} title=${title} onClose=${onClose}><div class="stack">
     <input id="rs-text" value=${txt} placeholder="Lý do" onInput=${(e) => setTxt(e.target.value)} />
     <div class="chips">${chips.map((x) => html`<button class="chip" onClick=${() => setTxt(x)}>${x}</button>`)}</div>
-    <div class="row end"><button onClick=${onClose}>Thôi</button><button class="danger" disabled=${!txt.trim()} onClick=${() => onOk(txt)}>Xác nhận</button></div>
+    ${soldOutOption ? html`<label class="check-row"><input type="checkbox" checked=${soldOut} onChange=${(e) => { setSoldOut(e.target.checked); if (e.target.checked && !txt) setTxt('Hết nguyên liệu'); }} /> Báo <b>hết món</b> luôn (không ai gọi được nữa)</label>` : null}
+    <div class="row end"><button onClick=${onClose}>Thôi</button><button class="danger" disabled=${!txt.trim()} onClick=${() => onOk(txt, soldOut)}>Xác nhận</button></div>
+  </div><//>`;
+}
+
+function Split({ items, onOk, onClose }) {
+  const [qty, setQty] = useState({});
+  const [table, setTable] = useState('');
+  const chosen = Object.entries(qty).filter(([, n]) => n > 0);
+  const total = items.reduce((n, i) => n + (qty[i.id] || 0) * i.unit_price, 0);
+  return html`<${Modal} title="Tách bàn" onClose=${onClose}><div class="stack">
+    <p class="muted small">Chọn món (và số lượng) chuyển sang bàn khác để tính tiền riêng. Không in phiếu bếp.</p>
+    <ul class="plain order-lines">${items.map((i) => html`<li class="ol">
+      <div class="grow"><b>${i.name}</b><br /><small class="muted">đang có ${i.qty} · ${money(i.unit_price)}/phần</small></div>
+      <div class="row tight">
+        <button class="icon" onClick=${() => setQty({ ...qty, [i.id]: Math.max(0, (qty[i.id] || 0) - 1) })}>−</button>
+        <b>${qty[i.id] || 0}</b>
+        <button class="icon" onClick=${() => setQty({ ...qty, [i.id]: Math.min(i.qty, (qty[i.id] || 0) + 1) })}>+</button></div>
+    </li>`)}</ul>
+    <${Field} label="Sang bàn" hint="Bàn trống thì tự nhận khách"><input id="sp-table" inputmode="numeric" value=${table} onInput=${(e) => setTable(e.target.value.replace(/\D/g, ''))} /><//>
+    <div class="row end"><button onClick=${onClose}>Thôi</button>
+      <button class="primary" disabled=${!chosen.length || !table} onClick=${() => onOk(Number(table), chosen.map(([id, n]) => ({ id: Number(id), qty: n })))}>Tách ${chosen.reduce((n, [, q]) => n + q, 0)} món · ${money(total)}</button></div>
   </div><//>`;
 }
 
@@ -89,6 +111,7 @@ export function OrderView({ me, query }) {
       <label class="check-row"><input type="checkbox" checked=${s.priority} onChange=${(e) => act(() => api('PATCH', `/api/pos/sessions/${id}`, { priority: e.target.checked }))} /> Ưu tiên</label>
       <button onClick=${() => { const g = prompt_(s.guests); if (g) act(() => api('PATCH', `/api/pos/sessions/${id}`, { guests: g }), 'Đã sửa số khách'); }}>Số khách${s.guests > 1 ? `: ${s.guests}` : ''}</button>
       <button onClick=${() => setPrompt('move')}>Chuyển bàn</button>
+      <button onClick=${() => setPrompt('split')}>Tách bàn</button>
       <button onClick=${() => setPrompt('merge')}>Gộp bàn</button>
     </div>
     <div class="tabs"><button class=${tab === 'menu' ? 'on' : ''} onClick=${() => setTab('menu')}>Thực đơn</button>
@@ -105,7 +128,8 @@ export function OrderView({ me, query }) {
       ${sent.length ? html`<ul class="plain order-lines">${sent.map((i) => html`<li class=${`ol ${i.status}`}>
         <div class="grow"><b>${i.qty} × ${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}
           ${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.note ? html`<br /><small class="muted">${i.note}</small>` : null}
-          <br /><small class="muted">${STATUS[i.status]}${i.status === 'cancelled' ? `: ${i.cancel_reason}` : ` · ${hm(i.sent_at)}`}</small></div>
+          <br /><small class="muted">${STATUS[i.status]}${i.status === 'cancelled' ? `: ${i.cancel_reason}` : ` · ${hm(i.sent_at)}`}${i.status === 'sent' && i.wait_min !== null ? ` · chờ ${i.wait_min}′` : ''}</small>
+          ${i.late_min > 0 ? html`<br /><span class="pill bad">TRỄ ${i.late_min}′</span> <button class="small primary" onClick=${() => act(() => api('POST', `/api/pos/items/${i.id}/remind`), 'Đã nhắc bếp')}>Nhắc bếp</button>` : null}</div>
         <div class="r"><span class="num">${money(i.total)}</span></div>
           ${!closed && i.status !== 'cancelled' ? html`<div class="row tight acts"><button class=${`small ${i.status === 'done' ? 'primary' : ''}`} onClick=${() => act(() => api('POST', `/api/pos/items/${i.id}/served`, { done: i.status !== 'done' }))}>${i.status === 'done' ? '✓ Đã ra' : 'Đã ra'}</button><button class="small" onClick=${() => setPrompt({ kind: 'item', item: i })}>Chuyển</button><button class="small" onClick=${() => setReason({ kind: 'redo', item: i })}>Làm lại</button><button class="small danger" onClick=${() => setReason({ kind: 'cancel', item: i })}>Huỷ</button></div>` : null}
       </li>`)}</ul>` : html`<p class="muted">Chưa gửi món nào.</p>`}
@@ -135,10 +159,13 @@ export function OrderView({ me, query }) {
     ${reason ? html`<${Reason} title=${reason.kind === 'redo' ? `Làm lại: ${reason.item.name}` : reason.kind === 'cancel' ? `Huỷ: ${reason.item.name}` : 'Huỷ cả bàn'}
       chips=${reason.kind === 'redo' ? ['Khách chê', 'Làm hỏng', 'Sai món', 'Rơi đổ'] : ['Khách đổi ý', 'Gọi nhầm', 'Ra lâu, khách huỷ', 'Hết nguyên liệu']}
       onClose=${() => setReason(null)}
-      onOk=${async (txt) => {
+      soldOutOption=${reason.kind === 'cancel' && atLeast(me, 'team_lead')}
+      onOk=${async (txt, soldOut) => {
         const url = reason.kind === 'close' ? `/api/pos/sessions/${id}/cancel` : `/api/pos/items/${reason.item.id}/${reason.kind === 'redo' ? 'redo' : 'cancel'}`;
-        if (await act(() => api('POST', url, { reason: txt }), reason.kind === 'redo' ? 'Đã báo làm lại' : 'Đã huỷ')) { setReason(null); if (reason.kind === 'close') navigate('/ban'); }
+        if (await act(() => api('POST', url, { reason: txt, sold_out: !!soldOut }), reason.kind === 'redo' ? 'Đã báo làm lại' : 'Đã huỷ')) { setReason(null); if (reason.kind === 'close') navigate('/ban'); }
       }} />` : null}
+    ${prompt === 'split' ? html`<${Split} items=${s.items.filter((i) => i.status !== 'cancelled')} onClose=${() => setPrompt(null)}
+      onOk=${async (table, items) => { const r = await act(() => api('POST', `/api/pos/sessions/${id}/split`, { table, items }), 'Đã tách bàn'); if (r) setPrompt(null); }} />` : null}
     ${prompt === 'move' ? html`<${TablePrompt} title="Chuyển sang bàn" hint="vd 25, hoặc 25, 26 nếu ngồi 2 bàn" onClose=${() => setPrompt(null)}
       onOk=${async (txt, ids) => { if (await act(() => api('POST', `/api/pos/sessions/${id}/move`, { tables: txt, notify_item_ids: ids }), 'Đã chuyển bàn')) setPrompt(null); }} />` : null}
     ${prompt?.kind === 'item' ? html`<${TablePrompt} title=${`Chuyển "${prompt.item.name}" sang bàn`} hint="Gọi nhầm bàn: món và tiền chuyển sang bàn đúng (không in phiếu, báo bếp bằng bộ đàm)" onClose=${() => setPrompt(null)}

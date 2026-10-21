@@ -465,7 +465,19 @@ function migrate(db) {
     [['Đũa', 1], ['Muỗng', 1], ['Chén', 1], ['Ly', 1], ['Khăn ăn', 1], ['Vá lẩu', 0.25]].forEach(([n, q]) => addI.run(lau, u[n], q));
   }
   if (!cols('kitchen_stations').includes('priority_station_id')) db.exec('ALTER TABLE kitchen_stations ADD COLUMN priority_station_id INTEGER REFERENCES kitchen_stations(id) ON DELETE SET NULL');
+  if (!cols('kitchen_stations').includes('late_minutes')) {
+    db.exec('ALTER TABLE kitchen_stations ADD COLUMN late_minutes INTEGER NOT NULL DEFAULT 10');
+    // Quá số phút này mà món chưa ra thì báo trễ (sửa ở Thực đơn → Điểm in)
+    for (const [n, m] of [['Steak', 15], ['Ưu tiên', 12], ['Nước lẩu', 5], ['Bò', 8], ['Topping – Nướng – Rau', 10], ['Pha chế', 7]]) {
+      db.prepare('UPDATE kitchen_stations SET late_minutes = ? WHERE name = ?').run(m, n);
+    }
+  }
+  if (!cols('order_items').includes('reminded_at')) db.exec('ALTER TABLE order_items ADD COLUMN reminded_at INTEGER');
   seedMenu(db);
+  for (const [n, m] of [['Steak', 15], ['Ưu tiên', 12], ['Nước lẩu', 5], ['Bò', 8], ['Topping – Nướng – Rau', 10], ['Pha chế', 7]]) {
+    db.prepare("UPDATE kitchen_stations SET late_minutes = ? WHERE name = ? AND late_minutes = 10 AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'late_seeded')").run(m, n);
+  }
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('late_seeded', '1')").run();
   // Steak của bàn ưu tiên / món gấp / làm lại → máy Ưu tiên
   db.prepare("UPDATE kitchen_stations SET priority_station_id = (SELECT id FROM kitchen_stations WHERE name = 'Ưu tiên') WHERE name = 'Steak' AND priority_station_id IS NULL").run();
   // Kho mặc định: kho tổng + kho cho các tổ chế biến

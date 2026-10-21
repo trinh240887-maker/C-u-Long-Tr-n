@@ -492,3 +492,5 @@ a.tile { text-decoration: none; color: inherit; }
 .field .req { color: #b91c1c; font-weight: 700; }
 .field.need-pick { outline: 2px solid #dc2626; outline-offset: 6px; border-radius: 8px; }
 button.primary.soft { opacity: .65; }
+.tbl { position: relative; }
+.late-badge { position: absolute; top: -6px; right: -6px; background: #dc2626; color: #fff; border-radius: 10px; padding: 1px 6px; font-size: 11px; font-weight: 700; }

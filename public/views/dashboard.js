@@ -1,4 +1,4 @@
-import { html, useData, Link, Loading, hm, dt, dayLabel, PHASE_LABEL } from '../ui.js';
+import { html, api, act, useData, Link, Loading, hm, dt, dayLabel, PHASE_LABEL } from '../ui.js';
 
 const STATUS = {
   working: ['Đang làm', 'ok'], upcoming: ['Sắp vào', ''], late: ['Chưa vào', 'warn'], absent: ['Vắng', 'bad'],
@@ -25,6 +25,7 @@ function StockCard() {
 
 export function Dashboard() {
   const st = useData('/api/dashboard');
+  const lateD = useData('/api/pos/late');
   if (!st.data) return html`<${Loading} state=${st} />`;
   const d = st.data;
   const tiles = [
@@ -41,6 +42,13 @@ export function Dashboard() {
     ${d.avail?.total ? html`<${Link} href=${`/ranh?tab=all&week=${d.avail.week_start}`} class=${`card hint ${d.avail.missing ? '' : 'ok'}`}><span>
       Lịch rảnh tuần sau: <b>${d.avail.total - d.avail.missing}/${d.avail.total}</b> người đã gửi${d.avail.missing ? ` · còn ${d.avail.missing} người chưa gửi (hạn ${d.avail.deadline.date.slice(8)}/${d.avail.deadline.date.slice(5, 7)} ${d.avail.deadline.time})` : ''} →</span><//>` : null}
 
+    ${lateD.data?.length ? html`<section class="card attn">
+      <h3>⏰ Món ra trễ (${lateD.data.length})</h3>
+      <ul class="plain">${lateD.data.slice(0, 12).map((i) => html`<li class="row between">
+        <span><b>Bàn ${i.header}</b> · ${i.qty} × ${i.name} <small class="muted">${i.stations.join(', ')} · chờ ${i.wait_min}′ (trễ ${i.late_min}′)</small></span>
+        <span class="row tight"><button class="small primary" onClick=${() => act(() => api('POST', `/api/pos/items/${i.id}/remind`), 'Đã nhắc bếp')}>Nhắc</button>
+          <${Link} href=${`/goi-mon?s=${i.session_id}`} class="btn-link small">Bàn →<//></span></li>`)}</ul>
+    </section>` : null}
     ${d.gaps.length ? html`<section class="card attn">
       <h3>Thiếu người 7 ngày tới</h3>
       <div class="chips">${d.gaps.map((g) => html`<${Link} href=${`/lich?week=${g.date}`} class="pill warn">${dayLabel(g.date)} · ${g.team_name} ${g.have}/${g.need}<//>`)}</div>

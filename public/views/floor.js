@@ -42,6 +42,7 @@ export function FloorView({ me }) {
             const cls = s ? (s.status === 'paying' ? 'paying' : s.unsent ? 'unsent' : 'busy') : t.reservation ? 'held' : 'free';
             return html`<button class=${`tbl ${cls} ${s?.priority ? 'vip' : ''}`} onClick=${() => tap(z, t)}>
               <b>${t.number}</b>
+              ${s?.late ? html`<span class="late-badge">⏰${s.late}</span>` : null}
               ${s ? html`<small>${mins(s.opened_at, now)}′</small>${s.total ? html`<small>${Math.round(s.total / 1000)}k</small>` : null}`
                 : t.reservation ? html`<small>${fmtMin(t.reservation.time_min)}</small>` : null}
             </button>`;

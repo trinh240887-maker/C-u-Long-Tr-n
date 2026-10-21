@@ -77,6 +77,7 @@ function Stations({ menu }) {
       <input class="ip-in" value=${s.printer_ip} placeholder="IP, vd 192.168.1.234" aria-label="IP máy in" onChange=${(e) => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { printer_ip: e.target.value.trim() }), 'Đã lưu IP')} />
       <select value=${s.fallback_station_id ?? ''} aria-label="Máy dự phòng" onChange=${(e) => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { fallback_station_id: e.target.value || null }), 'Đã lưu')}>
         <option value="">Không dự phòng</option>${menu.stations.filter((x) => x.id !== s.id).map((x) => html`<option value=${x.id}>Lỗi → in ${x.name}</option>`)}</select>
+      <label class="row small">Báo trễ sau <input class="num-in" type="number" min="1" value=${s.late_minutes ?? 10} onChange=${(e) => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { late_minutes: e.target.value }), 'Đã lưu')} /> phút</label>
       ${!s.printer_ip ? html`<span class="pill warn">Chưa có IP</span>` : null}
     </div>`)}
     <div class="row"><input class="grow" placeholder="Điểm in mới, vd Nướng" value=${nn} onInput=${(e) => setNn(e.target.value)} />

@@ -153,10 +153,11 @@ export default function (r, ctx) {
     if (ip && !/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) fail(400, 'IP máy in không hợp lệ, vd 192.168.1.234');
     const fb = body.fallback_station_id === undefined ? s.fallback_station_id : optRef('kitchen_stations', body.fallback_station_id, 'Máy dự phòng');
     if (fb === s.id) fail(400, 'Máy dự phòng phải là máy khác');
-    db.prepare('UPDATE kitchen_stations SET name = ?, printer_ip = ?, printer_port = ?, fallback_station_id = ?, active = ? WHERE id = ?').run(
+    db.prepare('UPDATE kitchen_stations SET name = ?, printer_ip = ?, printer_port = ?, fallback_station_id = ?, active = ?, late_minutes = ? WHERE id = ?').run(
       body.name === undefined ? s.name : v.text(body.name, { name: 'Tên điểm in', required: true, max: 30 }), ip,
       body.printer_port === undefined ? s.printer_port : v.int(body.printer_port, { min: 1, max: 65535, name: 'Cổng máy in' }),
-      fb, body.active === undefined ? s.active : v.bool(body.active), s.id);
+      fb, body.active === undefined ? s.active : v.bool(body.active),
+      body.late_minutes === undefined ? s.late_minutes : v.int(body.late_minutes, { min: 1, max: 120, name: 'Số phút báo trễ' }), s.id);
     ctx.audit(me, 'station.update', { id: s.id, ip });
     ctx.broadcast('menu');
     return { ok: true };
