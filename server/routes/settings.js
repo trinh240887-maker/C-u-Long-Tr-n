@@ -29,6 +29,7 @@ const FIELDS = {
   zalo_secret_key: (x) => v.text(x, { name: 'Zalo Secret key', max: 200 }),
   zalo_access_token: (x) => v.text(x, { name: 'Access token', max: 2000 }),
   zalo_refresh_token: (x) => v.text(x, { name: 'Refresh token', max: 2000 }),
+  reserve_hold_minutes: (x) => String(v.int(x, { min: 0, max: 120, name: 'Giữ bàn' })),
   wash_cycle_minutes: (x) => String(v.int(x, { min: 1, max: 240, name: 'Thời gian rửa 1 mẻ' })),
   dining_minutes: (x) => String(v.int(x, { min: 10, max: 300, name: 'Thời gian khách ngồi' })),
   utensil_reserve_pct: (x) => String(v.int(x, { min: 0, max: 100, name: 'Dự phòng' })),

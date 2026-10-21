@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
-import { MENU_SCHEMA, seedMenu } from './menu-seed.js';
+import { MENU_SCHEMA, POS_SCHEMA, seedMenu } from './menu-seed.js';
 
 export const ROLES = ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'];
 export const ROLE_LABEL = { owner: 'Chủ', manager: 'Quản lý', shift_lead: 'Trưởng ca', team_lead: 'Tổ trưởng', staff: 'Nhân viên' };
@@ -411,6 +411,7 @@ export function openDb(file, { now = Date.now() } = {}) {
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
   db.exec(MENU_SCHEMA);
+  db.exec(POS_SCHEMA);
   seedBase(db, now);
   migrate(db);
   return db;
@@ -463,7 +464,10 @@ function migrate(db) {
     const lau = Number(addK.run('Lẩu', 1).lastInsertRowid);
     [['Đũa', 1], ['Muỗng', 1], ['Chén', 1], ['Ly', 1], ['Khăn ăn', 1], ['Vá lẩu', 0.25]].forEach(([n, q]) => addI.run(lau, u[n], q));
   }
+  if (!cols('kitchen_stations').includes('priority_station_id')) db.exec('ALTER TABLE kitchen_stations ADD COLUMN priority_station_id INTEGER REFERENCES kitchen_stations(id) ON DELETE SET NULL');
   seedMenu(db);
+  // Steak của bàn ưu tiên / món gấp / làm lại → máy Ưu tiên
+  db.prepare("UPDATE kitchen_stations SET priority_station_id = (SELECT id FROM kitchen_stations WHERE name = 'Ưu tiên') WHERE name = 'Steak' AND priority_station_id IS NULL").run();
   // Kho mặc định: kho tổng + kho cho các tổ chế biến
   if (!db.prepare('SELECT 1 FROM stores LIMIT 1').get()) {
     const add = db.prepare('INSERT INTO stores (name, kind, team_id, sort) VALUES (?, ?, ?, ?)');
@@ -509,6 +513,7 @@ const DEFAULT_SETTINGS = {
   kho_tong_staff_id: '',
   area_count_is_usage: '1',      // chưa có bán hàng: chênh lệch kiểm kho khu = lượng đã dùng
   expiry_warn_days: '1',
+  reserve_hold_minutes: '15',   // giữ bàn đặt trước bao lâu khi khách trễ
   wash_cycle_minutes: '30',     // rửa xong 1 mẻ dụng cụ
   dining_minutes: '70',         // khách ngồi trung bình 1 lượt bàn
   utensil_reserve_pct: '10',    // dự phòng thêm

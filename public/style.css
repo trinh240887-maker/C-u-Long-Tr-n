@@ -444,3 +444,43 @@ a.tile { text-decoration: none; color: inherit; }
 .chip.off { opacity: .5; }
 .menu-row .menu-main { min-width: 0; overflow-wrap: anywhere; }
 .menu-cat { padding: 8px 12px; font-weight: 700; background: var(--panel-2); border-top: 1px solid var(--line); }
+
+/* Bán hàng: sơ đồ bàn */
+.tables.pos { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); }
+.tables.pos .tbl { min-height: 60px; display: grid; place-content: center; gap: 1px; line-height: 1.1; }
+.tables.pos .tbl small { font-size: 10.5px; font-weight: 500; }
+.tbl.free { background: var(--panel-2); color: var(--muted); }
+.tbl.busy { background: color-mix(in srgb, var(--z) 30%, var(--panel)); color: var(--ink); }
+.tbl.unsent { background: color-mix(in srgb, #2563eb 25%, var(--panel)); color: var(--ink); }
+.tbl.paying { background: color-mix(in srgb, #ea580c 35%, var(--panel)); color: var(--ink); }
+.tbl.held { background: color-mix(in srgb, #7c3aed 18%, var(--panel)); color: var(--ink); border-style: dashed; }
+.tbl.vip { outline: 3px solid #d97706; outline-offset: -2px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tbl-l { padding: 2px 8px; border-radius: 6px; }
+.tbl-l.free { background: var(--panel-2); } .tbl-l.busy { background: color-mix(in srgb, #16a34a 22%, var(--panel)); }
+.tbl-l.unsent { background: color-mix(in srgb, #2563eb 25%, var(--panel)); } .tbl-l.paying { background: color-mix(in srgb, #ea580c 35%, var(--panel)); }
+.tbl-l.held { background: color-mix(in srgb, #7c3aed 18%, var(--panel)); }
+.big-num { font-size: 22px; font-variant-numeric: tabular-nums; }
+.icon.big { width: 52px; height: 52px; font-size: 22px; }
+.chip.big { min-height: 48px; padding: 0 16px; font-size: 15px; }
+/* Gọi món */
+.order { padding-bottom: 150px; }
+.chips.scroll-x { flex-wrap: nowrap; overflow-x: auto; }
+.chips.scroll-x .chip { flex: 0 0 auto; }
+.menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.menu-btn { min-height: 72px; display: grid; align-content: center; gap: 4px; text-align: left; padding: 10px; border-radius: 12px; }
+.menu-btn small { color: var(--accent); font-weight: 700; }
+.menu-btn.soldout { opacity: .45; text-decoration: line-through; }
+.order-lines li.ol { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.order-lines li.ol:first-child { border-top: 0; }
+.ol.cancelled { opacity: .5; text-decoration: line-through; }
+.ol .r { text-align: right; display: grid; gap: 4px; justify-items: end; }
+.row.tight { gap: 4px; }
+.total { padding-top: 10px; border-top: 2px solid var(--line); margin-top: 6px; font-size: 18px; }
+.cart-bar { position: sticky; bottom: calc(64px + env(safe-area-inset-bottom)); background: var(--bg); padding: 8px 0; display: grid; gap: 6px; z-index: 5; }
+.cart { max-height: 28vh; overflow: auto; }
+.danger-text { color: #b91c1c !important; }
+/* Đặt bàn */
+.rv-card.late { border-left: 4px solid #dc2626; }
+.rv-card.arrived { opacity: .7; }
+.rv-card.no_show, .rv-card.cancelled { opacity: .5; }

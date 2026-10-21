@@ -119,3 +119,81 @@ export function seedMenu(db) {
     });
   });
 }
+
+// ---------- Bán hàng (GĐ3B): phiên bàn, món đã gọi, phiếu bếp, đặt bàn ----------
+export const POS_SCHEMA = `
+-- Một lượt khách ngồi (có thể gộp nhiều bàn)
+CREATE TABLE IF NOT EXISTS table_sessions (
+  id INTEGER PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'open',      -- open | paying | closed | cancelled
+  guests INTEGER NOT NULL DEFAULT 1,
+  priority INTEGER NOT NULL DEFAULT 0,      -- bàn ưu tiên: phiếu steak ra máy Ưu tiên
+  note TEXT NOT NULL DEFAULT '',
+  reservation_id INTEGER,
+  opened_at INTEGER NOT NULL,
+  opened_by INTEGER,
+  closed_at INTEGER,
+  closed_by INTEGER
+);
+CREATE TABLE IF NOT EXISTS session_tables (
+  session_id INTEGER NOT NULL REFERENCES table_sessions(id) ON DELETE CASCADE,
+  table_number INTEGER NOT NULL,
+  PRIMARY KEY (session_id, table_number)
+);
+CREATE TABLE IF NOT EXISTS order_items (
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES table_sessions(id) ON DELETE CASCADE,
+  menu_item_id INTEGER REFERENCES menu_items(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,                       -- chụp lại lúc gọi, đổi menu không ảnh hưởng
+  unit_price INTEGER NOT NULL,              -- giá món + tuỳ chọn
+  qty INTEGER NOT NULL DEFAULT 1,
+  options TEXT NOT NULL DEFAULT '[]',       -- [{group,name,price}]
+  note TEXT NOT NULL DEFAULT '',
+  rush INTEGER NOT NULL DEFAULT 0,          -- gọi gấp
+  status TEXT NOT NULL DEFAULT 'new',       -- new (chưa gửi) | sent | done | cancelled
+  created_by INTEGER,
+  created_at INTEGER NOT NULL,
+  sent_at INTEGER,
+  sent_by INTEGER,
+  cancelled_at INTEGER,
+  cancelled_by INTEGER,
+  cancel_reason TEXT NOT NULL DEFAULT ''
+);
+-- Phiếu gửi xuống từng điểm chế biến; cầu nối in ở quán lấy phiếu "pending" để in (GĐ3C)
+CREATE TABLE IF NOT EXISTS kitchen_tickets (
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES table_sessions(id) ON DELETE CASCADE,
+  station_id INTEGER REFERENCES kitchen_stations(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL DEFAULT 'new',         -- new | add | cancel | redo
+  priority INTEGER NOT NULL DEFAULT 0,
+  header TEXT NOT NULL DEFAULT '',          -- vd "KHU A - 20"
+  lines TEXT NOT NULL DEFAULT '[]',         -- [{item_id,name,qty,options,note,label}]
+  created_by INTEGER,
+  created_at INTEGER NOT NULL,
+  print_status TEXT NOT NULL DEFAULT 'pending', -- pending | printed | failed
+  printed_at INTEGER,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  done_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_tickets_print ON kitchen_tickets (print_status, id);
+CREATE TABLE IF NOT EXISTS reservations (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL DEFAULT 'booking',     -- booking | walkin (danh sách chờ)
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL DEFAULT '',
+  guests INTEGER NOT NULL DEFAULT 2,
+  date TEXT NOT NULL,
+  time_min INTEGER NOT NULL DEFAULT 0,      -- phút trong ngày
+  duration_min INTEGER NOT NULL DEFAULT 90,
+  zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL,
+  tables TEXT NOT NULL DEFAULT '',          -- bàn giữ, vd "12, 13"
+  priority INTEGER NOT NULL DEFAULT 0,
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'booked',    -- booked | waiting | arrived | no_show | cancelled
+  session_id INTEGER,
+  created_by INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_res_date ON reservations (date, status);
+`;

@@ -1,17 +1,83 @@
 import { useState, useEffect } from 'preact/hooks';
-import { html, useData, Loading, Link, hm, atLeast } from '../ui.js';
+import { html, api, act, useData, Loading, Link, hm, atLeast, navigate, Modal, Field, money } from '../ui.js';
+
+const mins = (from, now) => Math.max(0, Math.round((now - from) / 60_000));
+const fmtMin = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+function OpenTable({ table, zone, onClose }) {
+  const [guests, setGuests] = useState(table.reservation?.guests || 2);
+  const [extra, setExtra] = useState('');
+  const [priority, setPriority] = useState(false);
+  const open = async () => {
+    const extraNums = extra.split(/[,\s]+/).map(Number).filter(Boolean);
+    const r = await act(() => api('POST', '/api/pos/sessions', { tables: [table.number, ...extraNums], guests: Number(guests), priority }));
+    if (r?.id) navigate(`/goi-mon?s=${r.id}`);
+  };
+  return html`<${Modal} title=${`Mở bàn ${table.number} · ${zone.name}`} onClose=${onClose}>
+    <div class="stack">
+      ${table.reservation ? html`<p class="hint card"><span>Bàn này đã giữ cho <b>${table.reservation.name}</b> lúc ${fmtMin(table.reservation.time_min)} (${table.reservation.guests} khách).
+        Nếu đúng khách, mở từ trang <${Link} href="/dat-ban">Đặt bàn<//> → Khách đến.</span></p>` : null}
+      <${Field} label="Số khách"><div class="row">
+        <button class="icon" onClick=${() => setGuests(Math.max(1, guests - 1))}>−</button>
+        <input id="ot-guests" class="num-in big-num" inputmode="numeric" value=${guests} onInput=${(e) => setGuests(Number(e.target.value.replace(/\D/g, '')) || 1)} />
+        <button class="icon" onClick=${() => setGuests(guests + 1)}>+</button></div><//>
+      <${Field} label="Gộp thêm bàn (nhóm đông)" hint="vd 21, 22"><input id="ot-extra" inputmode="numeric" value=${extra} placeholder="để trống nếu 1 bàn" onInput=${(e) => setExtra(e.target.value)} /><//>
+      <label class="check-row"><input type="checkbox" checked=${priority} onChange=${(e) => setPriority(e.target.checked)} /> Bàn ưu tiên (VIP, nhóm đông): steak in máy Ưu tiên</label>
+      <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary big" onClick=${open}>Mở bàn & gọi món</button></div>
+    </div>
+  <//>`;
+}
 
 export function FloorView({ me }) {
+  const pos = useData('/api/pos/tables');
   const st = useData('/api/floor');
   const [pick, setPick] = useState(null);
+  const [view, setView] = useState(() => { try { return localStorage.getItem('floor-view') || 'ban'; } catch { return 'ban'; } });
   const [, tick] = useState(0);
-  useEffect(() => { const id = setInterval(() => tick((x) => x + 1), 60_000); return () => clearInterval(id); }, []);
-  if (!st.data) return html`<${Loading} state=${st} />`;
-  const { zones } = st.data;
+  useEffect(() => { const id = setInterval(() => tick((x) => x + 1), 30_000); return () => clearInterval(id); }, []);
+  if (!pos.data || !st.data) return html`<${Loading} state=${pos.data ? st : pos} />`;
+  const setV = (x) => { setView(x); try { localStorage.setItem('floor-view', x); } catch { /* bỏ qua */ } };
+  const now = Date.now();
+  const people = new Map(st.data.zones.map((z) => [z.id, z]));
+  const all = pos.data.zones.flatMap((z) => z.tables);
+  const busy = all.filter((t) => t.session).length;
+  const tap = (z, t) => (t.session ? navigate(`/goi-mon?s=${t.session.id}`) : setPick({ z, t }));
+  return html`<div class="stack">
+    <div class="row between wrap">
+      <div class="tabs"><button class=${view === 'ban' ? 'on' : ''} onClick=${() => setV('ban')}>Bàn & gọi món</button><button class=${view === 'nguoi' ? 'on' : ''} onClick=${() => setV('nguoi')}>Ai phụ trách</button></div>
+      <span class="muted small">${busy}/${all.length} bàn có khách</span>
+    </div>
+    ${view === 'nguoi' ? html`<${People} me=${me} data=${st.data} />` : html`
+      <div class="legend small"><span class="tbl-l free">Trống</span><span class="tbl-l busy">Có khách</span><span class="tbl-l unsent">Chưa gửi bếp</span><span class="tbl-l paying">Xin thanh toán</span><span class="tbl-l held">Đã đặt</span>
+        <${Link} href="/dat-ban" class="btn-link">Đặt bàn →<//></div>
+      ${pos.data.zones.map((z) => {
+        const pz = people.get(z.id);
+        return html`<section class="card zone" style=${`--z:${z.color}`}>
+          <div class="row between"><h3><i class="sw" style=${`background:${z.color}`}></i> ${z.name}</h3>
+            <small class="muted">${pz?.on_now.length ? pz.on_now.map((s) => s.staff_name).join(', ') : 'chưa ai trực'}</small></div>
+          <div class="tables pos">${z.tables.map((t) => {
+            const s = t.session;
+            const cls = s ? (s.status === 'paying' ? 'paying' : s.unsent ? 'unsent' : 'busy') : t.reservation ? 'held' : 'free';
+            return html`<button class=${`tbl ${cls} ${s?.priority ? 'vip' : ''}`} onClick=${() => tap(z, t)}>
+              <b>${t.number}</b>
+              ${s ? html`<small>${s.guests}k · ${mins(s.opened_at, now)}′</small>${s.total ? html`<small>${Math.round(s.total / 1000)}k</small>` : null}`
+                : t.reservation ? html`<small>${fmtMin(t.reservation.time_min)}</small>` : null}
+            </button>`;
+          })}</div>
+        </section>`;
+      })}`}
+    ${pick ? html`<${OpenTable} table=${pick.t} zone=${pick.z} onClose=${() => setPick(null)} />` : null}
+  </div>`;
+}
+
+// Ai đang phụ trách khu / bàn nào (từ lịch ca)
+function People({ me, data }) {
+  const [pick, setPick] = useState(null);
+  const { zones } = data;
   const mineZones = zones.filter((z) => z.on_now.some((s) => s.staff_name === me.name));
   return html`<div class="stack">
     <div class="row between wrap">
-      <span class="muted small">Đang phụ trách lúc ${hm(st.data.at)}. Ô có màu là bàn đã có người lo, ô xám là chưa ai.</span>
+      <span class="muted small">Đang phụ trách lúc ${hm(data.at)}. Ô có màu là bàn đã có người lo.</span>
       ${atLeast(me, 'manager') ? html`<${Link} href="/cai-dat?tab=khu" class="btn-link">Sửa khu & bàn<//>` : null}
     </div>
     ${mineZones.length ? html`<section class="card hint">Bạn đang phụ trách: ${mineZones.map((z) => {
@@ -23,10 +89,9 @@ export function FloorView({ me }) {
         ${z.on_now.length ? html`<span class="pill ok">${z.on_now.length} người đang trực</span>` : html`<span class="pill warn">Chưa ai trực</span>`}</div>
       ${z.on_now.length ? html`<div class="people">${z.on_now.map((s) => html`<span class="person-chip"><b>${s.staff_name}</b> · ${s.tables_text ? `bàn ${s.tables_text}` : 'cả khu'} <small class="muted">${s.text}</small></span>`)}</div>` : null}
       <div class="tables">${z.tables.map((t) => html`<button class=${`tbl ${t.people.length ? 'on' : ''} ${t.mine ? 'mine' : ''}`} onClick=${() => setPick({ z, t })}>${t.number}</button>`)}</div>
-      ${z.today.length > z.on_now.length ? html`<details><summary class="muted small">Lịch cả ngày của khu (${z.today.length} lượt)</summary>
-        <ul class="plain small">${z.today.map((s) => html`<li><b>${s.staff_name}</b> ${s.text} · ${s.tables_text ? `bàn ${s.tables_text}` : 'cả khu'}${s.on_now ? ' · đang trực' : ''}</li>`)}</ul></details>` : null}
     </section>`)}
     ${pick ? html`<div class="toast" onClick=${() => setPick(null)}>Bàn ${pick.t.number} · ${pick.z.name}: ${pick.t.people.length ? pick.t.people.join(', ') : 'chưa ai phụ trách'}</div>` : null}
     <p class="muted small">Phân người vào khu/bàn: <b>Lịch ca</b> → bấm vào ca → chọn <b>Khu phụ trách</b> và (tuỳ chọn) <b>bàn</b>.</p>
   </div>`;
 }
+
