@@ -39,11 +39,15 @@ function Reason({ title, chips, onOk, onClose }) {
   </div><//>`;
 }
 
-function TablePrompt({ title, hint, onOk, onClose }) {
+function TablePrompt({ title, hint, onOk, onClose, items = null }) {
   const [txt, setTxt] = useState('');
+  const [pick, setPick] = useState(() => new Set((items || []).map((i) => i.id)));
   return html`<${Modal} title=${title} onClose=${onClose}><div class="stack">
     <${Field} label="Bàn" hint=${hint}><input id="tp-text" inputmode="numeric" value=${txt} onInput=${(e) => setTxt(e.target.value)} /><//>
-    <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" disabled=${!txt.trim()} onClick=${() => onOk(txt)}>Xong</button></div>
+    ${items?.length ? html`<div class="field"><span>Báo bếp giao sang bàn mới: chỉ tick món <b>CHƯA RA</b></span>
+      ${items.map((i) => html`<label class="check-row"><input type="checkbox" checked=${pick.has(i.id)} onChange=${(e) => { const n = new Set(pick); if (e.target.checked) n.add(i.id); else n.delete(i.id); setPick(n); }} /> ${i.qty} × ${i.name}</label>`)}
+      <small class="muted">Món đã ra bàn thì bỏ tick, bếp không nhận phiếu.</small></div>` : null}
+    <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" disabled=${!txt.trim()} onClick=${() => onOk(txt, [...pick])}>Xong</button></div>
   </div><//>`;
 }
 
@@ -100,8 +104,8 @@ export function OrderView({ me, query }) {
         <div class="grow"><b>${i.qty} × ${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}
           ${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.note ? html`<br /><small class="muted">${i.note}</small>` : null}
           <br /><small class="muted">${STATUS[i.status]}${i.status === 'cancelled' ? `: ${i.cancel_reason}` : ` · ${hm(i.sent_at)}`}</small></div>
-        <div class="r"><span class="num">${money(i.total)}</span>
-          ${!closed && i.status !== 'cancelled' ? html`<div class="row tight"><button class="small" onClick=${() => setPrompt({ kind: 'item', item: i })}>Chuyển</button><button class="small" onClick=${() => setReason({ kind: 'redo', item: i })}>Làm lại</button><button class="small danger" onClick=${() => setReason({ kind: 'cancel', item: i })}>Huỷ</button></div>` : null}</div>
+        <div class="r"><span class="num">${money(i.total)}</span></div>
+          ${!closed && i.status !== 'cancelled' ? html`<div class="row tight acts"><button class=${`small ${i.status === 'done' ? 'primary' : ''}`} onClick=${() => act(() => api('POST', `/api/pos/items/${i.id}/served`, { done: i.status !== 'done' }))}>${i.status === 'done' ? '✓ Đã ra' : 'Đã ra'}</button><button class="small" onClick=${() => setPrompt({ kind: 'item', item: i })}>Chuyển</button><button class="small" onClick=${() => setReason({ kind: 'redo', item: i })}>Làm lại</button><button class="small danger" onClick=${() => setReason({ kind: 'cancel', item: i })}>Huỷ</button></div>` : null}
       </li>`)}</ul>` : html`<p class="muted">Chưa gửi món nào.</p>`}
       <div class="row between total"><b>Tạm tính</b><b class="num">${money(s.subtotal)}</b></div>
     </section>` : null}
@@ -133,10 +137,11 @@ export function OrderView({ me, query }) {
         const url = reason.kind === 'close' ? `/api/pos/sessions/${id}/cancel` : `/api/pos/items/${reason.item.id}/${reason.kind === 'redo' ? 'redo' : 'cancel'}`;
         if (await act(() => api('POST', url, { reason: txt }), reason.kind === 'redo' ? 'Đã báo làm lại' : 'Đã huỷ')) { setReason(null); if (reason.kind === 'close') navigate('/ban'); }
       }} />` : null}
-    ${prompt === 'move' ? html`<${TablePrompt} title="Chuyển sang bàn" hint="vd 25, hoặc 25, 26 nếu ngồi 2 bàn" onClose=${() => setPrompt(null)}
-      onOk=${async (txt) => { if (await act(() => api('POST', `/api/pos/sessions/${id}/move`, { tables: txt }), 'Đã chuyển bàn')) setPrompt(null); }} />` : null}
+    ${prompt === 'move' ? html`<${TablePrompt} title="Chuyển sang bàn" hint="vd 25, hoặc 25, 26 nếu ngồi 2 bàn" items=${sent.filter((i) => i.status === 'sent')} onClose=${() => setPrompt(null)}
+      onOk=${async (txt, ids) => { if (await act(() => api('POST', `/api/pos/sessions/${id}/move`, { tables: txt, notify_item_ids: ids }), 'Đã chuyển bàn')) setPrompt(null); }} />` : null}
     ${prompt?.kind === 'item' ? html`<${TablePrompt} title=${`Chuyển "${prompt.item.name}" sang bàn`} hint="Gọi nhầm bàn: món chuyển sang bàn đúng, bếp được báo giao đúng bàn" onClose=${() => setPrompt(null)}
-      onOk=${async (txt) => { if (await act(() => api('POST', `/api/pos/items/${prompt.item.id}/move`, { table: Number(txt) }), 'Đã chuyển món')) setPrompt(null); }} />` : null}
+      items=${prompt.item.status === 'sent' ? [prompt.item] : null}
+      onOk=${async (txt, ids) => { if (await act(() => api('POST', `/api/pos/items/${prompt.item.id}/move`, { table: Number(txt), notify: ids.includes(prompt.item.id) }), 'Đã chuyển món')) setPrompt(null); }} />` : null}
     ${prompt === 'merge' ? html`<${Modal} title="Gộp bàn khác vào bàn này" onClose=${() => setPrompt(null)}><div class="stack">
       <p class="muted small">Món và khách của bàn được chọn sẽ chuyển sang bàn ${s.header}.</p>
       ${sessions.length ? html`<div class="chips">${sessions.map((x) => html`<button class="chip big" onClick=${async () => { if (await act(() => api('POST', `/api/pos/sessions/${id}/merge`, { from_session_id: x.id }), 'Đã gộp bàn')) setPrompt(null); }}>Bàn ${x.tables.join(', ')}</button>`)}</div>` : html`<p class="muted">Không có bàn nào khác đang mở.</p>`}

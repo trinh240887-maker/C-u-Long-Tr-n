@@ -484,3 +484,5 @@ a.tile { text-decoration: none; color: inherit; }
 .rv-card.late { border-left: 4px solid #dc2626; }
 .rv-card.arrived { opacity: .7; }
 .rv-card.no_show, .rv-card.cancelled { opacity: .5; }
+.order-lines li.ol { flex-wrap: wrap; }
+.ol .acts { flex-basis: 100%; justify-content: flex-end; }

@@ -102,9 +102,14 @@ test('gọi món: mở bàn, bắt chọn sốt, gửi bếp tách phiếu theo 
   s = (await H('GET', `/api/pos/sessions/${sid}`)).data;
   assert.equal(s.subtotal, 79000 * 2 + 150000);
   // Chuyển bàn 20 → 21, rồi gộp bàn 22 vào
-  assert.equal((await H('POST', `/api/pos/sessions/${sid}/move`, { tables: [21] })).status, 200);
+  // Combo 2 đã ra bàn → chuyển bàn chỉ báo bếp phần set lẩu chưa ra
+  const c2 = s.items.find((i) => i.name === 'Combo 2');
+  assert.equal((await H('POST', `/api/pos/items/${c2.id}/served`)).status, 200);
+  const lau = s.items.find((i) => i.name.startsWith('Set 2'));
+  assert.equal((await H('POST', `/api/pos/sessions/${sid}/move`, { tables: [21], notify_item_ids: [c2.id, lau.id] })).status, 200);
   const moved = (await o('GET', '/api/pos/tickets')).data.filter((k) => k.kind === 'move' && k.header === 'KHU A - 21');
-  assert.ok(moved.length >= 3); // các điểm đang làm món của bàn được báo chuyển bàn
+  assert.deepEqual(moved.map((k) => st[k.station_id]).sort(), ['Bò', 'Nước lẩu', 'Topping – Nướng – Rau']); // không có Steak vì Combo 2 đã ra
+  assert.equal((await H('GET', `/api/pos/sessions/${sid}`)).data.items.find((i) => i.id === c2.id).status, 'done');
   const sid2 = (await H('POST', '/api/pos/sessions', { tables: [22], guests: 2 })).data.id;
   await H('POST', `/api/pos/sessions/${sid2}/items`, { menu_item_id: item('Coca').id });
   assert.equal((await H('POST', `/api/pos/sessions/${sid}/move`, { tables: [22] })).status, 409);
