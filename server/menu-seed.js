@@ -164,7 +164,7 @@ CREATE TABLE IF NOT EXISTS kitchen_tickets (
   id INTEGER PRIMARY KEY,
   session_id INTEGER NOT NULL REFERENCES table_sessions(id) ON DELETE CASCADE,
   station_id INTEGER REFERENCES kitchen_stations(id) ON DELETE SET NULL,
-  kind TEXT NOT NULL DEFAULT 'new',         -- new | add | cancel | redo
+  kind TEXT NOT NULL DEFAULT 'new',         -- new | add | cancel | redo | move
   priority INTEGER NOT NULL DEFAULT 0,
   header TEXT NOT NULL DEFAULT '',          -- vd "KHU A - 20"
   lines TEXT NOT NULL DEFAULT '[]',         -- [{item_id,name,qty,options,note,label}]

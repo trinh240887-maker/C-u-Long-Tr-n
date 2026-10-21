@@ -101,7 +101,7 @@ export function OrderView({ me, query }) {
           ${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.note ? html`<br /><small class="muted">${i.note}</small>` : null}
           <br /><small class="muted">${STATUS[i.status]}${i.status === 'cancelled' ? `: ${i.cancel_reason}` : ` · ${hm(i.sent_at)}`}</small></div>
         <div class="r"><span class="num">${money(i.total)}</span>
-          ${!closed && i.status !== 'cancelled' ? html`<div class="row tight"><button class="small" onClick=${() => setReason({ kind: 'redo', item: i })}>Làm lại</button><button class="small danger" onClick=${() => setReason({ kind: 'cancel', item: i })}>Huỷ</button></div>` : null}</div>
+          ${!closed && i.status !== 'cancelled' ? html`<div class="row tight"><button class="small" onClick=${() => setPrompt({ kind: 'item', item: i })}>Chuyển</button><button class="small" onClick=${() => setReason({ kind: 'redo', item: i })}>Làm lại</button><button class="small danger" onClick=${() => setReason({ kind: 'cancel', item: i })}>Huỷ</button></div>` : null}</div>
       </li>`)}</ul>` : html`<p class="muted">Chưa gửi món nào.</p>`}
       <div class="row between total"><b>Tạm tính</b><b class="num">${money(s.subtotal)}</b></div>
     </section>` : null}
@@ -135,6 +135,8 @@ export function OrderView({ me, query }) {
       }} />` : null}
     ${prompt === 'move' ? html`<${TablePrompt} title="Chuyển sang bàn" hint="vd 25, hoặc 25, 26 nếu ngồi 2 bàn" onClose=${() => setPrompt(null)}
       onOk=${async (txt) => { if (await act(() => api('POST', `/api/pos/sessions/${id}/move`, { tables: txt }), 'Đã chuyển bàn')) setPrompt(null); }} />` : null}
+    ${prompt?.kind === 'item' ? html`<${TablePrompt} title=${`Chuyển "${prompt.item.name}" sang bàn`} hint="Gọi nhầm bàn: món chuyển sang bàn đúng, bếp được báo giao đúng bàn" onClose=${() => setPrompt(null)}
+      onOk=${async (txt) => { if (await act(() => api('POST', `/api/pos/items/${prompt.item.id}/move`, { table: Number(txt) }), 'Đã chuyển món')) setPrompt(null); }} />` : null}
     ${prompt === 'merge' ? html`<${Modal} title="Gộp bàn khác vào bàn này" onClose=${() => setPrompt(null)}><div class="stack">
       <p class="muted small">Món và khách của bàn được chọn sẽ chuyển sang bàn ${s.header}.</p>
       ${sessions.length ? html`<div class="chips">${sessions.map((x) => html`<button class="chip big" onClick=${async () => { if (await act(() => api('POST', `/api/pos/sessions/${id}/merge`, { from_session_id: x.id }), 'Đã gộp bàn')) setPrompt(null); }}>Bàn ${x.tables.join(', ')}</button>`)}</div>` : html`<p class="muted">Không có bàn nào khác đang mở.</p>`}

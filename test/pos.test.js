@@ -92,8 +92,19 @@ test('gọi món: mở bàn, bắt chọn sốt, gửi bếp tách phiếu theo 
   s = (await H('GET', `/api/pos/sessions/${sid}`)).data;
   assert.equal(s.subtotal, 79000 * 2 + 150000 + 69000);
 
+  // Chuyển 1 món gọi nhầm sang bàn 40 (đang trống → tự nhận khách), bếp nhận phiếu "move"
+  const steakAu = s.items.find((i) => i.name === 'Steak Âu');
+  const mv = await H('POST', `/api/pos/items/${steakAu.id}/move`, { table: 40 });
+  assert.equal(mv.status, 200);
+  const mvTicket = (await o('GET', '/api/pos/tickets')).data[0];
+  assert.deepEqual([mvTicket.kind, mvTicket.header, mvTicket.lines[0].note], ['move', 'KHU A - 40', 'Chuyển từ bàn KHU A - 20']);
+  assert.equal((await H('GET', `/api/pos/sessions/${mv.data.session_id}`)).data.subtotal, 69000);
+  s = (await H('GET', `/api/pos/sessions/${sid}`)).data;
+  assert.equal(s.subtotal, 79000 * 2 + 150000);
   // Chuyển bàn 20 → 21, rồi gộp bàn 22 vào
   assert.equal((await H('POST', `/api/pos/sessions/${sid}/move`, { tables: [21] })).status, 200);
+  const moved = (await o('GET', '/api/pos/tickets')).data.filter((k) => k.kind === 'move' && k.header === 'KHU A - 21');
+  assert.ok(moved.length >= 3); // các điểm đang làm món của bàn được báo chuyển bàn
   const sid2 = (await H('POST', '/api/pos/sessions', { tables: [22], guests: 2 })).data.id;
   await H('POST', `/api/pos/sessions/${sid2}/items`, { menu_item_id: item('Coca').id });
   assert.equal((await H('POST', `/api/pos/sessions/${sid}/move`, { tables: [22] })).status, 409);
