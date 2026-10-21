@@ -93,7 +93,8 @@ export default function (r, ctx) {
 
   // Tự gộp các tổ bếp cũ thành bộ phận "Bếp" một lần (chủ quán chốt 21/10: Bếp chọn chung, vị trí chia theo ca).
   // Chỉ chạy khi có từ 3 tổ bếp trở lên, để không đụng dữ liệu mẫu/test.
-  const KITCHEN = { 'bếp': 'Bếp', 'bếp steak': 'Steak', 'steak': 'Steak', 'lẩu': 'Lẩu', 'nướng': 'Nướng', 'topping': 'Topping', 'thái tay': 'Thái tay', 'tiếp thực': 'Tiếp thực' };
+  const KITCHEN = { 'bếp': 'Bếp', 'bếp steak': 'Steak', 'steak': 'Steak', 'lẩu': 'Lẩu', 'nướng': 'Nướng', 'topping': 'Topping', 'thái tay': 'Thái tay' };
+  // Tiếp thực là bộ phận riêng (chủ quán sửa 21/10), không gộp vào Bếp
   if (!ctx.setting('kitchen_merged')) {
     const found = db.prepare('SELECT * FROM teams WHERE active = 1 ORDER BY sort, id').all()
       .filter((t) => KITCHEN[t.name.trim().toLowerCase()]);
@@ -108,6 +109,28 @@ export default function (r, ctx) {
       ctx.audit(null, 'team.combine.auto', res.positions);
     }
     ctx.setSetting('kitchen_merged', '1');
+  }
+
+  // Bản trước lỡ gộp Tiếp thực vào Bếp: tách ra lại thành bộ phận riêng (một lần)
+  if (!ctx.setting('tiep_thuc_split')) {
+    const pos = db.prepare("SELECT p.* FROM positions p JOIN teams t ON t.id = p.team_id WHERE lower(p.name) = lower('Tiếp thực') AND lower(t.name) = lower('Bếp') AND p.active = 1").get();
+    if (pos) {
+      tx(db, () => {
+        const old = db.prepare("SELECT * FROM teams WHERE lower(trim(name)) = lower('tiếp thực') ORDER BY active DESC, id LIMIT 1").get();
+        const teamId = old ? old.id : Number(db.prepare("INSERT INTO teams (name, sort, min_staff) VALUES ('Tiếp thực', 99, ?)").run(pos.min_staff).lastInsertRowid);
+        db.prepare('UPDATE teams SET active = 1 WHERE id = ?').run(teamId);
+        db.prepare('UPDATE staff SET team_id = ?, position_id = NULL WHERE position_id = ?').run(teamId, pos.id);
+        db.prepare('UPDATE assignments SET team_id = ?, position_id = NULL WHERE position_id = ?').run(teamId, pos.id);
+        db.prepare('UPDATE checklist_templates SET team_id = ?, position_id = NULL WHERE position_id = ?').run(teamId, pos.id);
+        for (const k of db.prepare('SELECT staff_id, level FROM position_skills WHERE position_id = ?').all(pos.id)) {
+          db.prepare('INSERT OR REPLACE INTO staff_skills (staff_id, team_id, level) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM staff WHERE id = ? AND team_id = ?)').run(k.staff_id, teamId, k.level, k.staff_id, teamId);
+        }
+        db.prepare('DELETE FROM position_skills WHERE position_id = ?').run(pos.id);
+        db.prepare('UPDATE positions SET active = 0 WHERE id = ?').run(pos.id);
+      });
+      ctx.audit(null, 'team.split', 'Tiếp thực');
+    }
+    ctx.setSetting('tiep_thuc_split', '1');
   }
 
   // Kiểm tra vị trí khi xếp ca / lưu nhân viên: phải thuộc đúng bộ phận

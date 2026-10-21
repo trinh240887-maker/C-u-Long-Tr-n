@@ -86,7 +86,7 @@ test('gộp tổ Bếp steak + Lẩu thành bộ phận Bếp, xếp ca theo v�
   assert.ok(wk.warnings.some((w) => w.position_id === posSteak && w.date === '2026-10-20')); // Steak cần 2, ngày 20 không có ai
 });
 
-test('lần đầu chạy: tự gộp các tổ bếp (Bếp steak, Lẩu, topping, tiếp thực) thành bộ phận Bếp', async (t) => {
+test('lần đầu chạy: tự gộp các tổ bếp (Bếp steak, Lẩu, topping) thành Bếp, Tiếp thực để riêng', async (t) => {
   const now = at('2026-10-19', '09:00');
   const db = openDb(':memory:', { now });
   db.prepare("INSERT INTO teams (name, sort) VALUES ('topping', 7), ('tiếp thực', 8)").run();
@@ -95,17 +95,36 @@ test('lần đầu chạy: tự gộp các tổ bếp (Bếp steak, Lẩu, toppi
   const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
   t.after(() => app.close());
   const active = db.prepare('SELECT name FROM teams WHERE active = 1 ORDER BY sort, id').all().map((x) => x.name);
-  assert.deepEqual(active, ['Bếp', 'Bar', 'Phục vụ', 'Thu ngân', 'Tạp vụ']);
+  assert.deepEqual(active, ['Bếp', 'Bar', 'Phục vụ', 'Thu ngân', 'Tạp vụ', 'tiếp thực']);
   const bep = db.prepare("SELECT id FROM teams WHERE name = 'Bếp' AND active = 1").get().id;
   const pos = db.prepare('SELECT name FROM positions WHERE team_id = ? AND active = 1 ORDER BY sort, id').all(bep).map((x) => x.name);
-  assert.deepEqual(pos, ['Steak', 'Lẩu', 'Topping', 'Tiếp thực', 'Nướng']);
-  const phat = db.prepare("SELECT s.team_id, p.name FROM staff s JOIN positions p ON p.id = s.position_id WHERE s.name = 'Phát'").get();
-  assert.equal(phat.team_id, bep);
-  assert.equal(phat.name, 'Tiếp thực');
+  assert.deepEqual(pos, ['Steak', 'Lẩu', 'Topping', 'Nướng']);
+  const phat = db.prepare("SELECT s.team_id, t.name FROM staff s JOIN teams t ON t.id = s.team_id WHERE s.name = 'Phát'").get();
+  assert.equal(phat.name, 'tiếp thực');
+  const dung = db.prepare("SELECT s.team_id, p.name FROM staff s JOIN positions p ON p.id = s.position_id WHERE s.name = 'Dũng'").get();
+  assert.equal(dung.team_id, bep);
+  assert.equal(dung.name, 'Lẩu');
   // Chỉ gộp một lần: tạo lại tổ "Lẩu" sau đó thì không tự gộp nữa
-  db.prepare("INSERT INTO teams (name) VALUES ('Lẩu'), ('topping'), ('tiếp thực')").run();
+  db.prepare("INSERT INTO teams (name) VALUES ('Lẩu'), ('topping'), ('thái tay')").run();
   createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } }).close();
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM teams WHERE name = 'Lẩu' AND active = 1").get().n, 1);
+});
+
+test('bản trước lỡ gộp Tiếp thực vào Bếp: tự tách ra lại', async (t) => {
+  const now = at('2026-10-19', '09:00');
+  const db = openDb(':memory:', { now });
+  const steak = db.prepare("SELECT id FROM teams WHERE name = 'Bếp steak'").get().id;
+  const tt = Number(db.prepare("INSERT INTO teams (name, sort, active) VALUES ('tiếp thực', 8, 0)").run().lastInsertRowid);
+  db.prepare("UPDATE teams SET name = 'Bếp' WHERE id = ?").run(steak);
+  const pos = Number(db.prepare("INSERT INTO positions (team_id, name) VALUES (?, 'Tiếp thực')").run(steak).lastInsertRowid);
+  const phat = Number(db.prepare("INSERT INTO staff (name, role, team_id, position_id, created_at) VALUES ('Phát', 'team_lead', ?, ?, 0)").run(steak, pos).lastInsertRowid);
+  db.prepare("INSERT INTO assignments (group_id, staff_id, team_id, position_id, date, start_min, end_min, created_at) VALUES ('g1', ?, ?, ?, '2026-10-20', 600, 900, 0)").run(phat, steak, pos);
+  db.prepare("INSERT INTO settings (key, value) VALUES ('kitchen_merged', '1')").run();
+  createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } }).close();
+  assert.deepEqual({ ...db.prepare('SELECT team_id, position_id FROM staff WHERE id = ?').get(phat) }, { team_id: tt, position_id: null });
+  assert.deepEqual({ ...db.prepare("SELECT team_id, position_id FROM assignments WHERE group_id = 'g1'").get() }, { team_id: tt, position_id: null });
+  assert.equal(db.prepare('SELECT active FROM teams WHERE id = ?').get(tt).active, 1);
+  assert.equal(db.prepare('SELECT active FROM positions WHERE id = ?').get(pos).active, 0);
 });
 
 test('đọc và viết danh sách bàn', () => {
