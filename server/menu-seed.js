@@ -69,7 +69,7 @@ const MENU = [
     ['Combo 2', 79000, '100g bò, pate, salad dầu giấm', { sot: true }],
     ['Combo 3', 89000, '100g bò, 1 trứng, pate, salad dầu giấm', { sot: true }],
   ]],
-  ['Món thêm steak', 'Steak', null, [['Trứng', 8000, ''], ['Salad', 10000, '']]],
+  ['Món thêm steak', 'Topping – Nướng – Rau', null, [['Trứng', 8000, ''], ['Salad', 10000, '']]],
   ['Combo lẩu', 'Nước lẩu', 'Lẩu', [
     ['Set 1 Thảo mộc Triều Châu', 150000, '1 ngăn nước lẩu, 150g bò tươi, rau tổng hợp, mì trứng 2 vắt, quầy nước chấm', { parts: LAU_PARTS('Thảo mộc Triều Châu') }],
     ['Set 2 Mala Tứ Xuyên', 150000, '1 ngăn nước lẩu, 150g bò tươi, rau tổng hợp, mì trứng 2 vắt, quầy nước chấm', { parts: LAU_PARTS('Mala Tứ Xuyên') }],
