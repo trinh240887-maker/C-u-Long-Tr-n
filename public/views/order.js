@@ -9,12 +9,13 @@ function AddItem({ item, onAdd, onClose }) {
   const [qty, setQty] = useState(1);
   const [note, setNote] = useState('');
   const [rush, setRush] = useState(false);
+  const [warn, setWarn] = useState(false);
   const missing = groups.filter((g) => item.options.some((o) => o.group_name === g && o.required) && !pick[g]);
   const unit = item.price + item.options.filter((o) => pick[o.group_name] === o.id).reduce((n, o) => n + o.price, 0);
   return html`<${Modal} title=${item.name} onClose=${onClose}>
     <div class="stack">
       ${item.description ? html`<p class="muted small">${item.description}</p>` : null}
-      ${groups.map((g) => html`<div class="field"><span>${g}${item.options.some((o) => o.group_name === g && o.required) ? ' (bắt buộc)' : ''}</span>
+      ${groups.map((g) => html`<div class=${`field ${warn && missing.includes(g) ? 'need-pick' : ''}`}><span>${g}${item.options.some((o) => o.group_name === g && o.required) ? html` <b class="req">bấm chọn 1 loại</b>` : ''}</span>
         <div class="chips">${item.options.filter((o) => o.group_name === g).map((o) => html`<button class=${`chip big ${pick[g] === o.id ? 'on' : ''}`}
           onClick=${() => setPick({ ...pick, [g]: pick[g] === o.id ? undefined : o.id })}>${o.name}${o.price ? ` +${money(o.price)}` : ''}</button>`)}</div></div>`)}
       <div class="row">
@@ -24,8 +25,9 @@ function AddItem({ item, onAdd, onClose }) {
       <${Field} label="Ghi chú cho bếp"><input id="ai-note" value=${note} placeholder="vd chín kỹ, ít cay, không hành" onInput=${(e) => setNote(e.target.value)} /><//>
       <div class="chips">${['Chín vừa', 'Chín kỹ', 'Ít cay', 'Không hành', 'Ít đá'].map((x) => html`<button class="chip" onClick=${() => setNote(note ? `${note}, ${x.toLowerCase()}` : x)}>${x}</button>`)}</div>
       <label class="check-row"><input type="checkbox" checked=${rush} onChange=${(e) => setRush(e.target.checked)} /> Gấp (in máy Ưu tiên, bếp làm trước)</label>
-      <button class="primary big" disabled=${missing.length > 0} onClick=${() => onAdd({ menu_item_id: item.id, option_ids: Object.values(pick).filter(Boolean), qty, note, rush })}>
-        ${missing.length ? `Chọn ${missing[0].toLowerCase()}` : `Thêm ${qty} món`}</button>
+      <button class=${`primary big ${missing.length ? 'soft' : ''}`} onClick=${() => (missing.length ? setWarn(true) : onAdd({ menu_item_id: item.id, option_ids: Object.values(pick).filter(Boolean), qty, note, rush }))}>
+        ${missing.length ? `Chưa chọn ${missing[0].toLowerCase()} ↑` : `Thêm ${qty} món · ${money(unit * qty)}`}</button>
+      ${warn && missing.length ? html`<p class="warn-text r">Bấm 1 loại ${missing[0].toLowerCase()} ở trên rồi bấm lại.</p>` : null}
     </div>
   <//>`;
 }

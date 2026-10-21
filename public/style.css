@@ -489,3 +489,6 @@ a.tile { text-decoration: none; color: inherit; }
 .order-cta { display: grid; gap: 4px; text-decoration: none; color: inherit; border: 2px solid var(--accent); }
 .order-cta b { font-size: 20px; color: var(--accent); }
 .order-cta span { color: var(--muted); font-size: 14px; }
+.field .req { color: #b91c1c; font-weight: 700; }
+.field.need-pick { outline: 2px solid #dc2626; outline-offset: 6px; border-radius: 8px; }
+button.primary.soft { opacity: .65; }
