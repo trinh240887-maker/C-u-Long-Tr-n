@@ -262,19 +262,14 @@ export default function (r, ctx) {
       db.prepare('DELETE FROM session_tables WHERE session_id = ?').run(s.id);
       const add = db.prepare('INSERT INTO session_tables (session_id, table_number) VALUES (?, ?)');
       for (const n of to) add.run(s.id, n);
-      // Báo các điểm đang làm món của bàn này: giao sang bàn mới
-      // Chỉ báo những món CHƯA RA bàn (phục vụ bỏ chọn món đã ra; món đã bấm "Đã ra" không báo)
-      const pick = Array.isArray(body.notify_item_ids) ? new Set(body.notify_item_ids.map(Number)) : null;
-      const live = s.items.filter((i) => i.status === 'sent' && (!pick || pick.has(i.id))).map((i) => ({ ...i, options: JSON.stringify(i.options), note: `Chuyển từ bàn ${s.header}` }));
-      if (live.length) makeTickets(me, { ...s, header: headerOf(s.id) }, live, 'move');
     });
     ctx.audit(me, 'pos.move', { id: s.id, from: s.tables, to });
     ctx.broadcast('pos');
-    ctx.broadcast('tickets');
     return { ok: true };
   });
 
-  // Chuyển 1 món sang bàn khác (gọi nhầm bàn); bàn đích trống thì tự nhận khách
+  // Chuyển 1 món sang bàn khác (gọi nhầm bàn); bàn đích trống thì tự nhận khách.
+  // Không in phiếu báo bếp khi chuyển (chủ quán chốt 21/10: phục vụ tự báo bằng bộ đàm)
   r.post('/api/pos/items/:id/move', 'staff', ({ me, params, body }) => {
     const i = loadItem(params.id);
     if (i.status === 'cancelled') fail(400, 'Món đã huỷ');
@@ -285,7 +280,6 @@ export default function (r, ctx) {
       const target = cur ? cur.id : ctx.openTableSession(me, { tables: [n] });
       if (target === from.id) fail(400, 'Món đang ở bàn này rồi');
       db.prepare('UPDATE order_items SET session_id = ? WHERE id = ?').run(target, i.id);
-      if (i.status === 'sent' && body.notify !== false) makeTickets(me, { id: target, header: headerOf(target), priority: false }, [{ ...i, note: `Chuyển từ bàn ${from.header}` }], 'move');
       return target;
     });
     ctx.audit(me, 'pos.item.move', { id: i.id, name: i.name, from: from.id, to: out });
