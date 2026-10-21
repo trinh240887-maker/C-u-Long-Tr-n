@@ -35,3 +35,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 29 | 20/10 | Deploy Railway: project `marvelous-spirit`, link c-u-long-tr-n-production.up.railway.app, Volume `/data` | Dockerfile không dùng lệnh VOLUME |
 | 30 | 21/10 | MISA meInvoice **có API công khai (REST, JSON) + môi trường Sandbox**, chủ quán xác nhận qua tìm kiếm | GĐ5: cần đọc docs (developer.misa.vn bị chặn mạng trong môi trường Claude) + xin tài khoản test |
 | 31 | 21/10 | Quản lý trả **lương theo tháng**: lương tháng × ngày công / ngày công chuẩn (mặc định 26, cài đặt được; 0 = trả cố định) | Chủ quán yêu cầu khi nhập nhân viên thật |
+| 32 | 21/10 | **Quản lý được thêm/sửa nhân sự** (tới Trưởng ca) và xem lương; chỉ Chủ tạo Quản lý. Giữ như hiện tại, không cần Chủ duyệt | |
