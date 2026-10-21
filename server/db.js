@@ -372,6 +372,7 @@ const DEFAULT_SETTINGS = {
   auto_close_after_minutes: '120', // quên chấm ra: tự đóng sau giờ hết ca
   clock_ip_prefixes: '',         // vd "192.168.1." — để trống là không giới hạn
   night_bonus_pct: '30',
+  month_standard_days: '26',  // lương tháng chia theo ngày công chuẩn; 0 = trả đủ cố định
   quiet_from: '23:00',
   quiet_to: '07:00',
   zalo_enabled: '0',

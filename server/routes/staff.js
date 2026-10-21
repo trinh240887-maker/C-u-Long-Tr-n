@@ -61,7 +61,7 @@ export default function (r, ctx) {
     const role = body.role === undefined ? current.role ?? 'staff' : v.oneOf(body.role, ROLES, { name: 'Vai trò' });
     let teamId = body.team_id === undefined ? current.team_id ?? null : v.optInt(body.team_id, { min: 1, name: 'Tổ' });
     if (!teamExists(teamId)) fail(400, 'Tổ không tồn tại');
-    const payType = body.pay_type === undefined ? current.pay_type ?? 'hour' : v.oneOf(body.pay_type, ['hour', 'shift'], { name: 'Cách tính lương' });
+    const payType = body.pay_type === undefined ? current.pay_type ?? 'hour' : v.oneOf(body.pay_type, ['hour', 'shift', 'month'], { name: 'Cách tính lương' });
     const payRate = body.pay_rate === undefined ? current.pay_rate ?? 0 : v.int(body.pay_rate, { min: 0, max: 100_000_000, name: 'Mức lương' });
     const limit = body.weekly_limit_hours === undefined ? current.weekly_limit_hours ?? 48 : v.int(body.weekly_limit_hours, { min: 1, max: 100, name: 'Giới hạn giờ/tuần' });
     const zalo = body.zalo_user_id === undefined ? current.zalo_user_id ?? '' : v.text(body.zalo_user_id, { name: 'Zalo user ID', max: 64 });

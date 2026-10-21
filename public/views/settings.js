@@ -11,7 +11,7 @@ function General({ s, staff }) {
   const save = () => act(() => api('PUT', '/api/settings', {
     shop_name: f.shop_name, public_url: f.public_url, day_cutoff_hour: f.day_cutoff_hour, late_grace_minutes: f.late_grace_minutes,
     clock_early_minutes: f.clock_early_minutes, auto_close_after_minutes: f.auto_close_after_minutes, clock_ip_prefixes: f.clock_ip_prefixes,
-    night_bonus_pct: f.night_bonus_pct, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
+    night_bonus_pct: f.night_bonus_pct, month_standard_days: f.month_standard_days, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
   }), 'Đã lưu cài đặt');
   return html`<div class="stack">
     <section class="card"><h3>Quán</h3><div class="form-grid">
@@ -28,6 +28,7 @@ function General({ s, staff }) {
       ${inp('day_cutoff_hour', 'Giờ chốt ngày làm việc', { type: 'number', min: 0, max: 12 }, 'Trước giờ này vẫn tính là ngày hôm trước (ca qua đêm).')}
       ${inp('clock_ip_prefixes', 'Chỉ chấm công trong wifi quán', { placeholder: 'vd 192.168.1.' }, 'Để trống = không giới hạn. Truy cập từ xa luôn bị chặn chấm công khi bật.')}
       ${inp('night_bonus_pct', 'Phụ cấp làm đêm 22h–6h (%)', { type: 'number', min: 0 })}
+      ${inp('month_standard_days', 'Ngày công chuẩn / tháng (lương tháng)', { type: 'number', min: 0, max: 31 }, 'vd 26. Điền 0 nếu trả đủ lương tháng cố định.')}
     </div></section>
     <section class="card"><h3>Giờ yên lặng</h3><p class="muted small">Không gửi Zalo trong khung giờ này, trừ tin gấp (nhờ làm thay, việc gấp).</p><div class="row">
       ${inp('quiet_from', 'Từ', { type: 'time' })}${inp('quiet_to', 'Đến', { type: 'time' })}</div></section>

@@ -57,6 +57,13 @@ test('lương theo giờ có phụ cấp đêm 30%, lương theo ca đếm số 
   assert.equal(b.open_records, 1);
 });
 
+test('lương tháng chia theo ngày công chuẩn, 0 = trả cố định', async () => {
+  const { payFor } = await import('../server/lib/payroll.js');
+  assert.equal(payFor({ pay_type: 'month', pay_rate: 9_100_000, days: 13 }, 30, 26), 4_550_000);
+  assert.equal(payFor({ pay_type: 'month', pay_rate: 9_000_000, days: 30 }, 30, 26), 9_000_000);
+  assert.equal(payFor({ pay_type: 'month', pay_rate: 9_000_000, days: 5 }, 30, 0), 9_000_000);
+});
+
 test('gợi ý người làm thay: lọc trùng giờ, nghỉ, kỹ năng, giới hạn giờ', () => {
   const shift = { team_id: 3, ranges: [{ start: at('2026-10-24', '17:00'), end: at('2026-10-24', '23:00') }] };
   const candidates = [

@@ -80,13 +80,13 @@ function Timesheet({ me }) {
     ${!st.data ? html`<${Loading} state=${st} />` : html`<div class="table-wrap"><table class="list">
       <thead><tr><th>Nhân viên</th><th class="r">Số ca</th><th class="r">Giờ làm</th><th class="r">Giờ đêm</th><th class="r">Trễ</th><th class="r">Vắng</th><th class="r">Lương tạm tính</th></tr></thead>
       <tbody>${st.data.rows.map((r) => html`<tr>
-        <td><b>${r.name}</b><br /><small class="muted">${r.pay_rate ? `${money(r.pay_rate)}/${r.pay_type === 'hour' ? 'giờ' : 'ca'}` : 'Chưa có mức lương'}</small></td>
+        <td><b>${r.name}</b><br /><small class="muted">${r.pay_rate ? `${money(r.pay_rate)}/${({ hour: 'giờ', shift: 'ca', month: 'tháng' })[r.pay_type]}` : 'Chưa có mức lương'}</small></td>
         <td class="r num">${r.shifts}</td><td class="r num">${hours(r.minutes)}</td><td class="r num">${hours(r.night_minutes)}</td>
         <td class="r num">${r.late_count ? `${r.late_count} lần` : '—'}</td>
         <td class="r num">${r.absent ? html`<span class="bad-text">${r.absent}</span>` : '—'}</td>
         <td class="r num"><b>${money(r.pay)}</b>${r.open_records || r.auto_closed ? html`<br /><small class="warn-text">cần kiểm tra</small>` : null}</td>
       </tr>`)}</tbody></table></div>
-      <p class="muted small">Lương theo giờ có cộng phụ cấp làm đêm ${st.data.night_bonus_pct}% cho giờ từ 22h–6h. Ca gãy tính là 1 ca.
+      <p class="muted small">Lương theo giờ có cộng phụ cấp làm đêm ${st.data.night_bonus_pct}% cho giờ từ 22h–6h. Ca gãy tính là 1 ca. Lương tháng = lương tháng × số ngày công / ${st.data.month_standard_days || 'đủ'} ${st.data.month_standard_days ? 'ngày công chuẩn' : '(trả cố định)'}.
         Đây là số tạm tính để tham khảo, chưa gồm thưởng, phạt, bảo hiểm và tăng ca ngày lễ. Bạn tự đối chiếu với quy định của quán và Bộ luật Lao động.</p>`}
   </div>`;
 }

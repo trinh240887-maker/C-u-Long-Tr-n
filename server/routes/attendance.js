@@ -173,7 +173,7 @@ export default function (r, ctx) {
     const staff = db.prepare('SELECT id, name, pay_type, pay_rate, team_id, active FROM staff ORDER BY name').all();
     const records = db.prepare(`SELECT at.*, a.group_id AS group_key FROM attendance at LEFT JOIN assignments a ON a.id = at.assignment_id
       WHERE at.date BETWEEN ? AND ?`).all(from, to);
-    const rows = computeTimesheet(records, staff, clock, { nightBonusPct: num('night_bonus_pct', 30) });
+    const rows = computeTimesheet(records, staff, clock, { nightBonusPct: num('night_bonus_pct', 30), monthStandardDays: num('month_standard_days', 26) });
     const stats = db.prepare(`SELECT staff_id, SUM(late_minutes > 0) AS late_count, SUM(late_minutes) AS late_minutes, SUM(auto_closed) AS auto_closed
       FROM attendance WHERE date BETWEEN ? AND ? GROUP BY staff_id`).all(from, to);
     const today = ctx.today();
@@ -188,6 +188,7 @@ export default function (r, ctx) {
     return {
       month, from, to,
       night_bonus_pct: num('night_bonus_pct', 30),
+      month_standard_days: num('month_standard_days', 26),
       rows: rows
         .map((row) => ({ ...row, late_count: statBy.get(row.staff_id)?.late_count || 0, late_minutes: statBy.get(row.staff_id)?.late_minutes || 0,
           auto_closed: statBy.get(row.staff_id)?.auto_closed || 0, absent: absentBy.get(row.staff_id) || 0 }))

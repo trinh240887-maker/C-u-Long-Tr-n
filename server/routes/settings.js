@@ -21,6 +21,7 @@ const FIELDS = {
     return s;
   },
   night_bonus_pct: (x) => String(v.int(x, { min: 0, max: 300, name: 'Phụ cấp làm đêm' })),
+  month_standard_days: (x) => String(v.int(x, { min: 0, max: 31, name: 'Ngày công chuẩn' })),
   quiet_from: (x) => { parseHM(x); return String(x); },
   quiet_to: (x) => { parseHM(x); return String(x); },
   zalo_enabled: (x) => String(v.bool(x)),

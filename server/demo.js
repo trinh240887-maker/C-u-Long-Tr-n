@@ -7,7 +7,7 @@ import { addLot, recordMove } from './lib/stock.js';
 
 export const DEMO_PEOPLE = [
   // tên, vai trò, tổ, PIN, lương, kiểu lương, kỹ năng phụ
-  ['Hùng (mẫu)', 'manager', null, '736251', 9_000_000, 'shift', []],
+  ['Hùng (mẫu)', 'manager', null, '736251', 9_000_000, 'month', []],
   ['Phương (mẫu)', 'shift_lead', 'Phục vụ', '640512', 32000, 'hour', [['Thu ngân', 3]]],
   ['Tài (mẫu)', 'team_lead', 'Bếp steak', '5821', 35000, 'hour', [['Lẩu', 2]]],
   ['Khoa (mẫu)', 'staff', 'Bếp steak', '5822', 28000, 'hour', []],

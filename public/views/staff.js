@@ -31,8 +31,8 @@ function StaffForm({ me, init, teams, onClose }) {
       <${Field} label="Tổ chính"><select id="st-team" value=${f.team_id} onChange=${(e) => set('team_id', e.target.value ? Number(e.target.value) : '')}>
         <option value="">(không thuộc tổ)</option>${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
       <${Field} label="Tính lương"><select id="st-paytype" value=${f.pay_type} onChange=${(e) => set('pay_type', e.target.value)}>
-        <option value="hour">Theo giờ</option><option value="shift">Theo ca</option></select><//>
-      <${Field} label=${f.pay_type === 'hour' ? 'Lương 1 giờ (đ)' : 'Lương 1 ca (đ)'}><input id="st-rate" type="number" inputmode="numeric" min="0" step="1000" value=${f.pay_rate} onInput=${(e) => set('pay_rate', e.target.value)} /><//>
+        <option value="hour">Theo giờ</option><option value="shift">Theo ca</option><option value="month">Theo tháng</option></select><//>
+      <${Field} label=${({ hour: 'Lương 1 giờ (đ)', shift: 'Lương 1 ca (đ)', month: 'Lương 1 tháng (đ)' })[f.pay_type]}><input id="st-rate" type="number" inputmode="numeric" min="0" step="1000" value=${f.pay_rate} onInput=${(e) => set('pay_rate', e.target.value)} /><//>
       <${Field} label="Tối đa giờ/tuần" hint="Dùng khi gợi ý người làm thay"><input id="st-limit" type="number" min="1" max="100" value=${f.weekly_limit_hours} onInput=${(e) => set('weekly_limit_hours', e.target.value)} /><//>
       <${Field} label=${isNew ? 'Mã PIN đăng nhập' : 'Đặt lại mã PIN (để trống nếu giữ nguyên)'} hint=${`${needPin}–8 chữ số. Nhân viên sẽ phải đổi PIN khi đăng nhập lần đầu.`}>
         <input id="st-pin" inputmode="numeric" value=${f.pin} maxlength="8" onInput=${(e) => set('pin', e.target.value.replace(/\D/g, ''))} /><//>
@@ -75,7 +75,7 @@ export function StaffView({ me }) {
         <td>${s.role_label}</td>
         <td>${s.team_name || '—'}</td>
         <td><small>${s.skills.map((k) => `${teamName(k.team_id)}${'★'.repeat(k.level)}`).join(', ') || '—'}</small></td>
-        <td class="r num">${s.pay_rate ? `${money(s.pay_rate)}/${s.pay_type === 'hour' ? 'giờ' : 'ca'}` : '—'}</td>
+        <td class="r num">${s.pay_rate ? `${money(s.pay_rate)}/${({ hour: 'giờ', shift: 'ca', month: 'tháng' })[s.pay_type]}` : '—'}</td>
         <td>${s.zalo_linked ? html`<span class="pill ok">Đã liên kết</span>` : html`<span class="pill muted">Chưa</span>`}</td>
       </tr>`)}</tbody>
     </table></div>
