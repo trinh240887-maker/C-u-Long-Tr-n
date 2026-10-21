@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast } from '../ui.js';
 
-const TABS = [['chung', 'Chung'], ['to', 'Tổ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
+const TABS = [['chung', 'Chung'], ['to', 'Tổ'], ['khu', 'Khu & bàn'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
 
 function General({ s, staff }) {
   const [f, setF] = useState(s);
@@ -49,6 +49,25 @@ function Teams() {
     </div>`)}
     <div class="row"><input id="tm-new" class="grow" placeholder="Tên tổ mới, vd Bảo vệ" value=${name} onInput=${(e) => setName(e.target.value)} />
       <button class="primary" disabled=${!name.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/teams', { name }), 'Đã thêm tổ')) setName(''); }}>Thêm tổ</button></div>
+  </section>`;
+}
+
+function Zones() {
+  const st = useData('/api/zones?all=1');
+  const [nz, setNz] = useState({ name: '', tables: '' });
+  if (!st.data) return html`<${Loading} state=${st} />`;
+  return html`<section class="card stack">
+    <p class="muted small">Mỗi khu gồm các số bàn, ghi kiểu <b>1-20</b> hoặc <b>1-10, 15, 20-22</b>. Một bàn chỉ thuộc 1 khu. Phân người vào khu khi xếp ca.</p>
+    ${st.data.map((z) => html`<div class="zone-row" key=${z.id}>
+      <input type="color" value=${z.color} aria-label="Màu" onChange=${(e) => act(() => api('PATCH', `/api/zones/${z.id}`, { color: e.target.value }), 'Đã đổi màu')} />
+      <input class="grow" value=${z.name} aria-label="Tên khu" onChange=${(e) => act(() => api('PATCH', `/api/zones/${z.id}`, { name: e.target.value }), 'Đã đổi tên')} />
+      <input class="grow" value=${z.tables_text} placeholder="vd 1-40" aria-label="Các bàn" onChange=${(e) => act(() => api('PATCH', `/api/zones/${z.id}`, { tables: e.target.value }), 'Đã lưu bàn')} />
+      <span class="muted small">${z.table_count} bàn</span>
+      <label class="check-row small"><input type="checkbox" checked=${z.active} onChange=${(e) => act(() => api('PATCH', `/api/zones/${z.id}`, { active: e.target.checked }), 'Đã lưu')} /> Dùng</label>
+    </div>`)}
+    <div class="row"><input id="zn-name" class="grow" placeholder="Tên khu mới, vd Khu D" value=${nz.name} onInput=${(e) => setNz({ ...nz, name: e.target.value })} />
+      <input id="zn-tables" class="grow" placeholder="Bàn, vd 101-110" value=${nz.tables} onInput=${(e) => setNz({ ...nz, tables: e.target.value })} />
+      <button class="primary" disabled=${!nz.name.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/zones', nz), 'Đã thêm khu')) setNz({ name: '', tables: '' }); }}>Thêm khu</button></div>
   </section>`;
 }
 
@@ -217,6 +236,7 @@ export function SettingsView({ me, query }) {
     ${!st.data ? html`<${Loading} state=${st} />`
       : tab === 'chung' ? html`<${General} s=${st.data} staff=${(staff.data || []).filter((p) => p.active)} />`
       : tab === 'to' ? html`<${Teams} />`
+      : tab === 'khu' ? html`<${Zones} />`
       : tab === 'ca' ? html`<${Templates} />`
       : tab === 'checklist' ? html`<${Checklists} me=${me} teams=${me.teams} />`
       : tab === 'zalo' ? html`<${Zalo} s=${st.data} />`

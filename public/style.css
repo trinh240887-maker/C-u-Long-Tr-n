@@ -370,3 +370,14 @@ table.hours tr.sum td.who { color: var(--accent); }
 .daybadge.warn { background: var(--warn-soft); color: var(--warn); }
 .daybadge.bad { background: var(--bad-soft); color: var(--bad); }
 .person .daybadge { margin-left: 6px; }
+
+/* Sơ đồ bàn */
+.zone { border-left: 5px solid var(--z); }
+.tables { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; }
+.tbl { min-height: 44px; padding: 0; border-radius: 9px; font-weight: 700; font-variant-numeric: tabular-nums; background: var(--panel-2); color: var(--muted); }
+.tbl.on { background: color-mix(in srgb, var(--z) 22%, var(--panel)); color: var(--ink); border-color: color-mix(in srgb, var(--z) 50%, var(--line)); }
+.tbl.mine { outline: 3px solid var(--accent); outline-offset: -1px; }
+.zone-tag { color: var(--accent) !important; font-weight: 600; }
+.zone-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
+.zone-row input[type="color"] { width: 44px; height: 40px; }
+table.hours tr.zr td.who { color: var(--muted); }

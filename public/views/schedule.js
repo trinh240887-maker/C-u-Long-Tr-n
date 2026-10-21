@@ -1,11 +1,11 @@
 import { useState } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, dayLabel, addDays, atLeast, navigate, Link } from '../ui.js';
 
-function ShiftForm({ init, staff, teams, templates, onClose }) {
+function ShiftForm({ init, staff, teams, templates, zones, onClose }) {
   const person = staff.find((s) => s.id === init.staff_id);
   const [f, setF] = useState({
     staff_id: init.staff_id, date: init.date, team_id: init.team_id ?? person?.team_id ?? '',
-    template_id: init.template_id ?? '', label: init.label ?? '', note: init.note ?? '',
+    template_id: init.template_id ?? '', label: init.label ?? '', note: init.note ?? '', zone_id: init.zone_id ?? '', tables_text: init.tables_text ?? '',
     segments: init.segments?.map((s) => ({ start: s.start, end: s.end })) ?? [{ start: '', end: '' }],
   });
   const [ask, setAsk] = useState(false);
@@ -13,7 +13,7 @@ function ShiftForm({ init, staff, teams, templates, onClose }) {
   const pick = (t) => setF({ ...f, template_id: t.id, label: t.name, segments: t.segments.map((s) => ({ ...s })) });
   const seg = (i, k, v) => setF({ ...f, template_id: '', segments: f.segments.map((s, j) => (j === i ? { ...s, [k]: v } : s)) });
   const save = async () => {
-    const body = { ...f, team_id: f.team_id || null, template_id: f.template_id || null, replace_group_id: init.group_id || undefined };
+    const body = { ...f, team_id: f.team_id || null, template_id: f.template_id || null, zone_id: f.zone_id || null, tables_text: f.zone_id ? f.tables_text : '', replace_group_id: init.group_id || undefined };
     if (await act(() => api('POST', '/api/shifts', body), init.group_id ? 'Đã sửa ca' : 'Đã xếp ca')) onClose();
   };
   return html`<${Modal} title=${init.group_id ? 'Sửa ca' : 'Xếp ca'} onClose=${onClose}>
@@ -41,6 +41,11 @@ function ShiftForm({ init, staff, teams, templates, onClose }) {
         ${f.segments.length < 4 ? html`<button type="button" class="link" onClick=${() => setF({ ...f, template_id: '', segments: [...f.segments, { start: '', end: '' }] })}>+ Thêm khúc (ca gãy)</button>` : null}
         <small class="muted">Giờ kết thúc nhỏ hơn giờ bắt đầu nghĩa là qua ngày hôm sau (vd 17:00 đến 00:30).</small>
       </div>
+      ${zones.length ? html`<div class="row">
+        <${Field} label="Khu phụ trách"><select id="sf-zone" value=${f.zone_id} onChange=${(e) => set('zone_id', e.target.value)}>
+          <option value="">(không phụ trách khu)</option>${zones.map((z) => html`<option value=${z.id}>${z.name} (bàn ${z.tables_text})</option>`)}</select><//>
+        ${f.zone_id ? html`<${Field} label="Bàn phụ trách" hint="Để trống = cả khu. Ghi kiểu 1-10, 15"><input id="sf-tables" value=${f.tables_text} placeholder="cả khu" onInput=${(e) => set('tables_text', e.target.value)} /><//>` : null}
+      </div>` : null}
       <div class="row">
         <${Field} label="Tên ca (tuỳ chọn)"><input id="sf-label" value=${f.label} onInput=${(e) => set('label', e.target.value)} /><//>
         <${Field} label="Ghi chú"><input id="sf-note" value=${f.note} onInput=${(e) => set('note', e.target.value)} /><//>
@@ -58,13 +63,13 @@ function ShiftForm({ init, staff, teams, templates, onClose }) {
 function ShiftChip({ s, onClick, mine }) {
   const leave = s.leave?.status;
   return html`<button class=${`shift ${leave ? `lv-${leave}` : ''} ${mine ? 'mine' : ''}`} style=${`--c:${s.color}`} onClick=${onClick} disabled=${!onClick}>
-    <b>${s.text}</b>${s.label ? html`<small>${s.label}</small>` : null}${leave === 'approved' ? html`<small>Nghỉ</small>` : leave === 'pending' ? html`<small>Xin nghỉ</small>` : null}
+    <b>${s.text}</b>${s.label ? html`<small>${s.label}</small>` : null}${s.zone_name ? html`<small class="zone-tag">📍 ${s.zone_name}${s.tables_text ? ` · bàn ${s.tables_text}` : ''}</small>` : null}${leave === 'approved' ? html`<small>Nghỉ</small>` : leave === 'pending' ? html`<small>Xin nghỉ</small>` : null}
   </button>`;
 }
 
 
 // Số người theo từng giờ trong ngày (tính cả ca qua đêm từ hôm trước), mỗi tổ một hàng
-export function hourlyCoverage(shifts, day, prevDay) {
+export function hourlyCoverage(shifts, day, prevDay, key = 'team_id') {
   const rows = new Map();
   const add = (teamId, staffId, fromMin, toMin) => {
     for (let h = Math.max(0, Math.floor(fromMin / 60)); h < Math.min(24, Math.ceil(toMin / 60)); h++) {
@@ -77,15 +82,16 @@ export function hourlyCoverage(shifts, day, prevDay) {
   for (const sh of shifts) {
     if (sh.leave?.status === 'approved') continue;
     for (const seg of sh.segments) {
-      if (sh.date === day) add(sh.team_id, sh.staff_id, seg.start_min, seg.end_min);
-      else if (sh.date === prevDay && seg.end_min > 1440) add(sh.team_id, sh.staff_id, 0, seg.end_min - 1440);
+      if (sh.date === day) add(sh[key], sh.staff_id, seg.start_min, seg.end_min);
+      else if (sh.date === prevDay && seg.end_min > 1440) add(sh[key], sh.staff_id, 0, seg.end_min - 1440);
     }
   }
   return rows;
 }
 
-function HourCoverage({ shifts, day, prevDay, teams }) {
+function HourCoverage({ shifts, day, prevDay, teams, zones = [] }) {
   const rows = hourlyCoverage(shifts, day, prevDay);
+  const zrows = hourlyCoverage(shifts, day, prevDay, 'zone_id');
   const counts = (r) => r.map((set) => set.size);
   const total = Array.from({ length: 24 }, (_, h) => [...rows.values()].reduce((n, r) => n + r[h].size, 0));
   const used = total.map((n, h) => (n ? h : null)).filter((h) => h !== null);
@@ -107,6 +113,7 @@ function HourCoverage({ shifts, day, prevDay, teams }) {
         ${teams.filter((t) => rows.has(t.id)).map((t) => html`<tr><td class="who">${t.name}</td>${hours.map((h) => cell(counts(rows.get(t.id))[h], t.min_staff))}</tr>`)}
         ${rows.has(null) ? html`<tr><td class="who">Chưa có tổ</td>${hours.map((h) => cell(rows.get(null)[h].size, 0))}</tr>` : null}
         <tr class="sum"><td class="who">Cả quán</td>${hours.map((h) => cell(total[h], 0, true))}</tr>
+        ${zones.filter((z) => zrows.has(z.id)).map((z) => html`<tr class="zr"><td class="who">📍 ${z.name}</td>${hours.map((h) => cell(zrows.get(z.id)[h].size, 0))}</tr>`)}
       </tbody>
     </table></div>
   </section>`;
@@ -117,6 +124,7 @@ export function Schedule({ me, query }) {
   const st = useData(`/api/schedule?week=${week}`);
   const staff = useData('/api/staff');
   const tpl = useData('/api/shift-templates');
+  const zonesD = useData('/api/zones');
   const [edit, setEdit] = useState(null);
   const [mode, setMode] = useState(() => (window.innerWidth < 760 ? 'day' : 'week'));
   const [day, setDay] = useState(me.today);
@@ -189,7 +197,7 @@ export function Schedule({ me, query }) {
         </tr>`)}`)}
       </tbody></table></div>`
     : html`<div class="daytabs">${d.days.map((x) => html`<button class=${`${x === activeDay ? 'on' : ''} ${x === me.today ? 'today' : ''}`} onClick=${() => setDay(x)}>${dayLabel(x)}</button>`)}</div>
-      <${HourCoverage} shifts=${d.shifts} day=${activeDay} prevDay=${addDays(activeDay, -1)} teams=${teams} />
+      <${HourCoverage} shifts=${d.shifts} day=${activeDay} prevDay=${addDays(activeDay, -1)} teams=${teams} zones=${zonesD.data || []} />
       ${groups.map((g) => {
         const people = g.people.map((p) => ({ p, cell: byCell.get(`${p.id}:${activeDay}`) || [] }));
         const on = people.filter((x) => x.cell.length);
@@ -204,6 +212,6 @@ export function Schedule({ me, query }) {
         </section>`;
       })}`}
 
-    ${edit ? html`<${ShiftForm} init=${edit} staff=${staff.data.filter((s) => s.active)} teams=${teams} templates=${tpl.data || []} onClose=${() => setEdit(null)} />` : null}
+    ${edit ? html`<${ShiftForm} init=${edit} staff=${staff.data.filter((s) => s.active)} teams=${teams} templates=${tpl.data || []} zones=${zonesD.data || []} onClose=${() => setEdit(null)} />` : null}
   </div>`;
 }

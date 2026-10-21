@@ -13,18 +13,20 @@ import { OrgView } from './views/org.js';
 import { SettingsView } from './views/settings.js';
 import { Profile } from './views/profile.js';
 import { StockView } from './views/stock.js';
+import { FloorView } from './views/floor.js';
 
 const NAV = [
   { path: '/', label: 'Hôm nay', icon: '◉', role: 'staff', main: true },
   { path: '/quan-ly', label: 'Quản lý', icon: '▦', role: 'shift_lead', main: true },
   { path: '/lich', label: 'Lịch ca', icon: '▤', role: 'staff', main: true },
+  { path: '/ban', label: 'Sơ đồ bàn', icon: '▚', role: 'staff', main: true },
   { path: '/kho', label: 'Kho', icon: '▣', role: 'staff', main: true },
   { path: '/checklist', label: 'Checklist', icon: '☑', role: 'staff', main: true },
   { path: '/viec', label: 'Việc', icon: '✎', role: 'staff', main: true },
   { path: '/nghi', label: 'Nghỉ & thay ca', icon: '⇄', role: 'staff' },
   { path: '/cham-cong', label: 'Chấm công', icon: '⏱', role: 'shift_lead' },
   { path: '/nhan-vien', label: 'Nhân viên', icon: '☺', role: 'manager' },
-  { path: '/so-do', label: 'Sơ đồ', icon: '⌗', role: 'staff' },
+  { path: '/so-do', label: 'Sơ đồ tổ chức', icon: '⌗', role: 'staff' },
   { path: '/cai-dat', label: 'Cài đặt', icon: '⚙', role: 'manager' },
   { path: '/ho-so', label: 'Tài khoản', icon: '◎', role: 'staff' },
 ];
@@ -160,7 +162,7 @@ function App() {
   const query = new URLSearchParams(path.split('?')[1] || '');
   const routes = {
     '/': Home, '/quan-ly': Dashboard, '/lich': Schedule, '/nhan-vien': StaffView, '/cham-cong': AttendanceView,
-    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/cai-dat': SettingsView, '/ho-so': Profile,
+    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/cai-dat': SettingsView, '/ho-so': Profile,
   };
   const nav = NAV.find((n) => n.path === base);
   const View = routes[base] && (!nav || atLeast(me, nav.role)) ? routes[base] : Home;

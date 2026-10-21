@@ -194,6 +194,20 @@ CREATE TABLE IF NOT EXISTS audit_log (
   detail TEXT NOT NULL DEFAULT '',
   at INTEGER NOT NULL
 );
+-- ================= KHU & BÀN =================
+CREATE TABLE IF NOT EXISTS zones (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#9a3412',
+  sort INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS dining_tables (
+  number INTEGER PRIMARY KEY,          -- số bàn, duy nhất cả quán
+  zone_id INTEGER NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
+  seats INTEGER NOT NULL DEFAULT 4
+);
+
 -- ================= KHO (GĐ2) =================
 CREATE TABLE IF NOT EXISTS suppliers (
   id INTEGER PRIMARY KEY,
@@ -339,6 +353,18 @@ function migrate(db) {
   const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
   if (!cols('checklist_templates').includes('shift_template_id')) {
     db.exec('ALTER TABLE checklist_templates ADD COLUMN shift_template_id INTEGER REFERENCES shift_templates(id) ON DELETE SET NULL');
+  }
+  const aCols = cols('assignments');
+  if (!aCols.includes('zone_id')) db.exec('ALTER TABLE assignments ADD COLUMN zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL');
+  if (!aCols.includes('tables_text')) db.exec("ALTER TABLE assignments ADD COLUMN tables_text TEXT NOT NULL DEFAULT ''");
+  // Khu mặc định A, B, C (sửa số bàn trong Cài đặt → Khu & bàn)
+  if (!db.prepare('SELECT 1 FROM zones LIMIT 1').get()) {
+    const addZone = db.prepare('INSERT INTO zones (name, color, sort) VALUES (?, ?, ?)');
+    const addTable = db.prepare('INSERT OR IGNORE INTO dining_tables (number, zone_id) VALUES (?, ?)');
+    [['Khu A', '#b45309', 1, 40], ['Khu B', '#0e7490', 41, 80], ['Khu C', '#4d7c0f', 81, 100]].forEach(([name, color, a, b], i) => {
+      const id = Number(addZone.run(name, color, i).lastInsertRowid);
+      for (let n = a; n <= b; n++) addTable.run(n, id);
+    });
   }
   // Kho mặc định: kho tổng + kho cho các tổ chế biến
   if (!db.prepare('SELECT 1 FROM stores LIMIT 1').get()) {

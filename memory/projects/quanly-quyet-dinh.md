@@ -39,3 +39,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 33 | 21/10 | **Tổ trưởng tạo/sửa checklist của tổ mình**; trưởng ca trở lên sửa mọi tổ và checklist "Cả quán". Nút "Tạo / sửa checklist" ngay trong trang Checklist | |
 | 34 | 21/10 | Lịch ca có bảng **số người theo giờ**; một loại ca = giờ của 1 người, part-time giờ khác nhau tạo loại ca riêng | Có thể làm tiếp: số tối thiểu theo khung giờ |
 | 35 | 21/10 | Lịch ca đánh dấu người **làm 2 ca / quá 10 giờ một ngày** (nhãn vàng/đỏ + danh sách cảnh báo) và hiện **tổng giờ tuần / giới hạn** cạnh tên | Chủ quán có nhân viên làm cả sáng lẫn tối |
+| 36 | 21/10 | **Sơ đồ bàn 3 khu A/B/C** (mặc định A 1-40, B 41-80, C 81-100, sửa ở Cài đặt → Khu & bàn). Khi xếp ca chọn **khu + bàn phụ trách** (trống = cả khu); trang "Sơ đồ bàn" hiện ai đang lo bàn nào | Chờ chủ quán báo số bàn thật từng khu |

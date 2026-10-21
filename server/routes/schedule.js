@@ -71,9 +71,9 @@ export default function (r, ctx) {
     const start = weekStart(anchor);
     const end = addDays(start, 6);
     const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
-    const rows = db.prepare(`SELECT a.*, s.name AS staff_name, t.name AS team_name, st.color
+    const rows = db.prepare(`SELECT a.*, s.name AS staff_name, t.name AS team_name, st.color, z.name AS zone_name
       FROM assignments a JOIN staff s ON s.id = a.staff_id
-      LEFT JOIN teams t ON t.id = a.team_id LEFT JOIN shift_templates st ON st.id = a.template_id
+      LEFT JOIN teams t ON t.id = a.team_id LEFT JOIN shift_templates st ON st.id = a.template_id LEFT JOIN zones z ON z.id = a.zone_id
       WHERE a.date BETWEEN ? AND ? ORDER BY a.date, a.start_min`).all(start, end);
     const leaves = db.prepare(`SELECT l.id, l.group_id, l.staff_id, l.status, l.replacement_id, l.date FROM leave_requests l
       WHERE l.date BETWEEN ? AND ? AND l.status IN ('pending','approved')`).all(start, end);
@@ -84,6 +84,7 @@ export default function (r, ctx) {
       const g = groups.get(a.group_id) || {
         group_id: a.group_id, staff_id: a.staff_id, staff_name: a.staff_name, team_id: a.team_id, team_name: a.team_name || '',
         date: a.date, label: a.label, note: a.note, template_id: a.template_id, color: a.color || '#64748b', segments: [],
+        zone_id: a.zone_id, zone_name: a.zone_name || '', tables_text: a.tables_text || '',
         leave: leaveByGroup.get(a.group_id) || null,
       };
       g.segments.push({ start_min: a.start_min, end_min: a.end_min, start: fmtHM(a.start_min), end: fmtHM(a.end_min) });
@@ -108,7 +109,7 @@ export default function (r, ctx) {
     return { week_start: start, days, shifts, coverage, warnings, published_at: Number(ctx.setting(`published:${start}`) || 0) };
   });
 
-  function createGroup(me, { staffId, date, teamId, segs, templateId, label, note, replaceGroup }) {
+  function createGroup(me, { staffId, date, teamId, segs, templateId, label, note, replaceGroup, zoneId = null, tablesText = '' }) {
     const st = ctx.staff(staffId);
     if (!st || !st.active) fail(404, 'Không tìm thấy nhân viên');
     const clock = ctx.clock();
@@ -118,9 +119,9 @@ export default function (r, ctx) {
       const range = rangeOf(clock, { date, ...s });
       if (mine.some((b) => overlaps(range, b))) fail(409, `${st.name} đã có ca trùng giờ ${fmtHM(s.start_min)}–${fmtHM(s.end_min)}`);
     }
-    const insert = db.prepare(`INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, template_id, label, note, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    for (const s of segs) insert.run(groupId, staffId, teamId ?? st.team_id, date, s.start_min, s.end_min, templateId, label, note, me.id, ctx.now());
+    const insert = db.prepare(`INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, template_id, label, note, created_by, created_at, zone_id, tables_text)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const s of segs) insert.run(groupId, staffId, teamId ?? st.team_id, date, s.start_min, s.end_min, templateId, label, note, me.id, ctx.now(), zoneId, tablesText);
     return groupId;
   }
 
@@ -140,7 +141,7 @@ export default function (r, ctx) {
       if (!label) label = t.name;
     }
     const segs = parseSegments(segsInput);
-    return { staffId, date, teamId, templateId, label, note: v.text(body.note, { name: 'Ghi chú', max: 200 }), segs };
+    return { staffId, date, teamId, templateId, label, note: v.text(body.note, { name: 'Ghi chú', max: 200 }), segs, ...ctx.readZone(body) };
   }
 
   r.post('/api/shifts', 'manager', ({ me, body }) => {
@@ -196,7 +197,7 @@ export default function (r, ctx) {
         const has = db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(first.staff_id, date);
         if (has) { skipped++; continue; }
         try {
-          createGroup(me, { staffId: first.staff_id, date, teamId: first.team_id, segs, templateId: first.template_id, label: first.label, note: first.note });
+          createGroup(me, { staffId: first.staff_id, date, teamId: first.team_id, segs, templateId: first.template_id, label: first.label, note: first.note, zoneId: first.zone_id, tablesText: first.tables_text });
           copied++;
         } catch {
           skipped++;

@@ -180,12 +180,12 @@ export default function (r, ctx) {
         const c = candidates.find((x) => x.staff_id === replacementId);
         if (!c?.eligible) fail(409, `Không xếp được người này: ${c?.reasons.join(', ') || 'không phù hợp'}`);
         const groupId = crypto.randomBytes(8).toString('hex');
-        const insert = db.prepare(`INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, template_id, label, note, created_by, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        const insert = db.prepare(`INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, template_id, label, note, created_by, created_at, zone_id, tables_text)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
         for (const s of info.segments) {
           const busy = busyAround(db, clock, info.date).get(replacementId) || [];
           if (busy.some((b) => overlaps(rangeOf(clock, s), b))) fail(409, 'Người làm thay vừa bị trùng ca');
-          insert.run(groupId, replacementId, s.team_id, s.date, s.start_min, s.end_min, s.template_id, s.label, `Làm thay ${l.staff_name}`, me.id, ctx.now());
+          insert.run(groupId, replacementId, s.team_id, s.date, s.start_min, s.end_min, s.template_id, s.label, `Làm thay ${l.staff_name}`, me.id, ctx.now(), s.zone_id, s.tables_text);
         }
         db.prepare("UPDATE cover_offers SET status = CASE WHEN staff_id = ? THEN 'accepted' ELSE 'closed' END WHERE leave_id = ? AND status IN ('invited','accepted')").run(replacementId, l.id);
       } else {

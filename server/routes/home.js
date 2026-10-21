@@ -14,7 +14,7 @@ export default function (r, ctx) {
   // Ca sắp tới của tôi (7 ngày)
   r.get('/api/my-shifts', 'staff', ({ me }) => {
     const today = ctx.today();
-    const rows = db.prepare(`SELECT a.*, t.name AS team_name FROM assignments a LEFT JOIN teams t ON t.id = a.team_id
+    const rows = db.prepare(`SELECT a.*, t.name AS team_name, z.name AS zone_name FROM assignments a LEFT JOIN teams t ON t.id = a.team_id LEFT JOIN zones z ON z.id = a.zone_id
       WHERE a.staff_id = ? AND a.date BETWEEN ? AND ? ORDER BY a.date, a.start_min`).all(me.id, addDays(today, -1), addDays(today, 7));
     const leave = db.prepare("SELECT id, status FROM leave_requests WHERE group_id = ? AND status IN ('pending','approved','rejected') ORDER BY id DESC LIMIT 1");
     const clock = ctx.clock();
@@ -22,7 +22,7 @@ export default function (r, ctx) {
       .filter((segs) => rangeOf(clock, segs.at(-1)).end > ctx.now())
       .map((segs) => ({
         group_id: segs[0].group_id, date: segs[0].date, weekday: isoWeekday(segs[0].date), label: segs[0].label, note: segs[0].note,
-        team_name: segs[0].team_name || '', text: describeGroup(segs), start: rangeOf(clock, segs[0]).start, leave: leave.get(segs[0].group_id) || null,
+        team_name: segs[0].team_name || '', text: describeGroup(segs), zone_name: segs[0].zone_name || '', tables_text: segs[0].tables_text || '', start: rangeOf(clock, segs[0]).start, leave: leave.get(segs[0].group_id) || null,
       }));
   });
 
@@ -34,7 +34,7 @@ export default function (r, ctx) {
     const today = ctx.today();
     const grace = Number(ctx.setting('late_grace_minutes') || 5) * 60_000;
 
-    const rows = db.prepare(`SELECT a.*, s.name AS staff_name, s.phone FROM assignments a JOIN staff s ON s.id = a.staff_id
+    const rows = db.prepare(`SELECT a.*, s.name AS staff_name, s.phone, z.name AS zone_name FROM assignments a JOIN staff s ON s.id = a.staff_id LEFT JOIN zones z ON z.id = a.zone_id
       WHERE a.date = ? ORDER BY a.start_min`).all(today);
     const leaves = new Map(db.prepare("SELECT group_id, status, id FROM leave_requests WHERE date = ? AND status IN ('pending','approved')").all(today).map((l) => [l.group_id, l]));
     const att = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND (date = ? OR clock_out IS NULL) ORDER BY clock_in');
@@ -59,6 +59,7 @@ export default function (r, ctx) {
       return {
         group_id: first.group_id, staff_id: first.staff_id, staff_name: first.staff_name, phone: first.phone, team_id: first.team_id,
         text: describeGroup(segs), label: first.label, start, status, leave_pending: leave?.status === 'pending',
+        zone_name: first.zone_name || '', tables_text: first.tables_text || '',
         late_minutes: mine[0]?.late_minutes || 0, clock_in: mine[0]?.clock_in || null,
       };
     });
