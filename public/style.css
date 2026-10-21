@@ -432,3 +432,15 @@ a.tile { text-decoration: none; color: inherit; }
 
 .ut-row input.grow { min-width: 0; }
 .kit-grid .num-in { width: 64px; text-align: right; }
+
+/* Thực đơn */
+.menu-list { padding: 0; }
+.menu-row { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.menu-row:first-child { border-top: 0; }
+.menu-row .menu-main { text-align: left; background: none; border: 0; padding: 0; min-height: 0; color: inherit; }
+.menu-row.off { opacity: .5; }
+.menu-row.soldout b { text-decoration: line-through; }
+.st-row .ip-in { width: 170px; }
+.chip.off { opacity: .5; }
+.menu-row .menu-main { min-width: 0; overflow-wrap: anywhere; }
+.menu-cat { padding: 8px 12px; font-weight: 700; background: var(--panel-2); border-top: 1px solid var(--line); }

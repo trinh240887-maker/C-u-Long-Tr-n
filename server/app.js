@@ -19,6 +19,7 @@ import zoneRoutes from './routes/zones.js';
 import positionRoutes from './routes/positions.js';
 import availabilityRoutes from './routes/availability.js';
 import utensilRoutes from './routes/utensils.js';
+import menuRoutes from './routes/menu.js';
 
 const SESSION_DAYS = 30;
 const MIME = {
@@ -63,7 +64,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   ctx.notify = (...args) => ctx.notifier.notify(...args);
 
   const router = createRouter();
-  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes]) {
+  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes]) {
     register(router, ctx);
   }
 

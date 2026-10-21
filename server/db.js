@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
+import { MENU_SCHEMA, seedMenu } from './menu-seed.js';
 
 export const ROLES = ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'];
 export const ROLE_LABEL = { owner: 'Chủ', manager: 'Quản lý', shift_lead: 'Trưởng ca', team_lead: 'Tổ trưởng', staff: 'Nhân viên' };
@@ -409,6 +410,7 @@ export function openDb(file, { now = Date.now() } = {}) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  db.exec(MENU_SCHEMA);
   seedBase(db, now);
   migrate(db);
   return db;
@@ -461,6 +463,7 @@ function migrate(db) {
     const lau = Number(addK.run('Lẩu', 1).lastInsertRowid);
     [['Đũa', 1], ['Muỗng', 1], ['Chén', 1], ['Ly', 1], ['Khăn ăn', 1], ['Vá lẩu', 0.25]].forEach(([n, q]) => addI.run(lau, u[n], q));
   }
+  seedMenu(db);
   // Kho mặc định: kho tổng + kho cho các tổ chế biến
   if (!db.prepare('SELECT 1 FROM stores LIMIT 1').get()) {
     const add = db.prepare('INSERT INTO stores (name, kind, team_id, sort) VALUES (?, ?, ?, ?)');

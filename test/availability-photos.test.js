@@ -184,3 +184,43 @@ test('dụng cụ: khai báo bộ cho Steak/Lẩu, dự trù theo khách cao đi
   assert.equal(row('Vá lẩu').at_table, 30); // 1 vá / 4 khách
   assert.equal(row('Ly').required, Math.ceil(200 * 1.65));
 });
+
+test('thực đơn: có sẵn menu quán, sửa giá/công thức, tổ trưởng chỉ bật Hết món, điểm in theo IP', async (t) => {
+  const { mk } = await setup(t, at('2026-10-20', '08:00'));
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const m = (await o('GET', '/api/menu')).data;
+  assert.equal(m.items.length, 54);
+  const st = Object.fromEntries(m.stations.map((s) => [s.name, s]));
+  assert.equal(st['Steak'].printer_ip, '192.168.1.234');
+  assert.equal(st['Ưu tiên'].fallback_station_id, st['Steak'].id);
+  const combo3 = m.items.find((i) => i.name === 'Combo 3');
+  assert.equal(combo3.price, 89000);
+  assert.equal(combo3.station_id, st['Steak'].id);
+  assert.deepEqual(combo3.options.map((x) => [x.group_name, x.name, x.required]), [['Sốt', 'Tứ xuyên', true], ['Sốt', 'Kem phô mai', true], ['Sốt', 'Tiêu đen', true]]);
+  const set1 = m.items.find((i) => i.name.startsWith('Set 1'));
+  assert.deepEqual(set1.parts.map((p) => m.stations.find((s) => s.id === p.station_id).name), ['Nước lẩu', 'Thái tay', 'Rau', 'Rau']);
+
+  // Công thức trừ kho
+  const ing = (await o('POST', '/api/stock/ingredients', { name: 'Thịt bò steak', unit: 'g' })).data.id;
+  assert.equal((await o('PATCH', `/api/menu/items/${combo3.id}`, { price: '95.000', recipe: [{ ingredient_id: ing, qty: 100 }] })).status, 200);
+  const after = (await o('GET', '/api/menu')).data.items.find((i) => i.id === combo3.id);
+  assert.equal(after.price, 95000);
+  assert.deepEqual(after.recipe.map((x) => [x.ingredient_name, x.qty]), [['Thịt bò steak', 100]]);
+  assert.equal((await o('PATCH', `/api/menu/items/${combo3.id}`, { price: '-5' })).status, 400);
+
+  // Tổ trưởng: bật Hết món được, sửa giá thì không
+  const bep = (await o('GET', '/api/teams')).data.find((x) => x.name === 'Bếp steak').id;
+  await o('POST', '/api/staff', { name: 'Tài', role: 'team_lead', team_id: bep, pin: '6152' });
+  const T = mk();
+  await T('POST', '/api/login', { pin: '6152' });
+  assert.equal((await T('PATCH', `/api/menu/items/${combo3.id}`, { sold_out: true })).status, 200);
+  assert.equal((await T('PATCH', `/api/menu/items/${combo3.id}`, { price: 1000 })).status, 403);
+  assert.equal((await o('GET', '/api/menu')).data.items.find((i) => i.id === combo3.id).sold_out, true);
+  assert.equal((await T('POST', '/api/menu/reset-sold-out')).status, 403);
+  assert.equal((await o('POST', '/api/menu/reset-sold-out')).data.n, 1);
+
+  // Điểm in: nhập IP máy Ưu tiên
+  assert.equal((await o('PATCH', `/api/kitchen-stations/${st['Ưu tiên'].id}`, { printer_ip: '192.168.1.9x' })).status, 400);
+  assert.equal((await o('PATCH', `/api/kitchen-stations/${st['Ưu tiên'].id}`, { printer_ip: '192.168.1.236' })).status, 200);
+});
