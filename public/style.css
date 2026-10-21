@@ -389,3 +389,7 @@ table.hours tr.zr td.who { color: var(--muted); }
 .pos-list { padding-left: 14px; display: grid; gap: 6px; margin-top: 6px; }
 .pos-row input.grow { min-width: 0; }
 table.hours tr.pr td.who { color: var(--muted); padding-left: 14px; }
+
+.dept-chips { gap: 6px; }
+.dept-chips .chip small { opacity: .7; margin-left: 4px; }
+.dept-chips .chip.warn:not(.on) { border-color: var(--warn, #d97706); }

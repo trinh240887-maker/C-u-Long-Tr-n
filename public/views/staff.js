@@ -66,32 +66,57 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
 export function StaffView({ me }) {
   const [all, setAll] = useState(false);
   const [q, setQ] = useState('');
+  const [dept, setDept] = useState(() => { try { return localStorage.getItem('staff-dept') || 'all'; } catch { return 'all'; } });
   const st = useData(`/api/staff${all ? '?all=1' : ''}`);
+  const posD = useData('/api/positions');
   const [edit, setEdit] = useState(null);
   if (!st.data) return html`<${Loading} state=${st} />`;
   const teams = me.teams;
-  const posD = useData('/api/positions');
-  const posName = (id) => posD.data?.find((p) => p.id === id)?.name || '';
-  const list = st.data.filter((s) => !q || s.name.toLowerCase().includes(q.toLowerCase()) || s.phone.includes(q));
+  const positions = posD.data || [];
+  const posName = (id) => positions.find((p) => p.id === id)?.name || '';
+  const posSort = (id) => { const i = positions.findIndex((p) => p.id === id); return i < 0 ? 999 : i; };
   const teamName = (id) => teams.find((t) => t.id === id)?.name || '';
+  const MGMT = ['owner', 'manager', 'shift_lead'];
+  const ROLE_ORDER = ['owner', 'manager', 'shift_lead', 'team_lead', 'staff'];
+  const found = st.data.filter((s) => !q || s.name.toLowerCase().includes(q.toLowerCase()) || s.phone.includes(q));
+  // Nhóm theo bộ phận; Chủ/Quản lý/Trưởng ca chưa có bộ phận vào nhóm "Ban quản lý"
+  const groups = [
+    { key: 'mgmt', name: 'Ban quản lý', people: found.filter((s) => !s.team_id && MGMT.includes(s.role)) },
+    ...teams.map((t) => ({ key: `t${t.id}`, name: t.name, people: found.filter((s) => s.team_id === t.id) })),
+    { key: 'none', name: 'Chưa có bộ phận', people: found.filter((s) => (!s.team_id || !teams.some((t) => t.id === s.team_id)) && !MGMT.includes(s.role)) },
+  ].map((g) => ({ ...g, people: [...g.people].sort((x, y) => ROLE_ORDER.indexOf(x.role) - ROLE_ORDER.indexOf(y.role) || posSort(x.position_id) - posSort(y.position_id) || x.name.localeCompare(y.name, 'vi')) }));
+  const pick = (k) => { setDept(k); try { localStorage.setItem('staff-dept', k); } catch {} };
+  const shown = groups.filter((g) => g.people.length && (dept === 'all' || dept === g.key));
+  const row = (s) => html`<tr class=${s.active ? 'click' : 'click off'} onClick=${() => (atLeast(me, 'manager') ? setEdit(s) : null)}>
+    <td><b>${s.name}</b><br /><small class="muted">${s.phone}</small></td>
+    <td>${s.role_label}</td>
+    <td>${s.position_name || (s.team_id ? html`<span class="muted">—</span>` : MGMT.includes(s.role) ? html`<span class="muted">Cả quán</span>` : html`<span class="warn-text">Chưa có bộ phận</span>`)}</td>
+    <td><small>${[...s.pskills.map((k) => `${posName(k.position_id)}${'★'.repeat(k.level)}`), ...s.skills.map((k) => `${teamName(k.team_id)}${'★'.repeat(k.level)}`)].join(', ') || '—'}</small></td>
+    <td class="r num">${s.pay_rate ? `${money(s.pay_rate)}/${({ hour: 'giờ', shift: 'ca', month: 'tháng' })[s.pay_type]}` : '—'}</td>
+    <td>${s.zalo_linked ? html`<span class="pill ok">Đã liên kết</span>` : html`<span class="pill muted">Chưa</span>`}</td>
+  </tr>`;
   return html`<div class="stack">
     <div class="row between wrap">
       <div class="row"><input id="staff-q" type="search" placeholder="Tìm tên, số điện thoại" value=${q} onInput=${(e) => setQ(e.target.value)} />
         <label class="check-row"><input id="staff-all" type="checkbox" checked=${all} onChange=${(e) => setAll(e.target.checked)} /> Hiện cả người đã nghỉ việc</label></div>
-      <button class="primary" onClick=${() => setEdit({})}>+ Thêm nhân viên</button>
+      <button class="primary" onClick=${() => setEdit(dept.startsWith('t') ? { team_id: Number(dept.slice(1)) } : {})}>+ Thêm nhân viên</button>
     </div>
-    <div class="table-wrap"><table class="list">
-      <thead><tr><th>Tên</th><th>Vai trò</th><th>Bộ phận</th><th>Làm được thêm</th><th class="r">Lương</th><th>Zalo</th></tr></thead>
-      <tbody>${list.map((s) => html`<tr class=${s.active ? 'click' : 'click off'} onClick=${() => (atLeast(me, 'manager') ? setEdit(s) : null)}>
-        <td><b>${s.name}</b><br /><small class="muted">${s.phone}</small></td>
-        <td>${s.role_label}</td>
-        <td>${s.team_name || html`<span class="warn-text">Chưa có</span>`}${s.position_name ? html`<br /><small class="muted">${s.position_name}</small>` : null}</td>
-        <td><small>${[...s.pskills.map((k) => `${posName(k.position_id)}${'★'.repeat(k.level)}`), ...s.skills.map((k) => `${teamName(k.team_id)}${'★'.repeat(k.level)}`)].join(', ') || '—'}</small></td>
-        <td class="r num">${s.pay_rate ? `${money(s.pay_rate)}/${({ hour: 'giờ', shift: 'ca', month: 'tháng' })[s.pay_type]}` : '—'}</td>
-        <td>${s.zalo_linked ? html`<span class="pill ok">Đã liên kết</span>` : html`<span class="pill muted">Chưa</span>`}</td>
-      </tr>`)}</tbody>
-    </table></div>
-    ${!list.length ? html`<div class="empty">Không có ai khớp.</div>` : null}
-    ${edit ? html`<${StaffForm} me=${me} init=${edit} teams=${teams} positions=${posD.data || []} onClose=${() => setEdit(null)} />` : null}
+    <div class="chips dept-chips">
+      <button class=${`chip ${dept === 'all' ? 'on' : ''}`} onClick=${() => pick('all')}>Tất cả <small>${found.length}</small></button>
+      ${groups.filter((g) => g.people.length || g.key.startsWith('t')).map((g) => html`<button class=${`chip ${dept === g.key ? 'on' : ''} ${g.key === 'none' ? 'warn' : ''}`} onClick=${() => pick(g.key)}>${g.name} <small>${g.people.length}</small></button>`)}
+    </div>
+    ${shown.map((g) => html`<section class="card stack" key=${g.key}>
+      <div class="row between"><h3>${g.name}</h3><span class="pill">${g.people.length} người</span></div>
+      ${g.key.startsWith('t') && positions.some((p) => `t${p.team_id}` === g.key) ? html`<div class="chips pos-sum">${positions.filter((p) => `t${p.team_id}` === g.key).map((p) => {
+        const n = g.people.filter((s) => s.position_id === p.id).length;
+        return html`<span class=${`pill ${n ? 'ok' : 'muted'}`}>${p.name} ${n}</span>`;
+      })}</div>` : null}
+      <div class="table-wrap"><table class="list">
+        <thead><tr><th>Tên</th><th>Vai trò</th><th>${g.key.startsWith('t') ? 'Vị trí chính' : 'Phụ trách'}</th><th>Làm được thêm</th><th class="r">Lương</th><th>Zalo</th></tr></thead>
+        <tbody>${g.people.map(row)}</tbody>
+      </table></div>
+    </section>`)}
+    ${!shown.length ? html`<div class="empty">${dept === 'all' || !found.length ? 'Không có ai khớp.' : 'Bộ phận này chưa có ai. Bấm "+ Thêm nhân viên" hoặc sửa hồ sơ để chọn bộ phận.'}</div>` : null}
+    ${edit ? html`<${StaffForm} me=${me} init=${edit} teams=${teams} positions=${positions} onClose=${() => setEdit(null)} />` : null}
   </div>`;
 }
