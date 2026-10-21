@@ -25,7 +25,7 @@ export default function (r, ctx) {
     }
     segs.sort((a, b) => a.start_min - b.start_min);
     for (let i = 1; i < segs.length; i++) {
-      if (segs[i].start_min < segs[i - 1].end_min) fail(400, 'Các khúc trong ca bị chồng giờ nhau');
+      if (segs[i].start_min < segs[i - 1].end_min) fail(400, 'Các khúc trong ca bị chồng giờ nhau. Một ca là giờ làm của 1 người; part-time giờ khác nhau hãy tạo mỗi giờ thành 1 loại ca riêng');
     }
     return segs;
   }

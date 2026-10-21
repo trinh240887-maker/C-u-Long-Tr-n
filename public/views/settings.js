@@ -70,7 +70,7 @@ function TemplateForm({ init, onClose }) {
         ${f.segments.length < 4 ? html`<button class="link" onClick=${() => setF({ ...f, segments: [...f.segments, { start: '', end: '' }] })}>+ Thêm khúc (ca gãy)</button>` : null}
       </div>
       ${init.id ? html`<label class="check-row"><input type="checkbox" checked=${f.active} onChange=${(e) => setF({ ...f, active: e.target.checked })} /> Đang dùng</label>` : null}
-      <p class="muted small">Sửa loại ca không làm đổi các ca đã xếp trước đó.</p>
+      <p class="muted small">Một loại ca = giờ làm của <b>1 người</b>. Chỉ thêm khúc khi cùng 1 người làm 2 buổi trong ngày (ca gãy). Part-time làm giờ khác nhau thì tạo mỗi giờ thành 1 loại ca riêng. Sửa loại ca không làm đổi các ca đã xếp trước đó.</p>
       <div class="row between">
         ${init.id ? html`<button class="danger" onClick=${async () => { if (await act(() => api('DELETE', `/api/shift-templates/${init.id}`), 'Đã xoá')) onClose(); }}>Xoá</button>` : html`<span></span>`}
         <div class="row"><button onClick=${onClose}>Thôi</button><button class="primary" onClick=${save}>Lưu</button></div></div>
