@@ -197,6 +197,28 @@ CREATE TABLE IF NOT EXISTS checklist_photos (
   deleted_at INTEGER
 );
 
+-- Dụng cụ ăn uống (dao, nĩa, đũa…) và bộ dụng cụ cho mỗi kiểu phục vụ (Steak, Lẩu…)
+CREATE TABLE IF NOT EXISTS utensils (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL DEFAULT 'cái',
+  on_hand INTEGER NOT NULL DEFAULT 0,
+  sort INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS service_kits (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  sort INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS kit_items (
+  kit_id INTEGER NOT NULL REFERENCES service_kits(id) ON DELETE CASCADE,
+  utensil_id INTEGER NOT NULL REFERENCES utensils(id) ON DELETE CASCADE,
+  per_guest REAL NOT NULL DEFAULT 1,
+  PRIMARY KEY (kit_id, utensil_id)
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY,
   title TEXT NOT NULL,
@@ -427,6 +449,18 @@ function migrate(db) {
       for (let n = a; n <= b; n++) addTable.run(n, id);
     });
   }
+  // Dụng cụ mẫu: chủ quán sửa lại trong Cài đặt → Dụng cụ
+  if (!db.prepare('SELECT 1 FROM utensils LIMIT 1').get()) {
+    const addU = db.prepare('INSERT INTO utensils (name, sort) VALUES (?, ?)');
+    const u = {};
+    ['Dao steak', 'Nĩa', 'Khăn ăn', 'Ly', 'Đũa', 'Muỗng', 'Chén', 'Vá lẩu'].forEach((n, i) => { u[n] = Number(addU.run(n, i).lastInsertRowid); });
+    const addK = db.prepare('INSERT INTO service_kits (name, sort) VALUES (?, ?)');
+    const addI = db.prepare('INSERT INTO kit_items (kit_id, utensil_id, per_guest) VALUES (?, ?, ?)');
+    const steak = Number(addK.run('Steak', 0).lastInsertRowid);
+    [['Dao steak', 1], ['Nĩa', 1], ['Khăn ăn', 1], ['Ly', 1]].forEach(([n, q]) => addI.run(steak, u[n], q));
+    const lau = Number(addK.run('Lẩu', 1).lastInsertRowid);
+    [['Đũa', 1], ['Muỗng', 1], ['Chén', 1], ['Ly', 1], ['Khăn ăn', 1], ['Vá lẩu', 0.25]].forEach(([n, q]) => addI.run(lau, u[n], q));
+  }
   // Kho mặc định: kho tổng + kho cho các tổ chế biến
   if (!db.prepare('SELECT 1 FROM stores LIMIT 1').get()) {
     const add = db.prepare('INSERT INTO stores (name, kind, team_id, sort) VALUES (?, ?, ?, ?)');
@@ -472,6 +506,9 @@ const DEFAULT_SETTINGS = {
   kho_tong_staff_id: '',
   area_count_is_usage: '1',      // chưa có bán hàng: chênh lệch kiểm kho khu = lượng đã dùng
   expiry_warn_days: '1',
+  wash_cycle_minutes: '30',     // rửa xong 1 mẻ dụng cụ
+  dining_minutes: '70',         // khách ngồi trung bình 1 lượt bàn
+  utensil_reserve_pct: '10',    // dự phòng thêm
   avail_deadline_dow: '4',      // hạn báo lịch rảnh tuần sau: Thứ Năm
   avail_deadline_time: '21:00',
 };

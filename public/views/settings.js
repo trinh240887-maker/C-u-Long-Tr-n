@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast } from '../ui.js';
 
-const TABS = [['chung', 'Chung'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
+const TABS = [['chung', 'Chung'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
 
 const DEF_SLOTS = [{ key: 'sang', label: 'Sáng', start: '06:00', end: '12:00' }, { key: 'chieu', label: 'Chiều', start: '12:00', end: '17:00' }, { key: 'toi', label: 'Tối', start: '17:00', end: '24:00' }];
 
@@ -97,6 +97,74 @@ function Teams() {
         if (await act(() => api('POST', '/api/teams/combine', { name: combine.name, team_ids: combine.ids }), 'Đã gộp')) setCombine({ name: combine.name, ids: [] });
       }}>Gộp</button></div>
   </section>
+  </div>`;
+}
+
+function Utensils({ s }) {
+  const st = useData('/api/utensils');
+  const [nu, setNu] = useState('');
+  const [nk, setNk] = useState('');
+  const [guests, setGuests] = useState({});
+  const [plan, setPlan] = useState(null);
+  const [prm, setPrm] = useState({ wash_cycle_minutes: s.wash_cycle_minutes || '30', dining_minutes: s.dining_minutes || '70', utensil_reserve_pct: s.utensil_reserve_pct || '10' });
+  if (!st.data) return html`<${Loading} state=${st} />`;
+  const { utensils, kits } = st.data;
+  const active = utensils.filter((u) => u.active);
+  const perGuest = (k, uid) => k.items.find((i) => i.utensil_id === uid)?.per_guest ?? '';
+  const setKitItem = (k, uid, val) => {
+    const items = [...k.items.filter((i) => i.utensil_id !== uid), ...(Number(String(val).replace(',', '.')) > 0 ? [{ utensil_id: uid, per_guest: String(val).replace(',', '.') }] : [])];
+    act(() => api('PATCH', `/api/service-kits/${k.id}`, { items }), 'Đã lưu');
+  };
+  const calc = async () => setPlan(await act(() => api('POST', '/api/utensils/plan', { guests })));
+  return html`<div class="stack">
+    <section class="card stack">
+      <h3>1. Dụng cụ của quán</h3>
+      <p class="muted small">Nhập <b>số đang có</b> (đếm thật). Đổi tên, thêm, hoặc bỏ chọn "Dùng" để ẩn.</p>
+      ${utensils.map((u) => html`<div class="row ut-row" key=${u.id}>
+        <input class="grow" value=${u.name} aria-label="Tên dụng cụ" onChange=${(e) => act(() => api('PATCH', `/api/utensils/${u.id}`, { name: e.target.value }), 'Đã lưu')} />
+        <label class="row small">Đang có <input class="num-in" type="number" min="0" value=${u.on_hand} onChange=${(e) => act(() => api('PATCH', `/api/utensils/${u.id}`, { on_hand: e.target.value }), 'Đã lưu')} /></label>
+        <label class="check-row small"><input type="checkbox" checked=${u.active} onChange=${(e) => act(() => api('PATCH', `/api/utensils/${u.id}`, { active: e.target.checked }), 'Đã lưu')} /> Dùng</label>
+      </div>`)}
+      <div class="row"><input id="ut-new" class="grow" placeholder="Dụng cụ mới, vd Kẹp gắp" value=${nu} onInput=${(e) => setNu(e.target.value)} />
+        <button class="primary" disabled=${!nu.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/utensils', { name: nu }), 'Đã thêm')) setNu(''); }}>Thêm</button></div>
+    </section>
+
+    <section class="card stack">
+      <h3>2. Mỗi khách dùng gì</h3>
+      <p class="muted small">Ghi <b>số cái cho 1 khách</b>. Dùng chung thì ghi số lẻ, vd 1 vá lẩu cho 4 khách = <b>0.25</b>. Để trống = không dùng.</p>
+      <div class="table-wrap"><table class="list kit-grid">
+        <thead><tr><th>Dụng cụ</th>${kits.filter((k) => k.active).map((k) => html`<th class="r">${k.name}</th>`)}</tr></thead>
+        <tbody>${active.map((u) => html`<tr><td>${u.name}</td>${kits.filter((k) => k.active).map((k) => html`<td class="r">
+          <input class="num-in" inputmode="decimal" value=${perGuest(k, u.id)} placeholder="–" aria-label=${`${u.name} cho ${k.name}`} onChange=${(e) => setKitItem(k, u.id, e.target.value)} /></td>`)}</tr>`)}</tbody>
+      </table></div>
+      <div class="row"><input id="kit-new" class="grow" placeholder="Kiểu phục vụ mới, vd Combo nướng" value=${nk} onInput=${(e) => setNk(e.target.value)} />
+        <button disabled=${!nk.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/service-kits', { name: nk, items: [] }), 'Đã thêm')) setNk(''); }}>Thêm kiểu</button></div>
+      ${kits.some((k) => !k.active) || kits.length > 1 ? html`<details><summary class="muted small">Bật / tắt kiểu phục vụ</summary>
+        ${kits.map((k) => html`<label class="check-row small"><input type="checkbox" checked=${k.active} onChange=${(e) => act(() => api('PATCH', `/api/service-kits/${k.id}`, { active: e.target.checked }), 'Đã lưu')} /> ${k.name}</label>`)}</details>` : null}
+    </section>
+
+    <section class="card stack">
+      <h3>3. Thông số quay vòng</h3>
+      <div class="row wrap">
+        <${Field} label="Khách ngồi trung bình (phút)"><input type="number" min="10" value=${prm.dining_minutes} onInput=${(e) => setPrm({ ...prm, dining_minutes: e.target.value })} /><//>
+        <${Field} label="Rửa xong 1 mẻ (phút)"><input type="number" min="1" value=${prm.wash_cycle_minutes} onInput=${(e) => setPrm({ ...prm, wash_cycle_minutes: e.target.value })} /><//>
+        <${Field} label="Dự phòng (%)"><input type="number" min="0" value=${prm.utensil_reserve_pct} onInput=${(e) => setPrm({ ...prm, utensil_reserve_pct: e.target.value })} /><//>
+      </div>
+      <div class="row end"><button onClick=${() => act(() => api('PUT', '/api/settings', prm), 'Đã lưu thông số')}>Lưu thông số</button></div>
+      <p class="muted small">Khi có phần Bán hàng, app tự đo thời gian ngồi thật và số khách theo giờ.</p>
+    </section>
+
+    <section class="card stack">
+      <h3>4. Dự trù nhanh</h3>
+      <p class="muted small">Nhập số khách <b>ngồi cùng lúc lúc đông nhất</b> của mỗi kiểu. App tính số cái cần có, gồm cả bộ đang chờ rửa và dự phòng.</p>
+      <div class="row wrap">${kits.filter((k) => k.active).map((k) => html`<${Field} label=${`Khách ${k.name}`}><input type="number" min="0" inputmode="numeric" value=${guests[k.id] || ''} onInput=${(e) => setGuests({ ...guests, [k.id]: e.target.value })} /><//>`)}</div>
+      <div class="row end"><button class="primary" onClick=${calc}>Tính</button></div>
+      ${plan ? html`<div class="table-wrap"><table class="list">
+        <thead><tr><th>Dụng cụ</th><th class="r">Trên bàn</th><th class="r">Cần có</th><th class="r">Đang có</th><th class="r">Thiếu</th></tr></thead>
+        <tbody>${plan.rows.map((x) => html`<tr><td>${x.name}</td><td class="r num">${x.at_table}</td><td class="r num"><b>${x.required}</b></td><td class="r num">${x.on_hand}</td>
+          <td class=${`r num ${x.short ? 'warn-text' : ''}`}>${x.short ? `−${x.short}` : '✓'}</td></tr>`)}</tbody></table></div>
+        <p class="muted small">Cần có = trên bàn × ${plan.factor} (rửa ${plan.params.wash_cycle_minutes}′ / ngồi ${plan.params.dining_minutes}′, dự phòng ${plan.params.reserve_pct}%).</p>` : null}
+    </section>
   </div>`;
 }
 
@@ -292,6 +360,7 @@ export function SettingsView({ me, query }) {
       : tab === 'chung' ? html`<${General} s=${st.data} staff=${(staff.data || []).filter((p) => p.active)} />`
       : tab === 'to' ? html`<${Teams} />`
       : tab === 'khu' ? html`<${Zones} />`
+      : tab === 'dung-cu' ? html`<${Utensils} s=${st.data} />`
       : tab === 'ca' ? html`<${Templates} />`
       : tab === 'checklist' ? html`<${Checklists} me=${me} teams=${me.teams} />`
       : tab === 'zalo' ? html`<${Zalo} s=${st.data} />`

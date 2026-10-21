@@ -429,3 +429,6 @@ li.ck.redo { background: color-mix(in srgb, #dc2626 5%, transparent); }
 .card.rv-ok { border-left: 4px solid #16a34a; }
 .card.rv-pending { border-left: 4px solid #d97706; }
 a.tile { text-decoration: none; color: inherit; }
+
+.ut-row input.grow { min-width: 0; }
+.kit-grid .num-in { width: 64px; text-align: right; }

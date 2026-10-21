@@ -163,3 +163,24 @@ test('checklist ảnh: bắt chụp ảnh, quản lý chấm Làm lại → báo
   assert.equal(db.prepare('SELECT review_status FROM checklist_entries WHERE run_id = ? AND item_id = ?').get(run.run_id, bay.id).review_status, 'ok');
   void kim;
 });
+
+test('dụng cụ: khai báo bộ cho Steak/Lẩu, dự trù theo khách cao điểm', async (t) => {
+  const { mk } = await setup(t, at('2026-10-20', '08:00'));
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const d = (await o('GET', '/api/utensils')).data;
+  assert.deepEqual(d.kits.map((k) => k.name), ['Steak', 'Lẩu']);
+  const id = (n) => d.utensils.find((u) => u.name === n).id;
+  const [steak, lau] = d.kits;
+  // Quán sửa: steak thêm muỗng; nhập số đang có
+  assert.equal((await o('PATCH', `/api/service-kits/${steak.id}`, { items: [...steak.items, { utensil_id: id('Muỗng'), per_guest: 1 }] })).status, 200);
+  assert.equal((await o('PATCH', `/api/utensils/${id('Nĩa')}`, { on_hand: 100 })).status, 200);
+  await o('PUT', '/api/settings', { wash_cycle_minutes: 35, dining_minutes: 70, utensil_reserve_pct: 10 });
+  const plan = (await o('POST', '/api/utensils/plan', { guests: { [steak.id]: 80, [lau.id]: 120 } })).data;
+  assert.equal(plan.factor, 1.65); // (1 + 35/70) × 1.1
+  const row = (n) => plan.rows.find((x) => x.name === n);
+  assert.deepEqual({ ...row('Nĩa') }, { utensil_id: id('Nĩa'), name: 'Nĩa', unit: 'cái', at_table: 80, required: 132, on_hand: 100, short: 32 });
+  assert.equal(row('Muỗng').at_table, 200); // 80 steak + 120 lẩu
+  assert.equal(row('Vá lẩu').at_table, 30); // 1 vá / 4 khách
+  assert.equal(row('Ly').required, Math.ceil(200 * 1.65));
+});
