@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { html, api, act, useData, Loading, hm, dayLabel, addDays, PHASE_LABEL, atLeast } from '../ui.js';
+import { Checklists } from './settings.js';
 
 function Item({ run, item, disabled }) {
   const [val, setVal] = useState(item.entry?.value ?? '');
@@ -28,8 +29,11 @@ export function ChecklistView({ me }) {
   const [date, setDate] = useState(me.today);
   const st = useData(`/api/checklists?date=${date}`);
   const [phase, setPhase] = useState('');
+  const [manage, setManage] = useState(false);
   const old = date < me.today && !atLeast(me, 'shift_lead');
   if (!st.data) return html`<${Loading} state=${st} />`;
+  if (manage) return html`<div class="stack"><div class="row between"><h2>Tạo & sửa checklist</h2><button onClick=${() => setManage(false)}>← Về checklist hôm nay</button></div>
+    <${Checklists} me=${me} teams=${me.teams} /></div>`;
   const runs = st.data.runs.filter((r) => !phase || r.phase === phase);
   return html`<div class="stack">
     <div class="row between wrap">
@@ -38,6 +42,7 @@ export function ChecklistView({ me }) {
         <b>${dayLabel(date, { long: true })}</b>
         <button class="icon" aria-label="Hôm sau" disabled=${date >= me.today} onClick=${() => setDate(addDays(date, 1))}>›</button>
       </div>
+      ${atLeast(me, 'team_lead') ? html`<button class="primary" onClick=${() => setManage(true)}>Tạo / sửa checklist</button>` : null}
       <div class="tabs">${[['', 'Tất cả'], ['open', 'Mở ca'], ['during', 'Trong ca'], ['close', 'Đóng ca']].map(([k, l]) => html`<button class=${phase === k ? 'on' : ''} onClick=${() => setPhase(k)}>${l}</button>`)}</div>
     </div>
     ${runs.length ? runs.map((r) => html`<section class="card" id=${`run-${r.run_id}`}>

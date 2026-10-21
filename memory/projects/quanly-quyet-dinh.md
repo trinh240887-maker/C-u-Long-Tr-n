@@ -36,3 +36,5 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 30 | 21/10 | MISA meInvoice **có API công khai (REST, JSON) + môi trường Sandbox**, chủ quán xác nhận qua tìm kiếm | GĐ5: cần đọc docs (developer.misa.vn bị chặn mạng trong môi trường Claude) + xin tài khoản test |
 | 31 | 21/10 | Quản lý trả **lương theo tháng**: lương tháng × ngày công / ngày công chuẩn (mặc định 26, cài đặt được; 0 = trả cố định) | Chủ quán yêu cầu khi nhập nhân viên thật |
 | 32 | 21/10 | **Quản lý được thêm/sửa nhân sự** (tới Trưởng ca) và xem lương; chỉ Chủ tạo Quản lý. Giữ như hiện tại, không cần Chủ duyệt | |
+| 33 | 21/10 | **Tổ trưởng tạo/sửa checklist của tổ mình**; trưởng ca trở lên sửa mọi tổ và checklist "Cả quán". Nút "Tạo / sửa checklist" ngay trong trang Checklist | |
+| 34 | 21/10 | Lịch ca có bảng **số người theo giờ**; một loại ca = giờ của 1 người, part-time giờ khác nhau tạo loại ca riêng | Có thể làm tiếp: số tối thiểu theo khung giờ |

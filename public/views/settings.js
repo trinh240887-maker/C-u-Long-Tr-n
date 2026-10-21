@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast } from '../ui.js';
+import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast } from '../ui.js';
 
 const TABS = [['chung', 'Chung'], ['to', 'Tổ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
 
@@ -92,7 +92,7 @@ function Templates() {
   </section>`;
 }
 
-function ChecklistForm({ init, teams, shifts, onClose }) {
+function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
   const [f, setF] = useState({ title: init.title || '', team_id: init.team_id ?? '', phase: init.phase || 'open', active: init.active ?? true,
     shift_template_id: init.shift_template_id ?? '',
     items: init.items?.map((i) => ({ ...i })) || [{ text: '', kind: 'check', unit: '', required: true }] });
@@ -108,7 +108,7 @@ function ChecklistForm({ init, teams, shifts, onClose }) {
       <div class="form-grid">
         <${Field} label="Tên checklist"><input id="cl-title" value=${f.title} onInput=${(e) => setF({ ...f, title: e.target.value })} /><//>
         <${Field} label="Tổ"><select id="cl-team" value=${f.team_id} onChange=${(e) => setF({ ...f, team_id: e.target.value })}>
-          <option value="">Cả quán</option>${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
+          ${allowAll ? html`<option value="">Cả quán</option>` : null}${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
         <${Field} label="Thời điểm"><select id="cl-phase" value=${f.phase} onChange=${(e) => setF({ ...f, phase: e.target.value })}>
           ${Object.entries(PHASE_LABEL).map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select><//>
         <${Field} label="Áp dụng cho ca" hint="Người làm ca nào chỉ thấy checklist của ca đó">
@@ -135,18 +135,22 @@ function ChecklistForm({ init, teams, shifts, onClose }) {
   <//>`;
 }
 
-function Checklists({ teams }) {
+export function Checklists({ me, teams }) {
   const st = useData('/api/checklist-templates?all=1');
   const shifts = useData('/api/shift-templates');
   const [edit, setEdit] = useState(null);
   if (!st.data) return html`<${Loading} state=${st} />`;
+  const own = me && !atLeast(me, 'shift_lead');
+  const list = own ? st.data.filter((c) => c.team_id === me.team?.id) : st.data;
+  const myTeams = own ? teams.filter((t) => t.id === me.team?.id) : teams;
   return html`<section class="card stack">
+    ${own ? html`<p class="small"><b>Bạn là tổ trưởng ${me.team?.name || ''}:</b> tạo và sửa checklist của tổ mình.</p>` : null}
     <p class="muted small">Checklist có chữ "(mẫu)" là ví dụ, hãy sửa lại theo cách làm của quán. Mỗi ngày mỗi checklist có một lượt mới.
       Muốn ca sáng và ca chiều có việc riêng: tạo 2 checklist, chọn "Áp dụng cho ca" tương ứng (loại ca tạo ở tab Loại ca).</p>
-    ${st.data.map((c) => html`<button class=${`tpl-row ${c.active ? '' : 'off'}`} onClick=${() => setEdit(c)}>
+    ${list.map((c) => html`<button class=${`tpl-row ${c.active ? '' : 'off'}`} onClick=${() => setEdit(c)}>
       <b class="grow">${c.title}</b><span class="muted">${c.team_name || 'Cả quán'} · ${c.shift_name || 'Mọi ca'} · ${PHASE_LABEL[c.phase]} · ${c.items.length} việc</span></button>`)}
     <div><button class="primary" onClick=${() => setEdit({})}>+ Thêm checklist</button></div>
-    ${edit ? html`<${ChecklistForm} init=${edit} teams=${teams} shifts=${(shifts.data || []).filter((t) => t.active)} onClose=${() => setEdit(null)} />` : null}
+    ${edit ? html`<${ChecklistForm} init=${own && !edit.id ? { team_id: me.team?.id, ...edit } : edit} teams=${myTeams} allowAll=${!own} shifts=${(shifts.data || []).filter((t) => t.active)} onClose=${() => setEdit(null)} />` : null}
   </section>`;
 }
 
@@ -214,7 +218,7 @@ export function SettingsView({ me, query }) {
       : tab === 'chung' ? html`<${General} s=${st.data} staff=${(staff.data || []).filter((p) => p.active)} />`
       : tab === 'to' ? html`<${Teams} />`
       : tab === 'ca' ? html`<${Templates} />`
-      : tab === 'checklist' ? html`<${Checklists} teams=${me.teams} />`
+      : tab === 'checklist' ? html`<${Checklists} me=${me} teams=${me.teams} />`
       : tab === 'zalo' ? html`<${Zalo} s=${st.data} />`
       : tab === 'saoluu' ? html`<${Backups} s=${st.data} />`
       : html`<${Audit} />`}

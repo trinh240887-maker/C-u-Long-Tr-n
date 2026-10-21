@@ -47,8 +47,16 @@ export default function (r, ctx) {
     return { title, teamId, phase, shiftId };
   }
 
-  r.post('/api/checklist-templates', 'manager', ({ me, body }) => {
+  // Tổ trưởng chỉ tạo/sửa checklist của tổ mình; trưởng ca trở lên sửa mọi tổ và checklist "Cả quán"
+  function canEditTpl(me, teamId) {
+    if (rank(me.role) >= rank('shift_lead')) return;
+    if (me.role === 'team_lead' && teamId && teamId === me.team_id) return;
+    fail(403, me.role === 'team_lead' ? 'Tổ trưởng chỉ tạo và sửa checklist của tổ mình' : 'Bạn không có quyền sửa checklist');
+  }
+
+  r.post('/api/checklist-templates', 'team_lead', ({ me, body }) => {
     const f = tplFields(body);
+    canEditTpl(me, f.teamId);
     const id = tx(db, () => {
       const id = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, shift_template_id) VALUES (?, ?, ?, ?)').run(f.teamId, f.phase, f.title, f.shiftId).lastInsertRowid);
       saveItems(id, body.items);
@@ -59,10 +67,12 @@ export default function (r, ctx) {
     return { id };
   });
 
-  r.patch('/api/checklist-templates/:id', 'manager', ({ me, params, body }) => {
+  r.patch('/api/checklist-templates/:id', 'team_lead', ({ me, params, body }) => {
     const cur = db.prepare('SELECT * FROM checklist_templates WHERE id = ?').get(params.id);
     if (!cur) fail(404, 'Không tìm thấy checklist');
+    canEditTpl(me, cur.team_id);
     const f = tplFields(body, cur);
+    canEditTpl(me, f.teamId);
     const active = body.active === undefined ? cur.active : v.bool(body.active);
     tx(db, () => {
       db.prepare('UPDATE checklist_templates SET team_id = ?, phase = ?, title = ?, shift_template_id = ?, active = ? WHERE id = ?').run(f.teamId, f.phase, f.title, f.shiftId, active, cur.id);

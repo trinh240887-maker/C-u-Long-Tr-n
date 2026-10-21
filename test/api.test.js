@@ -262,3 +262,24 @@ test('checklist theo ca: người làm ca sáng chỉ thấy checklist ca sáng'
   assert.equal(run.shift_name, 'Ca chiều');
   assert.equal((await an.post('/api/checklists/entry', { run_id: run.run_id, item_id: run.items[0].id })).status, 403);
 });
+
+test('tổ trưởng tạo và sửa checklist của tổ mình, không đụng được tổ khác', async (t) => {
+  const env = await setup();
+  t.after(env.close);
+  const o = env.client();
+  await o.login(DEFAULT_OWNER_PIN);
+  const teams = Object.fromEntries((await o.get('/api/teams')).data.map((x) => [x.name, x.id]));
+  await o.post('/api/staff', { name: 'Tú', role: 'team_lead', team_id: teams['Bar'], pin: '6043' });
+  await o.post('/api/staff', { name: 'Lan', role: 'staff', team_id: teams['Bar'], pin: '4821' });
+  const tu = env.client(); await tu.login('6043');
+  const lan = env.client(); await lan.login('4821');
+  const mine = await tu.post('/api/checklist-templates', { title: 'Đóng ca bar', team_id: teams['Bar'], phase: 'close', items: [{ text: 'Rửa máy xay' }] });
+  assert.equal(mine.status, 200);
+  assert.equal((await tu.patch(`/api/checklist-templates/${mine.data.id}`, { title: 'Đóng ca bar (sửa)' })).status, 200);
+  assert.equal((await tu.post('/api/checklist-templates', { title: 'X', team_id: teams['Bếp steak'], items: [{ text: 'a' }] })).status, 403);
+  assert.equal((await tu.post('/api/checklist-templates', { title: 'X', team_id: null, items: [{ text: 'a' }] })).status, 403);
+  assert.equal((await tu.patch(`/api/checklist-templates/${mine.data.id}`, { team_id: teams['Lẩu'] })).status, 403);
+  const bep = (await o.get('/api/checklist-templates')).data.find((c) => c.team_id === teams['Bếp steak']);
+  assert.equal((await tu.patch(`/api/checklist-templates/${bep.id}`, { title: 'hack' })).status, 403);
+  assert.equal((await lan.post('/api/checklist-templates', { title: 'X', team_id: teams['Bar'], items: [{ text: 'a' }] })).status, 403);
+});
