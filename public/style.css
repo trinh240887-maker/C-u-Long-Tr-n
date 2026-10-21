@@ -365,3 +365,8 @@ td.hc { min-width: 30px; height: 30px; text-align: center; border-radius: 6px; f
 td.hc.zero { background: var(--panel-2); color: var(--muted); }
 td.hc.low { background: var(--warn-soft); color: var(--warn); outline: 1px solid color-mix(in srgb, var(--warn) 50%, transparent); }
 table.hours tr.sum td.who { color: var(--accent); }
+
+.daybadge { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 999px; margin: 0 0 3px; }
+.daybadge.warn { background: var(--warn-soft); color: var(--warn); }
+.daybadge.bad { background: var(--bad-soft); color: var(--bad); }
+.person .daybadge { margin-left: 6px; }

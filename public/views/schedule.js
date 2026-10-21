@@ -128,6 +128,22 @@ export function Schedule({ me, query }) {
   const byCell = new Map();
   for (const s of d.shifts) byCell.set(`${s.staff_id}:${s.date}`, [...(byCell.get(`${s.staff_id}:${s.date}`) || []), s]);
   const activeDay = d.days.includes(day) ? day : d.days[0];
+  // Tổng giờ mỗi người trong ngày / tuần (không tính ca đã duyệt nghỉ) để đánh dấu người làm 2 ca, làm quá giờ
+  const mins = (list) => list.filter((s) => s.leave?.status !== 'approved').reduce((n, s) => n + s.segments.reduce((m, g) => m + g.end_min - g.start_min, 0), 0);
+  const dayInfo = (pid, date) => {
+    const list = (byCell.get(`${pid}:${date}`) || []).filter((s) => s.leave?.status !== 'approved');
+    const m = mins(list);
+    return { count: list.length, minutes: m, over: m > 10 * 60 };
+  };
+  const weekMin = (pid) => mins(d.shifts.filter((s) => s.staff_id === pid));
+  const fmtH = (m) => `${Math.floor(m / 60)}g${m % 60 ? String(m % 60).padStart(2, '0') : ''}`;
+  const DayBadge = ({ pid, date }) => {
+    const i = dayInfo(pid, date);
+    if (i.count < 2 && !i.over) return null;
+    return html`<div class=${`daybadge ${i.over ? 'bad' : 'warn'}`}>${i.count >= 2 ? `${i.count} ca · ` : ''}${fmtH(i.minutes)}${i.over ? ' (quá 10g)' : ''}</div>`;
+  };
+  const doubles = [];
+  for (const p of staff.data) for (const x of d.days) { const i = dayInfo(p.id, x); if (i.count >= 2 || i.over) doubles.push({ p, x, i }); }
   const groups = [...teams.map((t) => ({ ...t, people: staff.data.filter((p) => p.team_id === t.id) })),
     { id: null, name: 'Chưa có tổ', people: staff.data.filter((p) => !p.team_id && p.role !== 'owner') }].filter((g) => g.people.length);
 
@@ -151,6 +167,8 @@ export function Schedule({ me, query }) {
       </div>
     </div>
 
+    ${doubles.length ? html`<details class="card attn"><summary><b>${doubles.length} lượt làm 2 ca hoặc quá 10 giờ/ngày</b> trong tuần này</summary>
+      <ul class="plain">${doubles.map(({ p, x, i }) => html`<li>${dayLabel(x)}: <b>${p.name}</b> ${i.count} ca, ${fmtH(i.minutes)}${i.over ? ' (quá 10 giờ)' : ''}</li>`)}</ul></details>` : null}
     ${d.warnings.length ? html`<details class="card attn"><summary><b>${d.warnings.length} chỗ thiếu người</b> so với số tối thiểu của tổ</summary>
       <ul class="plain">${d.warnings.map((w) => html`<li>${w.text}</li>`)}</ul></details>` : null}
 
@@ -159,10 +177,11 @@ export function Schedule({ me, query }) {
       <tbody>${groups.map((g) => html`
         <tr class="grp"><td class="who">${g.name}</td>${d.days.map((x) => html`<td class="cov">${g.id ? `${d.coverage[x]?.[g.id] ?? 0}${teams.find((t) => t.id === g.id)?.min_staff ? `/${teams.find((t) => t.id === g.id).min_staff}` : ''}` : ''}</td>`)}</tr>
         ${g.people.map((p) => html`<tr class=${p.id === me.id ? 'me' : ''}>
-          <td class="who">${p.name}<small>${p.role !== 'staff' ? p.role_label : ''}</small></td>
+          <td class="who">${p.name}<small>${p.role !== 'staff' ? `${p.role_label} · ` : ''}<span class=${weekMin(p.id) > (p.weekly_limit_hours || 48) * 60 ? 'bad-text' : ''}>${fmtH(weekMin(p.id))}/${p.weekly_limit_hours || 48}g tuần</span></small></td>
           ${d.days.map((x) => {
             const cell = byCell.get(`${p.id}:${x}`) || [];
             return html`<td class=${x === me.today ? 'today' : ''}>
+              <${DayBadge} pid=${p.id} date=${x} />
               ${cell.map((s) => html`<${ShiftChip} s=${s} mine=${p.id === me.id} onClick=${canEdit ? () => setEdit(s) : null} />`)}
               ${canEdit ? html`<button class="add" aria-label=${`Xếp ca ${p.name} ${x}`} onClick=${() => setEdit({ staff_id: p.id, date: x, team_id: p.team_id })}>+</button>` : null}
             </td>`;
@@ -177,7 +196,7 @@ export function Schedule({ me, query }) {
         const min = teams.find((t) => t.id === g.id)?.min_staff;
         return html`<section class="card">
           <div class="row between"><h3>${g.name}</h3><span class=${`pill ${min && (d.coverage[activeDay]?.[g.id] ?? 0) < min ? 'warn' : ''}`}>${g.id ? d.coverage[activeDay]?.[g.id] ?? 0 : on.length}${min ? `/${min}` : ''} người</span></div>
-          ${on.map(({ p, cell }) => html`<div class="person"><span class="grow"><b>${p.name}</b></span>
+          ${on.map(({ p, cell }) => html`<div class="person"><span class="grow"><b>${p.name}</b><${DayBadge} pid=${p.id} date=${activeDay} /></span>
             <div class="row">${cell.map((s) => html`<${ShiftChip} s=${s} mine=${p.id === me.id} onClick=${canEdit ? () => setEdit(s) : null} />`)}</div></div>`)}
           ${canEdit ? html`<details><summary class="muted small">Xếp thêm người (${people.length - on.length} người chưa có ca)</summary>
             <div class="chips">${people.filter((x) => !x.cell.length).map(({ p }) => html`<button class="chip" onClick=${() => setEdit({ staff_id: p.id, date: activeDay, team_id: p.team_id })}>+ ${p.name}</button>`)}</div></details>`
