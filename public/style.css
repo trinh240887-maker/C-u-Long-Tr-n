@@ -486,3 +486,6 @@ a.tile { text-decoration: none; color: inherit; }
 .rv-card.no_show, .rv-card.cancelled { opacity: .5; }
 .order-lines li.ol { flex-wrap: wrap; }
 .ol .acts { flex-basis: 100%; justify-content: flex-end; }
+.order-cta { display: grid; gap: 4px; text-decoration: none; color: inherit; border: 2px solid var(--accent); }
+.order-cta b { font-size: 20px; color: var(--accent); }
+.order-cta span { color: var(--muted); font-size: 14px; }
