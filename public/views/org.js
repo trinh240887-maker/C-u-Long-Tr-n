@@ -1,16 +1,17 @@
-import { html, useData, Loading } from '../ui.js';
+import { html, useData, Loading, Link, atLeast } from '../ui.js';
 
 function People({ list, empty = '—' }) {
   if (!list.length) return html`<span class="muted small">${empty}</span>`;
   return html`<div class="people">${list.map((p) => html`<span class="person-chip">${p.name}${p.zalo_linked ? '' : html`<small class="muted"> ·chưa Zalo</small>`}</span>`)}</div>`;
 }
 
-export function OrgView() {
+export function OrgView({ me }) {
   const st = useData('/api/org');
   if (!st.data) return html`<${Loading} state=${st} />`;
   const o = st.data;
   return html`<div class="stack">
     <p class="muted small">Sơ đồ tự cập nhật theo vai trò và tổ của từng người trong mục Nhân viên. Việc báo lên cấp trên đi theo chiều mũi tên.</p>
+    ${atLeast(me, 'manager') ? html`<div class="row wrap"><${Link} href="/cai-dat?tab=to" class="btn-link">+ Thêm / sửa bộ phận (tổ)<//><${Link} href="/nhan-vien" class="btn-link">Xếp người vào tổ<//></div>` : null}
     <div class="org">
       <div class="org-level"><div class="org-box top"><div class="org-role">Chủ</div><${People} list=${o.owners} /></div></div>
       <div class="org-arrow">↓</div>

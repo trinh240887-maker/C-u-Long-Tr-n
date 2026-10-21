@@ -353,3 +353,5 @@ select.auto, input.auto { width: auto; max-width: 100%; }
 .unit-l { min-width: 30px; }
 .po-text { white-space: pre-wrap; font: 13.5px/1.5 var(--font); background: var(--panel-2); border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px; margin: 0; user-select: all; }
 .recv-line { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); }
+
+.btn-link { display: inline-flex; align-items: center; min-height: 40px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--accent); font-weight: 600; }
