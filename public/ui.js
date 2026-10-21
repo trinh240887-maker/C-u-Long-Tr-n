@@ -109,7 +109,9 @@ export function Modal({ title, onClose, children, wide }) {
     const onKey = (e) => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', onKey);
     document.body.classList.add('noscroll');
-    ref.current?.querySelector('input,select,textarea')?.focus();
+    // Điện thoại: không tự bật bàn phím (bàn phím che màn hình, bấm nút bên dưới bị trượt)
+    const touch = window.matchMedia?.('(pointer: coarse)').matches || 'ontouchstart' in window;
+    if (!touch) ref.current?.querySelector('input,select,textarea')?.focus();
     return () => { document.removeEventListener('keydown', onKey); document.body.classList.remove('noscroll'); };
   }, []);
   return html`<div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
