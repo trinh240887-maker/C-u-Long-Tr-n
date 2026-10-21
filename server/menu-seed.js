@@ -57,10 +57,10 @@ CREATE TABLE IF NOT EXISTS menu_recipes (
 
 const STATIONS = [
   ['Steak', '192.168.1.234'], ['Ưu tiên', ''], ['Nước lẩu', '192.168.1.238'], ['Bò', '192.168.1.236'],
-  ['Rau', '192.168.1.248'], ['Topping', ''], ['Pha chế', '192.168.1.244'],
+  ['Topping – Nướng – Rau', '192.168.1.248'], ['Pha chế', '192.168.1.244'],
 ];
 const SOT = ['Tứ xuyên', 'Kem phô mai', 'Tiêu đen'];
-const LAU_PARTS = (nuoc) => [[`Ngăn nước lẩu ${nuoc}`, 'Nước lẩu'], ['Bò tươi 150g (thăn, bắp hoa, gù)', 'Bò'], ['Rau tổng hợp', 'Rau'], ['Mì trứng 2 vắt', 'Rau']];
+const LAU_PARTS = (nuoc) => [[`Ngăn nước lẩu ${nuoc}`, 'Nước lẩu'], ['Bò tươi 150g (thăn, bắp hoa, gù)', 'Bò'], ['Rau tổng hợp', 'Topping – Nướng – Rau'], ['Mì trứng 2 vắt', 'Topping – Nướng – Rau']];
 // [danh mục, điểm in, kiểu dụng cụ, [[tên, giá, mô tả, {sot, parts}]]]
 const MENU = [
   ['Steak', 'Steak', 'Steak', [
@@ -80,11 +80,11 @@ const MENU = [
     ['Bò ướp mala 100g', 69000, ''], ['Bò tắm trứng 100g', 69000, ''], ['Gù hoa bò Úc 100g', 79000, ''], ['Aukobe bông tuyết 100g', 79000, ''],
     ['Lõi vai bò Úc 100g', 79000, ''], ['Bắp hoa tươi 100g', 69000, ''], ['Gù bò tươi 100g', 69000, ''], ['Thăn bò tươi 100g', 69000, ''], ['Ba chỉ Mỹ 100g', 59000, ''],
   ]],
-  ['Topping', 'Topping', null, [
+  ['Topping', 'Topping – Nướng – Rau', null, [
     ['Đậu hủ phô mai (4 viên)', 39000, ''], ['Bò viên (4 viên)', 39000, ''], ['Túi tiền (2 túi)', 49000, ''], ['Tôm hùm viên (6 viên)', 39000, ''],
     ['Thanh cua (3 thanh)', 25000, ''], ['Bánh bao ngũ sắc (6 viên)', 39000, ''], ['Chả tôm phi thúy', 69000, ''], ['Xách bò trắng 100g', 55000, ''], ['Xách bò đen 100g', 55000, ''],
   ]],
-  ['Rau – Nấm – Mì', 'Rau', null, [['Rau tổng hợp', 15000, ''], ['Nấm thập cẩm', 35000, ''], ['Nấm kim châm', 15000, ''], ['Mì trứng 2 vắt', 10000, ''], ['Tàu hủ ki 1 đĩa', 15000, '']]],
+  ['Rau – Nấm – Mì', 'Topping – Nướng – Rau', null, [['Rau tổng hợp', 15000, ''], ['Nấm thập cẩm', 35000, ''], ['Nấm kim châm', 15000, ''], ['Mì trứng 2 vắt', 10000, ''], ['Tàu hủ ki 1 đĩa', 15000, '']]],
   ['Cà phê', 'Pha chế', null, [['Cafe đen đá (phin)', 20000, ''], ['Cafe sữa đá (phin)', 25000, ''], ['Bạc xỉu đá (phin)', 25000, '']]],
   ['Trà trái cây', 'Pha chế', null, [
     ['Trà tắc xí muội', 20000, ''], ['Cam vắt', 25000, ''], ['Trà vải', 25000, ''], ['Trà dâu', 25000, ''], ['Trà ổi hồng', 25000, ''],
