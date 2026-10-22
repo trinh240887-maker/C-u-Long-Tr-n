@@ -106,6 +106,7 @@ export default function (r, ctx) {
       cash_status: s.cash_status, tip_cash: s.tip_cash, tip_transfer: s.tip_transfer, bank_received: bankIn,
       bank_txns: db.prepare("SELECT id, amount, content, txn_at, provider FROM bank_txns WHERE session_id = ? AND direction = 'in' ORDER BY id").all(s.id),
       refunds, refunded: refunds.reduce((n, x) => n + x.amount, 0),
+      changes: db.prepare('SELECT c.*, s.name AS by_name FROM payment_changes c LEFT JOIN staff s ON s.id = c.changed_by WHERE c.session_id = ? ORDER BY c.id').all(s.id),
       qr, qr_amount: qrAmount, transfer_note: noteOf(no), bank_name: ctx.setting('bank_name') || 'Ngân hàng',
       sepay: ctx.setting('sepay_enabled') === '1',
     };
@@ -311,6 +312,49 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
+  // ---------- Đổi cách thanh toán (bấm nhầm tiền mặt ↔ chuyển khoản) ----------
+  db.exec(`CREATE TABLE IF NOT EXISTS payment_changes (
+    id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, date TEXT NOT NULL, from_method TEXT NOT NULL, to_method TEXT NOT NULL,
+    from_cash INTEGER NOT NULL, to_cash INTEGER NOT NULL, reason TEXT NOT NULL, changed_by INTEGER, created_at INTEGER NOT NULL
+  )`);
+  const METHOD_VI = { cash: 'Tiền mặt', transfer: 'CK', mixed: 'TM + CK' };
+  r.post('/api/pos/sessions/:id/change-method', 'staff', ({ me, params, body }) => {
+    needCashier(me);
+    const s = ctx.posSession(params.id);
+    if (s.status !== 'closed') fail(400, 'Bill chưa thanh toán');
+    if (dayClosed(s.closed_date)) fail(400, 'Ngày này đã chốt: nhờ chủ quán mở lại ngày ở Duyệt sổ');
+    const method = v.oneOf(body.method, ['cash', 'transfer', 'mixed'], { name: 'Cách trả' });
+    const reason = v.text(body.reason, { name: 'Lý do', required: true, max: 120 });
+    const total = s.paid_total;
+    const cash = method === 'cash' ? total : method === 'transfer' ? 0 : v.int(Number(String(body.cash_amount ?? '').replace(/[.,\s]/g, '')), { min: 1, max: total - 1, name: 'Phần tiền mặt' });
+    const transfer = total - cash;
+    if (cash === s.cash_amount && transfer === s.transfer_amount) fail(400, 'Bill đã đúng cách trả này');
+    const got = bankReceived(s.id);
+    // Ngân hàng đã báo nhận tiền CK → không thể nói khách trả tiền mặt phần đó
+    if (got > 0 && transfer < Math.min(got, total)) fail(400, `Ngân hàng đã báo nhận ${vnd(got)} chuyển khoản cho bill này: không đổi sang tiền mặt được`);
+    // Tiền mặt đã giao thu ngân qua lần nhận tiền: chỉ quản lý đổi (sổ giao tiền đã ghi)
+    if (s.handover_id && cash !== s.cash_amount && rank(me.role) < rank('manager')) fail(403, 'Thu ngân đã xác nhận nhận tiền mặt bill này: nhờ quản lý đổi');
+    let cashStatus = '';
+    if (cash > 0) cashStatus = s.cash_status === 'received' && s.cash_amount >= cash ? 'received' : 'held';
+    const tipCash = cash > 0 ? s.tip_cash : 0;
+    const reconcile = transfer > 0 ? (got >= transfer ? 'matched' : 'pending') : '';
+    db.prepare(`UPDATE table_sessions SET pay_method = ?, cash_amount = ?, transfer_amount = ?, cash_given = ?, tip_cash = ?, tip_transfer = ?, cash_status = ?,
+      reconcile_status = ?, pending_alerted = 0, reconciled_at = NULL, reconciled_by = NULL WHERE id = ?`)
+      .run(method, cash, transfer, cash > 0 ? s.cash_given : 0, tipCash, transfer > 0 ? Math.max(0, got - transfer) : 0, cashStatus, reconcile, s.id);
+    // CK về lúc bill còn ghi tiền mặt (đang "cần xem") → nay khớp
+    if (transfer > 0) db.prepare("UPDATE bank_txns SET status = 'matched', note = 'Bill đổi sang CK' WHERE session_id = ? AND status = 'review'").run(s.id);
+    db.prepare('INSERT INTO payment_changes (session_id, date, from_method, to_method, from_cash, to_cash, reason, changed_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(s.id, s.closed_date, s.pay_method, method, s.cash_amount, cash, reason, me.id, ctx.now());
+    ctx.notify(bosses().filter((x) => x !== me.id), {
+      title: `Đổi cách trả bill ${s.bill_no}: ${METHOD_VI[s.pay_method]} → ${METHOD_VI[method]}`,
+      body: `${vnd(total)} · bàn ${s.header} · ${reason} · ${me.name} đổi.${cashStatus === 'held' ? ' Tiền mặt chờ thu ngân xác nhận.' : ''}${reconcile === 'pending' ? ' CK chờ tiền về.' : ''}`,
+      link: `/goi-mon?s=${s.id}`,
+    });
+    ctx.audit(me, 'pay.change_method', { id: s.id, from: s.pay_method, to: method, cash, reason });
+    ctx.broadcast('pos');
+    return { ok: true, cash_status: cashStatus, reconcile_status: reconcile };
+  });
+
   // Hoàn tiền mặt cho bill đã đóng (khách báo thiếu món / món lỗi). Quản lý duyệt.
   r.post('/api/pos/sessions/:id/refund', 'staff', ({ me, params, body, net }) => {
     const s = ctx.posSession(params.id);
@@ -443,6 +487,8 @@ export default function (r, ctx) {
     if (summary.cash_held) add('bad', `Bill tiền mặt chưa được thu ngân xác nhận: ${vnd(summary.cash_held)}`);
     const long = db.prepare("SELECT COUNT(*) AS n FROM table_sessions WHERE status IN ('open','paying') AND opened_at < ?").get(ctx.now() - 3 * 3_600_000).n;
     if (long) add('warn', `Bàn mở quá 3 giờ chưa tính tiền: ${long} bàn`);
+    const ch = db.prepare('SELECT c.*, t.bill_no, s.name AS by_name FROM payment_changes c JOIN table_sessions t ON t.id = c.session_id LEFT JOIN staff s ON s.id = c.changed_by WHERE c.date = ? ORDER BY c.id').all(date);
+    if (ch.length) add('warn', `Đổi cách thanh toán: ${ch.length} lần (${ch.map((c) => `bill ${c.bill_no} ${{ cash: 'TM', transfer: 'CK', mixed: 'TM+CK' }[c.from_method]}→${{ cash: 'TM', transfer: 'CK', mixed: 'TM+CK' }[c.to_method]} ${c.by_name}: ${c.reason}`).join('; ')})`);
     return out;
   }
   ctx.payDay = day;

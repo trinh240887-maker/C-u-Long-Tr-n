@@ -148,6 +148,7 @@ const CK_LABEL = { pending: ['warn', 'chờ tiền về'], matched: ['ok', 'ngâ
 export function PaidPanel({ me, id }) {
   const st = useData(`/api/pos/sessions/${id}/bill`);
   const [refund, setRefund] = useState(false);
+  const [change, setChange] = useState(false);
   if (!st.data) return null;
   const b = st.data;
   const ck = CK_LABEL[b.reconcile_status];
@@ -163,9 +164,12 @@ export function PaidPanel({ me, id }) {
     ${b.refunds.map((r) => html`<div class="row between small danger-text"><span>Hoàn tiền mặt ${hm(r.created_at)}: ${r.lines.map((l) => `${l.qty} × ${l.name}`).join(', ')} (${r.reason}) · ${r.by_name}, duyệt ${r.approver_name}</span><span class="num">−${money(r.amount)}</span></div>`)}
     <div class="row wrap">
       <button onClick=${() => act(() => api('POST', `/api/pos/sessions/${id}/print-bill`), 'Đã gửi in lại bill')}>🖨 In lại bill</button>
+      ${isCashier(me) ? html`<button onClick=${() => setChange(true)}>Đổi cách thanh toán…</button>` : null}
       <button class="danger" onClick=${() => setRefund(true)}>Hoàn tiền…</button>
     </div>
+    ${b.changes?.map((c) => html`<div class="small warn-text">Đổi ${hm(c.created_at)}: ${METHOD[c.from_method]} → ${METHOD[c.to_method]} · ${c.reason} · ${c.by_name}</div>`)}
     ${refund ? html`<${RefundModal} me=${me} id=${id} onClose=${() => setRefund(false)} />` : null}
+    ${change ? html`<${ChangeMethod} b=${b} onClose=${() => setChange(false)} />` : null}
   </section>`;
 }
 
@@ -209,7 +213,8 @@ function Unmatched({ t, me, locked }) {
   return html`<div class="card stack small">
     <div class="row between"><b>${money(t.amount)}</b><span class="muted">${t.txn_at || hm(t.received_at)}${t.provider === 'test' ? ' · THỬ' : ''}</span></div>
     <div>"${t.content}"</div>
-    ${t.status === 'review' ? html`<div class="warn-text">Bill ${t.bill_no} đã trả tiền mặt mà vẫn có CK: khách trả 2 lần (hoàn lại) hay tip?</div>` : null}
+    ${t.status === 'review' ? html`<div class="warn-text">Bill ${t.bill_no} ghi trả tiền mặt mà vẫn có CK: phục vụ bấm nhầm, khách trả 2 lần (hoàn lại), hay tip?</div>
+      ${!locked ? html`<button class="primary" onClick=${() => act(() => api('POST', `/api/pos/sessions/${t.session_id}/change-method`, { method: 'transfer', reason: 'Bấm nhầm tiền mặt, khách đã CK' }), 'Đã đổi bill sang CK')}>Bấm nhầm tiền mặt → đổi bill sang CK</button>` : null}` : null}
     ${locked ? null : html`<div class="row wrap">
       ${t.status === 'unmatched' ? html`<input inputmode="numeric" style="width:7em" placeholder="Số bill" value=${no} onInput=${(e) => setNo(e.target.value)} />
         <button class="primary" disabled=${!no} onClick=${() => act(() => api('POST', `/api/bank/txns/${t.id}/assign`, { bill_no: Number(no) }), 'Đã ghép bill')}>Ghép bill</button>` : null}
@@ -417,4 +422,27 @@ function DrawerClose({ date, d }) {
     <${CashPhotos} photos=${d.photos} />
     <small class="muted">Ghi số tờ từng loại, chụp ảnh xấp tiền, bỏ phong bì ghi số tiền + ngày. Sáng mai chủ quán đối chiếu với số nộp ngân hàng.</small>
   </div>`;
+}
+
+// Thu ngân sửa bill bấm nhầm cách trả (tiền mặt ↔ CK). Bắt lý do, chủ quán nhận báo, ghi vào bất thường cuối ngày
+function ChangeMethod({ b, onClose }) {
+  const [method, setMethod] = useState(b.pay_method === 'cash' ? 'transfer' : 'cash');
+  const [cash, setCash] = useState('');
+  const [reason, setReason] = useState('');
+  const save = async () => {
+    const r = await act(() => api('POST', `/api/pos/sessions/${b.id}/change-method`, { method, cash_amount: method === 'mixed' ? num(cash) : undefined, reason }), 'Đã đổi cách thanh toán');
+    if (r) { if (r.cash_status === 'held') alert('Tiền mặt bill này chờ thu ngân xác nhận: nhận tiền từ phục vụ rồi bấm xác nhận ở Thu ngân.'); onClose(); }
+  };
+  return html`<${Modal} title=${`Đổi cách thanh toán · bill ${b.bill_no}`} onClose=${onClose}>
+    <div class="stack">
+      <p class="small">Đang ghi: <b>${METHOD[b.pay_method]}</b> · ${money(b.total)}${b.bank_received ? ` · ngân hàng đã báo nhận ${money(b.bank_received)}` : ''}</p>
+      <div class="tabs">${Object.entries(METHOD).map(([k, l]) => html`<button class=${method === k ? 'on' : ''} onClick=${() => setMethod(k)}>${l}</button>`)}</div>
+      ${method === 'mixed' ? html`<${Field} label="Phần tiền mặt"><input inputmode="numeric" value=${cash} onInput=${(e) => setCash(e.target.value)} /><//>` : null}
+      <p class="muted small">${method === 'transfer' ? 'Đổi sang CK: nếu tiền đã về app tự khớp; chưa về thì chờ tiền về như bill CK thường.' : method === 'cash' ? 'Đổi sang tiền mặt: tiền nằm ở người đã thu, thu ngân phải bấm xác nhận nhận tiền.' : ''}</p>
+      <${Field} label="Lý do"><input value=${reason} onInput=${(e) => setReason(e.target.value)} placeholder="vd Bấm nhầm, khách đã CK" /><//>
+      <div class="chips">${['Bấm nhầm', 'Khách đổi cách trả', 'Khách trả một phần tiền mặt'].map((x) => html`<button class=${`chip ${reason === x ? 'on' : ''}`} onClick=${() => setReason(x)}>${x}</button>`)}</div>
+      <p class="muted small">Chủ quán nhận báo mỗi lần đổi; cuối ngày ghi vào mục bất thường.</p>
+      <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" disabled=${!reason.trim() || (method === 'mixed' && !num(cash))} onClick=${save}>Đổi</button></div>
+    </div>
+  <//>`;
 }

@@ -244,3 +244,50 @@ test('tiền mặt: phục vụ thu → bill chờ thu ngân xác nhận (bàn v
   assert.deepEqual(bk.pending_days, []);
 
 });
+
+test('bấm nhầm cách thanh toán: tiền mặt ↔ chuyển khoản, có kiểm soát', async (t) => {
+  const { db, o, H, N, order, sepay } = await setup(t);
+  await o('POST', '/api/bank/settings', { enabled: true });
+  // 1. Khách CK nhưng phục vụ bấm nhầm "tiền mặt" → tiền CK về, app để "cần xem"
+  const A = await order(30, [['Combo 2', 1]]);
+  const bA = (await H('GET', `/api/pos/sessions/${A}/bill`)).data;
+  await H('POST', `/api/pos/sessions/${A}/pay`, { method: 'cash' });
+  assert.equal((await H('GET', '/api/payments/my-cash')).data.amount, bA.total);
+  const tx = await sepay(bA.total, `CLT${bA.bill_no}`);
+  assert.equal(db.prepare('SELECT status FROM bank_txns WHERE id = ?').get(tx.data.id).status, 'review');
+  assert.equal((await H('POST', `/api/pos/sessions/${A}/change-method`, { method: 'transfer', reason: 'Bấm nhầm' })).status, 403, 'phục vụ không tự đổi');
+  assert.equal((await N('POST', `/api/pos/sessions/${A}/change-method`, { method: 'transfer' })).status, 400, 'bắt ghi lý do');
+  let r = await N('POST', `/api/pos/sessions/${A}/change-method`, { method: 'transfer', reason: 'Bấm nhầm, khách đã CK' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  let b = (await N('GET', `/api/pos/sessions/${A}/bill`)).data;
+  assert.equal(b.pay_method, 'transfer');
+  assert.equal(b.reconcile_status, 'matched');
+  assert.equal(b.cash_status, '');
+  assert.equal(db.prepare('SELECT status FROM bank_txns WHERE id = ?').get(tx.data.id).status, 'matched');
+  assert.equal((await H('GET', '/api/payments/my-cash')).data.amount, 0, 'phục vụ hết phải giao tiền');
+  assert.equal(b.changes.length, 1);
+  assert.ok(noti(db, 'Đổi cách trả bill %: Tiền mặt → CK%').some((x) => x.name === 'Chủ quán'));
+  // Đã có tiền ngân hàng báo về → không đổi ngược sang tiền mặt
+  assert.match((await N('POST', `/api/pos/sessions/${A}/change-method`, { method: 'cash', reason: 'x' })).data.error, /Ngân hàng đã báo nhận/);
+
+  // 2. Khách trả tiền mặt nhưng bấm nhầm "CK" → đổi sang tiền mặt → tiền chờ thu ngân xác nhận (của Hậu)
+  const B = await order(31, [['Combo 3', 1]]);
+  const bB = (await H('GET', `/api/pos/sessions/${B}/bill`)).data;
+  await H('POST', `/api/pos/sessions/${B}/pay`, { method: 'transfer' });
+  r = await N('POST', `/api/pos/sessions/${B}/change-method`, { method: 'cash', reason: 'Khách trả tiền mặt, bấm nhầm CK' });
+  assert.equal(r.data.cash_status, 'held');
+  b = (await N('GET', `/api/pos/sessions/${B}/bill`)).data;
+  assert.equal(b.reconcile_status, '');
+  assert.equal((await H('GET', '/api/payments/my-cash')).data.amount, bB.total);
+  assert.equal((await N('POST', '/api/payments/handover', { ids: [B] })).data.diff, 0);
+  // Đã xác nhận nhận tiền → thu ngân không đổi nữa, quản lý mới được
+  assert.equal((await N('POST', `/api/pos/sessions/${B}/change-method`, { method: 'transfer', reason: 'x' })).status, 403);
+  assert.equal((await o('POST', `/api/pos/sessions/${B}/change-method`, { method: 'mixed', cash_amount: 50000, reason: 'Khách trả 50k tiền mặt, còn lại CK' })).status, 200);
+  b = (await N('GET', `/api/pos/sessions/${B}/bill`)).data;
+  assert.equal(b.cash_amount, 50000);
+  assert.equal(b.transfer_amount, bB.total - 50000);
+  assert.equal(b.reconcile_status, 'pending');
+  // Bất thường cuối ngày có ghi lại
+  const d = (await N('GET', '/api/payments?date=2026-10-24')).data;
+  assert.ok(d.anomalies.some((a) => a.text.startsWith('Đổi cách thanh toán: 3 lần')), JSON.stringify(d.anomalies));
+});
