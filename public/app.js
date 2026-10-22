@@ -23,6 +23,7 @@ import { PrintersView } from './views/printers.js';
 import { PromotionsView } from './views/promotions.js';
 import { CashierView } from './views/pay.js';
 import { DaybookView } from './views/daybook.js';
+import { TicketsView } from './views/tickets.js';
 
 const NAV = [
   { path: '/', label: 'Hôm nay', icon: '◉', role: 'staff', main: true },
@@ -33,6 +34,7 @@ const NAV = [
   { path: '/checklist', label: 'Checklist', icon: '☑', role: 'staff', main: true },
   { path: '/viec', label: 'Việc', icon: '✎', role: 'staff', main: true },
   { path: '/dat-ban', label: 'Đặt bàn', icon: '☏', role: 'staff' },
+  { path: '/phieu-bep', label: 'Phiếu bếp (máy in hỏng)', icon: '🧾', role: 'staff' },
   { path: '/thuc-don', label: 'Thực đơn', icon: '☰', role: 'team_lead' },
   { path: '/ranh', label: 'Lịch rảnh', icon: '◷', role: 'staff' },
   { path: '/duyet-anh', label: 'Duyệt ảnh', icon: '▣', role: 'team_lead' },
@@ -179,7 +181,7 @@ function App() {
   const query = new URLSearchParams(path.split('?')[1] || '');
   const routes = {
     '/': Home, '/quan-ly': Dashboard, '/lich': Schedule, '/nhan-vien': StaffView, '/cham-cong': AttendanceView,
-    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/thuc-don': MenuView, '/goi-mon': OrderView, '/dat-ban': ReservationsView, '/may-in': PrintersView, '/khuyen-mai': PromotionsView, '/thu-ngan': CashierView, '/duyet-so': DaybookView, '/cai-dat': SettingsView, '/ho-so': Profile,
+    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/thuc-don': MenuView, '/goi-mon': OrderView, '/dat-ban': ReservationsView, '/may-in': PrintersView, '/khuyen-mai': PromotionsView, '/thu-ngan': CashierView, '/duyet-so': DaybookView, '/phieu-bep': TicketsView, '/cai-dat': SettingsView, '/ho-so': Profile,
   };
   const nav = NAV.find((n) => n.path === base);
   const View = routes[base] && (!nav || atLeast(me, nav.role)) ? routes[base] : Home;

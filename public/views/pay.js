@@ -272,6 +272,7 @@ export function CashierView({ me }) {
     s.opening == null && 'nhập tiền két đầu ngày',
     groups.length && `xác nhận tiền mặt của ${groups.length} người`,
     unmatched.length && `xử lý ${unmatched.length} khoản CK chưa khớp`,
+    s.overpay_pending && `xử lý ${s.overpay_pending} bill khách CK dư bất thường`,
     toConfirm.length && `xác nhận ${toConfirm.length} bill CK`,
     s.drawer_counted == null && 'đếm két cuối ngày',
     !d.photos?.length && 'chụp ảnh tiền đã đếm',
@@ -299,6 +300,11 @@ export function CashierView({ me }) {
         ${d.handovers.map((h) => html`<div class="row between"><span>${hm(h.created_at)} ${h.staff_name} → ${h.received_by_name}</span><span>${money(h.counted)}${h.diff ? html` <b class="danger-text">(${h.diff > 0 ? '+' : ''}${money(h.diff)})</b>` : ''}</span></div>`)}</details>` : null}
     </section>
 
+    ${d.bills.some((b) => b.overpay_status === 'pending') ? html`<section class="card stack warn-card"><b class="danger-text">Khách CK dư bất thường</b>
+      <p class="muted small">Có thể khách chuyển 2 lần hoặc gõ thừa số 0. Gọi khách xác nhận: hoàn lại (chủ quán chuyển trả) hay khách cho tip.</p>
+      ${d.bills.filter((b) => b.overpay_status === 'pending').map((b) => html`<div class="row between wrap"><span>${b.transfer_note} · ${b.header} · dư <b>${money(b.overpay)}</b></span>
+        ${atLeast(me, 'manager') && !locked ? html`<span class="row"><button class="small" onClick=${() => act(() => api('POST', `/api/pos/sessions/${b.id}/overpay`, { action: 'refunded' }), 'Đã ghi hoàn lại khách')}>Đã hoàn lại khách</button><button class="small" onClick=${() => act(() => api('POST', `/api/pos/sessions/${b.id}/overpay`, { action: 'tip' }), 'Đã tính tip')}>Là tip</button></span>` : html`<small class="muted">nhờ quản lý</small>`}</div>`)}
+    </section>` : null}
     ${unmatched.length ? html`<section class="stack"><b class="danger-text">3. Tiền CK chưa khớp bill (${unmatched.length})</b>
       <p class="muted small">Khách tự gõ số tài khoản nên thiếu mã CLT. Xem số tiền + giờ để tìm bill, nhập số bill để ghép.</p>
       ${unmatched.map((t) => html`<${Unmatched} key=${t.id} t=${t} me=${me} locked=${locked} />`)}</section>` : null}

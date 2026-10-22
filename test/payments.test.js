@@ -291,3 +291,25 @@ test('bấm nhầm cách thanh toán: tiền mặt ↔ chuyển khoản, có ki�
   const d = (await N('GET', '/api/payments?date=2026-10-24')).data;
   assert.ok(d.anomalies.some((a) => a.text.startsWith('Đổi cách thanh toán: 3 lần')), JSON.stringify(d.anomalies));
 });
+
+test('khách CK 2 lần / dư nhiều: không tính tip, quản lý xử lý mới chốt ngày được', async (t) => {
+  const { o, H, N, order, sepay } = await setup(t);
+  await o('POST', '/api/bank/settings', { enabled: true });
+  const A = await order(40, [['Combo 2', 2]]);
+  const b = (await H('GET', `/api/pos/sessions/${A}/bill`)).data;
+  await sepay(b.total + 20000, `CLT${b.bill_no}`); // dư 20k = tip bình thường
+  let x = (await H('GET', `/api/pos/sessions/${A}/bill`)).data;
+  assert.equal(x.tip_transfer, 20000);
+  await sepay(b.total, `CLT${b.bill_no}`); // khách chuyển lần 2
+  x = (await N('GET', '/api/payments?date=2026-10-24')).data.bills.find((y) => y.id === A);
+  assert.equal(x.overpay, b.total + 20000);
+  assert.equal(x.tip_transfer, 0);
+  assert.equal(x.overpay_status, 'pending');
+  assert.match((await N('POST', '/api/payments/close-day', { date: '2026-10-24' })).data.error, /CK dư bất thường|két|xác nhận/);
+  assert.equal((await N('POST', `/api/pos/sessions/${A}/overpay`, { action: 'refunded' })).status, 403);
+  assert.equal((await o('POST', `/api/pos/sessions/${A}/overpay`, { action: 'refunded', note: 'Đã chuyển trả khách' })).status, 200);
+  const d = (await N('GET', '/api/payments?date=2026-10-24')).data;
+  assert.equal(d.summary.overpay_pending, 0);
+  assert.equal(d.summary.overpay_refunded, b.total + 20000);
+  assert.ok(d.anomalies.some((a) => a.text.includes('đã hoàn lại khách')));
+});

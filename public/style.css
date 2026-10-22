@@ -545,3 +545,6 @@ button.big { white-space: normal; }
 .denom input { text-align: center; }
 label.button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 1em; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; font-weight: 600; }
 img.thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; }
+.ticket .big-line { font-size: 1.15rem; }
+.ticket.cancel { border-left: 4px solid #dc2626; }
+.ticket.remind, .ticket.redo { border-left: 4px solid var(--warn); }

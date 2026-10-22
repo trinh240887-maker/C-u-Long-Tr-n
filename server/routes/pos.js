@@ -509,9 +509,32 @@ export default function (r, ctx) {
   });
 
   // Phiếu bếp gần đây (để kiểm tra trước khi có màn hình bếp / cầu nối in ở GĐ3C)
-  r.get('/api/pos/tickets', 'team_lead', ({ query }) => {
+  // Màn "Phiếu bếp": dự phòng khi máy in / wifi ở quán hỏng — bếp, bar xem phiếu trên điện thoại (4G)
+  r.get('/api/pos/tickets', 'staff', ({ query }) => {
     const sid = v.optInt(query.get('station'), { min: 1, name: 'Điểm in' });
-    return db.prepare(`SELECT k.*, st.name AS station_name FROM kitchen_tickets k LEFT JOIN kitchen_stations st ON st.id = k.station_id
-      ${sid ? 'WHERE k.station_id = ?' : ''} ORDER BY k.id DESC LIMIT 100`).all(...(sid ? [sid] : [])).map((k) => ({ ...k, lines: JSON.parse(k.lines), priority: !!k.priority }));
+    const since = ctx.now() - 3 * 3_600_000;
+    const rows = db.prepare(`SELECT k.*, st.name AS station_name, c.name AS by_name FROM kitchen_tickets k LEFT JOIN kitchen_stations st ON st.id = k.station_id LEFT JOIN staff c ON c.id = k.created_by
+      WHERE k.created_at > ? ${sid ? 'AND k.station_id = ?' : ''} ORDER BY k.id DESC LIMIT 150`).all(since, ...(sid ? [sid] : []));
+    return rows.map((k) => ({ ...k, lines: JSON.parse(k.lines), priority: !!k.priority }));
+  });
+  // In lại phiếu (phiếu rách / mất / máy cắt giấy kẹt). Ghi nhật ký, cuối ngày vào mục bất thường
+  r.post('/api/pos/tickets/:id/reprint', 'staff', ({ me, params, body }) => {
+    const k = db.prepare('SELECT * FROM kitchen_tickets WHERE id = ?').get(params.id);
+    if (!k) fail(404, 'Không có phiếu');
+    const reason = v.text(body.reason, { name: 'Lý do', max: 80 }) || 'Mất phiếu';
+    db.prepare("UPDATE kitchen_tickets SET print_status = 'pending', attempts = 0, reprint = reprint + 1, reprint_at = ?, done_at = NULL WHERE id = ?").run(ctx.now(), k.id);
+    ctx.audit(me, 'pos.ticket.reprint', { id: k.id, station: k.station_id, reason });
+    ctx.broadcast('tickets');
+    ctx.broadcast('print');
+    return { ok: true };
+  });
+  // Bếp bấm "Đã nhận" trên màn hình: phiếu chưa in thì bỏ in (máy in chạy lại không in trùng)
+  r.post('/api/pos/tickets/:id/done', 'staff', ({ me, params }) => {
+    const k = db.prepare('SELECT * FROM kitchen_tickets WHERE id = ?').get(params.id);
+    if (!k) fail(404, 'Không có phiếu');
+    db.prepare("UPDATE kitchen_tickets SET done_at = COALESCE(done_at, ?), print_status = CASE WHEN print_status = 'pending' THEN 'skipped' ELSE print_status END WHERE id = ?").run(ctx.now(), k.id);
+    ctx.audit(me, 'pos.ticket.done', { id: k.id, was: k.print_status });
+    ctx.broadcast('tickets');
+    return { ok: true };
   });
 }

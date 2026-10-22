@@ -57,7 +57,8 @@ const client = (label) => {
 const printers = {};
 async function fakePrinter(name) {
   const p = { name, jobs: 0, bytes: 0 };
-  const srv = net.createServer((s) => { let n = 0; s.on('data', (c) => { n += c.length; }); s.on('end', () => { if (n) { p.jobs++; p.bytes += n; } }); });
+  p.reprints = 0;
+  const srv = net.createServer((s) => { let n = 0; let txt = ''; s.on('data', (c) => { n += c.length; txt += c.toString('latin1'); }); s.on('end', () => { if (n) { p.jobs++; p.bytes += n; if (txt.includes('BAN IN LAI')) p.reprints++; } }); });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   p.port = srv.address().port;
   p.close = () => srv.close();
@@ -155,7 +156,7 @@ function cookTime(menuItemId, qty, sentAt, urgent) {
 // ---------- Hàng sự kiện theo giờ ----------
 const queue = [];
 const schedule = (t, fn, label = '') => { queue.push({ t, fn, label, seq: queue.length }); };
-const stats = { ck: { auto: 0, delayed: 0, manual: 0, partial: 0, ghost: 0, tip: 0 }, handovers: 0, payAlerts: 0, groups: 0, guests: 0, walkout: 0, waitlist: 0, waitMax: 0, soldOutBlocked: 0, unservedConfirm: 0, reminds: 0, redo: 0, cancelItem: 0, moves: 0, splits: 0, merges: 0, itemMoves: 0, tableCancels: 0, refunds: 0, refundAmount: 0, booking: 0, noShow: 0, pay: { cash: 0, transfer: 0, mixed: 0 }, peak: 0 };
+const stats = { outageMin: 0, printAlerts: 0, screenDone: 0, pcScreen: 0, reprints: 0, lostBills: 0, dash: 0, dashValue: 0, doubleCk: 0, ck: { auto: 0, delayed: 0, manual: 0, partial: 0, ghost: 0, tip: 0 }, handovers: 0, payAlerts: 0, groups: 0, guests: 0, walkout: 0, waitlist: 0, waitMax: 0, soldOutBlocked: 0, unservedConfirm: 0, reminds: 0, redo: 0, cancelItem: 0, moves: 0, splits: 0, merges: 0, itemMoves: 0, tableCancels: 0, refunds: 0, refundAmount: 0, booking: 0, noShow: 0, pay: { cash: 0, transfer: 0, mixed: 0 }, peak: 0 };
 const served = new Map(); // order_item id → thời điểm làm xong
 const groups = [];
 const waiting = [];
@@ -325,6 +326,21 @@ function afterOrder(g) {
 
 async function pay(g) {
   if (g.gone || g.merged || g.paid) return;
+  if (g.dash) {
+    // Khách bỏ trốn không trả tiền: trưởng ca huỷ bàn, ghi rõ lý do → báo cáo bất thường có số tiền mất
+    const s = (await g.w('GET', `/api/pos/sessions/${g.sid}`)).data;
+    const r = await truongCa('POST', `/api/pos/sessions/${g.sid}/cancel`, { reason: 'Khách bỏ trốn không trả tiền' });
+    if (r.status === 200) { stats.dash++; stats.dashValue += s.total; say(`Bàn ${g.tables}: khách bỏ trốn không trả ${f(s.total)}đ → trưởng ca huỷ bàn ghi lý do, chủ quán thấy trong bất thường`); } else issue(`Huỷ bàn bỏ trốn: ${r.data?.error}`);
+    g.paid = true;
+    await seatWaiting();
+    return;
+  }
+  if (g.lostBill) {
+    // Khách làm mất / rách bill tạm tính → in lại
+    await g.w('POST', `/api/pos/sessions/${g.sid}/print-bill`);
+    await g.w('POST', `/api/pos/sessions/${g.sid}/print-bill`);
+    stats.lostBills++;
+  }
   if (g.incident === 'split') {
     const s = (await g.w('GET', `/api/pos/sessions/${g.sid}`)).data;
     const mine = s.items.filter((i) => i.status !== 'cancelled').slice(0, 2);
@@ -402,6 +418,12 @@ async function payOne(g, sid, force) {
       const tip = chance(0.08) ? 1000 * Math.round(between(10, 60)) : 0;
       await bankIn(b.total + tip, `${pick(['MBVCB', 'ACB', 'VCB', 'TCB'])}.${bankSeq}.CLT${b.bill_no}.thanh toan`);
       stats.ck.auto++;
+      if (g.doubleCk) {
+        // Khách bấm chuyển 2 lần → app không tính là tip, báo quản lý
+        await bankIn(b.total, `CLT${b.bill_no} chuyen lai`);
+        stats.doubleCk++;
+        say(`Bill ${b.bill_no}: khách chuyển khoản 2 lần (dư ${f(b.total + tip)}đ) → app không tính tip, báo quản lý; 23h quản lý chuyển trả khách`);
+      }
       if (tip) stats.ck.tip += tip;
     }
     const after = (await g.w('GET', `/api/pos/sessions/${sid}/bill`)).data;
@@ -482,6 +504,9 @@ tag(2, 9, (g) => { g.incident = 'itemMove'; });
 tag(1, 11, (g) => { g.walkoutEarly = true; });
 tag(1, 13, (g) => { g.walkoutLate = true; });
 tag(3, 15, (g) => { g.refund = true; });
+tag(1, 19, (g) => { g.dash = true; });
+tag(1, 21, (g) => { g.doubleCk = true; });
+tag(3, 23, (g) => { g.lostBill = true; });
 // Đặt bàn: 10 nhóm đặt trước bàn Khu C, 1 nhóm không đến
 const bookers = dinner.filter((g) => !g.incident && !g.walkoutEarly && !g.walkoutLate && g.size <= 5).slice(0, 10);
 
@@ -515,11 +540,44 @@ schedule(at('19:30'), async () => {
   say('Tổ lẩu báo HẾT "Bò ướp mala 100g": huỷ 1 phần đang chờ + khoá món, phục vụ gọi món khác');
 });
 
+const OUTAGE = [at('19:00'), at('19:20')]; // mất wifi / cúp điện ở quán: máy tính cầu in không lên mạng
+const PC_BROKEN = [at('20:30'), at('21:30')]; // máy in Pha chế hỏng
+// Mất wifi 19:00–19:20: bếp / bar mở "Phiếu bếp" trên điện thoại (4G), làm theo phiếu, bấm Đã nhận
+const LEAD_STATIONS = () => [[bepSteak, ['Steak', 'Ưu tiên']], [bepLau, ['Nước lẩu', 'Bò', 'Topping – Nướng – Rau']], [bar, ['Pha chế']]];
+async function screenSweep(onlyStation) {
+  let n = 0;
+  for (const [c, names] of LEAD_STATIONS()) {
+    for (const nm of names) {
+      if (onlyStation && nm !== onlyStation) continue;
+      const list = (await c('GET', `/api/pos/tickets?station=${S[nm]}`)).data || [];
+      for (const k of list.filter((x) => ['pending', 'failed'].includes(x.print_status) && !x.done_at)) {
+        const r = await c('POST', `/api/pos/tickets/${k.id}/done`);
+        if (r.status === 200) n++;
+      }
+    }
+  }
+  return n;
+}
+for (const hm of ['19:04', '19:09', '19:14', '19:19']) schedule(at(hm), async () => { stats.screenDone += await screenSweep(); });
+schedule(at('19:03'), async () => { say(`Mất wifi ở quán (19:00–19:20): điện thoại nhân viên dùng 4G vẫn order; bếp/bar xem "Phiếu bếp" trên điện thoại; quản lý nhận báo "máy in mất kết nối"`); });
+// Máy in Pha chế hỏng 20:30–21:30
+schedule(PC_BROKEN[0], async () => { await o('PATCH', `/api/kitchen-stations/${S['Pha chế']}`, { printer_port: 1 }); say('Máy in Pha chế hỏng (20:30–21:30): in 3 lần không được → báo quản lý, bar làm theo màn hình Phiếu bếp'); });
+schedule(PC_BROKEN[1], async () => { await o('PATCH', `/api/kitchen-stations/${S['Pha chế']}`, { printer_port: printers['Pha chế'].port }); });
+for (let t = PC_BROKEN[0] + 3 * MIN; t < PC_BROKEN[1]; t += 3 * MIN) schedule(t, async () => { stats.pcScreen += await screenSweep('Pha chế'); });
+// Mất phiếu bếp: bếp steak in lại 2 lần
+for (const hm of ['18:45', '20:05']) schedule(at(hm), async () => {
+  const k = ((await bepSteak('GET', `/api/pos/tickets?station=${S.Steak}`)).data || []).find((x) => x.print_status === 'printed' && x.kind === 'new');
+  if (!k) return;
+  const r = await bepSteak('POST', `/api/pos/tickets/${k.id}/reprint`, { reason: 'Mất phiếu' });
+  if (r.status === 200) { stats.reprints++; say(`Bếp steak làm mất phiếu ${k.header} → bấm In lại, phiếu in ra ghi "BẢN IN LẠI"`); } else issue(`In lại phiếu: ${r.data?.error}`);
+});
+
 // Mỗi phút: cầu in lấy phiếu in ra máy giả; mỗi 2 phút quản lý xem món trễ và nhắc bếp
 const reminded = new Set();
 const bridge = client('Cầu in');
 schedule(at('09:45'), async () => { const r = await thuNgan('POST', '/api/payments/drawer', { date: DAY, opening: 3000000 }); if (r.status !== 200) issue(`Két đầu ngày: ${r.data?.error}`); });
 async function bridgeTick() {
+  if (now >= OUTAGE[0] && now < OUTAGE[1]) { stats.outageMin++; return; }
   const r = await bridge('GET', '/api/print/jobs', null, { token });
   for (const j of r.data?.jobs || []) {
     const t = j.targets[0];
@@ -534,6 +592,7 @@ for (let t = at('10:00'); t <= at('23:59'); t += MIN) {
     const open = db.prepare("SELECT COUNT(*) AS n FROM table_sessions WHERE status IN ('open','paying')").get().n;
     stats.peak = Math.max(stats.peak, open);
     if ((t / MIN) % 5 === 0) stats.payAlerts += app.ctx.payTick();
+    stats.printAlerts += app.ctx.printTick();
     if ((t / MIN) % 2) return;
     const late = (await quan('GET', '/api/pos/late')).data || [];
     for (const i of late) {
@@ -600,8 +659,9 @@ const kitchenRows = Object.keys(KITCHEN).map((st) => {
 });
 const tk = db.prepare('SELECT s.name, k.kind, COUNT(*) AS n FROM kitchen_tickets k JOIN kitchen_stations s ON s.id = k.station_id GROUP BY s.name, k.kind').all();
 const printStatus = db.prepare('SELECT print_status, COUNT(*) AS n FROM kitchen_tickets GROUP BY print_status').all();
-const notPrinted = printStatus.filter((x) => x.print_status !== 'printed').reduce((n, x) => n + x.n, 0);
-if (notPrinted) issue(`${notPrinted} phiếu bếp chưa in`);
+// Phiếu không in được thì phải được bếp nhận trên màn hình; không phiếu nào bị bỏ sót
+const lost = db.prepare("SELECT COUNT(*) AS n FROM kitchen_tickets WHERE print_status != 'printed' AND done_at IS NULL").get().n;
+if (lost) issue(`${lost} phiếu bếp vừa không in vừa không ai nhận (bị bỏ sót)`);
 
 // Thời gian chờ món
 const waits = {};
@@ -637,6 +697,7 @@ const before = { ...day.summary, anomalies: day.anomalies.length };
 const bankTotal = bankLog.reduce((n, a) => n + a, 0);
 if (day.summary.bank_in !== bankTotal) issue(`App ghi tiền ngân hàng ${day.summary.bank_in} ≠ tổng SePay báo ${bankTotal}`);
 // Bill "chờ tiền về" mà sao kê không có → chưa thấy tiền; còn lại (ngân hàng đã báo) → xác nhận
+for (const b of day.bills.filter((x) => x.overpay_status === 'pending')) await quan('POST', `/api/pos/sessions/${b.id}/overpay`, { action: 'refunded', note: 'Đã chuyển trả khách' });
 const ghostBills = day.bills.filter((b) => b.reconcile_status === 'pending');
 await thuNgan('POST', '/api/payments/reconcile', { ids: ghostBills.map((b) => b.id), status: 'missing', note: 'Không có trong sao kê' });
 const okIds = day.bills.filter((b) => b.reconcile_status === 'matched').map((b) => b.id);
@@ -705,6 +766,14 @@ for (const r of kitchenRows) {
 P(`- Phiếu in: ${printStatus.map((x) => `${x.print_status} ${x.n}`).join(', ')}; máy in giả nhận: ${Object.values(printers).map((p) => `${p.name} ${p.jobs}`).join(', ')} (Ưu tiên chưa có IP → in sang Steak)`);
 P(`- Món trễ được nhắc bếp: ${stats.reminds} · làm lại: ${stats.redo} · huỷ gọi nhầm: ${stats.cancelItem} · hết món "Bò ướp mala" chặn ${stats.soldOutBlocked} lần gọi`);
 P(`- Tính tiền khi còn món chưa bấm "Đã ra" (app hỏi lại): ${stats.unservedConfirm} bàn`);
+P();
+P('## Sự cố ở quán');
+P(`- **Mất wifi / cúp điện 19:00–19:20** (${stats.outageMin} phút): order vẫn chạy bằng 4G; app báo quản lý "máy in mất kết nối" ${stats.printAlerts} lần (gồm cả lần kết nối lại); bếp/bar làm theo màn hình **Phiếu bếp**, bấm Đã nhận ${stats.screenDone} phiếu → khi có mạng lại không in trùng`);
+P(`- **Máy in Pha chế hỏng 20:30–21:30**: bar nhận ${stats.pcScreen} phiếu trên màn hình; phiếu in lỗi không bị mất`);
+P(`- **Mất phiếu bếp**: in lại ${stats.reprints} lần, máy Steak nhận ${printers.Steak.reprints} phiếu có chữ "BẢN IN LẠI"`);
+P(`- **Khách mất bill**: in lại bill ${stats.lostBills} bàn`);
+P(`- **Khách bỏ trốn**: ${stats.dash} bàn, mất ${f(stats.dashValue)}đ → ghi vào bất thường`);
+P(`- **Khách CK 2 lần**: ${stats.doubleCk} bill → không tính tip, quản lý hoàn lại khách`);
 P();
 P('## Thu ngân & cuối ngày');
 P(`- ${sm.bills} bill: CK ${stats.pay.transfer}, tiền mặt ${stats.pay.cash}, TM + CK ${stats.pay.mixed}`);

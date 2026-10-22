@@ -38,6 +38,8 @@ export default function (r, ctx) {
   addCol('table_sessions', 'tip_cash', 'INTEGER NOT NULL DEFAULT 0');
   addCol('table_sessions', 'tip_transfer', 'INTEGER NOT NULL DEFAULT 0');
   addCol('table_sessions', 'pending_alerted', 'INTEGER NOT NULL DEFAULT 0');
+  addCol('table_sessions', 'overpay', 'INTEGER NOT NULL DEFAULT 0');           // CK dư bất thường (có thể khách chuyển 2 lần)
+  addCol('table_sessions', 'overpay_status', "TEXT NOT NULL DEFAULT ''");     // pending | tip | refunded
   db.exec(`CREATE TABLE IF NOT EXISTS cash_handovers (
     id INTEGER PRIMARY KEY, date TEXT NOT NULL, staff_id INTEGER NOT NULL, session_ids TEXT NOT NULL, expected INTEGER NOT NULL, counted INTEGER NOT NULL,
     diff INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '', received_by INTEGER, created_at INTEGER NOT NULL
@@ -131,6 +133,18 @@ export default function (r, ctx) {
     });
   }
 
+  // Khách CK dư: dư ít (≤ 100.000đ và ≤ 30% bill) = tip quỹ chung; dư nhiều = bất thường (chuyển 2 lần / gõ thừa số 0) → quản lý quyết
+  function setExcess(sid, excess, bill) {
+    const cur = db.prepare('SELECT overpay, overpay_status FROM table_sessions WHERE id = ?').get(sid);
+    const normal = excess <= 100000 && excess <= bill * 0.3;
+    if (excess <= 0) { db.prepare("UPDATE table_sessions SET tip_transfer = 0, overpay = 0, overpay_status = '' WHERE id = ?").run(sid); return; }
+    if (normal) { db.prepare("UPDATE table_sessions SET tip_transfer = ?, overpay = 0, overpay_status = '' WHERE id = ?").run(excess, sid); return; }
+    if (cur.overpay === excess && ['tip', 'refunded'].includes(cur.overpay_status)) return; // đã xử lý
+    db.prepare("UPDATE table_sessions SET tip_transfer = 0, overpay = ?, overpay_status = 'pending' WHERE id = ?").run(excess, sid);
+    const s = db.prepare('SELECT bill_no FROM table_sessions WHERE id = ?').get(sid);
+    ctx.notify([...new Set([...bosses(), ...cashiers()])], { title: `Bill ${s.bill_no}: khách CK dư bất thường ${vnd(excess)}`, body: 'Có thể khách chuyển 2 lần hoặc gõ thừa số. Liên hệ khách: hoàn lại hay tip? Quản lý xử lý ở Thu ngân.', link: '/thu-ngan', urgent: true });
+  }
+
   // Tiền vào từ ngân hàng: khớp bill theo mã CLT<số bill>
   ctx.applyBankIn = (txnId) => {
     const t = db.prepare('SELECT * FROM bank_txns WHERE id = ?').get(txnId);
@@ -153,7 +167,8 @@ export default function (r, ctx) {
     const waiter = [s.opened_by].filter(Boolean);
     if (['open', 'paying'].includes(s.status)) {
       if (got >= s.total) {
-        closeBill(s, { by: null, method: 'transfer', transfer: s.total, tipTransfer: got - s.total, reconcile: 'matched' });
+        closeBill(s, { by: null, method: 'transfer', transfer: s.total, reconcile: 'matched' });
+        setExcess(sid, got - s.total, s.total);
         ctx.notify([...new Set([...waiter, ...cashiers()])], { title: `Bàn ${s.header} đã nhận CK ${vnd(got)}`, body: `Bill ${billNo(sid)} đã thanh toán, bàn trống.${got > s.total ? ` Khách CK dư ${vnd(got - s.total)} → tip quỹ chung.` : ''}`, link: `/goi-mon?s=${sid}` });
         ctx.audit(null, 'pay.auto_close', { id: sid, got, total: s.total });
       } else {
@@ -162,7 +177,8 @@ export default function (r, ctx) {
     } else if (s.status === 'closed') {
       if (s.transfer_amount > 0) {
         if (got >= s.transfer_amount) {
-          db.prepare("UPDATE table_sessions SET reconcile_status = CASE WHEN reconcile_status = 'confirmed' THEN 'confirmed' ELSE 'matched' END, tip_transfer = ? WHERE id = ?").run(got - s.transfer_amount, sid);
+          db.prepare("UPDATE table_sessions SET reconcile_status = CASE WHEN reconcile_status = 'confirmed' THEN 'confirmed' ELSE 'matched' END WHERE id = ?").run(sid);
+          setExcess(sid, got - s.transfer_amount, s.paid_total);
         } else {
           ctx.notify(cashiers(), { title: `Bill ${s.bill_no} CK thiếu ${vnd(s.transfer_amount - got)}`, body: `Phải nhận ${vnd(s.transfer_amount)}, mới về ${vnd(got)}. Bàn ${s.header}.`, link: '/thu-ngan', urgent: true });
         }
@@ -250,7 +266,7 @@ export default function (r, ctx) {
     }
     const got = bankReceived(s.id);
     closeBill(s, { by: me.id, method, cash, transfer, given, tipCash, reconcile: transfer > 0 && got >= transfer ? 'matched' : 'pending', cashStatus: isCashier(me) ? 'received' : 'held' });
-    if (transfer > 0 && got > transfer) db.prepare('UPDATE table_sessions SET tip_transfer = ? WHERE id = ?').run(got - transfer, s.id);
+    if (transfer > 0 && got > transfer) setExcess(s.id, got - transfer, total);
     const printed = body.print ? !!printBill(s.id) : false;
     ctx.audit(me, 'pay.close', { id: s.id, total, method, cash, transfer, tip_cash: tipCash, unserved: unserved.length });
     ctx.broadcast('pos');
@@ -312,6 +328,19 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
+  r.post('/api/pos/sessions/:id/overpay', 'manager', ({ me, params, body }) => {
+    const s = db.prepare('SELECT * FROM table_sessions WHERE id = ?').get(params.id);
+    if (!s || s.overpay_status !== 'pending') fail(400, 'Bill này không có khoản CK dư chờ xử lý');
+    if (dayClosed(s.closed_date)) fail(400, 'Ngày này đã chốt');
+    const action = v.oneOf(body.action, ['tip', 'refunded'], { name: 'Cách xử lý' });
+    const note = v.text(body.note, { name: 'Ghi chú', max: 120 });
+    db.prepare('UPDATE table_sessions SET overpay_status = ?, tip_transfer = tip_transfer + ? WHERE id = ?').run(action, action === 'tip' ? s.overpay : 0, s.id);
+    ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND role = 'owner'").all().map((x) => x.id).filter((x) => x !== me.id), { title: `CK dư ${vnd(s.overpay)} bill ${s.bill_no}: ${action === 'tip' ? 'tính tip' : 'đã hoàn lại khách'}`, body: `${me.name}${note ? `: ${note}` : ''}`, link: '/thu-ngan' });
+    ctx.audit(me, 'pay.overpay', { id: s.id, action, amount: s.overpay });
+    ctx.broadcast('pos');
+    return { ok: true };
+  });
+
   // ---------- Đổi cách thanh toán (bấm nhầm tiền mặt ↔ chuyển khoản) ----------
   db.exec(`CREATE TABLE IF NOT EXISTS payment_changes (
     id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, date TEXT NOT NULL, from_method TEXT NOT NULL, to_method TEXT NOT NULL,
@@ -340,7 +369,8 @@ export default function (r, ctx) {
     const reconcile = transfer > 0 ? (got >= transfer ? 'matched' : 'pending') : '';
     db.prepare(`UPDATE table_sessions SET pay_method = ?, cash_amount = ?, transfer_amount = ?, cash_given = ?, tip_cash = ?, tip_transfer = ?, cash_status = ?,
       reconcile_status = ?, pending_alerted = 0, reconciled_at = NULL, reconciled_by = NULL WHERE id = ?`)
-      .run(method, cash, transfer, cash > 0 ? s.cash_given : 0, tipCash, transfer > 0 ? Math.max(0, got - transfer) : 0, cashStatus, reconcile, s.id);
+      .run(method, cash, transfer, cash > 0 ? s.cash_given : 0, tipCash, 0, cashStatus, reconcile, s.id);
+    if (transfer > 0) setExcess(s.id, Math.max(0, got - transfer), total);
     // CK về lúc bill còn ghi tiền mặt (đang "cần xem") → nay khớp
     if (transfer > 0) db.prepare("UPDATE bank_txns SET status = 'matched', note = 'Bill đổi sang CK' WHERE session_id = ? AND status = 'review'").run(s.id);
     db.prepare('INSERT INTO payment_changes (session_id, date, from_method, to_method, from_cash, to_cash, reason, changed_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -414,7 +444,7 @@ export default function (r, ctx) {
   // ---------- Thu ngân: doanh thu ngày, tiền mặt, đối soát chuyển khoản, bất thường ----------
   function day(date) {
     const bills = db.prepare(`SELECT s.id, s.bill_no, s.opened_at, s.closed_at, s.closed_by, s.pay_method, s.paid_total, s.cash_amount, s.transfer_amount, s.reconcile_status, s.reconcile_note,
-        s.cash_status, s.handover_id, s.tip_cash, s.tip_transfer, c.name AS closed_by_name, json_extract(s.bill_snapshot, '$.discount') AS discount
+        s.cash_status, s.handover_id, s.tip_cash, s.tip_transfer, s.overpay, s.overpay_status, c.name AS closed_by_name, json_extract(s.bill_snapshot, '$.discount') AS discount
       FROM table_sessions s LEFT JOIN staff c ON c.id = s.closed_by WHERE s.status = 'closed' AND s.closed_date = ? ORDER BY s.closed_at`).all(date)
       .map((b) => ({ ...b, closed_by_name: b.closed_by ? b.closed_by_name : 'Tự động (ngân hàng)', header: ctx.posSession(b.id).header, transfer_note: noteOf(b.bill_no), bank_received: bankReceived(b.id) }));
     const refunds = db.prepare('SELECT r.*, s.bill_no, a.name AS approver_name, c.name AS by_name FROM refunds r JOIN table_sessions s ON s.id = r.session_id LEFT JOIN staff a ON a.id = r.approved_by LEFT JOIN staff c ON c.id = r.created_by WHERE r.date = ? ORDER BY r.id').all(date)
@@ -446,6 +476,8 @@ export default function (r, ctx) {
       transfer_missing: sum(tr.filter((b) => b.reconcile_status === 'missing'), 'transfer_amount'),
       bank_in: sum(txns.filter((t) => t.direction === 'in' && !['ignored', 'deposit'].includes(t.status)), 'amount'),
       unmatched: txns.filter((t) => t.direction === 'in' && ['unmatched', 'review'].includes(t.status)).length,
+      overpay_pending: bills.filter((b) => b.overpay_status === 'pending').length,
+      overpay_refunded: sum(bills.filter((b) => b.overpay_status === 'refunded'), 'overpay'),
     };
     const closing = db.prepare('SELECT d.*, s.name AS by_name FROM day_closings d LEFT JOIN staff s ON s.id = d.confirmed_by WHERE d.date = ?').get(date);
     return {
@@ -475,8 +507,11 @@ export default function (r, ctx) {
       for (const x of late) by[x.by_name || '?'] = (by[x.by_name || '?'] || 0) + x.qty;
       add('warn', `Huỷ món đã gửi bếp quá 2′: ${late.length} lần (${Object.entries(by).map(([k, n]) => `${k} ${n} phần`).join(', ')})`);
     }
-    const cancelled = db.prepare(`SELECT COUNT(*) AS n FROM table_sessions s WHERE s.status = 'cancelled' AND s.closed_at >= ? AND s.closed_at < ? AND EXISTS (SELECT 1 FROM order_items i WHERE i.session_id = s.id AND i.sent_at IS NOT NULL)`).get(from, to).n;
-    if (cancelled) add('warn', `Huỷ cả bàn đã gửi bếp: ${cancelled} bàn`);
+    const cancelled = db.prepare(`SELECT s.note, c.name AS by_name, (SELECT COALESCE(SUM(unit_price * qty), 0) FROM order_items i WHERE i.session_id = s.id AND i.sent_at IS NOT NULL) AS value
+      FROM table_sessions s LEFT JOIN staff c ON c.id = s.closed_by WHERE s.status = 'cancelled' AND s.closed_at >= ? AND s.closed_at < ? AND EXISTS (SELECT 1 FROM order_items i WHERE i.session_id = s.id AND i.sent_at IS NOT NULL)`).all(from, to);
+    if (cancelled.length) add(cancelled.some((x) => /bỏ trốn|không trả|chưa trả/i.test(x.note)) ? 'bad' : 'warn', `Huỷ cả bàn đã gửi bếp: ${cancelled.length} bàn, ${vnd(cancelled.reduce((n, x) => n + x.value, 0))} món đã làm (${cancelled.map((x) => `${x.note} · ${x.by_name} ${vnd(x.value)}`).join('; ')})`);
+    const rep = db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'pos.ticket.reprint' AND at >= ? AND at < ?").get(from, to).n;
+    if (rep) add('warn', `In lại phiếu bếp: ${rep} lần (kiểm tra bếp không làm trùng món)`);
     if (refunds.length) add('warn', `Hoàn tiền mặt: ${refunds.length} lần, ${vnd(summary.refund_cash)} (${refunds.map((x) => `bill ${x.bill_no}: ${x.by_name} hoàn, ${x.approver_name} duyệt`).join('; ')})`);
     for (const h of handovers.filter((x) => x.diff)) add('bad', `Nhận tiền ${h.diff < 0 ? 'thiếu' : 'dư'} ${vnd(Math.abs(h.diff))}: ${h.staff_name} (thu ngân ${h.received_by_name} nhận)`);
     if (summary.drawer_diff) add('bad', `Két ${summary.drawer_diff < 0 ? 'thiếu' : 'dư'} ${vnd(Math.abs(summary.drawer_diff))} so với số phải có ${vnd(summary.drawer_expected)}`);
@@ -487,6 +522,7 @@ export default function (r, ctx) {
     if (summary.cash_held) add('bad', `Bill tiền mặt chưa được thu ngân xác nhận: ${vnd(summary.cash_held)}`);
     const long = db.prepare("SELECT COUNT(*) AS n FROM table_sessions WHERE status IN ('open','paying') AND opened_at < ?").get(ctx.now() - 3 * 3_600_000).n;
     if (long) add('warn', `Bàn mở quá 3 giờ chưa tính tiền: ${long} bàn`);
+    for (const b of bills.filter((x) => x.overpay)) add(b.overpay_status === 'pending' ? 'bad' : 'warn', `Bill ${b.bill_no} khách CK dư ${vnd(b.overpay)}: ${b.overpay_status === 'pending' ? 'CHƯA XỬ LÝ' : b.overpay_status === 'tip' ? 'quản lý tính tip' : 'đã hoàn lại khách (phải có giao dịch chuyển trả)'}`);
     const ch = db.prepare('SELECT c.*, t.bill_no, s.name AS by_name FROM payment_changes c JOIN table_sessions t ON t.id = c.session_id LEFT JOIN staff s ON s.id = c.changed_by WHERE c.date = ? ORDER BY c.id').all(date);
     if (ch.length) add('warn', `Đổi cách thanh toán: ${ch.length} lần (${ch.map((c) => `bill ${c.bill_no} ${{ cash: 'TM', transfer: 'CK', mixed: 'TM+CK' }[c.from_method]}→${{ cash: 'TM', transfer: 'CK', mixed: 'TM+CK' }[c.to_method]} ${c.by_name}: ${c.reason}`).join('; ')})`);
     return out;
@@ -542,6 +578,7 @@ export default function (r, ctx) {
     if (waitCk) fail(400, `Còn ${waitCk} bill CK chưa xác nhận`);
     if (d.summary.cash_held) fail(400, `Còn ${vnd(d.summary.cash_held)} tiền mặt chờ thu ngân xác nhận`);
     if (d.summary.unmatched) fail(400, `Còn ${d.summary.unmatched} khoản tiền CK chưa khớp bill: ghép bill hoặc đánh dấu bỏ qua`);
+    if (d.summary.overpay_pending) fail(400, `Còn ${d.summary.overpay_pending} bill khách CK dư bất thường chưa xử lý`);
     if (d.summary.opening == null) fail(400, 'Chưa nhập tiền két đầu ngày');
     if (d.summary.drawer_counted == null) fail(400, 'Chưa nhập tiền đếm trong két cuối ngày');
     if (!ctx.cashPhotos(date).length) fail(400, 'Chưa chụp ảnh tiền đã đếm');

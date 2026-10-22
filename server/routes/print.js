@@ -18,6 +18,8 @@ export default function (r, ctx) {
   const cols = db.prepare('PRAGMA table_info(kitchen_tickets)').all().map((c) => c.name);
   if (!cols.includes('print_error')) db.exec("ALTER TABLE kitchen_tickets ADD COLUMN print_error TEXT NOT NULL DEFAULT ''");
   const scols = db.prepare('PRAGMA table_info(kitchen_stations)').all().map((c) => c.name);
+  if (!cols.includes('reprint')) db.exec('ALTER TABLE kitchen_tickets ADD COLUMN reprint INTEGER NOT NULL DEFAULT 0');
+  if (!cols.includes('reprint_at')) db.exec('ALTER TABLE kitchen_tickets ADD COLUMN reprint_at INTEGER');
   if (!scols.includes('printer_ok')) db.exec('ALTER TABLE kitchen_stations ADD COLUMN printer_ok INTEGER');
   if (!scols.includes('printer_checked_at')) db.exec('ALTER TABLE kitchen_stations ADD COLUMN printer_checked_at INTEGER');
   // Giấy in khác phiếu bếp (bill, phiếu hoàn tiền): đã dựng sẵn byte
@@ -89,7 +91,7 @@ export default function (r, ctx) {
   r.get('/api/print/jobs', null, ({ req }) => {
     auth(req);
     const now = ctx.now();
-    db.prepare("UPDATE kitchen_tickets SET print_status = 'expired' WHERE print_status = 'pending' AND created_at < ?").run(now - EXPIRE_MIN * 60_000);
+    db.prepare("UPDATE kitchen_tickets SET print_status = 'expired' WHERE print_status = 'pending' AND COALESCE(reprint_at, created_at) < ?").run(now - EXPIRE_MIN * 60_000);
     const jobs = [];
     const tks = db.prepare(`SELECT k.*, st.name AS station_name, s.name AS by_name FROM kitchen_tickets k
       LEFT JOIN kitchen_stations st ON st.id = k.station_id LEFT JOIN staff s ON s.id = k.created_by
@@ -97,8 +99,8 @@ export default function (r, ctx) {
     for (const k of tks) {
       const to = targets(k.station_id);
       if (!to.length) continue; // máy chưa có IP: chờ, màn quản lý báo "chưa cài máy in"
-      const t = { ...k, lines: JSON.parse(k.lines || '[]') };
-      const lateMin = Math.floor((now - k.created_at) / 60_000);
+      const t = { ...k, lines: JSON.parse(k.lines || '[]'), time0: hm(k.created_at) };
+      const lateMin = Math.floor((now - (k.reprint_at || k.created_at)) / 60_000);
       jobs.push({ key: `t${k.id}`, station: k.station_name, targets: to, data: ticketBytes(t, { mode: mode(), time: hm(k.created_at), by: k.by_name || '', lateMin }).toString('base64') });
     }
     for (const p of db.prepare("SELECT p.*, st.name, st.printer_ip, st.printer_port FROM print_tests p JOIN kitchen_stations st ON st.id = p.station_id WHERE p.status = 'pending'").all()) {

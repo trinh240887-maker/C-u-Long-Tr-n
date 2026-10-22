@@ -79,7 +79,7 @@ export default function (r, ctx) {
     const envelope = s.drawer_counted != null ? s.drawer_counted - (d.drawer?.keep_float || 0) : null;
     // Chuyển khoản: tiền ngân hàng báo vào (trừ khoản đã đánh dấu là nộp tiền mặt) phải = CK đã xác nhận + tip CK
     const bankSales = s.bank_in;
-    const ckExpected = s.transfer_confirmed + s.tip_transfer;
+    const ckExpected = s.transfer_confirmed + s.tip_transfer + (s.overpay_refunded || 0); // CK dư đã hoàn lại: tiền vẫn vào TK, trả ra bằng giao dịch riêng
     const next = (() => { const x = new Date(`${date}T00:00:00Z`); x.setUTCDate(x.getUTCDate() + 3); return x.toISOString().slice(0, 10); })();
     // Khoản tiền vào chưa khớp bill trong 3 ngày sau = ứng viên "nộp tiền mặt"
     const deposits = db.prepare("SELECT id, amount, content, txn_at, received_at, date, status FROM bank_txns WHERE direction = 'in' AND date >= ? AND date <= ? AND (status = 'unmatched' OR id = ?) ORDER BY ABS(amount - ?) LIMIT 8")
