@@ -97,10 +97,11 @@ export function hourlyCoverage(shifts, day, prevDay, key = 'team_id') {
 }
 
 function HourCoverage({ shifts, day, prevDay, teams, zones = [], positions = [] }) {
+  // Bấm ô → hiện tên người đang làm giờ đó (hook đặt trên cùng, trước mọi return)
+  const [pick, setPick] = useState(null);
   const rows = hourlyCoverage(shifts, day, prevDay);
   const prows = hourlyCoverage(shifts, day, prevDay, 'position_id');
   const zrows = hourlyCoverage(shifts, day, prevDay, 'zone_id');
-  const counts = (r) => r.map((set) => set.size);
   const total = Array.from({ length: 24 }, (_, h) => [...rows.values()].reduce((n, r) => n + r[h].size, 0));
   const used = total.map((n, h) => (n ? h : null)).filter((h) => h !== null);
   if (!used.length) return html`<section class="card"><h3>Số người theo giờ</h3><p class="muted small">Ngày này chưa xếp ca nào.</p></section>`;
@@ -108,23 +109,38 @@ function HourCoverage({ shifts, day, prevDay, teams, zones = [], positions = [] 
   const to = Math.max(...used);
   const hours = Array.from({ length: to - from + 1 }, (_, i) => from + i);
   const max = Math.max(...total, 1);
-  const cell = (n, min, isTotal) => {
+  const allSets = Array.from({ length: 24 }, (_, h) => new Set([...rows.values()].flatMap((r) => [...r[h]])));
+  const cell = (set, min, label, h, isTotal) => {
+    const n = set.size;
     const tone = n === 0 ? 'zero' : !isTotal && min && n < min ? 'low' : '';
     const alpha = n ? 0.15 + 0.6 * (n / (isTotal ? max : Math.max(min || 1, n))) : 0;
-    return html`<td class=${`hc ${tone}`} style=${tone ? '' : `--a:${Math.min(alpha, 0.75)}`}>${n || ''}</td>`;
+    const on = pick && pick.label === label && pick.h === h;
+    return html`<td class=${`hc ${tone} ${on ? 'on' : ''}`} style=${tone ? '' : `--a:${Math.min(alpha, 0.75)}`}
+      onClick=${() => setPick(on || !n ? null : { label, h, ids: [...set] })}>${n || ''}</td>`;
   };
+  // Tổng số người trong ngày + tối đa cùng lúc (vd 7 người nhưng tối đa 5 cùng lúc vì ca nối nhau)
+  const dayInfo = (r) => {
+    const all = new Set(r.flatMap((x) => [...x]));
+    const peak = Math.max(...hours.map((h) => r[h].size));
+    return all.size > peak ? `${all.size} người · tối đa ${peak} cùng lúc` : `${all.size} người`;
+  };
+  const shiftOf = (id) => shifts.filter((x) => x.staff_id === id && (x.date === day || x.date === prevDay) && x.leave?.status !== 'approved');
   return html`<section class="card">
     <div class="row between"><h3>Số người theo giờ</h3><span class="muted small">ô vàng: ít hơn số tối thiểu của tổ</span></div>
     <div class="grid-wrap"><table class="hours">
       <thead><tr><th class="who">Tổ</th>${hours.map((h) => html`<th>${h}h</th>`)}</tr></thead>
       <tbody>
-        ${teams.filter((t) => rows.has(t.id)).map((t) => html`<tr><td class="who">${t.name}</td>${hours.map((h) => cell(counts(rows.get(t.id))[h], t.min_staff))}</tr>
-          ${positions.filter((p) => p.team_id === t.id && prows.has(p.id)).map((p) => html`<tr class="pr"><td class="who">↳ ${p.name}</td>${hours.map((h) => cell(prows.get(p.id)[h].size, p.min_staff))}</tr>`)}`)}
-        ${rows.has(null) ? html`<tr><td class="who">Chưa có tổ</td>${hours.map((h) => cell(rows.get(null)[h].size, 0))}</tr>` : null}
-        <tr class="sum"><td class="who">Cả quán</td>${hours.map((h) => cell(total[h], 0, true))}</tr>
-        ${zones.filter((z) => zrows.has(z.id)).map((z) => html`<tr class="zr"><td class="who">📍 ${z.name}</td>${hours.map((h) => cell(zrows.get(z.id)[h].size, 0))}</tr>`)}
+        ${teams.filter((t) => rows.has(t.id)).map((t) => html`<tr><td class="who">${t.name}<small class="day-n">${dayInfo(rows.get(t.id))}</small></td>${hours.map((h) => cell(rows.get(t.id)[h], t.min_staff, t.name, h))}</tr>
+          ${positions.filter((p) => p.team_id === t.id && prows.has(p.id)).map((p) => html`<tr class="pr"><td class="who">↳ ${p.name}</td>${hours.map((h) => cell(prows.get(p.id)[h], p.min_staff, `${t.name} · ${p.name}`, h))}</tr>`)}`)}
+        ${rows.has(null) ? html`<tr><td class="who">Chưa có tổ</td>${hours.map((h) => cell(rows.get(null)[h], 0, 'Chưa có tổ', h))}</tr>` : null}
+        <tr class="sum"><td class="who">Cả quán</td>${hours.map((h) => cell(allSets[h], 0, 'Cả quán', h, true))}</tr>
+        ${zones.filter((z) => zrows.has(z.id)).map((z) => html`<tr class="zr"><td class="who">📍 ${z.name}</td>${hours.map((h) => cell(zrows.get(z.id)[h], 0, z.name, h))}</tr>`)}
       </tbody>
     </table></div>
+    ${pick ? html`<div class="hc-pick small">
+      <div class="row between"><b>${pick.label} · ${pick.h}h–${pick.h + 1}h: ${pick.ids.length} người</b><button class="small" onClick=${() => setPick(null)}>Đóng</button></div>
+      ${pick.ids.map((id) => { const sh = shiftOf(id); return html`<div class="row between"><span>${sh[0]?.staff_name || id}</span><span class="muted">${sh.map((x) => `${x.text}${x.label ? ` ${x.label}` : ''}`).join(', ')}</span></div>`; })}
+    </div>` : html`<p class="muted small">Bấm vào ô để xem ai đang làm giờ đó.</p>`}
   </section>`;
 }
 
@@ -224,7 +240,7 @@ export function Schedule({ me, query }) {
         </tr>`)}`)}
       </tbody></table></div>`
     : html`<div class="daytabs">${d.days.map((x) => html`<button class=${`${x === activeDay ? 'on' : ''} ${x === me.today ? 'today' : ''}`} onClick=${() => setDay(x)}>${dayLabel(x)}</button>`)}</div>
-      <${HourCoverage} shifts=${d.shifts} day=${activeDay} prevDay=${addDays(activeDay, -1)} teams=${teams} zones=${zonesD.data || []} positions=${positions} />
+      <${HourCoverage} key=${activeDay} shifts=${d.shifts} day=${activeDay} prevDay=${addDays(activeDay, -1)} teams=${teams} zones=${zonesD.data || []} positions=${positions} />
       ${groups.map((g) => {
         const people = g.people.map((p) => ({ p, cell: byCell.get(`${p.id}:${activeDay}`) || [] }));
         const on = staff.data.map((p) => ({ p, cell: (byCell.get(`${p.id}:${activeDay}`) || []).filter((s) => shiftTeam(p, s) === g.id) })).filter((x) => x.cell.length);
