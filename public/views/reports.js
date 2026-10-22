@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { html, useData, Loading, money, addDays } from '../ui.js';
+import { html, useData, Loading, money, addDays, navigate } from '../ui.js';
 
 // GĐ4 Báo cáo doanh thu: chọn kỳ → tổng quan so kỳ trước, theo ngày / giờ / thứ / khu, món bán chạy / ế, khuyến mãi, nhân viên, xuất Excel
 const dm = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
@@ -45,7 +45,7 @@ function DayChart({ days }) {
   <p class="muted small">Cao nhất ${dm(best.date)} (${best.weekday}): <b>${money(best.revenue)}</b>${days.length > 16 ? ` · từ ${dm(days[0].date)} đến ${dm(days[days.length - 1].date)}` : ''}. Cột cam: T7/CN.</p>`;
 }
 
-export function ReportsView({ me }) {
+function SalesReport({ me }) {
   const today = me.today;
   const list = presets(today);
   const [sel, setSel] = useState('7d');
@@ -114,5 +114,51 @@ export function ReportsView({ me }) {
         <section class="card"><h3>Theo người mở bàn</h3>
           <${Bars} rows=${x.staff} label=${(m) => m.name} value=${(m) => m.revenue} hint=${(m) => `${m.bills} bill`} /></section>
       `}`}
+  </div>`;
+}
+
+// Năng suất & chi phí nhân sự (chủ + quản lý)
+function LaborReport({ me }) {
+  const today = me.today;
+  const list = presets(today).filter(([id]) => id !== 'today');
+  const [sel, setSel] = useState('7d');
+  const [from, to] = list.find((p) => p[0] === sel).slice(2);
+  const st = useData(`/api/reports/labor?from=${from}&to=${to}`);
+  const x = st.data;
+  if (!x) return html`<${Loading} state=${st} />`;
+  const s = x.summary;
+  const bad = s.pct != null && s.pct > x.target;
+  return html`<div class="stack">
+    <div class="chips">${list.map(([id, l]) => html`<button class=${`chip ${sel === id ? 'on' : ''}`} onClick=${() => setSel(id)}>${l}</button>`)}</div>
+    <div class="row between wrap"><b>${dm(from)} – ${dm(to)}</b><a class="button" href=${`/api/reports/labor.xlsx?from=${from}&to=${to}`} download>⬇ Xuất Excel</a></div>
+    <section class="kpis">
+      <div class=${`kpi main ${bad ? 'warn' : ''}`}><small>Lương / doanh thu</small><b>${s.pct == null ? '—' : `${s.pct.toLocaleString('vi-VN')}%`}</b><small class=${bad ? 'danger-text' : 'muted'}>mục tiêu ${x.target}% · lương ${money(s.labor_cost)} / doanh thu ${money(s.revenue)}</small></div>
+      <div class="kpi"><small>Giờ công</small><b>${s.hours} giờ</b><small class="muted">${s.people} người</small></div>
+      <div class="kpi"><small>Doanh thu / 1 giờ công</small><b>${money(s.rev_per_labor_hour)}</b></div>
+    </section>
+    ${x.over.length ? html`<section class="card warn-card stack"><b>Giờ thừa người → nên cắt ca / cho về sớm</b>
+      ${x.over.map((o) => html`<div class="row between small"><span><b>${String(o.hour).padStart(2, '0')}h</b>: TB ${o.staff.toLocaleString('vi-VN')} người, ${o.tables.toLocaleString('vi-VN')} bàn có khách${o.pct != null ? ` · lương ${o.pct.toLocaleString('vi-VN')}% doanh thu giờ đó` : ''}</span><b>bớt ${o.cut} người</b></div>`)}
+      <small>Ước tiết kiệm ~<b>${money(x.save_total)}</b> cho ${x.open_days} ngày mở cửa. Sửa ở Lịch ca: rút giờ ca, đổi sang ca gãy, hoặc dồn người sang giờ đông.</small></section>`
+      : html`<p class="small ok-text">Không có khung giờ thừa người rõ rệt.</p>`}
+    <section class="card"><h3>Người đang làm so với bàn có khách (TB 1 ngày mở cửa)</h3>
+      <div class="table-wrap"><table class="list small"><thead><tr><th>Giờ</th><th class="r">Người</th><th class="r">Bàn</th><th class="r">Lương</th><th class="r">Doanh thu</th><th class="r">%</th></tr></thead>
+      <tbody>${x.by_hour.map((h) => html`<tr class=${x.over.some((o) => o.hour === h.hour) ? 'warn-row' : ''}><td>${String(h.hour).padStart(2, '0')}h</td><td class="r">${h.staff.toLocaleString('vi-VN')}</td><td class="r">${h.tables.toLocaleString('vi-VN')}</td><td class="r">${k(h.cost)}</td><td class="r">${k(h.revenue)}</td>
+        <td class=${`r ${h.pct != null && h.pct > x.target * 1.5 ? 'danger-text' : ''}`}>${h.pct == null ? '—' : h.pct.toLocaleString('vi-VN')}</td></tr>`)}</tbody></table></div></section>
+    ${x.flagged.length ? html`<section class="card stack"><b>Cần nhắc</b>${x.flagged.map((f) => html`<div class="small"><b>${f.name}</b>: ${f.flags.join(' · ')}</div>`)}</section>` : null}
+    ${x.top.length ? html`<p class="small">Phục vụ doanh thu / giờ cao nhất: <b>${x.top.join(', ')}</b>${x.bottom.length ? html` · thấp nhất: ${x.bottom.join(', ')}` : null}</p>` : null}
+    <section class="card"><h3>Từng người</h3>
+      <div class="table-wrap"><table class="list small"><thead><tr><th>Tên</th><th class="r">Giờ</th><th class="r">Lương</th><th class="r">Trễ</th><th class="r">DT/giờ</th><th class="r">Món/giờ</th></tr></thead>
+      <tbody>${x.people.map((p) => html`<tr><td>${p.name}<br /><small class="muted">${p.team}${p.flags.length ? html` · <span class="danger-text">${p.flags.length} điểm</span>` : ''}</small></td><td class="r">${p.hours.toLocaleString('vi-VN')}</td><td class="r">${k(p.cost)}</td><td class="r">${p.late || ''}</td><td class="r">${p.rev_per_hour ? k(p.rev_per_hour) : ''}</td><td class="r">${p.items_per_hour ? p.items_per_hour.toLocaleString('vi-VN') : ''}</td></tr>`)}</tbody></table></div></section>
+    <section class="card"><h3>Theo tổ</h3>
+      <${Bars} rows=${x.teams} label=${(t) => t.name} value=${(t) => t.cost} hint=${(t) => `${t.hours} giờ · ${t.pct ?? '?'}%`} /></section>
+    <p class="muted small">Chỉ chủ quán và quản lý xem. "Không thao tác" chỉ tính phục vụ / tiếp thực / thu ngân lúc quán đông (từ 5 bàn có khách); bếp làm theo phiếu in nên không tính. Lương tính theo giờ chấm công thật. Số này để nhắc nhở, chưa gắn thưởng phạt.</p>
+  </div>`;
+}
+
+export function ReportsView({ me, query }) {
+  const tab = query?.get('tab') || 'doanhthu';
+  return html`<div class="stack">
+    <div class="tabs">${[['doanhthu', 'Doanh thu'], ['nhansu', 'Nhân sự']].map(([k0, l]) => html`<button class=${tab === k0 ? 'on' : ''} onClick=${() => navigate(`/bao-cao?tab=${k0}`)}>${l}</button>`)}</div>
+    ${tab === 'nhansu' ? html`<${LaborReport} me=${me} />` : html`<${SalesReport} me=${me} />`}
   </div>`;
 }

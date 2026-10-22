@@ -62,14 +62,14 @@ export default function (r, ctx) {
 
   r.get('/api/attendance/me', 'staff', ({ me }) => myStatus(me));
 
-  function checkNetwork(net) {
+  function checkNetwork(net, me) {
     const prefixes = ctx.setting('clock_ip_prefixes').split(',').map((s) => s.trim()).filter(Boolean);
     if (!prefixes.length) return;
-    if (net.remote || !prefixes.some((p) => net.ip.startsWith(p))) fail(403, 'Chỉ chấm công được khi dùng wifi của quán');
+    if (net.remote || !prefixes.some((p) => net.ip.startsWith(p))) { if (me) ctx.clockBlocked?.(me, net); fail(403, 'Chỉ chấm công được khi điện thoại bắt wifi của quán. Tắt 4G, kết nối wifi quán rồi bấm lại.'); }
   }
 
   r.post('/api/attendance/clock-in', 'staff', ({ me, net }) => {
-    checkNetwork(net);
+    checkNetwork(net, me);
     ctx.autoCloseAttendance();
     const clock = ctx.clock();
     const t = ctx.now();
@@ -98,7 +98,7 @@ export default function (r, ctx) {
   });
 
   r.post('/api/attendance/clock-out', 'staff', ({ me, net }) => {
-    checkNetwork(net);
+    checkNetwork(net, me);
     const open = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id);
     if (!open) fail(409, 'Bạn chưa chấm vào ca');
     // Còn giữ tiền mặt của khách chưa giao thu ngân thì không cho ra ca

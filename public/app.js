@@ -43,7 +43,7 @@ const NAV = [
   { path: '/thu-ngan', label: 'Thu ngân & doanh thu', icon: '₫', role: 'staff', show: (me) => atLeast(me, 'shift_lead') || me.team?.name === 'Thu ngân' },
   { path: '/duyet-so', label: 'Duyệt sổ', icon: '✔', role: 'manager' },
   { path: '/mua-hang', label: 'Mua hàng & công nợ NCC', icon: '🧾', role: 'staff' },
-  { path: '/bao-cao', label: 'Báo cáo doanh thu', icon: '📈', role: 'manager' },
+  { path: '/bao-cao', label: 'Báo cáo doanh thu & nhân sự', icon: '📈', role: 'manager' },
   { path: '/khuyen-mai', label: 'Khuyến mãi', icon: '🎁', role: 'staff' },
   { path: '/may-in', label: 'Máy in', icon: '⎙', role: 'shift_lead' },
   { path: '/nghi', label: 'Nghỉ & thay ca', icon: '⇄', role: 'staff' },

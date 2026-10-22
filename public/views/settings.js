@@ -5,6 +5,15 @@ const TABS = [['chung', 'Chung'], ['to', 'Bộ phận & vị trí'], ['khu', 'Kh
 
 const DEF_SLOTS = [{ key: 'sang', label: 'Sáng', start: '06:00', end: '12:00' }, { key: 'chieu', label: 'Chiều', start: '12:00', end: '17:00' }, { key: 'toi', label: 'Tối', start: '17:00', end: '24:00' }];
 
+// Lấy địa chỉ mạng điện thoại đang dùng (đứng ở quán, bắt wifi quán rồi bấm) để làm "wifi quán"
+function WifiHere({ value, onUse }) {
+  const st = useData('/api/attendance/network');
+  if (!st.data) return null;
+  const { ip, allowed } = st.data;
+  return html`<div class="small stack"><span>Mạng điện thoại này đang dùng: <b>${ip || '?'}</b> ${value ? (allowed ? html`<span class="pill ok">đúng wifi quán</span>` : html`<span class="pill warn">không phải wifi quán</span>`) : ''}</span>
+    <div><button class="small" onClick=${() => onUse(ip)}>Dùng mạng đang kết nối làm wifi quán</button> <small class="muted">Đứng ở quán, tắt 4G, bắt wifi quán rồi bấm, sau đó bấm Lưu. Wifi quán đổi địa chỉ (nhà mạng cấp lại) thì app báo, bấm lại nút này.</small></div></div>`;
+}
+
 function General({ s, staff }) {
   const [f, setF] = useState(s);
   useEffect(() => setF(s), [s]);
@@ -13,6 +22,7 @@ function General({ s, staff }) {
   const save = () => act(() => api('PUT', '/api/settings', {
     shop_name: f.shop_name, public_url: f.public_url, day_cutoff_hour: f.day_cutoff_hour, late_grace_minutes: f.late_grace_minutes,
     clock_early_minutes: f.clock_early_minutes, auto_close_after_minutes: f.auto_close_after_minutes, clock_ip_prefixes: f.clock_ip_prefixes,
+    labor_target_pct: f.labor_target_pct, idle_alert_minutes: f.idle_alert_minutes,
     night_bonus_pct: f.night_bonus_pct, month_standard_days: f.month_standard_days, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
     avail_deadline_dow: f.avail_deadline_dow, avail_deadline_time: f.avail_deadline_time, avail_slots: JSON.stringify(slots),
   }), 'Đã lưu cài đặt');
@@ -31,7 +41,10 @@ function General({ s, staff }) {
       ${inp('clock_early_minutes', 'Được chấm vào sớm trước ca (phút)', { type: 'number', min: 0 })}
       ${inp('auto_close_after_minutes', 'Quên chấm ra: tự đóng sau giờ hết ca (phút)', { type: 'number', min: 15 })}
       ${inp('day_cutoff_hour', 'Giờ chốt ngày làm việc', { type: 'number', min: 0, max: 12 }, 'Trước giờ này vẫn tính là ngày hôm trước (ca qua đêm).')}
-      ${inp('clock_ip_prefixes', 'Chỉ chấm công trong wifi quán', { placeholder: 'vd 192.168.1.' }, 'Để trống = không giới hạn. Truy cập từ xa luôn bị chặn chấm công khi bật.')}
+      ${inp('clock_ip_prefixes', 'Chỉ chấm công trong wifi quán', { placeholder: 'vd 113.161.20.5' }, 'Để trống = không giới hạn. Nhiều mạng thì cách nhau dấu phẩy.')}
+      <${WifiHere} value=${f.clock_ip_prefixes} onUse=${(ip) => set('clock_ip_prefixes', [...new Set([...String(f.clock_ip_prefixes || '').split(',').map((x) => x.trim()).filter(Boolean), ip])].join(', '))} />
+      ${inp('labor_target_pct', 'Lương / doanh thu mục tiêu (%)', { type: 'number', min: 5, max: 80 }, 'Giờ nào vượt 1,5 lần mức này mà ít bàn thì app báo thừa người.')}
+      ${inp('idle_alert_minutes', 'Không thao tác bao lâu thì ghi nhận (phút)', { type: 'number', min: 15 }, 'Chỉ tính phục vụ, tiếp thực, thu ngân.')}
       ${inp('night_bonus_pct', 'Phụ cấp làm đêm 22h–6h (%)', { type: 'number', min: 0 })}
       ${inp('month_standard_days', 'Ngày công chuẩn / tháng (lương tháng)', { type: 'number', min: 0, max: 31 }, 'vd 26. Điền 0 nếu trả đủ lương tháng cố định.')}
     </div></section>
