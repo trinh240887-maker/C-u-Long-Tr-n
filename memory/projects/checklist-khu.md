@@ -59,3 +59,9 @@ Quầy dài mặt trắng + kính chắn, máy thái thứ 2, chỗ order/màn h
 **Mở ca**: đếm xe cân bằng (Nhập số · xe) · kiểm pin đủ chạy ca, xe nào yếu báo (Tick + 📷) · lau xe, bánh xe (Tick).
 **Đóng ca**: đếm xe (Nhập số · xe) · cắm sạc đủ xe (Tick + 📷) · lau bánh xe trước khi cất (Tick) · đậu đúng chỗ quy định (Tick + 📷).
 Gợi ý: chỗ đậu/sạc riêng, không để dưới quầy thực phẩm khu Thái tay.
+
+## Khu đón khách A/B/C (2 video 22/10) — tư vấn đánh số bàn
+Dãy bàn gỗ dài + ghế băng dọc lối đi dưới mái bạt (khu Steak bò Mỹ/Úc phía trước, khu Lẩu bò thái tay tiếp theo), chậu cau ngăn khu, bàn giống hệt nhau → khó gọi đúng bàn nếu không có số.
+Đề xuất: **có số từng bàn**, đánh theo trăm: A = 101…, B = 201…, C = 301… (app nhận tới 999); **số liền nhau = bàn kề nhau ngoài thực tế** (app tự ghép bàn liền số trong 1 khu cho nhóm đông); biển số dán cạnh bàn + mặt bàn (QR sau này); chậu cây/lối đi = ranh giới khu.
+Chờ chủ quán: số bàn thật mỗi khu, bàn nào ghép được.
+Chủ quán 22/10: mai làm **1 khay lẩu chuẩn** cho tối → chụp làm ảnh mẫu + cân từng thành phần = định lượng thật.
