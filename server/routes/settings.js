@@ -20,6 +20,7 @@ const FIELDS = {
   low_portions_alert: (x) => String(v.int(x, { min: 0, max: 100, name: 'Báo sắp hết khi còn' })),
   purchase_report_time: (x) => { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(x))) fail(400, 'Giờ tổng hợp dạng HH:MM'); return String(x); },
   supplier_pay_approve_over: (x) => String(v.int(Number(String(x).replace(/[.,\s]/g, '')), { min: 0, max: 1_000_000_000, name: 'Mức chi NCC cần duyệt' })),
+  count_tolerance_pct: (x) => String(v.int(x, { min: 0, max: 50, name: '% lệch kiểm kho cho phép' })),
   price_jump_pct: (x) => String(v.int(x, { min: 1, max: 200, name: '% giá tăng bất thường' })),
   table_clear_minutes: (x) => String(v.int(x, { min: 1, max: 60, name: 'Thời gian dọn bàn' })),
   wait_call_minutes: (x) => String(v.int(x, { min: 1, max: 30, name: 'Chờ khách vào sau khi mời' })),

@@ -243,18 +243,14 @@ export default function (r, ctx) {
     return { store: st, lines: transferSuggestion(st) };
   });
 
-  r.post('/api/stock/count', 'staff', ({ me, body }) => {
-    const st = storeById(v.int(body.store_id, { min: 1, name: 'Kho' }));
-    if (!st) fail(404, 'Không tìm thấy kho');
-    if (!canStore(me, st)) fail(403, 'Bạn không kiểm được kho này');
-    const lines = Array.isArray(body.lines) ? body.lines.filter((l) => l.actual !== '' && l.actual !== null && l.actual !== undefined) : [];
-    if (!lines.length) fail(400, 'Nhập số thực tế cho ít nhất một nguyên liệu');
+  // Kiểm kho (dùng chung cho màn Kiểm kho và việc "cân tồn" trong checklist)
+  function doCount(me, st, lines, note = '') {
     const usageMode = st.kind === 'area' && ctx.setting('area_count_is_usage') === '1';
     const t = ctx.now();
     const date = today();
     const result = tx(db, () => {
       const countId = Number(db.prepare('INSERT INTO stock_counts (store_id, date, staff_id, at, note) VALUES (?, ?, ?, ?, ?)')
-        .run(st.id, date, me.id, t, v.text(body.note, { name: 'Ghi chú', max: 300 })).lastInsertRowid);
+        .run(st.id, date, me.id, t, note).lastInsertRowid);
       const out = [];
       for (const l of lines) {
         const ing = ingById(v.int(l.ingredient_id, { min: 1, name: 'Nguyên liệu' }));
@@ -286,6 +282,29 @@ export default function (r, ctx) {
     ctx.audit(me, 'stock.count', { store: st.id, count: result.countId, lines: result.out.length });
     ctx.broadcast('stock');
     return { count_id: result.countId, lines: result.out, suggestion };
+  }
+  ctx.stockCount = (me, storeId, lines, note) => { const st = storeById(storeId); if (!st) fail(404, 'Không tìm thấy kho'); return doCount(me, st, lines, note); };
+  // Huỷ một lần kiểm (nhân viên sửa lại số cân): trả tồn về như chưa kiểm, xoá ghi nhận lệch
+  ctx.undoCount = (countId) => {
+    const c = db.prepare('SELECT * FROM stock_counts WHERE id = ?').get(countId);
+    if (!c) return;
+    tx(db, () => {
+      for (const l of db.prepare('SELECT * FROM stock_count_lines WHERE count_id = ?').all(countId)) {
+        setActual(db, { storeId: c.store_id, ingredientId: l.ingredient_id, actual: Math.max(0, stockQty(db, c.store_id, l.ingredient_id) + (l.expected - l.actual)), at: ctx.now() });
+      }
+      db.prepare('DELETE FROM stock_moves WHERE ref = ?').run(`count:${countId}`);
+      db.prepare('DELETE FROM stock_count_lines WHERE count_id = ?').run(countId);
+      db.prepare('DELETE FROM stock_counts WHERE id = ?').run(countId);
+    });
+  };
+
+  r.post('/api/stock/count', 'staff', ({ me, body }) => {
+    const st = storeById(v.int(body.store_id, { min: 1, name: 'Kho' }));
+    if (!st) fail(404, 'Không tìm thấy kho');
+    if (!canStore(me, st)) fail(403, 'Bạn không kiểm được kho này');
+    const lines = Array.isArray(body.lines) ? body.lines.filter((l) => l.actual !== '' && l.actual !== null && l.actual !== undefined) : [];
+    if (!lines.length) fail(400, 'Nhập số thực tế cho ít nhất một nguyên liệu');
+    return doCount(me, st, lines, v.text(body.note, { name: 'Ghi chú', max: 300 }));
   });
 
   // ---------- Phiếu lĩnh hàng (kho tổng → khu) ----------

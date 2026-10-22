@@ -281,6 +281,7 @@ table.sched { border-collapse: separate; border-spacing: 0; width: 100%; min-wid
 .item-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
 .item-row select { width: auto; }
 .item-row .unit { width: 80px; }
+.item-row .ing-link { flex: 1 1 100%; }
 .skills { display: flex; flex-direction: column; }
 .skill { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
 .code-box { display: flex; align-items: center; gap: 12px; }

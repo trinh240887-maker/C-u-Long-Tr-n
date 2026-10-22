@@ -22,7 +22,7 @@ function General({ s, staff }) {
   const save = () => act(() => api('PUT', '/api/settings', {
     shop_name: f.shop_name, public_url: f.public_url, day_cutoff_hour: f.day_cutoff_hour, late_grace_minutes: f.late_grace_minutes,
     clock_early_minutes: f.clock_early_minutes, auto_close_after_minutes: f.auto_close_after_minutes, clock_ip_prefixes: f.clock_ip_prefixes,
-    labor_target_pct: f.labor_target_pct, idle_alert_minutes: f.idle_alert_minutes,
+    labor_target_pct: f.labor_target_pct, idle_alert_minutes: f.idle_alert_minutes, count_tolerance_pct: f.count_tolerance_pct,
     night_bonus_pct: f.night_bonus_pct, month_standard_days: f.month_standard_days, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
     avail_deadline_dow: f.avail_deadline_dow, avail_deadline_time: f.avail_deadline_time, avail_slots: JSON.stringify(slots),
   }), 'Đã lưu cài đặt');
@@ -35,6 +35,7 @@ function General({ s, staff }) {
       <${Field} label="Người giữ kho tổng" hint="Dùng ở giai đoạn Kho. Đổi lúc nào cũng được.">
         <select id="set-kho" value=${f.kho_tong_staff_id} onChange=${(e) => set('kho_tong_staff_id', e.target.value)}>
           <option value="">(chưa chọn, tạm giao quản lý)</option>${staff.map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>
+      ${inp('count_tolerance_pct', 'Lệch kiểm kho cho phép (%)', { type: 'number', min: 0, max: 50 }, 'Cân tồn cuối ca lệch so với sổ (đã trừ theo định lượng) quá mức này thì báo chủ quán + quản lý.')}
     </div></section>
     <section class="card"><h3>Chấm công</h3><div class="form-grid">
       ${inp('late_grace_minutes', 'Cho phép trễ (phút)', { type: 'number', min: 0 })}
@@ -242,6 +243,8 @@ function Templates() {
 
 function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
   const posD = useData('/api/positions');
+  const metaD = useData('/api/stock/meta');
+  const ings = (metaD.data?.ingredients || []).filter((g) => g.active !== 0 && g.active !== false);
   const zonesD = useData('/api/zones');
   const [f, setF] = useState({ title: init.title || '', team_id: init.team_id ?? '', phase: init.phase || 'open', active: init.active ?? true,
     shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '', zone_id: init.zone_id ?? '',
@@ -275,6 +278,10 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
           <select value=${x.kind} onChange=${(e) => setF({ ...f, items: f.items.map((y, j) => (j === i ? { ...y, kind: e.target.value, photo_required: e.target.value === 'check' } : y)) })} aria-label="Kiểu">
             <option value="check">Tick</option><option value="number">Nhập số</option><option value="text">Ghi chữ</option></select>
           ${x.kind === 'number' ? html`<input class="unit" value=${x.unit} placeholder="đơn vị" onInput=${(e) => item(i, 'unit', e.target.value)} aria-label="Đơn vị" />` : null}
+          ${x.kind === 'number' && ings.length ? html`<select class="ing-link" value=${x.ingredient_id || ''} aria-label="Nối kho" onChange=${(e) => {
+            const g = ings.find((y) => y.id === Number(e.target.value));
+            setF({ ...f, items: f.items.map((y, j) => (j === i ? { ...y, ingredient_id: g?.id || null, store_id: g?.home_store_id || null, unit: g && !y.unit ? (g.unit === 'g' ? 'kg' : g.unit) : y.unit } : y)) });
+          }}><option value="">Không nối kho</option>${ings.map((g) => html`<option value=${g.id}>📦 Cân tồn: ${g.name}</option>`)}</select>` : null}
           <label class="check-row small"><input type="checkbox" checked=${x.required} onChange=${(e) => item(i, 'required', e.target.checked)} />Bắt buộc</label>
           <label class="check-row small"><input type="checkbox" checked=${x.photo_required ?? x.kind === 'check'} onChange=${(e) => item(i, 'photo_required', e.target.checked)} />📷 Phải có ảnh</label>
           <span class="row tight">
@@ -283,6 +290,7 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
             <button class="icon" aria-label="Bỏ" onClick=${() => setF({ ...f, items: f.items.filter((_, j) => j !== i) })}>✕</button></span>
         </div>`)}
         <button class="link" onClick=${() => setF({ ...f, items: [...f.items, { text: '', kind: 'check', unit: '', required: true, photo_required: true }] })}>+ Thêm việc</button>
+        <p class="muted small">Việc "Nhập số" chọn <b>📦 Cân tồn</b>: số nhân viên cân = tồn thực tế trong kho. App tự kiểm kho, so với số đã bán theo định lượng và báo nếu lệch.</p>
       </div>
       ${init.id ? html`<label class="check-row"><input type="checkbox" checked=${f.active} onChange=${(e) => setF({ ...f, active: e.target.checked })} /> Đang dùng (bỏ chọn để ẩn, vẫn giữ lịch sử)</label>` : null}
       <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" onClick=${save}>Lưu</button></div>

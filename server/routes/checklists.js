@@ -8,14 +8,30 @@ import { isDate, addDays } from '../lib/time.js';
 
 const PHASES = ['open', 'during', 'close'];
 
+// Đổi số nhân viên nhập (theo đơn vị của việc) sang đơn vị dùng của nguyên liệu
+const UNIT_CONV = { 'kg>g': 1000, 'g>kg': 0.001, 'lít>ml': 1000, 'l>ml': 1000, 'ml>lít': 0.001, 'ml>l': 0.001 };
+export function unitFactor(unit, ing) {
+  const u = String(unit || '').trim().toLowerCase();
+  const base = String(ing.unit || '').trim().toLowerCase();
+  if (!u || u === base) return 1;
+  if (ing.purchase_unit && u === String(ing.purchase_unit).trim().toLowerCase()) return ing.purchase_factor || 1;
+  return UNIT_CONV[`${u}>${base}`] ?? null;
+}
+
 export default function (r, ctx) {
   const { db } = ctx;
+  const addCol = (t, c, d) => { if (!db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`); };
+  // Việc "Nhập số" nối kho: số nhân viên cân = tồn thực tế của nguyên liệu ở kho đó → app tự kiểm kho, tính lệch định lượng
+  addCol('checklist_items', 'ingredient_id', 'INTEGER');
+  addCol('checklist_items', 'store_id', 'INTEGER');
+  addCol('checklist_entries', 'count_id', 'INTEGER');
 
   function templates({ activeOnly = true } = {}) {
     const tpls = db.prepare(`SELECT c.*, t.name AS team_name, st.name AS shift_name, p.name AS position_name, z.name AS zone_name FROM checklist_templates c LEFT JOIN teams t ON t.id = c.team_id
       LEFT JOIN shift_templates st ON st.id = c.shift_template_id LEFT JOIN positions p ON p.id = c.position_id LEFT JOIN zones z ON z.id = c.zone_id
       ${activeOnly ? 'WHERE c.active = 1' : ''} ORDER BY t.sort, CASE c.phase WHEN 'open' THEN 0 WHEN 'during' THEN 1 ELSE 2 END, c.sort, c.id`).all();
-    const items = db.prepare('SELECT * FROM checklist_items ORDER BY sort, id').all();
+    const items = db.prepare(`SELECT i.*, g.name AS ingredient_name, g.unit AS ingredient_unit, st.name AS store_name FROM checklist_items i
+      LEFT JOIN ingredients g ON g.id = i.ingredient_id LEFT JOIN stores st ON st.id = i.store_id ORDER BY i.sort, i.id`).all();
     const samples = db.prepare('SELECT id, template_id, item_id, note FROM checklist_samples ORDER BY id').all();
     return tpls.map((c) => ({
       ...c, active: !!c.active,
@@ -37,11 +53,21 @@ export default function (r, ctx) {
       const unit = v.text(it.unit, { name: 'Đơn vị', max: 12 });
       const required = it.required === undefined ? 1 : v.bool(it.required);
       const photo = it.photo_required === undefined ? (kind === 'check' ? 1 : 0) : v.bool(it.photo_required);
+      let ingId = kind === 'number' ? v.optInt(it.ingredient_id || null, { min: 1, name: 'Nguyên liệu' }) : null;
+      let storeId = null;
+      if (ingId) {
+        const ing = db.prepare('SELECT * FROM ingredients WHERE id = ?').get(ingId);
+        if (!ing) fail(400, 'Nguyên liệu không tồn tại');
+        if (unitFactor(unit, ing) == null) fail(400, `"${text}": đơn vị "${unit}" không đổi được sang ${ing.unit} của ${ing.name}. Dùng ${[ing.unit, ing.purchase_unit, ing.unit === 'g' ? 'kg' : ''].filter(Boolean).join(' / ')}`);
+        storeId = v.optInt(it.store_id || null, { min: 1, name: 'Kho' }) || ing.home_store_id
+          || db.prepare("SELECT id FROM stores WHERE kind = 'main' AND active = 1 ORDER BY id LIMIT 1").get()?.id || null;
+        if (!storeId || !db.prepare('SELECT 1 FROM stores WHERE id = ?').get(storeId)) fail(400, `"${text}": chọn kho để nối`);
+      } else ingId = null;
       if (it.id && existing.has(Number(it.id))) {
-        db.prepare('UPDATE checklist_items SET text = ?, kind = ?, unit = ?, required = ?, photo_required = ?, sort = ? WHERE id = ?').run(text, kind, unit, required, photo, i, Number(it.id));
+        db.prepare('UPDATE checklist_items SET text = ?, kind = ?, unit = ?, required = ?, photo_required = ?, ingredient_id = ?, store_id = ?, sort = ? WHERE id = ?').run(text, kind, unit, required, photo, ingId, storeId, i, Number(it.id));
         keep.add(Number(it.id));
       } else {
-        db.prepare('INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, sort) VALUES (?, ?, ?, ?, ?, ?, ?)').run(templateId, text, kind, unit, required, photo, i);
+        db.prepare('INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(templateId, text, kind, unit, required, photo, ingId, storeId, i);
       }
     });
     for (const id of existing) if (!keep.has(id)) db.prepare('DELETE FROM checklist_items WHERE id = ?').run(id);
@@ -336,6 +362,8 @@ export default function (r, ctx) {
     const itemId = v.int(body.item_id, { min: 1, name: 'Việc' });
     const { run, item } = loadRunItem(me, runId, itemId);
     const done = body.done === undefined ? true : v.bool(body.done);
+    const prevEntry = db.prepare('SELECT count_id, value FROM checklist_entries WHERE run_id = ? AND item_id = ?').get(runId, itemId);
+    const prevCount = prevEntry?.count_id;
     tx(db, () => {
       if (!done) {
         db.prepare('DELETE FROM checklist_entries WHERE run_id = ? AND item_id = ?').run(runId, itemId);
@@ -360,7 +388,51 @@ export default function (r, ctx) {
       }
       updateRun(run, me.id);
     });
+    // Việc nối kho: sửa số / bỏ tick → huỷ lần kiểm cũ; nhập số → kiểm kho mới, báo nếu lệch quá mức cho phép
+    let count = null;
+    if (item.ingredient_id && ctx.stockCount) {
+      if (prevCount) {
+        ctx.undoCount(prevCount);
+        db.prepare('UPDATE checklist_entries SET count_id = NULL WHERE run_id = ? AND item_id = ?').run(runId, itemId);
+        const now = db.prepare('SELECT value FROM checklist_entries WHERE run_id = ? AND item_id = ?').get(runId, itemId)?.value ?? '(bỏ)';
+        ctx.audit(me, 'checklist.recount', { item: item.id, from: prevEntry.value, to: now });
+        // Nhân viên sửa số cân → báo quản lý (chống sửa cho khớp sổ)
+        if (rank(me.role) < rank('shift_lead') && now !== prevEntry.value) {
+          ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager')").all().map((x) => x.id), {
+            title: `${me.name} sửa số cân "${item.text}"`, body: `Từ ${prevEntry.value} → ${now} ${item.unit}. Kiểm tra lại nếu thấy lạ.`, link: '/checklist',
+          });
+        }
+      }
+      if (done) count = countFromEntry(me, run, item);
+      // Nhân viên không xem số trên sổ (tránh cân cho khớp); trưởng ca trở lên xem đủ
+      if (count && rank(me.role) < rank('shift_lead')) count = { name: count.name, text: 'Đã ghi tồn, app đã tự kiểm kho', over: false };
+    }
     ctx.broadcast('checklists');
-    return { ok: true };
+    return { ok: true, count };
   });
+
+  function countFromEntry(me, run, item) {
+    const ing = db.prepare('SELECT * FROM ingredients WHERE id = ?').get(item.ingredient_id);
+    const e = db.prepare('SELECT * FROM checklist_entries WHERE run_id = ? AND item_id = ?').get(run.id, item.id);
+    if (!ing || !e) return null;
+    const actual = Math.round(Number(e.value) * (unitFactor(item.unit, ing) || 1) * 1000) / 1000;
+    const tpl = db.prepare('SELECT title FROM checklist_templates WHERE id = ?').get(run.template_id);
+    const res = ctx.stockCount(me, item.store_id, [{ ingredient_id: ing.id, actual }], `Checklist: ${tpl?.title || ''} · ${item.text}`);
+    db.prepare('UPDATE checklist_entries SET count_id = ? WHERE run_id = ? AND item_id = ?').run(res.count_id, run.id, item.id);
+    const l = res.lines[0];
+    const pct = l.before > 0 ? Math.round((l.diff / l.before) * 1000) / 10 : null;
+    const tol = Number(ctx.setting('count_tolerance_pct') || 3);
+    const show = (q) => (ing.unit === 'g' && Math.abs(q) >= 1000 ? `${(q / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} kg` : `${Math.round(q * 100) / 100} ${ing.unit}`);
+    const over = l.diff !== 0 && (pct === null || Math.abs(pct) > tol);
+    if (over) {
+      const recipeQty = db.prepare('SELECT MIN(qty) AS q FROM menu_recipes WHERE ingredient_id = ? AND qty > 0').get(ing.id)?.q;
+      const portions = recipeQty && l.diff < 0 ? ` ≈ ${Math.round(-l.diff / recipeQty)} phần` : '';
+      ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager')").all().map((x) => x.id).filter((x) => x !== me.id), {
+        title: `Lệch ${ing.name} ${l.diff < 0 ? 'THIẾU' : 'DƯ'} ${show(Math.abs(l.diff))}${pct !== null ? ` (${Math.abs(pct)}%)` : ''}${portions}`,
+        body: `${me.name} cân ${show(l.actual)}, sổ phải còn ${show(l.before)} (đầu ca + nhập − đã bán × định lượng). ${l.diff < 0 ? 'Thiếu: thái dư tay, hư, hoặc lấy không ghi.' : 'Dư: thái thiếu tay (khách thiệt) hoặc nhập hàng chưa ghi.'} Mức cho phép ${tol}%.`,
+        link: '/kho', urgent: Math.abs(pct ?? 100) > tol * 2,
+      });
+    }
+    return { name: ing.name, unit: ing.unit, expected: l.before, actual: l.actual, diff: l.diff, pct, over, text: `Sổ ${show(l.before)} · cân ${show(l.actual)} · ${l.diff === 0 ? 'khớp' : `${l.diff < 0 ? 'thiếu' : 'dư'} ${show(Math.abs(l.diff))}${pct !== null ? ` (${Math.abs(pct)}%)` : ''}`}` };
+  }
 }

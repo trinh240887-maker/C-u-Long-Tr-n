@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { html, api, act, useData, Loading, hm, dayLabel, addDays, PHASE_LABEL, atLeast, Link } from '../ui.js';
+import { html, api, act, toast, useData, Loading, hm, dayLabel, addDays, PHASE_LABEL, atLeast, Link } from '../ui.js';
 import { Checklists } from './settings.js';
 
 // Nén ảnh trên điện thoại trước khi gửi: cạnh dài tối đa 1280px, JPEG
@@ -68,7 +68,12 @@ function Item({ run, item, disabled, me }) {
   const photos = item.photos.map((p) => ({ ...p, old: p.created_at <= since }));
   const fresh = photos.filter((p) => !p.deleted_at && !p.old);
   const needPhoto = item.photo_required && !done && !fresh.length;
-  const save = (value, isDone = true) => act(() => api('POST', '/api/checklists/entry', { run_id: run.run_id, item_id: item.id, value, done: isDone }));
+  const [count, setCount] = useState(null);
+  const save = async (value, isDone = true) => {
+    const r = await act(() => api('POST', '/api/checklists/entry', { run_id: run.run_id, item_id: item.id, value, done: isDone }));
+    setCount(r?.count || null);
+    if (r?.count) toast(`${r.count.name}: ${r.count.text}`, r.count.over);
+  };
   const upload = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -89,6 +94,8 @@ function Item({ run, item, disabled, me }) {
       : html`<span class=${`check static ${done ? 'on' : ''}`}></span>`}
     <div class="grow">
       <div>${item.text}${!item.required ? html` <small class="muted">(không bắt buộc)</small>` : null} ${status}</div>
+      ${item.ingredient_id ? html`<small class="muted">📦 Cân tồn ${item.ingredient_name}${item.store_name ? ` · ${item.store_name}` : ''}: số này là tồn thực tế, app tự kiểm kho</small>` : null}
+      ${count ? html`<div class=${`pill ${count.over ? 'warn' : 'ok'}`}>${count.text}</div>` : null}
       <${Samples} samples=${item.samples || []} templateId=${run.template_id} itemId=${item.id} canEdit=${!disabled && canEditTpl(me, run.team_id)} label="Mẫu việc này" />
       ${redo ? html`<div class="redo-box"><b>Làm lại:</b> ${item.entry.review_note}<br /><small>${item.entry.reviewed_by_name || ''} · ${hm(item.entry.reviewed_at)}. Sửa xong chụp ảnh mới rồi bấm xong lại.</small></div>` : null}
       ${item.entry?.review_status === 'ok' && item.entry.review_note ? html`<small class="muted">Nhận xét: ${item.entry.review_note}</small>` : null}
