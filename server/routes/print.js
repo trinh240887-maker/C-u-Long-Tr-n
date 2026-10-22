@@ -63,6 +63,28 @@ export default function (r, ctx) {
     return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} ${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   };
 
+  // Chạy mỗi phút: có phiếu chờ in > 1′ mà máy tính cầu in ở quán không kết nối > 2′ → báo quản lý + chủ quán (1 lần / sự cố)
+  ctx.printTick = () => {
+    const now = ctx.now();
+    const seen = Number(ctx.setting('print_bridge_seen') || 0);
+    if (!seen) return 0; // chưa cài cầu in lần nào
+    const offline = now - seen > 2 * 60_000;
+    const stuck = db.prepare("SELECT COUNT(*) AS n FROM kitchen_tickets WHERE print_status = 'pending' AND created_at < ?").get(now - 60_000).n;
+    const alerted = ctx.setting('print_offline_alerted') === '1';
+    if (offline && stuck && !alerted) {
+      const ids = db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager','shift_lead')").all().map((x) => x.id);
+      ctx.notify(ids, { title: `Máy in phiếu ở quán mất kết nối: ${stuck} phiếu chưa in`, body: `Cầu in im lặng từ ${Math.round((now - seen) / 60000)} phút. Báo bếp bằng miệng; kiểm tra máy tính ở quán còn bật, còn mạng, cửa sổ "CAU IN" còn mở.`, link: '/may-in', urgent: true });
+      ctx.setSetting('print_offline_alerted', '1');
+      return 1;
+    }
+    if (!offline && alerted) {
+      ctx.setSetting('print_offline_alerted', '0');
+      const ids = db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager','shift_lead')").all().map((x) => x.id);
+      ctx.notify(ids, { title: 'Máy in phiếu ở quán đã kết nối lại', body: 'Phiếu đang chờ sẽ tự in.', link: '/may-in' });
+    }
+    return 0;
+  };
+
   // ---------- Cầu in gọi ----------
   r.get('/api/print/jobs', null, ({ req }) => {
     auth(req);

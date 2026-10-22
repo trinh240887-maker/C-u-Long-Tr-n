@@ -103,3 +103,28 @@ test('cầu in: lấy phiếu, in đúng máy, máy chưa có IP in sang dự ph
   await until(async () => (await o('GET', '/api/print/status')).data.stations.find((s) => s.name === 'Steak').ok === true);
   assert.ok(out.includes('Cầu in đang chạy'), out);
 });
+
+test('theo dõi từ xa: /api/version đúng mã code; máy in ở quán mất kết nối thì báo quản lý 1 lần, kết nối lại thì báo', async (t) => {
+  const { codeHash } = await import('../server/lib/version.js');
+  let now = Date.now();
+  const db = openDb(':memory:', { now });
+  const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => { app.close(); server.close(); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const v = await (await fetch(`${base}/api/version`)).json();
+  assert.equal(v.version, codeHash(path.join(here, '..')));
+  // Chưa cài cầu in lần nào → không báo
+  assert.equal(app.ctx.printTick(), 0);
+  app.ctx.setSetting('print_bridge_seen', now - 5 * 60_000);
+  const sid = Number(db.prepare('INSERT INTO table_sessions (opened_at) VALUES (?)').run(now).lastInsertRowid);
+  db.prepare("INSERT INTO kitchen_tickets (session_id, station_id, kind, header, lines, created_at) VALUES (?, 1, 'new', 'KHU A - 1', '[]', ?)").run(sid, now - 3 * 60_000);
+  assert.equal(app.ctx.printTick(), 1);
+  assert.equal(app.ctx.printTick(), 0, 'không báo lặp');
+  app.ctx.setSetting('print_bridge_seen', now);
+  app.ctx.printTick();
+  const titles = db.prepare("SELECT n.title FROM notifications n JOIN staff s ON s.id = n.staff_id WHERE s.role = 'owner' ORDER BY n.id").all().map((x) => x.title);
+  assert.ok(titles.some((x) => x.startsWith('Máy in phiếu ở quán mất kết nối: 1 phiếu')));
+  assert.ok(titles.includes('Máy in phiếu ở quán đã kết nối lại'));
+});

@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.js';
 import printRoutes from './routes/print.js';
 import promoRoutes from './routes/promotions.js';
 import paymentRoutes from './routes/payments.js';
+import { codeHash } from './lib/version.js';
 import bankRoutes from './routes/bank.js';
 import staffRoutes from './routes/staff.js';
 import scheduleRoutes from './routes/schedule.js';
@@ -70,6 +71,13 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   ctx.notify = (...args) => ctx.notifier.notify(...args);
 
   const router = createRouter();
+  // Phiên bản đang chạy (công khai, không lộ dữ liệu): GitHub kiểm tra 30′/lần, Cài đặt hiện cho chủ quán
+  const startedAt = now();
+  let version = 'unknown';
+  try { version = codeHash(path.resolve(publicDir, '..')); } catch { /* bỏ qua */ }
+  ctx.version = () => ({ version, started_at: startedAt });
+  router.get('/api/version', null, () => ({ ...ctx.version(), uptime_min: Math.round((now() - startedAt) / 60000) }));
+
   for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes, printRoutes, promoRoutes, paymentRoutes, bankRoutes]) {
     register(router, ctx);
   }

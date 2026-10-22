@@ -1,0 +1,84 @@
+# Kiểm tra app thật trên Railway mỗi 30 phút và sau mỗi lần push:
+#  - app không mở được → mở issue cảnh báo (GitHub báo về điện thoại / email chủ repo)
+#  - app chạy bản cũ quá 20 phút sau lần push mới nhất (Railway không deploy) → cảnh báo
+#  - hết lỗi → tự đóng issue
+name: Kiểm tra app thật
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: kiem-tra-app
+  cancel-in-progress: true
+
+env:
+  APP_URL: https://c-u-long-tr-n-production.up.railway.app
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: So phiên bản app thật với code mới nhất
+        id: check
+        run: |
+          EXPECTED=$(node scripts/version-hash.js)
+          COMMIT_AGE_MIN=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 60 ))
+          echo "Mã code mới nhất: $EXPECTED (commit cách đây $COMMIT_AGE_MIN phút)"
+          # Sau push: chờ Railway build tối đa 20 phút. Lịch 30′: kiểm 1 lần.
+          TRIES=1
+          if [ "${{ github.event_name }}" = "push" ]; then TRIES=20; fi
+          STATUS=down; LIVE=""
+          for i in $(seq 1 $TRIES); do
+            BODY=$(curl -s -m 20 "$APP_URL/api/version" || true)
+            LIVE=$(echo "$BODY" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log(JSON.parse(s).version||'')}catch{console.log('')}})")
+            if [ -z "$LIVE" ]; then
+              # bản cũ chưa có /api/version: xem trang chủ còn mở được không
+              CODE=$(curl -s -o /dev/null -m 20 -w "%{http_code}" "$APP_URL/" || echo 000)
+              if [ "$CODE" = "200" ]; then STATUS=old; else STATUS=down; fi
+            elif [ "$LIVE" = "$EXPECTED" ]; then STATUS=ok; break
+            else STATUS=old; fi
+            [ "$i" -lt "$TRIES" ] && sleep 60
+          done
+          # Bản cũ nhưng commit mới < 20 phút: Railway có thể đang build, chưa coi là lỗi
+          if [ "$STATUS" = "old" ] && [ "$COMMIT_AGE_MIN" -lt 20 ] && [ "${{ github.event_name }}" != "push" ]; then STATUS=ok; fi
+          echo "Kết quả: $STATUS (app thật: ${LIVE:-không đọc được})"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "live=$LIVE" >> "$GITHUB_OUTPUT"
+          echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
+      - name: Báo / đóng cảnh báo
+        uses: actions/github-script@v7
+        env:
+          STATUS: ${{ steps.check.outputs.status }}
+          LIVE: ${{ steps.check.outputs.live }}
+          EXPECTED: ${{ steps.check.outputs.expected }}
+        with:
+          script: |
+            const title = '⚠ App thật trên Railway có vấn đề';
+            const { STATUS, LIVE, EXPECTED, APP_URL } = process.env;
+            const open = (await github.rest.issues.listForRepo({ ...context.repo, state: 'open', per_page: 50 })).data.find((i) => i.title === title);
+            const time = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+            if (STATUS === 'ok') {
+              if (open) {
+                await github.rest.issues.createComment({ ...context.repo, issue_number: open.number, body: `✅ ${time}: app chạy bình thường, đúng bản mới nhất (${EXPECTED}).` });
+                await github.rest.issues.update({ ...context.repo, issue_number: open.number, state: 'closed' });
+              }
+              return;
+            }
+            const msg = STATUS === 'down'
+              ? `🔴 ${time}: **app không mở được** (${APP_URL}). Nhân viên không order / chấm công được.\n\nVào Railway → project marvelous-spirit → Deployments xem bản trên cùng: Failed / Crashed thì chụp màn hình gửi Claude; nếu báo hết hạn dùng thử / Limited Access thì nâng gói.`
+              : `🟠 ${time}: app vẫn chạy nhưng **chưa lên bản mới** (đang chạy: ${LIVE || 'bản cũ'}, mới nhất: ${EXPECTED}). Railway chưa deploy.\n\nVào Railway → Deployments → Deploy Latest Commit; xem có báo Limited Access / Trial không; Settings → Source còn nối repo C-u-Long-Tr-n, nhánh main không.`;
+            if (open) await github.rest.issues.createComment({ ...context.repo, issue_number: open.number, body: msg });
+            else await github.rest.issues.create({ ...context.repo, title, body: `${msg}\n\n_Tự động kiểm tra mỗi 30 phút; hết lỗi issue này tự đóng._` });

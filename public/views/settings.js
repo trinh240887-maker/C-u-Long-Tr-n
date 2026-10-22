@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast } from '../ui.js';
+import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast, hm, dayLabel } from '../ui.js';
 
 const TABS = [['chung', 'Chung'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
 
@@ -354,7 +354,9 @@ export function SettingsView({ me, query }) {
   const tab = query.get('tab') || 'chung';
   const st = useData('/api/settings');
   const staff = useData('/api/staff');
+  const ver = useData('/api/version');
   return html`<div class="stack">
+    ${ver.data ? html`<small class="muted">Phiên bản đang chạy: <b>${ver.data.version}</b> · khởi động ${hm(ver.data.started_at)} ${dayLabel(new Date(ver.data.started_at + 7 * 3600e3).toISOString().slice(0, 10))}</small>` : null}
     <div class="tabs scroll">${TABS.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/cai-dat?tab=${k}`)}>${l}</button>`)}</div>
     ${!st.data ? html`<${Loading} state=${st} />`
       : tab === 'chung' ? html`<${General} s=${st.data} staff=${(staff.data || []).filter((p) => p.active)} />`
