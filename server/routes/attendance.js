@@ -103,7 +103,7 @@ export default function (r, ctx) {
     if (!open) fail(409, 'Bạn chưa chấm vào ca');
     // Còn giữ tiền mặt của khách chưa giao thu ngân thì không cho ra ca
     const held = ctx.cashHeldBy ? ctx.cashHeldBy(me.id) : 0;
-    if (held) fail(409, `Bạn còn giữ ${held.toLocaleString('vi-VN')}đ tiền mặt chưa giao thu ngân. Giao tiền rồi chấm ra.`);
+    if (held) fail(409, `Còn ${held.toLocaleString('vi-VN')}đ tiền mặt bạn thu chưa được thu ngân xác nhận. Đưa tiền cho thu ngân bấm xác nhận rồi chấm ra.`);
     db.prepare('UPDATE attendance SET clock_out = ? WHERE id = ?').run(ctx.now(), open.id);
     ctx.audit(me, 'clock.out', open.id);
     ctx.broadcast('attendance');

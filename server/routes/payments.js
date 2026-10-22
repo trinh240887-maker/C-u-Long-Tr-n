@@ -5,8 +5,9 @@ import { billBytes, refundBytes } from '../lib/escpos.js';
 
 // GĐ3D Thanh toán (quy trình chủ quán chốt 22/10)
 // Bill: đang phục vụ → ĐÃ THANH TOÁN (bàn trống, bán tiếp) → THU NGÂN XÁC NHẬN → CHỐT NGÀY (khoá).
-// - Tiền mặt: phục vụ thu, bấm "Đã thu tiền mặt" → tiền nằm "trong tay phục vụ" → giao thu ngân ngay sau mỗi bill
-//   → thu ngân đếm, bấm Nhận (lệch thì ghi tên người giữ, báo chủ quán). Khách không lấy tiền thối = tip quỹ chung.
+// - Tiền mặt: phục vụ thu, bấm "Đã thu tiền mặt" → bill đóng, bàn mở bán lại, bill ở trạng thái "CHỜ THU NGÂN XÁC NHẬN".
+//   Phục vụ đưa ngay tiền + bill cho thu ngân → thu ngân đếm, bấm Xác nhận (lệch thì ghi tên, báo chủ quán).
+//   Thu ngân / trưởng ca tự thu thì tiền vào thẳng két. Khách không lấy tiền thối = tip quỹ chung.
 // - Chuyển khoản: QR đúng số tiền + mã CLT<số bill>. Ngân hàng báo tiền về (SePay) → app tự đóng bill, mở bàn.
 //   Chưa có báo tiền về: phục vụ bấm "Khách đã CK, chờ tiền về". CK dư = tip quỹ chung; CK thiếu = chưa đóng bill.
 // - Cuối ngày: két đầu ngày + tiền nhận từ phục vụ − hoàn tiền = phải có; thu ngân đếm két thật, xác nhận CK, chốt ngày.
@@ -30,7 +31,7 @@ export default function (r, ctx) {
   addCol('table_sessions', 'reconciled_by', 'INTEGER');
   addCol('table_sessions', 'reconcile_note', "TEXT NOT NULL DEFAULT ''");
   addCol('order_items', 'refunded_qty', 'INTEGER NOT NULL DEFAULT 0');
-  addCol('table_sessions', 'cash_status', "TEXT NOT NULL DEFAULT ''"); // held (phục vụ đang giữ) | received (thu ngân đã nhận)
+  addCol('table_sessions', 'cash_status', "TEXT NOT NULL DEFAULT ''"); // held (chờ thu ngân xác nhận) | received (thu ngân đã xác nhận)
   addCol('table_sessions', 'cash_received_by', 'INTEGER');
   addCol('table_sessions', 'cash_received_at', 'INTEGER');
   addCol('table_sessions', 'handover_id', 'INTEGER');
@@ -117,13 +118,15 @@ export default function (r, ctx) {
   const vnd = (n) => `${Number(n || 0).toLocaleString('vi-VN')}đ`;
 
   // Đóng bill (dùng chung: phục vụ bấm, hoặc ngân hàng báo tiền về). by = null nghĩa là tự động
-  function closeBill(s, { by, method, cash = 0, transfer = 0, given = 0, tipCash = 0, tipTransfer = 0, reconcile = '' }) {
+  // cashStatus: received = thu ngân thu thẳng vào két; held = người thu còn giữ, phải giao lại két
+  function closeBill(s, { by, method, cash = 0, transfer = 0, given = 0, tipCash = 0, tipTransfer = 0, reconcile = '', cashStatus = 'received' }) {
     const snapshot = { lines: s.items.filter((i) => i.promos?.length).map((i) => [i.id, i.promos]), item_discount: s.item_discount, bill: s.bill_promos, discount: s.discount, subtotal: s.subtotal, total: s.total };
     tx(db, () => {
       billNo(s.id);
       db.prepare(`UPDATE table_sessions SET status = 'closed', closed_at = ?, closed_by = ?, closed_date = ?, pay_method = ?, paid_total = ?, cash_amount = ?, transfer_amount = ?, cash_given = ?,
         reconcile_status = ?, cash_status = ?, tip_cash = ?, tip_transfer = ?, bill_snapshot = ? WHERE id = ?`)
-        .run(ctx.now(), by, ctx.clock().businessDate(ctx.now()), method, s.total, cash, transfer, given, transfer > 0 ? reconcile || 'pending' : '', cash > 0 || tipCash > 0 ? 'held' : '', tipCash, tipTransfer, JSON.stringify(snapshot), s.id);
+        .run(ctx.now(), by, ctx.clock().businessDate(ctx.now()), method, s.total, cash, transfer, given, transfer > 0 ? reconcile || 'pending' : '', cash > 0 || tipCash > 0 ? cashStatus : '', tipCash, tipTransfer, JSON.stringify(snapshot), s.id);
+      if ((cash > 0 || tipCash > 0) && cashStatus === 'received') db.prepare('UPDATE table_sessions SET cash_received_by = ?, cash_received_at = ? WHERE id = ?').run(by, ctx.now(), s.id);
     });
   }
 
@@ -187,6 +190,27 @@ export default function (r, ctx) {
     return { qr: billQR(ctx.setting('bank_qr'), { amount, content: note }) };
   });
 
+  // Phục vụ báo thu ngân: khách trả tiền mặt (phục vụ không cầm tiền)
+  r.post('/api/pos/sessions/:id/request-cash', 'staff', ({ me, params }) => {
+    const s = ctx.posSession(params.id);
+    if (!['open', 'paying'].includes(s.status)) fail(400, 'Bàn này đã đóng');
+    if (s.unsent) fail(400, `Còn ${s.unsent} món chưa gửi bếp`);
+    const no = billNo(s.id);
+    db.prepare("UPDATE table_sessions SET status = 'paying', note = CASE WHEN note LIKE '%[TM]%' THEN note ELSE TRIM(note || ' [TM]') END WHERE id = ?").run(s.id);
+    ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Bàn ${s.header} trả TIỀN MẶT ${vnd(s.total)}`, body: `Bill ${no} · ${me.name} báo. Mời khách ra quầy hoặc ra bàn thu.`, link: `/goi-mon?s=${s.id}`, urgent: true });
+    ctx.audit(me, 'pay.request_cash', { id: s.id, total: s.total });
+    ctx.broadcast('pos');
+    return { ok: true, bill_no: no };
+  });
+  // Bàn đang chờ thu ngân thu tiền
+  r.get('/api/payments/waiting', 'staff', ({ me }) => {
+    needCashier(me);
+    return db.prepare("SELECT id FROM table_sessions WHERE status = 'paying' ORDER BY id").all().map((x) => {
+      const s = ctx.posSession(x.id);
+      return { id: s.id, header: s.header, total: s.total, bill_no: s.bill_no, cash: s.note.includes('[TM]'), opened_by: s.opened_by_name, unserved: s.items.filter((i) => i.status === 'sent').length };
+    });
+  });
+
   r.get('/api/pos/sessions/:id/bill', 'staff', ({ params }) => billData(params.id));
 
   r.post('/api/pos/sessions/:id/print-bill', 'staff', ({ me, params }) => {
@@ -224,7 +248,7 @@ export default function (r, ctx) {
       transfer = total - cash;
     }
     const got = bankReceived(s.id);
-    closeBill(s, { by: me.id, method, cash, transfer, given, tipCash, reconcile: transfer > 0 && got >= transfer ? 'matched' : 'pending' });
+    closeBill(s, { by: me.id, method, cash, transfer, given, tipCash, reconcile: transfer > 0 && got >= transfer ? 'matched' : 'pending', cashStatus: isCashier(me) ? 'received' : 'held' });
     if (transfer > 0 && got > transfer) db.prepare('UPDATE table_sessions SET tip_transfer = ? WHERE id = ?').run(got - transfer, s.id);
     const printed = body.print ? !!printBill(s.id) : false;
     ctx.audit(me, 'pay.close', { id: s.id, total, method, cash, transfer, tip_cash: tipCash, unserved: unserved.length });
@@ -261,7 +285,7 @@ export default function (r, ctx) {
       return hid;
     });
     if (counted !== expected) {
-      ctx.notify(bosses().filter((x) => x !== me.id), { title: `Giao tiền ${counted < expected ? 'THIẾU' : 'DƯ'} ${vnd(Math.abs(counted - expected))}: ${rows[0].staff_name}`, body: `Phải giao ${vnd(expected)} (${rows.length} bill ${rows.map((x) => x.bill_no).join(', ')}), đếm được ${vnd(counted)}. Thu ngân ${me.name}${note ? `: ${note}` : ''}.`, link: '/thu-ngan', urgent: true });
+      ctx.notify(bosses().filter((x) => x !== me.id), { title: `Nhận tiền ${counted < expected ? 'THIẾU' : 'DƯ'} ${vnd(Math.abs(counted - expected))}: ${rows[0].staff_name}`, body: `Phải giao ${vnd(expected)} (${rows.length} bill ${rows.map((x) => x.bill_no).join(', ')}), đếm được ${vnd(counted)}. Thu ngân ${me.name}${note ? `: ${note}` : ''}.`, link: '/thu-ngan', urgent: true });
     }
     ctx.audit(me, 'pay.handover', { id, staff: staffIds[0], expected, counted });
     ctx.broadcast('pos');
@@ -341,7 +365,7 @@ export default function (r, ctx) {
   // ---------- Thu ngân: doanh thu ngày, tiền mặt, đối soát chuyển khoản, bất thường ----------
   function day(date) {
     const bills = db.prepare(`SELECT s.id, s.bill_no, s.opened_at, s.closed_at, s.closed_by, s.pay_method, s.paid_total, s.cash_amount, s.transfer_amount, s.reconcile_status, s.reconcile_note,
-        s.cash_status, s.tip_cash, s.tip_transfer, c.name AS closed_by_name, json_extract(s.bill_snapshot, '$.discount') AS discount
+        s.cash_status, s.handover_id, s.tip_cash, s.tip_transfer, c.name AS closed_by_name, json_extract(s.bill_snapshot, '$.discount') AS discount
       FROM table_sessions s LEFT JOIN staff c ON c.id = s.closed_by WHERE s.status = 'closed' AND s.closed_date = ? ORDER BY s.closed_at`).all(date)
       .map((b) => ({ ...b, closed_by_name: b.closed_by ? b.closed_by_name : 'Tự động (ngân hàng)', header: ctx.posSession(b.id).header, transfer_note: noteOf(b.bill_no), bank_received: bankReceived(b.id) }));
     const refunds = db.prepare('SELECT r.*, s.bill_no, a.name AS approver_name, c.name AS by_name FROM refunds r JOIN table_sessions s ON s.id = r.session_id LEFT JOIN staff a ON a.id = r.approved_by LEFT JOIN staff c ON c.id = r.created_by WHERE r.date = ? ORDER BY r.id').all(date)
@@ -354,14 +378,16 @@ export default function (r, ctx) {
     const tr = bills.filter((b) => b.transfer_amount > 0);
     const refundCash = sum(refunds, 'amount');
     const handedIn = sum(handovers, 'counted');
-    const expectedDrawer = drawer?.opening != null ? drawer.opening + handedIn - refundCash : null;
+    // Thu ngân thu thẳng (không qua giao tiền) = tiền mặt + tip của bill đã nhận mà không có lần giao
+    const direct = bills.filter((b) => b.cash_status === 'received' && !b.handover_id).reduce((n, b) => n + b.cash_amount + b.tip_cash, 0);
+    const expectedDrawer = drawer?.opening != null ? drawer.opening + direct + handedIn - refundCash : null;
     const confirmedOf = (b) => (b.cash_amount + b.tip_cash === 0 || b.cash_status === 'received') && (b.transfer_amount === 0 || b.reconcile_status === 'confirmed');
     const summary = {
       bills: bills.length, gross: sum(bills, 'paid_total'), discount: sum(bills, 'discount'),
       refund_cash: refundCash, net: sum(bills, 'paid_total') - refundCash,
       confirmed: sum(bills.filter(confirmedOf), 'paid_total'), unconfirmed: sum(bills.filter((b) => !confirmedOf(b)), 'paid_total'),
       tip_cash: sum(bills, 'tip_cash'), tip_transfer: sum(bills, 'tip_transfer'),
-      cash_in: sum(bills, 'cash_amount'), cash_held: sum(held, 'amount'), handed_in: handedIn, handover_diff: sum(handovers, 'diff'),
+      cash_in: sum(bills, 'cash_amount'), cash_held: sum(held, 'amount'), cash_direct: direct, handed_in: handedIn, handover_diff: sum(handovers, 'diff'),
       opening: drawer?.opening ?? null, drawer_expected: expectedDrawer, drawer_counted: drawer?.counted ?? null,
       drawer_diff: drawer?.counted != null && expectedDrawer != null ? drawer.counted - expectedDrawer : null,
       transfer_in: sum(tr, 'transfer_amount'),
@@ -400,13 +426,13 @@ export default function (r, ctx) {
     const cancelled = db.prepare(`SELECT COUNT(*) AS n FROM table_sessions s WHERE s.status = 'cancelled' AND s.closed_at >= ? AND s.closed_at < ? AND EXISTS (SELECT 1 FROM order_items i WHERE i.session_id = s.id AND i.sent_at IS NOT NULL)`).get(from, to).n;
     if (cancelled) add('warn', `Huỷ cả bàn đã gửi bếp: ${cancelled} bàn`);
     if (refunds.length) add('warn', `Hoàn tiền mặt: ${refunds.length} lần, ${vnd(summary.refund_cash)} (${refunds.map((x) => `bill ${x.bill_no}: ${x.by_name} hoàn, ${x.approver_name} duyệt`).join('; ')})`);
-    for (const h of handovers.filter((x) => x.diff)) add('bad', `Giao tiền ${h.diff < 0 ? 'thiếu' : 'dư'} ${vnd(Math.abs(h.diff))}: ${h.staff_name} (thu ngân ${h.received_by_name} nhận)`);
+    for (const h of handovers.filter((x) => x.diff)) add('bad', `Nhận tiền ${h.diff < 0 ? 'thiếu' : 'dư'} ${vnd(Math.abs(h.diff))}: ${h.staff_name} (thu ngân ${h.received_by_name} nhận)`);
     if (summary.drawer_diff) add('bad', `Két ${summary.drawer_diff < 0 ? 'thiếu' : 'dư'} ${vnd(Math.abs(summary.drawer_diff))} so với số phải có ${vnd(summary.drawer_expected)}`);
     const um = txns.filter((t) => t.direction === 'in' && ['unmatched', 'review'].includes(t.status));
     if (um.length) add('bad', `Tiền CK vào chưa khớp bill: ${um.length} khoản, ${vnd(um.reduce((n, t) => n + t.amount, 0))}`);
     for (const b of bills.filter((x) => x.reconcile_status === 'missing')) add('bad', `Bill ${b.bill_no} CK chưa thấy tiền ${vnd(b.transfer_amount)} (đóng bởi ${b.closed_by_name})`);
     for (const b of bills.filter((x) => x.tip_cash + x.tip_transfer > Math.max(200000, x.paid_total * 0.3))) add('warn', `Tip lớn bất thường: bill ${b.bill_no} tip ${vnd(b.tip_cash + b.tip_transfer)} / bill ${vnd(b.paid_total)}`);
-    if (summary.cash_held) add('bad', `Tiền mặt phục vụ chưa giao thu ngân: ${vnd(summary.cash_held)}`);
+    if (summary.cash_held) add('bad', `Bill tiền mặt chưa được thu ngân xác nhận: ${vnd(summary.cash_held)}`);
     const long = db.prepare("SELECT COUNT(*) AS n FROM table_sessions WHERE status IN ('open','paying') AND opened_at < ?").get(ctx.now() - 3 * 3_600_000).n;
     if (long) add('warn', `Bàn mở quá 3 giờ chưa tính tiền: ${long} bàn`);
     return out;
@@ -460,7 +486,7 @@ export default function (r, ctx) {
     if (!d.bills.length) fail(400, 'Chưa có bill nào');
     const waitCk = d.bills.filter((b) => ['pending', 'matched'].includes(b.reconcile_status)).length;
     if (waitCk) fail(400, `Còn ${waitCk} bill CK chưa xác nhận`);
-    if (d.summary.cash_held) fail(400, `Còn ${vnd(d.summary.cash_held)} tiền mặt phục vụ chưa giao thu ngân`);
+    if (d.summary.cash_held) fail(400, `Còn ${vnd(d.summary.cash_held)} tiền mặt chờ thu ngân xác nhận`);
     if (d.summary.unmatched) fail(400, `Còn ${d.summary.unmatched} khoản tiền CK chưa khớp bill: ghép bill hoặc đánh dấu bỏ qua`);
     if (d.summary.opening == null) fail(400, 'Chưa nhập tiền két đầu ngày');
     if (d.summary.drawer_counted == null) fail(400, 'Chưa nhập tiền đếm trong két cuối ngày');

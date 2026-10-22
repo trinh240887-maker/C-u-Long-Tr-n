@@ -161,7 +161,7 @@ export function OrderView({ me, query }) {
         : atLeast(me, 'shift_lead') ? html`<button class="link danger-text" onClick=${() => setReason({ kind: 'close' })}>Huỷ cả bàn…</button>` : null}
     </div>` : null}
 
-    ${paying ? html`<${PayModal} id=${id} onClose=${() => setPaying(false)} onDone=${(r) => { setPaying(false); toast(r.auto ? 'Đã nhận tiền, bàn trống' : r.hand_over ? `Đã đóng bill.${r.change ? ` Thối khách ${money(r.change)}.` : ''} Giao ${money(r.hand_over)} + bill cho thu ngân` : 'Đã đóng bill, bàn trống'); bump(); navigate('/ban'); }} />` : null}
+    ${paying ? html`<${PayModal} me=${me} id=${id} onClose=${() => setPaying(false)} onDone=${(r) => { setPaying(false); toast(r.requested ? 'Đã báo thu ngân thu tiền mặt' : r.auto ? 'Đã nhận tiền, bàn trống' : r.hand_over ? `Đã đóng bill.${r.change ? ` Thối khách ${money(r.change)}.` : ''} Giao ${money(r.hand_over)} + bill cho thu ngân` : 'Đã đóng bill, bàn trống'); bump(); navigate('/ban'); }} />` : null}
     ${adding ? html`<${AddItem} item=${adding} onAdd=${add} onClose=${() => setAdding(null)} />` : null}
     ${reason ? html`<${Reason} title=${reason.kind === 'redo' ? `Làm lại: ${reason.item.name}` : reason.kind === 'cancel' ? `Huỷ: ${reason.item.name}` : 'Huỷ cả bàn'}
       chips=${reason.kind === 'redo' ? ['Khách chê', 'Làm hỏng', 'Sai món', 'Rơi đổ'] : ['Khách đổi ý', 'Gọi nhầm', 'Ra lâu, khách huỷ', 'Hết nguyên liệu']}

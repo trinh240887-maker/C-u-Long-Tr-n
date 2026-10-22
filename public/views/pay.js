@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { html, api, act, useData, Loading, Modal, Field, money, hm, atLeast, addDays, dayLabel } from '../ui.js';
+import { html, api, act, useData, Loading, Modal, Field, money, hm, atLeast, addDays, dayLabel, toast, bump } from '../ui.js';
 import qrcode from '../vendor/qrcode.js';
 
 const num = (s) => Number(String(s ?? '').replace(/[^\d]/g, '')) || 0;
@@ -30,9 +30,12 @@ function BillLines({ b }) {
 }
 
 // Tính tiền: phục vụ / thu ngân. CK: khách quét QR → bấm "Khách đã CK" → bill đóng, bàn trống.
-export function PayModal({ id, onClose, onDone }) {
+export const isCashier = (me) => atLeast(me, 'shift_lead') || me?.team?.name === 'Thu ngân';
+
+export function PayModal({ me, id, onClose, onDone, defaultMethod = 'transfer' }) {
   const st = useData(`/api/pos/sessions/${id}/bill`);
-  const [method, setMethod] = useState('transfer');
+  const [method, setMethod] = useState(defaultMethod);
+  const cashier = isCashier(me);
   const [given, setGiven] = useState('');
   const [cashPart, setCashPart] = useState('');
   const [keep, setKeep] = useState(false);
@@ -84,7 +87,7 @@ export function PayModal({ id, onClose, onDone }) {
         <div class="chips">${rounds.map((x) => html`<button class="chip" onClick=${() => setGiven(String(x))}>${money(x)}</button>`)}</div>
         ${cash ? html`<div class="row between total"><b>Tiền thối</b><b class=${`num ${cash < b.total ? 'danger-text' : ''}`}>${cash < b.total ? `Thiếu ${money(b.total - cash)}` : keep ? '0đ (tip)' : money(cash - b.total)}</b></div>` : null}
         ${cash > b.total ? html`<label class="check-row"><input type="checkbox" checked=${keep} onChange=${(e) => setKeep(e.target.checked)} /> Khách không lấy tiền thối → ${money(cash - b.total)} vào tip quỹ chung</label>` : null}
-        <p class="muted small">Thu xong mang <b>tiền + bill</b> giao thu ngân ngay.</p>
+        <p class="muted small">${cashier ? 'Tiền vào thẳng két.' : html`Bấm xong <b>đưa ngay tiền + bill cho thu ngân</b> bấm xác nhận. Chưa xác nhận thì bill ở trạng thái "chờ thu ngân xác nhận", bàn vẫn mở bán.`}</p>
         <button class="primary big" disabled=${b.unsent || (cash && cash < b.total)} onClick=${() => pay()}>✓ Đã thu tiền mặt · đóng bill</button>
       </div>` : null}
       ${method === 'mixed' ? html`<div class="stack">
@@ -151,7 +154,7 @@ export function PaidPanel({ me, id }) {
     <div class="row between wrap"><b>✓ Đã thanh toán · bill ${b.bill_no}</b><span class="pill ok">${METHOD[b.pay_method] || ''}</span></div>
     <div class="small">${b.closed_auto ? 'Tự đóng khi tiền về' : `Đóng bởi ${b.cashier}`} · ${hm(b.closed_at)}</div>
     <div class="row wrap small">
-      ${b.cash_amount + b.tip_cash ? html`<span class=${`pill ${b.cash_status === 'received' ? 'ok' : 'warn'}`}>Tiền mặt ${money(b.cash_amount + b.tip_cash)}: ${b.cash_status === 'received' ? 'thu ngân đã nhận' : 'phục vụ đang giữ'}</span>` : null}
+      ${b.cash_amount + b.tip_cash ? html`<span class=${`pill ${b.cash_status === 'received' ? 'ok' : 'warn'}`}>Tiền mặt ${money(b.cash_amount + b.tip_cash)}: ${b.cash_status === 'received' ? 'thu ngân đã xác nhận' : 'chờ thu ngân xác nhận'}</span>` : null}
       ${ck ? html`<span class=${`pill ${ck[0]}`}>CK ${money(b.transfer_amount)}: ${ck[1]}</span>` : null}
       ${b.tip_cash + b.tip_transfer ? html`<span class="pill">Tip ${money(b.tip_cash + b.tip_transfer)}</span>` : null}
     </div>
@@ -170,9 +173,9 @@ export function MyCashCard() {
   const st = useData('/api/payments/my-cash');
   if (!st.data?.amount) return null;
   return html`<section class="card warn-card stack">
-    <b>💵 Bạn đang giữ ${money(st.data.amount)} tiền mặt</b>
+    <b>💵 ${money(st.data.amount)} tiền mặt chờ thu ngân xác nhận</b>
     <span class="small">${st.data.bills.map((x) => `bill ${x.bill_no} (${x.header}) ${money(x.amount)}`).join(' · ')}</span>
-    <span class="small">Mang tiền + bill giao thu ngân ngay. Chưa giao thì không chấm ra ca được.</span>
+    <span class="small">Đưa tiền + bill cho thu ngân bấm xác nhận. Chưa xác nhận thì không chấm ra ca được.</span>
   </section>`;
 }
 
@@ -193,7 +196,7 @@ function Handover({ group, locked }) {
     <div class="small muted">${group.bills.map((x) => `bill ${x.bill_no} · ${x.header} · ${hm(x.closed_at)} · ${money(x.amount)}${x.tip_cash ? ` (gồm tip ${money(x.tip_cash)})` : ''}`).join('\n')}</div>
     ${locked ? null : html`<div class="row wrap">
       <input inputmode="numeric" style="flex:1;min-width:9em" placeholder=${`Đếm được (mặc định ${money(expected)})`} value=${counted} onInput=${(e) => setCounted(e.target.value)} />
-      <button class="primary" onClick=${() => act(() => api('POST', '/api/payments/handover', { ids: group.bills.map((x) => x.id), counted: c, note: c !== expected ? 'Đếm lệch khi nhận' : '' }), c === expected ? 'Đã nhận đủ' : `Đã ghi lệch ${money(c - expected)}`)}>Nhận ${money(c)}</button>
+      <button class="primary" onClick=${() => act(() => api('POST', '/api/payments/handover', { ids: group.bills.map((x) => x.id), counted: c, note: c !== expected ? 'Đếm lệch khi nhận' : '' }), c === expected ? 'Đã xác nhận nhận đủ' : `Đã ghi lệch ${money(c - expected)}`)}>✓ Xác nhận đã nhận ${money(c)}</button>
     </div>`}
     ${c !== expected ? html`<small class="danger-text">Lệch ${money(c - expected)}: app ghi tên ${group.name} và báo chủ quán</small>` : null}
   </div>`;
@@ -261,7 +264,7 @@ export function CashierView({ me }) {
   const outs = d.txns.filter((t) => t.direction === 'out');
   const blockers = [
     s.opening == null && 'nhập tiền két đầu ngày',
-    groups.length && `nhận tiền mặt của ${groups.length} người`,
+    groups.length && `xác nhận tiền mặt của ${groups.length} người`,
     unmatched.length && `xử lý ${unmatched.length} khoản CK chưa khớp`,
     toConfirm.length && `xác nhận ${toConfirm.length} bill CK`,
     s.drawer_counted == null && 'đếm két cuối ngày',
@@ -272,6 +275,7 @@ export function CashierView({ me }) {
       ${locked ? html`<span class="pill ok">Đã chốt · ${d.closing.by_name} ${hm(d.closing.confirmed_at)}</span>` : null}
     </div>
     ${d.open_tables ? html`<p class="muted small">Đang còn ${d.open_tables} bàn chưa tính tiền.</p>` : null}
+    ${!locked ? html`<${WaitingTables} me=${me} />` : null}
 
     <section class=${`card stack ${s.opening == null && !locked ? 'warn-card' : ''}`}>
       <div class="row between"><b>1. Két đầu ngày</b>${s.opening != null ? html`<b class="num">${money(s.opening)}</b>` : null}</div>
@@ -280,7 +284,7 @@ export function CashierView({ me }) {
     </section>
 
     <section class="stack">
-      <b>2. Tiền mặt phục vụ đang giữ ${s.cash_held ? html`<span class="danger-text">${money(s.cash_held)}</span>` : html`<span class="ok-text">· đã nhận hết</span>`}</b>
+      <b>2. Tiền mặt chờ thu ngân xác nhận ${s.cash_held ? html`<span class="danger-text">${money(s.cash_held)}</span>` : html`<span class="ok-text">· đã xác nhận hết</span>`}</b>
       ${groups.map((g) => html`<${Handover} key=${g.name} group=${g} locked=${locked} />`)}
       ${d.handovers.length ? html`<details class="card small"><summary>Đã nhận ${d.handovers.length} lần · ${money(s.handed_in)}${s.handover_diff ? html` · <span class="danger-text">lệch ${money(s.handover_diff)}</span>` : ''}</summary>
         ${d.handovers.map((h) => html`<div class="row between"><span>${hm(h.created_at)} ${h.staff_name} → ${h.received_by_name}</span><span>${money(h.counted)}${h.diff ? html` <b class="danger-text">(${h.diff > 0 ? '+' : ''}${money(h.diff)})</b>` : ''}</span></div>`)}</details>` : null}
@@ -311,7 +315,7 @@ export function CashierView({ me }) {
 
     <section class="card stack">
       <b>5. Đếm két cuối ngày</b>
-      <div class="row between"><span>Phải có = đầu ngày ${money(s.opening ?? 0)} + nhận từ phục vụ ${money(s.handed_in)} − hoàn ${money(s.refund_cash)}</span><b class="num">${s.drawer_expected == null ? '—' : money(s.drawer_expected)}</b></div>
+      <div class="row between"><span>Phải có = đầu ngày ${money(s.opening ?? 0)} + thu tiền mặt ${money(s.cash_direct + s.handed_in)} − hoàn ${money(s.refund_cash)}</span><b class="num">${s.drawer_expected == null ? '—' : money(s.drawer_expected)}</b></div>
       ${s.drawer_counted != null ? html`<div class="row between"><span>Đếm được</span><b class=${`num ${s.drawer_diff ? 'danger-text' : 'ok-text'}`}>${money(s.drawer_counted)}${s.drawer_diff ? ` (lệch ${money(s.drawer_diff)})` : ' ✓ khớp'}</b></div>` : null}
       ${!locked ? html`<${Amount} value=${s.drawer_counted} label="Ghi số đếm" placeholder="Tổng tiền đếm trong két" onSave=${(x) => act(() => api('POST', '/api/payments/drawer', { date, counted: x }), 'Đã ghi')} />` : null}
     </section>
@@ -347,5 +351,19 @@ function refundsBlock(d) {
   if (!d.refunds.length) return null;
   return html`<section class="card stack"><b>Hoàn tiền mặt (${d.refunds.length})</b>
     ${d.refunds.map((r) => html`<div class="row between small"><span>Bill ${r.bill_no} · ${hm(r.created_at)} · ${r.lines.map((l) => `${l.qty} × ${l.name}`).join(', ')}<br /><span class="muted">${r.reason} · ${r.by_name}, duyệt ${r.approver_name}</span></span><b class="num danger-text">−${money(r.amount)}</b></div>`)}
+  </section>`;
+}
+
+// Bàn phục vụ báo "trả tiền mặt" / xin thanh toán: thu ngân bấm vào thu
+function WaitingTables({ me }) {
+  const st = useData('/api/payments/waiting');
+  const [open, setOpen] = useState(null);
+  if (!st.data?.length) return null;
+  return html`<section class="card stack warn-card">
+    <b>💵 Bàn chờ thu tiền (${st.data.length})</b>
+    ${st.data.map((x) => html`<div class="row between wrap">
+      <span><b>${x.header}</b> · bill ${x.bill_no || '—'}${x.cash ? ' · tiền mặt' : ''}<br /><small class="muted">${x.opened_by || ''}${x.unserved ? ` · còn ${x.unserved} món chưa ra` : ''}</small></span>
+      <button class="primary" onClick=${() => setOpen(x)}>Thu ${money(x.total)}</button></div>`)}
+    ${open ? html`<${PayModal} me=${me} id=${open.id} defaultMethod=${open.cash ? 'cash' : 'transfer'} onClose=${() => setOpen(null)} onDone=${(r) => { setOpen(null); toast(r.change ? `Đã thu. Thối khách ${money(r.change)}` : 'Đã thu, bàn trống'); bump(); }} />` : null}
   </section>`;
 }
