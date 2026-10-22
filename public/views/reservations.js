@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Loading, Modal, Field, dayLabel, addDays, navigate, atLeast } from '../ui.js';
+import { QR } from './pay.js';
 
 const fmtMin = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-const LABEL = { booked: 'Đã đặt', waiting: 'Đang chờ', arrived: 'Đã đến', no_show: 'Không đến', cancelled: 'Đã huỷ' };
+const LABEL = { requested: 'Chờ xác nhận', booked: 'Đã đặt', waiting: 'Đang chờ', arrived: 'Đã đến', no_show: 'Không đến', cancelled: 'Đã huỷ' };
 
 function Form({ init, date, zones, onClose }) {
   const walkin = init.kind === 'walkin';
@@ -59,6 +60,8 @@ export function ReservationsView({ me, query }) {
   const [tab, setTab] = useState('booking');
   const [edit, setEdit] = useState(null);
   const [arrive, setArrive] = useState(null);
+  const [confirmX, setConfirmX] = useState(null);
+  const [reject, setReject] = useState(null);
   const [, tick] = useState(0);
   useEffect(() => { const id = setInterval(() => tick((x) => x + 1), 60_000); return () => clearInterval(id); }, []);
   const st = useData(`/api/reservations?date=${date}`);
@@ -99,11 +102,20 @@ export function ReservationsView({ me, query }) {
     </div>
     <div class="tabs"><button class=${tab === 'booking' ? 'on' : ''} onClick=${() => setTab('booking')}>Đặt bàn (${d.items.filter((x) => x.kind === 'booking' && x.status === 'booked').length})</button>
       <button class=${tab === 'walkin' ? 'on' : ''} onClick=${() => setTab('walkin')}>Khách chờ (${d.items.filter((x) => x.kind === 'walkin' && x.status === 'waiting').length})</button></div>
+    ${tab === 'booking' ? d.items.filter((x) => x.status === 'requested').map((x) => html`<section class="card stack warn-card" key=${x.id}>
+      <div class="row between wrap"><b>🌐 Đặt online · ${fmtMin(x.time_min)} · ${x.name} · ${x.guests} khách</b><span class="pill warn">Chờ xác nhận</span></div>
+      <small><a href=${`tel:${x.phone}`}>${x.phone}</a>${x.zone_name ? ` · muốn ngồi ${x.zone_name}` : ''}${x.note ? ` · ${x.note}` : ''}</small>
+      ${x.history && (x.history.no_show || x.history.arrived) ? html`<small class=${x.history.no_show ? 'warn-text' : 'muted'}>Khách cũ: đến ${x.history.arrived} lần${x.history.no_show ? `, bỏ đặt ${x.history.no_show} lần` : ''}</small>` : null}
+      <div class="row wrap end"><button class="danger" onClick=${() => setReject(x)}>Từ chối</button><button class="primary" onClick=${() => setConfirmX(x)}>Chọn bàn & xác nhận</button></div>
+    </section>`) : null}
     <button class="primary big" onClick=${() => setEdit({ kind: tab, date })}>${tab === 'booking' ? '+ Đặt bàn mới' : '+ Thêm khách chờ'}</button>
     ${active.length ? active.map(row) : html`<div class="empty">${tab === 'booking' ? 'Chưa có đặt bàn ngày này.' : 'Không có khách đang chờ.'}</div>`}
     ${done.length ? html`<details><summary class="muted small">Đã xử lý (${done.length})</summary><div class="stack">${done.map(row)}</div></details>` : null}
     ${edit ? html`<${Form} init=${edit} date=${date} zones=${zonesD.data || []} onClose=${() => setEdit(null)} />` : null}
     ${arrive ? html`<${Arrive} rv=${arrive} onClose=${() => setArrive(null)} />` : null}
+    ${confirmX ? html`<${ConfirmOnline} rv=${confirmX} onClose=${() => setConfirmX(null)} />` : null}
+    ${reject ? html`<${RejectOnline} rv=${reject} onClose=${() => setReject(null)} />` : null}
+    ${atLeast(me, 'manager') ? html`<${ShareBooking} />` : null}
   </div>`;
 }
 
@@ -120,5 +132,70 @@ function HoldSettings({ d }) {
       ${dirty ? html`<button class="primary" onClick=${() => act(() => api('PUT', '/api/settings', { reserve_block_minutes: b, reserve_hold_minutes: h }), 'Đã lưu')}>Lưu</button>` : null}
     </div>
     <p class="muted">Trước giờ đặt quá ${d.block_minutes}′ thì bàn vẫn nhận khách vãng lai bình thường. Trong ${d.block_minutes}′ trước giờ đặt, phục vụ bấm vào bàn phải xác nhận. Khách trễ quá ${d.hold_minutes}′ thì bàn trả lại.</p>
+  </details>`;
+}
+
+// Xác nhận đơn khách đặt online: chọn bàn (gợi ý bàn trống đủ chỗ) → app báo khách qua Zalo
+function ConfirmOnline({ rv, onClose }) {
+  const hhmm = fmtMin(rv.time_min);
+  const sug = useData(`/api/reservations/suggest?date=${rv.date}&time=${hhmm}&guests=${rv.guests}${rv.zone_id ? `&zone_id=${rv.zone_id}` : ''}`);
+  const [tables, setTables] = useState('');
+  const ok = async () => {
+    const r = await act(() => api('POST', `/api/reservations/${rv.id}/confirm`, { tables }), 'Đã xác nhận đặt bàn');
+    if (r) { if (!r.notified) alert(`${r.notify_error || 'Chưa gửi được Zalo'}.\nGọi báo khách: ${rv.phone}`); onClose(); }
+  };
+  return html`<${Modal} title=${`Xác nhận: ${rv.name} · ${rv.guests} khách · ${hhmm}`} onClose=${onClose}>
+    <div class="stack">
+      <b class="small">Bàn trống gợi ý</b>
+      ${sug.data ? html`<div class="chips">${sug.data.map((x) => html`<button class=${`chip ${tables === x.tables_text ? 'on' : ''}`} onClick=${() => setTables(x.tables_text)}>${x.zone_name} · ${x.tables_text} (${x.seats} chỗ)</button>`)}</div>` : html`<${Loading} state=${sug} />`}
+      <${Field} label="Hoặc nhập bàn"><input value=${tables} onInput=${(e) => setTables(e.target.value)} placeholder="vd 81, 82" /><//>
+      <p class="muted small">Xác nhận xong app gửi Zalo cho khách (nếu đã cài Zalo ZNS); chưa cài thì gọi điện báo khách.</p>
+      <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" disabled=${!tables.trim()} onClick=${ok}>Xác nhận</button></div>
+    </div>
+  <//>`;
+}
+
+function RejectOnline({ rv, onClose }) {
+  const [reason, setReason] = useState('');
+  return html`<${Modal} title=${`Từ chối đặt bàn: ${rv.name}`} onClose=${onClose}>
+    <div class="stack">
+      <${Field} label="Lý do (khách sẽ thấy)"><input value=${reason} onInput=${(e) => setReason(e.target.value)} /><//>
+      <div class="chips">${['Khung giờ này kín bàn, mời anh/chị chọn giờ khác', 'Quán nghỉ ngày này', 'Không liên lạc được số điện thoại'].map((x) => html`<button class=${`chip ${reason === x ? 'on' : ''}`} onClick=${() => setReason(x)}>${x}</button>`)}</div>
+      <div class="row end"><button onClick=${onClose}>Thôi</button><button class="danger" disabled=${!reason.trim()} onClick=${() => act(() => api('POST', `/api/reservations/${rv.id}/reject`, { reason }), 'Đã từ chối').then((r) => r && onClose())}>Từ chối</button></div>
+    </div>
+  <//>`;
+}
+
+// Link + mã QR trang khách tự đặt bàn (dán lên Facebook, Google Maps, in để bàn) + cài Zalo xác nhận
+function ShareBooking() {
+  const url = `${location.origin}/datban`;
+  const st = useData('/api/settings');
+  const [f, setF] = useState(null);
+  const s = st.data || {};
+  const cur = f || { online_booking_enabled: s.online_booking_enabled, online_open: s.online_open, online_last: s.online_last, online_max_guests: s.online_max_guests, online_min_lead_minutes: s.online_min_lead_minutes,
+    zns_enabled: s.zns_enabled, zns_mode: s.zns_mode, zns_template_confirm: s.zns_template_confirm, zns_template_reject: s.zns_template_reject, zns_template_remind: s.zns_template_remind };
+  const set = (k, val) => setF({ ...cur, [k]: val });
+  const inp = (k, label, extra = {}) => html`<${Field} label=${label}><input value=${cur[k] ?? ''} onInput=${(e) => set(k, e.target.value)} ...${extra} /><//>`;
+  return html`<details class="card small"><summary><b>Đặt bàn online & Zalo xác nhận</b> · ${s.online_booking_enabled === '0' ? 'đang tắt' : 'đang nhận'}${s.zns_enabled === '1' ? ` · Zalo ${s.zns_mode === 'production' ? 'đang gửi thật' : 'chế độ thử'}` : ' · chưa bật Zalo'}</summary>
+    ${st.data ? html`<div class="stack" style="margin-top:8px">
+      <label class="check-row"><input type="checkbox" checked=${cur.online_booking_enabled !== '0'} onChange=${(e) => set('online_booking_enabled', e.target.checked ? '1' : '0')} /> Nhận đặt bàn online</label>
+      <div class="row">${inp('online_open', 'Nhận từ giờ', { type: 'time' })}${inp('online_last', 'Đến giờ (giờ đến muộn nhất)', { type: 'time' })}</div>
+      <div class="row">${inp('online_max_guests', 'Tối đa khách / đơn', { inputmode: 'numeric' })}${inp('online_min_lead_minutes', 'Đặt trước tối thiểu (phút)', { inputmode: 'numeric' })}</div>
+      <b>Zalo xác nhận cho khách (ZNS)</b>
+      <p class="muted">Cần: OA đã xác thực, tài khoản Zalo Cloud có nạp ví, App được cấp quyền ZNS, mẫu tin loại "Giao dịch" đã duyệt (≈300đ/tin). Tham số mẫu phải đúng tên:
+        xác nhận <code>customer_name, booking_code, booking_date, booking_time, guests, table_no</code>; từ chối <code>customer_name, booking_code, booking_date, booking_time, reason</code>; nhắc trước 2 giờ <code>customer_name, booking_code, booking_date, booking_time, table_no</code>. Zalo chỉ gửi 6:00–22:00.</p>
+      <label class="check-row"><input type="checkbox" checked=${cur.zns_enabled === '1'} onChange=${(e) => set('zns_enabled', e.target.checked ? '1' : '0')} /> Bật gửi Zalo cho khách</label>
+      <div class="chips">${[['development', 'Thử (chỉ gửi quản trị viên OA, không mất tiền)'], ['production', 'Gửi thật cho khách']].map(([k, l]) => html`<button class=${`chip ${cur.zns_mode === k ? 'on' : ''}`} onClick=${() => set('zns_mode', k)}>${l}</button>`)}</div>
+      ${inp('zns_template_confirm', 'Mã mẫu "Xác nhận đặt bàn"', { inputmode: 'numeric' })}
+      ${inp('zns_template_reject', 'Mã mẫu "Từ chối đặt bàn"', { inputmode: 'numeric' })}
+      ${inp('zns_template_remind', 'Mã mẫu "Nhắc trước 2 giờ" (để trống = không nhắc)', { inputmode: 'numeric' })}
+      ${f ? html`<button class="primary" onClick=${() => act(() => api('PUT', '/api/settings', f), 'Đã lưu').then((ok) => ok && setF(null))}>Lưu</button>` : null}
+    </div>` : null}
+    <div class="stack center" style="margin-top:8px">
+      <${QR} data=${url} size=${180} />
+      <code>${url}</code>
+      <button onClick=${() => { navigator.clipboard?.writeText(url); alert('Đã chép link'); }}>Chép link</button>
+      <p class="muted">Dán link lên Facebook, Zalo OA, Google Maps; in mã QR để ở quầy / tờ rơi.</p>
+    </div>
   </details>`;
 }

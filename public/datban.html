@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Đặt bàn · Cửu Long Trấn</title>
+<meta name="description" content="Đặt bàn online Cửu Long Trấn – Steak & Lẩu bò Thái tay" />
+<link rel="icon" href="/icon.svg" />
+<style>
+  :root { --bg: #faf6f1; --panel: #fff; --ink: #2a1d14; --muted: #7a6a5e; --line: #e7dfd6; --accent: #9a3412; --accent-soft: #fbe9dc; --ok: #15803d; --bad: #b91c1c; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #17120e; --panel: #221b16; --ink: #f3ebe4; --muted: #b3a497; --line: #3a2f27; --accent: #f97316; --accent-soft: #3b2418; } }
+  :root[data-theme="dark"] { --bg: #17120e; --panel: #221b16; --ink: #f3ebe4; --muted: #b3a497; --line: #3a2f27; --accent: #f97316; --accent-soft: #3b2418; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: 16px 16px 40px; }
+  header { text-align: center; padding: 18px 0 6px; }
+  header h1 { margin: 0; font-size: 1.6rem; letter-spacing: .5px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: .9rem; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-top: 14px; }
+  h2 { font-size: 1rem; margin: 0 0 10px; }
+  label { display: block; font-weight: 600; margin: 12px 0 6px; font-size: .95rem; }
+  input, textarea, select { width: 100%; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-height: 48px; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+  .chip { flex: 0 0 auto; border: 1px solid var(--line); background: var(--bg); color: inherit; border-radius: 999px; padding: 10px 14px; font: inherit; min-height: 44px; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .slot { border: 1px solid var(--line); background: var(--bg); color: inherit; border-radius: 10px; padding: 10px 0; font: inherit; min-height: 44px; }
+  .slot.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+  .slot:disabled { opacity: .35; text-decoration: line-through; }
+  .stepper { display: flex; align-items: center; gap: 14px; }
+  .stepper button { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: inherit; font-size: 1.4rem; }
+  .stepper b { font-size: 1.4rem; min-width: 2ch; text-align: center; }
+  .btn { width: 100%; margin-top: 16px; border: 0; border-radius: 14px; padding: 14px; font: inherit; font-weight: 700; font-size: 1.05rem; background: var(--accent); color: #fff; min-height: 52px; }
+  .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .btn:disabled { opacity: .5; }
+  .err { color: var(--bad); margin-top: 10px; }
+  .muted { color: var(--muted); font-size: .88rem; }
+  .ok { text-align: center; }
+  .ok .big { font-size: 3rem; }
+  .code { font-size: 1.8rem; font-weight: 800; letter-spacing: 3px; color: var(--accent); }
+  .row { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-weight: 700; background: var(--accent-soft); color: var(--accent); }
+  .pill.ok { background: #dcfce7; color: var(--ok); } .pill.bad { background: #fee2e2; color: var(--bad); }
+  .hide { display: none; }
+  .trap { position: absolute; left: -9999px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="shop">Cửu Long Trấn</h1>
+    <p id="addr">Steak & Lẩu bò Thái tay</p>
+  </header>
+
+  <section id="form" class="card hide">
+    <h2>Đặt bàn</h2>
+    <label>Ngày</label>
+    <div class="chips" id="days"></div>
+    <label>Số khách</label>
+    <div class="stepper"><button type="button" id="minus" aria-label="Bớt">−</button><b id="guests">2</b><button type="button" id="plus" aria-label="Thêm">+</button><span class="muted" id="maxg"></span></div>
+    <label>Giờ đến</label>
+    <div class="slots" id="slots"></div>
+    <p class="muted" id="slotnote"></p>
+    <label for="name">Tên người đặt</label>
+    <input id="name" autocomplete="name" placeholder="vd Anh Tuấn" maxlength="60" />
+    <label for="phone">Số điện thoại (dùng Zalo)</label>
+    <input id="phone" inputmode="tel" autocomplete="tel" placeholder="0909 123 456" maxlength="15" />
+    <label for="zone">Khu muốn ngồi (không bắt buộc)</label>
+    <select id="zone"><option value="">Quán sắp xếp</option></select>
+    <label for="note">Ghi chú</label>
+    <textarea id="note" rows="2" maxlength="200" placeholder="vd sinh nhật, có trẻ em, cần ghế em bé"></textarea>
+    <input class="trap" id="website" tabindex="-1" autocomplete="off" aria-hidden="true" />
+    <button class="btn" id="send">Gửi đặt bàn</button>
+    <p class="err" id="err"></p>
+    <p class="muted">Quán sẽ xác nhận qua <b>Zalo</b> hoặc gọi điện trong ít phút. Nhóm đông hoặc cần gấp vui lòng gọi <a id="tel" href="#">quán</a>.</p>
+  </section>
+
+  <section id="done" class="card ok hide">
+    <div class="big">✓</div>
+    <h2>Đã gửi đặt bàn</h2>
+    <p>Mã đặt bàn của bạn</p>
+    <div class="code" id="code"></div>
+    <p class="muted">Lưu lại mã này để xem trạng thái hoặc huỷ. Quán sẽ xác nhận qua Zalo / điện thoại.</p>
+    <button class="btn ghost" id="see">Xem trạng thái</button>
+  </section>
+
+  <section id="status" class="card hide">
+    <h2>Đơn đặt bàn <span id="scode"></span></h2>
+    <div id="sbody"></div>
+    <button class="btn ghost hide" id="cancel">Huỷ đặt bàn</button>
+    <button class="btn" id="again">Đặt bàn mới</button>
+    <p class="err" id="serr"></p>
+  </section>
+
+  <section class="card">
+    <h2>Xem đơn đã đặt</h2>
+    <div style="display:flex;gap:8px"><input id="lookup" placeholder="Mã đặt bàn, vd 7F3A9C21" maxlength="8" style="text-transform:uppercase" /><button class="chip" id="go">Xem</button></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const api = async (method, url, body) => {
+  const r = await fetch(url, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Có lỗi, vui lòng thử lại hoặc gọi quán');
+  return d;
+};
+const DOW = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const LABEL = { requested: ['', 'Đang chờ quán xác nhận'], booked: ['ok', 'Đã xác nhận'], arrived: ['ok', 'Đã đến'], cancelled: ['bad', 'Đã huỷ'], no_show: ['bad', 'Không đến'] };
+let info; let date; let guests = 2; let time = '';
+const show = (id) => { for (const x of ['form', 'done', 'status']) $(x).classList.toggle('hide', x !== id); };
+const fmtD = (d) => { const x = new Date(`${d}T00:00:00Z`); return `${DOW[x.getUTCDay()]} ${d.slice(8)}/${d.slice(5, 7)}`; };
+async function loadSlots() {
+  $('slots').innerHTML = '<span class="muted">Đang xem bàn trống…</span>';
+  const d = await api('GET', `/api/public/booking/slots?date=${date}&guests=${guests}`);
+  $('slots').innerHTML = '';
+  let any = false;
+  for (const s of d.slots) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = `slot ${s.time === time ? 'on' : ''}`; b.textContent = s.time; b.disabled = !s.ok;
+    if (s.ok) any = true; else if (s.time === time) time = '';
+    b.onclick = () => { time = s.time; loadSlots(); };
+    $('slots').appendChild(b);
+  }
+  $('slotnote').textContent = any ? '' : 'Ngày này đã kín hoặc đã qua giờ nhận đặt, vui lòng chọn ngày khác hoặc gọi quán.';
+}
+function days() {
+  $('days').innerHTML = '';
+  for (let i = 0; i < Math.min(14, info.days + 1); i++) {
+    const x = new Date(`${info.today}T00:00:00Z`); x.setUTCDate(x.getUTCDate() + i);
+    const d = x.toISOString().slice(0, 10);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = `chip ${d === date ? 'on' : ''}`; b.textContent = i === 0 ? 'Hôm nay' : i === 1 ? 'Ngày mai' : fmtD(d);
+    b.onclick = () => { date = d; days(); loadSlots(); };
+    $('days').appendChild(b);
+  }
+}
+async function status(code) {
+  try {
+    const d = await api('GET', `/api/public/booking/status?code=${encodeURIComponent(code)}`);
+    const [cls, txt] = LABEL[d.status] || ['', d.status];
+    $('scode').textContent = d.code;
+    $('sbody').innerHTML = `<p><span class="pill ${cls}">${txt}</span></p>
+      <div class="row"><span>Tên</span><b></b></div><div class="row"><span>Ngày giờ</span><b>${fmtD(d.date)} · ${d.time}</b></div>
+      <div class="row"><span>Số khách</span><b>${d.guests}</b></div>${d.tables ? `<div class="row"><span>Bàn</span><b>${d.tables}</b></div>` : ''}
+      ${d.reason ? `<p class="muted">Lý do: ${d.reason.replace(/[<>&]/g, '')}</p>` : ''}
+      ${d.status === 'requested' ? '<p class="muted">Quán sẽ xác nhận qua Zalo / gọi điện cho số đuôi …' + d.phone_tail + '.</p>' : ''}`;
+    $('sbody').querySelector('.row b').textContent = d.name;
+    $('cancel').classList.toggle('hide', !['requested', 'booked'].includes(d.status));
+    $('cancel').onclick = async () => { if (!confirm('Huỷ đơn đặt bàn này?')) return; try { await api('POST', '/api/public/booking/cancel', { code: d.code }); status(d.code); } catch (e) { $('serr').textContent = e.message; } };
+    show('status');
+    history.replaceState(null, '', `/datban?ma=${d.code}`);
+  } catch (e) { alert(e.message); }
+}
+$('minus').onclick = () => { if (guests > 1) { guests--; $('guests').textContent = guests; loadSlots(); } };
+$('plus').onclick = () => { if (guests < info.max_guests) { guests++; $('guests').textContent = guests; loadSlots(); } };
+$('send').onclick = async () => {
+  $('err').textContent = '';
+  if (!time) { $('err').textContent = 'Chọn giờ đến'; return; }
+  $('send').disabled = true;
+  try {
+    const d = await api('POST', '/api/public/booking', { name: $('name').value, phone: $('phone').value, guests, date, time, zone_id: $('zone').value || undefined, note: $('note').value, website: $('website').value });
+    $('code').textContent = d.code;
+    try { localStorage.setItem('datban-code', d.code); } catch { /* bỏ qua */ }
+    show('done');
+  } catch (e) { $('err').textContent = e.message; loadSlots(); } finally { $('send').disabled = false; }
+};
+$('see').onclick = () => status($('code').textContent);
+$('again').onclick = () => { history.replaceState(null, '', '/datban'); show('form'); loadSlots(); };
+$('go').onclick = () => $('lookup').value.trim() && status($('lookup').value.trim());
+(async () => {
+  try { info = await api('GET', '/api/public/booking/info'); } catch { $('addr').textContent = 'Không tải được, vui lòng thử lại'; return; }
+  $('shop').textContent = info.shop.name;
+  $('addr').textContent = [info.shop.address, info.shop.phone].filter(Boolean).join(' · ');
+  $('tel').href = `tel:${info.shop.phone}`; $('tel').textContent = info.shop.phone;
+  $('maxg').textContent = `tối đa ${info.max_guests} khách`;
+  for (const z of info.zones) { const o = document.createElement('option'); o.value = z.id; o.textContent = z.name; $('zone').appendChild(o); }
+  date = info.today;
+  const code = new URLSearchParams(location.search).get('ma');
+  if (code) return status(code);
+  if (!info.enabled) { $('form').innerHTML = '<p>Quán tạm ngưng nhận đặt bàn online. Vui lòng gọi <a href="tel:' + info.shop.phone + '">' + info.shop.phone + '</a>.</p>'; show('form'); return; }
+  days(); loadSlots(); show('form');
+  try { const last = localStorage.getItem('datban-code'); if (last) $('lookup').value = last; } catch { /* bỏ qua */ }
+})();
+</script>
+</body>
+</html>

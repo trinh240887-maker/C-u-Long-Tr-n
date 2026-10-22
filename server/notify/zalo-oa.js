@@ -42,5 +42,5 @@ export function createZaloOaTransport(ctx, { fetchImpl = globalThis.fetch } = {}
     return data;
   }
 
-  return { send, refreshToken };
+  return { send, refreshToken, token };
 }

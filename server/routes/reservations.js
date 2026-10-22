@@ -4,7 +4,7 @@ import { isDate, parseHM } from '../lib/time.js';
 import { formatTableList, parseTableList } from '../lib/tables.js';
 
 // Đặt bàn R1 (nhân viên nhập khi khách gọi / nhắn) + danh sách chờ khách vãng lai
-const STATUS = ['booked', 'waiting', 'arrived', 'no_show', 'cancelled'];
+const STATUS = ['requested', 'booked', 'waiting', 'arrived', 'no_show', 'cancelled']; // requested = khách đặt online, chờ quán xác nhận
 
 export default function (r, ctx) {
   const { db } = ctx;

@@ -1,0 +1,33 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createZns, phone84 } from '../server/notify/zns.js';
+import { makeClock } from '../server/lib/time.js';
+
+test('Zalo ZNS cho khách: tắt thì bỏ qua, số 84…, chế độ thử, đúng tham số mẫu, ngoài 6–22h không gửi', async () => {
+  const clock = makeClock({ offset: '+07:00' });
+  const settings = { zns_enabled: '0', zns_mode: 'development', zns_template_confirm: '123456' };
+  let now = clock.toEpoch('2026-10-24', 18 * 60);
+  const ctx = { setting: (k) => settings[k] || '', clock: () => clock, now: () => now };
+  const calls = [];
+  const fetchImpl = async (url, opt) => { calls.push({ url, headers: opt.headers, body: JSON.parse(opt.body) }); return { status: 200, json: async () => ({ error: 0, data: { msg_id: 'm1' } }) }; };
+  const notify = createZns(ctx, { fetchImpl, oa: { token: async () => 'TOKEN' } });
+  const x = { id: 7, code: 'AB12CD34', name: 'Chị Lan', phone: '0909123456', date: '2026-10-24', time_min: 19 * 60, guests: 4, tables: '81' };
+  assert.deepEqual(await notify(x, 'confirm'), { ok: false, skipped: true });
+  settings.zns_enabled = '1';
+  assert.deepEqual(await notify(x, 'reject'), { ok: false, skipped: true }, 'chưa có mã mẫu từ chối');
+  const r = await notify(x, 'confirm');
+  assert.equal(r.ok, true);
+  const c = calls[0];
+  assert.equal(c.url, 'https://business.openapi.zalo.me/message/template');
+  assert.equal(c.headers.access_token, 'TOKEN');
+  assert.equal(c.body.phone, '84909123456');
+  assert.equal(c.body.mode, 'development');
+  assert.deepEqual(c.body.template_data, { customer_name: 'Chị Lan', booking_code: 'AB12CD34', booking_date: '24/10/2026', booking_time: '19:00', guests: '4', table_no: '81' });
+  settings.zns_mode = 'production';
+  await notify(x, 'confirm');
+  assert.equal(calls[1].body.mode, undefined);
+  now = clock.toEpoch('2026-10-24', 22 * 60 + 30);
+  assert.match((await notify(x, 'confirm')).error, /Ngoài giờ/);
+  assert.equal(phone84('+84 912 345 678'), '84912345678');
+  assert.equal(phone84('123'), null);
+});

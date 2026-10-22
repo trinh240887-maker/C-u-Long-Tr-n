@@ -10,8 +10,10 @@ import printRoutes from './routes/print.js';
 import promoRoutes from './routes/promotions.js';
 import paymentRoutes from './routes/payments.js';
 import { codeHash } from './lib/version.js';
+import { createZns } from './notify/zns.js';
 import bankRoutes from './routes/bank.js';
 import daybookRoutes from './routes/daybook.js';
+import bookingOnlineRoutes from './routes/booking-online.js';
 import staffRoutes from './routes/staff.js';
 import scheduleRoutes from './routes/schedule.js';
 import attendanceRoutes from './routes/attendance.js';
@@ -71,6 +73,8 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   ctx.notifier = createNotifier(ctx, { transport: zaloTransport });
   ctx.notify = (...args) => ctx.notifier.notify(...args);
 
+  // Zalo cho khách (ZNS): chỉ chạy khi chủ quán bật trong Cài đặt; test có thể thay ctx.customerNotify
+  ctx.customerNotify = createZns(ctx);
   const router = createRouter();
   // Phiên bản đang chạy (công khai, không lộ dữ liệu): GitHub kiểm tra 30′/lần, Cài đặt hiện cho chủ quán
   const startedAt = now();
@@ -79,7 +83,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   ctx.version = () => ({ version, started_at: startedAt });
   router.get('/api/version', null, () => ({ ...ctx.version(), uptime_min: Math.round((now() - startedAt) / 60000) }));
 
-  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes, printRoutes, promoRoutes, paymentRoutes, bankRoutes, daybookRoutes]) {
+  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes, printRoutes, promoRoutes, paymentRoutes, bankRoutes, daybookRoutes, bookingOnlineRoutes]) {
     register(router, ctx);
   }
 
@@ -121,7 +125,8 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   };
 
   async function serveStatic(res, pathname) {
-    const rel = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1));
+    // /datban: trang khách tự đặt bàn (công khai, không cần đăng nhập)
+    const rel = pathname === '/' ? 'index.html' : pathname === '/datban' ? 'datban.html' : decodeURIComponent(pathname.slice(1));
     const root = path.resolve(publicDir);
     const file = path.resolve(root, rel);
     if (!file.startsWith(root + path.sep)) { res.writeHead(404); return res.end('Not found'); }
