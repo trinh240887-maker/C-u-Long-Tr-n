@@ -24,6 +24,7 @@ import { PromotionsView } from './views/promotions.js';
 import { CashierView } from './views/pay.js';
 import { DaybookView } from './views/daybook.js';
 import { TicketsView } from './views/tickets.js';
+import { ReportsView } from './views/reports.js';
 
 const NAV = [
   { path: '/', label: 'Hôm nay', icon: '◉', role: 'staff', main: true },
@@ -40,6 +41,7 @@ const NAV = [
   { path: '/duyet-anh', label: 'Duyệt ảnh', icon: '▣', role: 'team_lead' },
   { path: '/thu-ngan', label: 'Thu ngân & doanh thu', icon: '₫', role: 'staff', show: (me) => atLeast(me, 'shift_lead') || me.team?.name === 'Thu ngân' },
   { path: '/duyet-so', label: 'Duyệt sổ', icon: '✔', role: 'manager' },
+  { path: '/bao-cao', label: 'Báo cáo doanh thu', icon: '📈', role: 'manager' },
   { path: '/khuyen-mai', label: 'Khuyến mãi', icon: '🎁', role: 'staff' },
   { path: '/may-in', label: 'Máy in', icon: '⎙', role: 'shift_lead' },
   { path: '/nghi', label: 'Nghỉ & thay ca', icon: '⇄', role: 'staff' },
@@ -181,7 +183,7 @@ function App() {
   const query = new URLSearchParams(path.split('?')[1] || '');
   const routes = {
     '/': Home, '/quan-ly': Dashboard, '/lich': Schedule, '/nhan-vien': StaffView, '/cham-cong': AttendanceView,
-    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/thuc-don': MenuView, '/goi-mon': OrderView, '/dat-ban': ReservationsView, '/may-in': PrintersView, '/khuyen-mai': PromotionsView, '/thu-ngan': CashierView, '/duyet-so': DaybookView, '/phieu-bep': TicketsView, '/cai-dat': SettingsView, '/ho-so': Profile,
+    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/thuc-don': MenuView, '/goi-mon': OrderView, '/dat-ban': ReservationsView, '/may-in': PrintersView, '/khuyen-mai': PromotionsView, '/thu-ngan': CashierView, '/duyet-so': DaybookView, '/phieu-bep': TicketsView, '/bao-cao': ReportsView, '/cai-dat': SettingsView, '/ho-so': Profile,
   };
   const nav = NAV.find((n) => n.path === base);
   const View = routes[base] && (!nav || atLeast(me, nav.role)) ? routes[base] : Home;

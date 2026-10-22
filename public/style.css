@@ -562,3 +562,25 @@ img.thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; }
 .thumb.sample img { outline: 2px solid color-mix(in srgb, #16a34a 55%, transparent); }
 .btn-photo.sample-add { min-height: 44px; display: inline-flex; align-items: center; }
 .btn-photo.sample-add.mini { min-height: 32px; font-size: 13px; padding: 4px 10px; opacity: .8; }
+
+/* Báo cáo doanh thu */
+.kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.kpi { background: var(--panel); border: 1px solid var(--line, #e5e5e5); border-radius: 12px; padding: 10px 12px; display: grid; gap: 2px; min-width: 0; }
+.kpi b { font-size: 18px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kpi.main { grid-column: 1 / -1; } .kpi.main b { font-size: 26px; }
+.kpi.warn { border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+.kpi .split { display: block; height: 6px; border-radius: 3px; background: color-mix(in srgb, #16a34a 35%, var(--panel-2)); overflow: hidden; }
+.kpi .split i { display: block; height: 100%; background: #2563eb; }
+.ok-text { color: #15803d; }
+.rbars { display: grid; grid-template-columns: minmax(2.5em, max-content) 1fr 4.6em; gap: 6px 8px; align-items: center; font-size: 14px; }
+.rbar { display: contents; }
+.rbar .rl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 9em; }
+.rbar .rt { height: 14px; background: var(--panel-2); border-radius: 7px; overflow: hidden; }
+.rbar .rt i { display: block; height: 100%; background: var(--brand, #9a3412); border-radius: 7px; }
+.rbar .rv { font-variant-numeric: tabular-nums; display: grid; text-align: right; line-height: 1.15; }
+.rbar .rv small { font-size: 11px; }
+.dchart { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 2px; align-items: end; height: 160px; }
+.dcol { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; min-width: 0; }
+.dcol i { display: block; width: 100%; background: color-mix(in srgb, var(--brand, #9a3412) 70%, var(--panel)); border-radius: 3px 3px 0 0; }
+.dcol i.we { background: #ea580c; } .dcol i.best { background: var(--brand, #9a3412); outline: 2px solid var(--ink); }
+.dcol small { font-size: 9px; color: var(--muted); writing-mode: vertical-rl; transform: rotate(180deg); margin-top: 2px; }
