@@ -26,7 +26,7 @@ try { app.ctx.cleanupPhotos(); app.ctx.promoTick(); } catch (e) { console.error(
 const timers = [
   setInterval(backup, 3600_000),
   setInterval(() => { try { app.ctx.printTick(); } catch (e) { console.error(e); } }, 60_000),
-  setInterval(() => { try { app.ctx.autoCloseAttendance(); app.ctx.payTick(); } catch (e) { console.error(e); } }, 5 * 60_000),
+  setInterval(() => { try { app.ctx.autoCloseAttendance(); app.ctx.payTick(); app.ctx.reviewTick(); } catch (e) { console.error(e); } }, 5 * 60_000),
   setInterval(() => { try { app.ctx.cleanupPhotos(); app.ctx.promoTick(); } catch (e) { console.error(e); } }, 3600_000),
 ];
 

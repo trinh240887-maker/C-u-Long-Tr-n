@@ -642,8 +642,10 @@ await thuNgan('POST', '/api/payments/reconcile', { ids: ghostBills.map((b) => b.
 const okIds = day.bills.filter((b) => b.reconcile_status === 'matched').map((b) => b.id);
 await thuNgan('POST', '/api/payments/reconcile', { ids: okIds, status: 'confirmed' });
 day = (await thuNgan('GET', `/api/payments?date=${DAY}`)).data;
-// Đếm két: thu ngân đếm thấy đúng số phải có
-await thuNgan('POST', '/api/payments/drawer', { date: DAY, counted: day.summary.drawer_expected });
+// Đếm két theo mệnh giá (đúng số phải có), chụp ảnh, để lại 3.000.000đ cho ngày mai, còn lại bỏ phong bì
+const toDenoms = (amount) => { const d = {}; let rest = amount; for (const x of [500000, 200000, 100000, 50000, 20000, 10000, 5000, 2000, 1000]) { d[x] = Math.floor(rest / x); rest -= d[x] * x; } return d; };
+await thuNgan('POST', '/api/payments/drawer', { date: DAY, denoms: toDenoms(day.summary.drawer_expected), keep_float: 3000000 });
+{ const ph = await thuNgan('POST', '/api/payments/drawer-photo', { date: DAY, data: `data:image/jpeg;base64,${(process.env.CASH_PHOTO ? fs.readFileSync(process.env.CASH_PHOTO) : Buffer.alloc(3000, 7)).toString('base64')}` }); if (ph.status !== 200) issue(`Ảnh tiền: ${ph.data?.error}`); }
 const close = await thuNgan('POST', '/api/payments/close-day', { date: DAY });
 if (close.status !== 200) issue(`Chốt ngày: ${close.data?.error}`);
 day = (await thuNgan('GET', `/api/payments?date=${DAY}`)).data;
@@ -724,6 +726,43 @@ P();
 P('## Nhật ký sự cố');
 for (const l of log) P(`- ${l}`);
 if (issues.length) { P(); P('## Lỗi'); for (const i of issues) P(`- ${i}`); }
+
+// ---------- Sáng hôm sau: chủ quán duyệt sổ ----------
+const NEXT = '2026-10-25';
+now = clock.toEpoch(NEXT, 6 * 60 + 50);
+const tickEarly = app.ctx.reviewTick();
+now = clock.toEpoch(NEXT, 7 * 60 + 5);
+const tick7 = app.ctx.reviewTick();
+const morningMsg = db.prepare("SELECT n.title, n.body FROM notifications n JOIN staff s ON s.id = n.staff_id WHERE s.role = 'owner' AND n.title LIKE 'Duyệt sổ%' ORDER BY n.id DESC").get();
+if (tickEarly !== 0 || tick7 !== 1 || !morningMsg) issue('Báo cáo sáng 7h không gửi đúng giờ');
+// Thu ngân ca sáng mở két: app gợi ý số hôm qua để lại
+now = clock.toEpoch(NEXT, 9 * 60);
+const sugg = (await thuNgan('GET', `/api/payments?date=${NEXT}`)).data.suggested_opening;
+if (sugg !== 3000000) issue(`Gợi ý két đầu ngày ${sugg} ≠ 3.000.000`);
+await thuNgan('POST', '/api/payments/drawer', { date: NEXT, opening: sugg });
+// Quản lý Quân đi nộp phong bì lúc 8h30 (giả lập: nộp thiếu 50.000đ để xem app bắt)
+let bk = (await o('GET', '/api/daybook')).data;
+const envelope = bk.envelope;
+const depositId = await bankIn(envelope - 50000, 'NOP TIEN MAT CUU LONG TRAN 24/10');
+bk = (await o('GET', `/api/daybook?date=${DAY}`)).data;
+const cand = bk.deposits.find((x) => x.id === depositId);
+if (!cand) issue('Khoản nộp tiền không hiện trong danh sách để chọn');
+const chk = await quan('POST', '/api/daybook/cash-check', { date: DAY, method: 'deposit', txn_id: depositId });
+bk = (await o('GET', `/api/daybook?date=${DAY}`)).data;
+if (chk.data?.diff !== -50000) issue(`Kiểm nộp tiền: lệch ${chk.data?.diff} (phải -50000)`);
+if (process.env.MORNING_PORT) {
+  console.log(JSON.stringify({ morning_ready: true, port: server.address().port }));
+  await new Promise(() => {});
+}
+const rvIssue = await o('POST', '/api/daybook/review', { date: DAY, status: 'issue', note: 'Phong bì nộp thiếu 50.000đ, Ngân giải trình' });
+P();
+P('## Sáng hôm sau: chủ quán duyệt sổ');
+P(`- 07:05 chủ quán nhận: **${morningMsg?.title}**`);
+P(`  - ${morningMsg?.body}`);
+P(`- 08:30 quản lý Quân nộp phong bì → ngân hàng báo ${f(envelope - 50000)}đ → chọn "Đây là tiền nộp" → app báo **lệch ${f(chk.data?.diff)}đ** so với phong bì ${f(envelope)}đ`);
+P(`- Chuyển khoản: ngân hàng ${f(bk.checks.ck.bank)}đ vs bill + tip ${f(bk.checks.ck.expected)}đ → ${bk.checks.ck.ok ? '✓ khớp' : '✗ lệch'}`);
+P(`- Két: hôm qua để lại ${f(bk.keep_float)}đ = két đầu ngày hôm nay ${f(bk.checks.float.next_opening)}đ → ${bk.checks.float.ok ? '✓' : '✗'}`);
+P(`- Chủ quán bấm "Có vấn đề" → thu ngân + quản lý nhận báo (${rvIssue.status === 200 ? '✓' : '✗'})`);
 
 const report = out.join('\n');
 console.log(report);

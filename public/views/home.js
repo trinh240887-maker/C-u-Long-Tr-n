@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Link, Modal, Field, hm, dt, dayLabel, PHASE_LABEL, ago } from '../ui.js';
 import { MyCashCard } from './pay.js';
+import { PendingBookCard } from './daybook.js';
 
 export function LeaveForm({ shift, onClose }) {
   const [reason, setReason] = useState('');
@@ -78,6 +79,7 @@ export function Home({ me }) {
       <span class="muted">${dayLabel(me.today, { long: true })} · ${me.role_label}${me.team ? ` · ${me.team.name}` : ''}</span>
     </div>
     ${!me.zalo_linked ? html`<${Link} href="/ho-so" class="card hint">Liên kết Zalo để nhận lịch ca và lời nhờ làm thay trên điện thoại →<//>` : null}
+    <${PendingBookCard} me=${me} />
     <${MyCashCard} />
     <${ClockCard} />
     ${(() => { const ps = (promos.data?.items || []).filter((p) => p.status === 'running' || p.status === 'upcoming');

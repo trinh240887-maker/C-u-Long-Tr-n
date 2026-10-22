@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { html, api, act, useData, Loading, Modal, Field, money, hm, atLeast, addDays, dayLabel, toast, bump } from '../ui.js';
 import qrcode from '../vendor/qrcode.js';
+import { compressImage } from './checklists.js';
 
 const num = (s) => Number(String(s ?? '').replace(/[^\d]/g, '')) || 0;
 const METHOD = { cash: 'Tiền mặt', transfer: 'Chuyển khoản', mixed: 'TM + CK' };
@@ -268,6 +269,8 @@ export function CashierView({ me }) {
     unmatched.length && `xử lý ${unmatched.length} khoản CK chưa khớp`,
     toConfirm.length && `xác nhận ${toConfirm.length} bill CK`,
     s.drawer_counted == null && 'đếm két cuối ngày',
+    !d.photos?.length && 'chụp ảnh tiền đã đếm',
+    d.drawer?.keep_float == null && 'ghi số tiền để lại két',
   ].filter(Boolean);
   return html`<div class="stack">
     <div class="row between wrap">
@@ -280,7 +283,8 @@ export function CashierView({ me }) {
     <section class=${`card stack ${s.opening == null && !locked ? 'warn-card' : ''}`}>
       <div class="row between"><b>1. Két đầu ngày</b>${s.opening != null ? html`<b class="num">${money(s.opening)}</b>` : null}</div>
       ${s.opening != null ? html`<small class="muted">${d.drawer.opening_by_name} ghi lúc ${hm(d.drawer.opening_at)}</small>` : null}
-      ${!locked ? html`<${Amount} value=${s.opening} label=${s.opening == null ? 'Ghi' : 'Sửa'} placeholder="Tiền lẻ để thối, vd 2.000.000" onSave=${(x) => act(() => api('POST', '/api/payments/drawer', { date, opening: x }), 'Đã ghi két đầu ngày')} />` : null}
+      ${!locked ? html`<${Amount} value=${s.opening ?? d.suggested_opening} label=${s.opening == null ? 'Ghi' : 'Sửa'} placeholder="Tiền lẻ để thối, vd 2.000.000" onSave=${(x) => act(() => api('POST', '/api/payments/drawer', { date, opening: x }), 'Đã ghi két đầu ngày')} />` : null}
+      ${s.opening == null && d.suggested_opening != null ? html`<small class="muted">Hôm trước thu ngân để lại két ${money(d.suggested_opening)}. Đếm lại, đúng thì bấm Ghi; lệch thì ghi số thật (chủ quán sẽ thấy).</small>` : null}
     </section>
 
     <section class="stack">
@@ -317,7 +321,7 @@ export function CashierView({ me }) {
       <b>5. Đếm két cuối ngày</b>
       <div class="row between"><span>Phải có = đầu ngày ${money(s.opening ?? 0)} + thu tiền mặt ${money(s.cash_direct + s.handed_in)} − hoàn ${money(s.refund_cash)}</span><b class="num">${s.drawer_expected == null ? '—' : money(s.drawer_expected)}</b></div>
       ${s.drawer_counted != null ? html`<div class="row between"><span>Đếm được</span><b class=${`num ${s.drawer_diff ? 'danger-text' : 'ok-text'}`}>${money(s.drawer_counted)}${s.drawer_diff ? ` (lệch ${money(s.drawer_diff)})` : ' ✓ khớp'}</b></div>` : null}
-      ${!locked ? html`<${Amount} value=${s.drawer_counted} label="Ghi số đếm" placeholder="Tổng tiền đếm trong két" onSave=${(x) => act(() => api('POST', '/api/payments/drawer', { date, counted: x }), 'Đã ghi')} />` : null}
+      ${!locked ? html`<${DrawerClose} date=${date} d=${d} />` : d.drawer?.denoms ? html`<${DenomView} denoms=${JSON.parse(d.drawer.denoms)} />` : null}
     </section>
 
     <div class="grid-2">
@@ -366,4 +370,51 @@ function WaitingTables({ me }) {
       <button class="primary" onClick=${() => setOpen(x)}>Thu ${money(x.total)}</button></div>`)}
     ${open ? html`<${PayModal} me=${me} id=${open.id} defaultMethod=${open.cash ? 'cash' : 'transfer'} onClose=${() => setOpen(null)} onDone=${(r) => { setOpen(null); toast(r.change ? `Đã thu. Thối khách ${money(r.change)}` : 'Đã thu, bàn trống'); bump(); }} />` : null}
   </section>`;
+}
+
+export const DENOMS = [500000, 200000, 100000, 50000, 20000, 10000, 5000, 2000, 1000];
+const dk = (x) => (x >= 1000 ? `${x / 1000}k` : String(x));
+
+// Đếm tiền theo mệnh giá: gõ số tờ, app tự nhân & cộng
+export function DenomForm({ value, onChange }) {
+  const total = DENOMS.reduce((n, x) => n + x * (Number(value[x]) || 0), 0);
+  return html`<div class="denoms">
+    ${DENOMS.map((x) => html`<label class="denom"><span>${dk(x)}</span><input inputmode="numeric" placeholder="0" value=${value[x] || ''} onInput=${(e) => onChange({ ...value, [x]: e.target.value.replace(/\D/g, '') })} /><small class="muted">${value[x] ? money(x * Number(value[x])) : ''}</small></label>`)}
+    <div class="row between total" style="grid-column:1/-1"><b>Tổng đếm</b><b class="num">${money(total)}</b></div>
+  </div>`;
+}
+export function DenomView({ denoms }) {
+  const rows = DENOMS.filter((x) => denoms[x]);
+  return html`<div class="small muted">${rows.map((x) => `${dk(x)} × ${denoms[x]}`).join(' · ')}</div>`;
+}
+export function CashPhotos({ photos }) {
+  const [view, setView] = useState(null);
+  if (!photos?.length) return null;
+  return html`<div class="row wrap">${photos.map((p) => html`<img class="thumb" src=${`/api/payments/drawer-photo/${p.id}`} alt="Ảnh tiền" onClick=${() => setView(p)} />`)}
+    ${view ? html`<div class="viewer" onClick=${() => setView(null)}><img src=${`/api/payments/drawer-photo/${view.id}`} alt="Ảnh tiền" /></div>` : null}</div>`;
+}
+
+// Thu ngân chốt két: đếm theo mệnh giá, chụp ảnh tiền, ghi số để lại két ngày mai, phần còn lại bỏ phong bì
+function DrawerClose({ date, d }) {
+  const [den, setDen] = useState(() => (d.drawer?.denoms ? JSON.parse(d.drawer.denoms) : {}));
+  const [keep, setKeep] = useState(d.drawer?.keep_float != null ? String(d.drawer.keep_float) : '');
+  const [busy, setBusy] = useState(false);
+  const total = DENOMS.reduce((n, x) => n + x * (Number(den[x]) || 0), 0);
+  const k = num(keep);
+  const photo = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setBusy(true);
+    try { const data = await compressImage(f); await act(() => api('POST', '/api/payments/drawer-photo', { date, data }), 'Đã lưu ảnh'); } finally { setBusy(false); }
+  };
+  return html`<div class="stack">
+    <${DenomForm} value=${den} onChange=${setDen} />
+    <${Field} label="Để lại két làm tiền lẻ ngày mai"><input inputmode="numeric" placeholder="vd 2.000.000" value=${keep} onInput=${(e) => setKeep(e.target.value)} /><//>
+    ${total ? html`<div class="row between"><span>Bỏ phong bì (đi nộp ngân hàng)</span><b class="num">${money(Math.max(0, total - k))}</b></div>` : null}
+    <button class="primary" disabled=${!total} onClick=${() => act(() => api('POST', '/api/payments/drawer', { date, denoms: den, keep_float: k }), 'Đã ghi số đếm')}>Ghi số đếm ${money(total)}</button>
+    <label class=${`button ${busy ? 'muted' : ''}`}>📷 Chụp ảnh tiền đã đếm (${d.photos?.length || 0})<input type="file" accept="image/*" capture="environment" hidden onChange=${photo} /></label>
+    <${CashPhotos} photos=${d.photos} />
+    <small class="muted">Ghi số tờ từng loại, chụp ảnh xấp tiền, bỏ phong bì ghi số tiền + ngày. Sáng mai chủ quán đối chiếu với số nộp ngân hàng.</small>
+  </div>`;
 }

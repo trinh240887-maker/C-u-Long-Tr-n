@@ -178,7 +178,16 @@ test('tiền mặt: phục vụ thu → bill chờ thu ngân xác nhận (bàn v
   let d = (await N('GET', `/api/payments?date=${DAY}`)).data;
   // Két phải có = đầu ngày + tiền mặt thu (gồm tip) − hoàn
   assert.equal(d.summary.drawer_expected, 2000000 + 200000 + tB - 10000 + 30000 - 79000);
-  await N('POST', '/api/payments/drawer', { date: DAY, counted: d.summary.drawer_expected - 5000 });
+  // Đếm theo mệnh giá (thiếu 5.000đ so với phải có), chụp ảnh, để lại 2.000.000đ cho ngày mai
+  const want = d.summary.drawer_expected - 5000;
+  const denoms = {}; let rest = want;
+  for (const x of [500000, 200000, 100000, 50000, 20000, 10000, 5000, 2000, 1000]) { denoms[x] = Math.floor(rest / x); rest -= denoms[x] * x; }
+  await N('POST', '/api/payments/drawer', { date: DAY, denoms });
+  assert.match((await close()).data.error, /ảnh tiền/);
+  const JPG = `data:image/jpeg;base64,${Buffer.alloc(3000, 7).toString('base64')}`;
+  assert.equal((await N('POST', '/api/payments/drawer-photo', { date: DAY, data: JPG })).status, 200);
+  assert.match((await close()).data.error, /để lại két/);
+  await N('POST', '/api/payments/drawer', { date: DAY, keep_float: 2000000 });
   r = await close();
   assert.equal(r.status, 200, JSON.stringify(r.data));
   d = (await N('GET', `/api/payments?date=${DAY}`)).data;
@@ -192,4 +201,46 @@ test('tiền mặt: phục vụ thu → bill chờ thu ngân xác nhận (bàn v
   assert.match(last.body, /Tip quỹ chung/);
   assert.match(last.body, /Bất thường/);
   assert.equal((await N('POST', '/api/payments/drawer', { date: DAY, counted: 1 })).status, 400);
+
+  // ---------- Sáng hôm sau: chủ quán duyệt sổ ----------
+  const NEXT = '2026-10-25';
+  setNow(at(NEXT, '06:30'));
+  assert.equal(app.ctx.reviewTick(), 0, 'chưa tới 7h');
+  setNow(at(NEXT, '07:05'));
+  assert.equal(app.ctx.reviewTick(), 1);
+  assert.equal(app.ctx.reviewTick(), 0, 'không gửi lặp');
+  const morning = noti(db, 'Duyệt sổ 24/10%')[0];
+  assert.ok(morning && morning.name === 'Chủ quán', 'chủ quán nhận báo cáo sáng');
+  let bk = (await o('GET', '/api/daybook')).data;
+  assert.equal(bk.date, DAY);
+  assert.equal(bk.envelope, want - 2000000);
+  assert.equal(bk.photos.length, 1);
+  assert.equal(bk.checks.ck.ok, true, 'CK khớp ngân hàng');
+  assert.equal((await H('GET', '/api/daybook')).status, 403);
+  // Thu ngân ca sáng ghi két đầu ngày: app gợi ý đúng số hôm qua để lại
+  assert.equal((await N('GET', `/api/payments?date=${NEXT}`)).data.suggested_opening, 2000000);
+  await N('POST', '/api/payments/drawer', { date: NEXT, opening: 2000000 });
+  // Quản lý đi nộp phong bì: thiếu 50.000 so với phong bì → SePay báo, chọn khoản đó
+  setNow(at(NEXT, '08:30'));
+  const dep = await sepay(bk.envelope - 50000, 'NOP TIEN MAT CUU LONG TRAN');
+  bk = (await o('GET', `/api/daybook?date=${DAY}`)).data;
+  assert.ok(bk.deposits.some((x) => x.id === dep.data.id));
+  r = await o('POST', '/api/daybook/cash-check', { date: DAY, method: 'deposit', txn_id: dep.data.id });
+  assert.equal(r.data.diff, -50000);
+  bk = (await o('GET', `/api/daybook?date=${DAY}`)).data;
+  assert.equal(bk.checks.cash.ok, false);
+  assert.equal(bk.checks.float.ok, true, 'két đầu ngày hôm sau = số để lại');
+  // Khoản nộp không bị tính là "tiền CK chưa khớp" của ngày hôm sau
+  assert.equal((await N('GET', `/api/payments?date=${NEXT}`)).data.summary.unmatched, 0);
+  // Chủ quán báo vấn đề → thu ngân + quản lý nhận báo; rồi đếm lại phong bì (cách B) thấy đủ → duyệt
+  assert.equal((await o('POST', '/api/daybook/review', { date: DAY, status: 'issue' })).status, 400, 'bắt ghi chú');
+  await o('POST', '/api/daybook/review', { date: DAY, status: 'issue', note: 'Nộp thiếu 50k, Ngân giải trình' });
+  assert.ok(noti(db, 'Chủ quán báo vấn đề sổ ngày 24/10%').some((x) => x.name === 'Ngân'));
+  assert.equal((await N('POST', '/api/daybook/review', { date: DAY, status: 'approved' })).status, 403, 'chỉ chủ quán duyệt');
+  await o('POST', '/api/daybook/cash-check', { date: DAY, method: 'recount', denoms: { 500000: Math.floor(bk.envelope / 500000) } });
+  await o('POST', '/api/daybook/review', { date: DAY, status: 'approved', note: 'Đã thu bù 50k' });
+  bk = (await o('GET', '/api/daybook')).data;
+  assert.equal(bk.review.status, 'approved');
+  assert.deepEqual(bk.pending_days, []);
+
 });

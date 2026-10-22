@@ -300,7 +300,12 @@ export default function (r, ctx) {
     const amt = (x, name) => v.int(Number(String(x).replace(/[.,\s]/g, '')), { min: 0, max: 1_000_000_000, name });
     db.prepare('INSERT OR IGNORE INTO day_cash (date) VALUES (?)').run(date);
     if (body.opening !== undefined) db.prepare('UPDATE day_cash SET opening = ?, opening_by = ?, opening_at = ? WHERE date = ?').run(amt(body.opening, 'Tiền đầu ngày'), me.id, ctx.now(), date);
-    if (body.counted !== undefined) db.prepare('UPDATE day_cash SET counted = ?, counted_by = ?, counted_at = ?, note = ? WHERE date = ?').run(amt(body.counted, 'Tiền đếm trong két'), me.id, ctx.now(), v.text(body.note, { name: 'Ghi chú', max: 120 }), date);
+    // Đếm két theo mệnh giá (ưu tiên) hoặc 1 số tổng
+    let counted = body.counted;
+    if (body.denoms) { const c = ctx.countDenoms(body.denoms); counted = c.total; db.prepare('UPDATE day_cash SET denoms = ? WHERE date = ?').run(JSON.stringify(c.denoms), date); }
+    if (counted !== undefined) db.prepare('UPDATE day_cash SET counted = ?, counted_by = ?, counted_at = ?, note = ? WHERE date = ?').run(amt(counted, 'Tiền đếm trong két'), me.id, ctx.now(), v.text(body.note, { name: 'Ghi chú', max: 120 }), date);
+    // Để lại két làm tiền lẻ ngày mai; phần còn lại bỏ phong bì đi nộp
+    if (body.keep_float !== undefined) db.prepare('UPDATE day_cash SET keep_float = ? WHERE date = ?').run(amt(body.keep_float, 'Tiền để lại két'), date);
     ctx.audit(me, 'pay.drawer', { date, opening: body.opening, counted: body.counted });
     ctx.broadcast('pos');
     return { ok: true };
@@ -395,7 +400,7 @@ export default function (r, ctx) {
       transfer_matched: sum(tr.filter((b) => b.reconcile_status === 'matched'), 'transfer_amount'),
       transfer_pending: sum(tr.filter((b) => b.reconcile_status === 'pending'), 'transfer_amount'),
       transfer_missing: sum(tr.filter((b) => b.reconcile_status === 'missing'), 'transfer_amount'),
-      bank_in: sum(txns.filter((t) => t.direction === 'in' && t.status !== 'ignored'), 'amount'),
+      bank_in: sum(txns.filter((t) => t.direction === 'in' && !['ignored', 'deposit'].includes(t.status)), 'amount'),
       unmatched: txns.filter((t) => t.direction === 'in' && ['unmatched', 'review'].includes(t.status)).length,
     };
     const closing = db.prepare('SELECT d.*, s.name AS by_name FROM day_closings d LEFT JOIN staff s ON s.id = d.confirmed_by WHERE d.date = ?').get(date);
@@ -404,6 +409,9 @@ export default function (r, ctx) {
       anomalies: anomalies(date, { bills, refunds, handovers, summary, txns }),
       open_tables: db.prepare("SELECT COUNT(*) AS n FROM table_sessions WHERE status IN ('open','paying')").get().n,
       sepay: ctx.setting('sepay_enabled') === '1',
+      photos: ctx.cashPhotos ? ctx.cashPhotos(date) : [],
+      // Gợi ý két đầu ngày = số thu ngân hôm trước để lại
+      suggested_opening: db.prepare('SELECT keep_float FROM day_cash WHERE date < ? AND keep_float IS NOT NULL ORDER BY date DESC LIMIT 1').get(date)?.keep_float ?? null,
       closing: closing ? { ...closing, totals: JSON.parse(closing.totals) } : null,
     };
   }
@@ -490,6 +498,9 @@ export default function (r, ctx) {
     if (d.summary.unmatched) fail(400, `Còn ${d.summary.unmatched} khoản tiền CK chưa khớp bill: ghép bill hoặc đánh dấu bỏ qua`);
     if (d.summary.opening == null) fail(400, 'Chưa nhập tiền két đầu ngày');
     if (d.summary.drawer_counted == null) fail(400, 'Chưa nhập tiền đếm trong két cuối ngày');
+    if (!ctx.cashPhotos(date).length) fail(400, 'Chưa chụp ảnh tiền đã đếm');
+    if (d.drawer?.keep_float == null) fail(400, 'Chưa ghi số tiền để lại két cho ngày mai');
+    if (d.drawer.keep_float > d.summary.drawer_counted) fail(400, 'Tiền để lại két lớn hơn tiền đếm được');
     db.prepare('INSERT INTO day_closings (date, totals, confirmed_by, confirmed_at) VALUES (?, ?, ?, ?)').run(date, JSON.stringify(d.summary), me.id, ctx.now());
     const owners = db.prepare("SELECT id FROM staff WHERE active = 1 AND role = 'owner'").all().map((x) => x.id).filter((x) => x !== me.id);
     const f = (n) => n.toLocaleString('vi-VN');

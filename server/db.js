@@ -537,6 +537,7 @@ const DEFAULT_SETTINGS = {
   // Mã VietQR tĩnh của tài khoản nhận tiền (đọc từ mã QR trên bill Sapo cũ); bill tự tạo mã có sẵn số tiền
   bank_qr: '00020101021138630010A000000727013300069704070119MS00P000000016039960208QRIBFTTA53037045802VN8315P00000001603996840063049186',
   bank_name: 'Techcombank',
+  review_report_time: '07:00',  // giờ gửi chủ quán báo cáo duyệt sổ ngày hôm qua
 };
 
 function seedBase(db, now) {

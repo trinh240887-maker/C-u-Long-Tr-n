@@ -537,3 +537,11 @@ a.button.primary { background: var(--accent, #2563eb); color: #fff; border-color
 .eta-bar.busy b { color: var(--warn); }
 .paid-ok { font-size: 3rem; width: 80px; height: 80px; border-radius: 50%; display: grid; place-items: center; background: var(--ok-soft); color: var(--ok); }
 button.big { white-space: normal; }
+
+/* Đếm tiền theo mệnh giá */
+.denoms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.denom { display: grid; gap: 2px; text-align: center; }
+.denom span { font-weight: 700; }
+.denom input { text-align: center; }
+label.button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 1em; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; font-weight: 600; }
+img.thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; }
