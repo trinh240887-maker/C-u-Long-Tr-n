@@ -591,3 +591,13 @@ img.thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; }
 .pline input { min-height: 40px; }
 .left-tag { display: inline-block; margin-top: 2px; font-size: 11px; font-weight: 700; color: #b45309; background: #fef3c7; border-radius: 6px; padding: 1px 6px; }
 tr.warn-row td { background: color-mix(in srgb, var(--warn, #b45309) 10%, transparent); }
+/* Phiếu chi tip */
+.slip-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.slip-table th, .slip-table td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; }
+.slip-table .r { text-align: right; }
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; color: #000; }
+  .print-area { position: absolute; inset: 0; padding: 16px; background: #fff; }
+  .no-print { display: none !important; }
+}

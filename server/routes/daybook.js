@@ -170,6 +170,7 @@ export default function (r, ctx) {
     const reason = v.text(body.reason, { name: 'Lý do', required: true, max: 200 });
     if (!db.prepare('SELECT 1 FROM day_closings WHERE date = ?').get(date)) fail(400, 'Ngày này chưa chốt');
     db.prepare('DELETE FROM day_closings WHERE date = ?').run(date);
+    ctx.tipBoxReopen?.(date);
     db.prepare("UPDATE day_reviews SET status = '', reviewed_by = ?, reviewed_at = ?, note = ? WHERE date = ?").run(me.id, ctx.now(), `Mở lại: ${reason}`, date);
     ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND (role IN ('manager','shift_lead') OR team_id IN (SELECT id FROM teams WHERE name = 'Thu ngân'))").all().map((x) => x.id), { title: `Chủ quán mở lại sổ ngày ${dm(date)}`, body: reason, link: '/thu-ngan', urgent: true });
     ctx.audit(me, 'daybook.reopen', { date, reason });

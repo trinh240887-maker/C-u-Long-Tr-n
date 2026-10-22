@@ -176,8 +176,9 @@ test('tiền mặt: phục vụ thu → bill chờ thu ngân xác nhận (bàn v
   await N('POST', '/api/payments/drawer', { date: DAY, opening: '2.000.000' });
   assert.match((await close()).data.error, /đếm trong két/);
   let d = (await N('GET', `/api/payments?date=${DAY}`)).data;
-  // Két phải có = đầu ngày + tiền mặt thu (gồm tip) − hoàn
-  assert.equal(d.summary.drawer_expected, 2000000 + 200000 + tB - 10000 + 30000 - 79000);
+  // Két phải có = đầu ngày + tiền mặt thu (gồm tip) − hoàn − tip bỏ thùng tip (tip TM + tip CK lấy tiền mặt bỏ vào)
+  assert.equal(d.summary.tip_to_box, d.summary.tip_box_cash + d.summary.tip_box_ck);
+  assert.equal(d.summary.drawer_expected, 2000000 + 200000 + tB - 10000 + 30000 - 79000 - d.summary.tip_to_box);
   // Đếm theo mệnh giá (thiếu 5.000đ so với phải có), chụp ảnh, để lại 2.000.000đ cho ngày mai
   const want = d.summary.drawer_expected - 5000;
   const denoms = {}; let rest = want;
@@ -194,11 +195,15 @@ test('tiền mặt: phục vụ thu → bill chờ thu ngân xác nhận (bàn v
   assert.equal(d.summary.drawer_diff, -5000);
   assert.equal(d.summary.tip_cash, 200000 - tA);
   assert.equal(d.summary.tip_transfer, 50000);
+  // Chốt ngày → sổ thùng tip tự ghi tip của ngày
+  const box = (await N('GET', '/api/tip-box')).data;
+  assert.equal(box.balance, d.summary.tip_to_box);
+  assert.deepEqual(box.moves.map((m) => m.kind).sort(), ['in_cash', 'in_ck']);
   assert.equal(d.summary.net, tA + tB + 30000 + 158000 - 79000);
   const texts = d.anomalies.map((a) => a.text).join('\n');
   for (const k of ['Nhận tiền thiếu 10.000đ: Hậu', 'Két thiếu 5.000đ', 'Hoàn tiền mặt: 1 lần', 'CK chưa thấy tiền 158.000đ']) assert.ok(texts.includes(k), `${k}\n${texts}`);
   const last = noti(db, 'Đã chốt doanh thu%')[0];
-  assert.match(last.body, /Tip quỹ chung/);
+  assert.match(last.body, /Tip bỏ thùng/);
   assert.match(last.body, /Bất thường/);
   assert.equal((await N('POST', '/api/payments/drawer', { date: DAY, counted: 1 })).status, 400);
 

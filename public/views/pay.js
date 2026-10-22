@@ -40,6 +40,7 @@ export function PayModal({ me, id, onClose, onDone, defaultMethod = 'transfer' }
   const [given, setGiven] = useState('');
   const [cashPart, setCashPart] = useState('');
   const [keep, setKeep] = useState(false);
+  const [tipCk, setTipCk] = useState('');
   if (!st.data) return html`<${Modal} title="Tính tiền" onClose=${onClose}><${Loading} state=${st} /><//>`;
   const b = st.data;
   // Ngân hàng báo tiền về trong lúc đang mở bảng này → bill tự đóng
@@ -56,7 +57,7 @@ export function PayModal({ me, id, onClose, onDone, defaultMethod = 'transfer' }
   const cash = num(given);
   const part = Math.min(num(cashPart), b.total);
   const pay = async (confirm = false) => {
-    const body = { method, cash_given: method === 'cash' ? cash || '' : undefined, keep_change: method === 'cash' && keep && cash > b.total, cash_amount: method === 'mixed' ? part : undefined, confirm_unserved: confirm };
+    const body = { method, cash_given: method === 'cash' ? cash || '' : undefined, keep_change: method === 'cash' && keep && cash > b.total, cash_amount: method === 'mixed' ? part : undefined, confirm_unserved: confirm, tip_transfer: method !== 'cash' && num(tipCk) ? num(tipCk) : undefined };
     try {
       const r = await api('POST', `/api/pos/sessions/${id}/pay`, body);
       onDone(r);
@@ -81,6 +82,8 @@ export function PayModal({ me, id, onClose, onDone, defaultMethod = 'transfer' }
         ${b.sepay ? html`<p class="small ok-text">● Đang nối ngân hàng: khách chuyển xong, tiền về là bill <b>tự đóng</b>, không cần bấm.</p>
           <p class="muted small">Khách báo đã chuyển mà chưa thấy app đóng (ngân hàng chậm) thì bấm nút dưới để mở bàn trước; tiền về app tự khớp, quá 30′ chưa về app báo quản lý.</p>`
           : html`<p class="muted small">Khách quét mã trên màn hình hoặc bill in. Thấy màn hình app ngân hàng của khách báo chuyển thành công thì bấm nút dưới. Thu ngân đối soát với sao kê sau.</p>`}
+        ${!b.sepay ? html`<${Field} label="Khách CK thêm tip (nếu có)" hint="Thu ngân lấy đúng số này tiền mặt trong két bỏ thùng tip. App tự trừ khỏi két phải có.">
+          <input inputmode="numeric" placeholder="0" value=${tipCk} onInput=${(e) => setTipCk(e.target.value)} /><//>` : null}
         <button class=${`${b.sepay ? '' : 'primary'} big`} disabled=${b.unsent} onClick=${() => pay()}>${b.sepay ? 'Khách đã CK, chờ tiền về · mở bàn' : '✓ Khách đã CK · đóng bill'}</button>
       </div>` : null}
       ${method === 'cash' ? html`<div class="stack">
@@ -330,14 +333,17 @@ export function CashierView({ me }) {
 
     <section class="card stack">
       <b>5. Đếm két cuối ngày</b>
-      <div class="row between"><span>Phải có = đầu ngày ${money(s.opening ?? 0)} + thu tiền mặt ${money(s.cash_direct + s.handed_in)} − hoàn ${money(s.refund_cash)}${s.cash_out ? ` − chi NCC / tạm ứng ${money(s.cash_out)}` : ''}</span><b class="num">${s.drawer_expected == null ? '—' : money(s.drawer_expected)}</b></div>
+      <div class="row between"><span>Phải có = đầu ngày ${money(s.opening ?? 0)} + thu tiền mặt ${money(s.cash_direct + s.handed_in)} − hoàn ${money(s.refund_cash)}${s.cash_out ? ` − chi NCC / tạm ứng ${money(s.cash_out)}` : ''}${s.tip_to_box ? ` − tip bỏ thùng ${money(s.tip_to_box)}` : ''}</span><b class="num">${s.drawer_expected == null ? '—' : money(s.drawer_expected)}</b></div>
+      ${s.tip_to_box ? html`<div class="warn-text small">Trước khi đếm két: bỏ <b>${money(s.tip_to_box)}</b> vào thùng tip (tip TM ${money(s.tip_box_cash)} + tip CK ${money(s.tip_box_ck)} lấy tiền mặt bỏ vào). Chốt ngày app tự ghi phiếu chi két → thùng tip.</div>` : null}
       ${s.drawer_counted != null ? html`<div class="row between"><span>Đếm được</span><b class=${`num ${s.drawer_diff ? 'danger-text' : 'ok-text'}`}>${money(s.drawer_counted)}${s.drawer_diff ? ` (lệch ${money(s.drawer_diff)})` : ' ✓ khớp'}</b></div>` : null}
       ${!locked ? html`<${DrawerClose} date=${date} d=${d} />` : d.drawer?.denoms ? html`<${DenomView} denoms=${JSON.parse(d.drawer.denoms)} />` : null}
     </section>
 
+    <${BankBalance} date=${date} bank=${d.bank} locked=${locked && me.role !== 'owner'} />
+
     <div class="grid-2">
       <div class="card"><small class="muted">Doanh thu (${s.bills} bill)</small><h3 class="num">${money(s.net)}</h3><small class="muted">Đã xác nhận ${money(s.confirmed)} · chưa ${money(s.unconfirmed)}</small></div>
-      <div class="card"><small class="muted">Tip quỹ chung</small><h3 class="num">${money(s.tip_cash + s.tip_transfer)}</h3><small class="muted">TM ${money(s.tip_cash)} · CK ${money(s.tip_transfer)}</small></div>
+      <div class="card"><small class="muted">Tip bỏ thùng hôm nay</small><h3 class="num">${money(s.tip_to_box)}</h3><small class="muted">TM ${money(s.tip_box_cash)} · CK ${money(s.tip_box_ck)}</small></div>
       <div class="card"><small class="muted">Tiền mặt bán hàng</small><h3 class="num">${money(s.cash_in)}</h3><small class="muted">Hoàn ${money(s.refund_cash)}</small></div>
       <div class="card"><small class="muted">Chuyển khoản</small><h3 class="num">${money(s.transfer_in)}</h3><small class="muted">KM đã giảm ${money(s.discount)}</small></div>
     </div>
@@ -358,8 +364,98 @@ export function CashierView({ me }) {
     <section class="card stack"><h3>Tất cả bill (${d.bills.length})</h3>
       ${d.bills.map((b) => html`<a class="row between small plain-link" href=${`/goi-mon?s=${b.id}`}><span>${b.bill_no} · ${b.header} · ${hm(b.closed_at)} · ${METHOD[b.pay_method]}</span><span class="num">${money(b.paid_total)}</span></a>`)}
     </section>
+    <${TipBox} me=${me} />
     ${me.role === 'owner' || me.role === 'manager' ? html`<${SepayCard} />` : null}
   </div>`;
+}
+
+// Đối soát số dư tài khoản ngân hàng: đầu ngày + CK vào − chi CK ± khác = phải có, so với số dư thật trên app ngân hàng
+function BankBalance({ date, bank: b, locked }) {
+  const [f, setF] = useState({ opening: b.opening ?? b.suggested_opening ?? '', closing: b.closing ?? '', other_in: b.other_in || '', other_out: b.other_out || '', note: b.note || '' });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const save = () => act(() => api('POST', '/api/payments/bank-balance', { date, ...f }), 'Đã ghi số dư');
+  return html`<section class=${`card stack ${b.diff ? 'warn-card' : ''}`}>
+    <b>6. Số dư tài khoản ngân hàng</b>
+    <p class="muted small">Mở app ngân hàng xem số dư lúc mở ca và lúc chốt. App tự cộng tiền CK đã nhận, trừ tiền trả NCC bằng CK.</p>
+    <div class="row between"><span>Số dư đầu ngày</span><b class="num">${b.opening == null ? '—' : money(b.opening)}</b></div>
+    <div class="row between"><span>+ CK vào (bill + tip CK + CK dư)</span><b class="num">${money(b.ck_in)}</b></div>
+    <div class="row between"><span>− Chi bằng CK (trả NCC${b.ck_out > b.ck_out_ncc ? ', hoàn khách' : ''})</span><b class="num">${money(b.ck_out)}</b></div>
+    ${b.other_in || b.other_out ? html`<div class="row between"><span>± Khác (nộp tiền mặt, lãi, phí…)${b.note ? ` · ${b.note}` : ''}</span><b class="num">${money((b.other_in || 0) - (b.other_out || 0))}</b></div>` : null}
+    <div class="row between total"><b>Phải có</b><b class="num">${b.expected == null ? '—' : money(b.expected)}</b></div>
+    ${b.closing != null ? html`<div class="row between"><span>Số dư thật</span><b class=${`num ${b.diff ? 'danger-text' : 'ok-text'}`}>${money(b.closing)}${b.diff ? ` (lệch ${b.diff > 0 ? '+' : ''}${money(b.diff)})` : ' ✓ khớp'}</b></div>` : null}
+    ${!locked ? html`<div class="form-grid">
+      <${Field} label="Số dư đầu ngày"><input inputmode="numeric" value=${f.opening} onInput=${set('opening')} /><//>
+      <${Field} label="Số dư cuối ngày (thật)"><input inputmode="numeric" value=${f.closing} onInput=${set('closing')} /><//>
+    </div>
+    <details open=${!!(b.other_in || b.other_out || b.diff)}><summary class="small">Có khoản khác (nộp tiền mặt vào TK, lãi, phí, rút tiền…)</summary><div class="form-grid">
+      <${Field} label="Thu khác vào TK" hint="vd nộp tiền mặt vào TK, lãi"><input inputmode="numeric" value=${f.other_in} onInput=${set('other_in')} /><//>
+      <${Field} label="Chi khác từ TK" hint="vd phí ngân hàng, rút tiền"><input inputmode="numeric" value=${f.other_out} onInput=${set('other_out')} /><//>
+      <${Field} label="Ghi chú khoản khác"><input value=${f.note} onInput=${set('note')} /><//>
+    </div></details><button class="primary" onClick=${save}>Ghi số dư</button>` : null}
+  </section>`;
+}
+
+// Thùng tip: số dư, đếm thùng, chia tip cuối tháng theo giờ công → phiếu chi
+function TipBox({ me }) {
+  const st = useData('/api/tip-box');
+  const [count, setCount] = useState('');
+  const [payout, setPayout] = useState(false);
+  const [slip, setSlip] = useState(null);
+  if (!st.data) return null;
+  const t = st.data;
+  const KIND = { in_cash: 'Tip TM vào thùng', in_ck: 'Tip CK (lấy TM bỏ thùng)', payout: 'Chia tip', count: 'Đếm thùng', adjust: 'Chủ quán chỉnh' };
+  return html`<section class="card stack">
+    <div class="row between"><b>🫙 Thùng tip (quỹ chung)</b><b class="num">${money(t.balance)}</b></div>
+    <small class="muted">Tip TM + tip CK đều bỏ thùng; thu ngân giữ, cuối tháng chia. ${t.last_payout ? `Lần chia gần nhất ${dayLabel(t.last_payout.date)} · ${money(-t.last_payout.amount)}.` : 'Chưa chia lần nào.'}${t.last_count ? ` Đếm gần nhất ${dayLabel(t.last_count.date)}: ${money(t.last_count.counted)} (${t.last_count.note}).` : ''}</small>
+    <div class="row wrap"><input class="grow" inputmode="numeric" placeholder="Đếm thùng được bao nhiêu" value=${count} onInput=${(e) => setCount(e.target.value)} />
+      <button disabled=${!count} onClick=${() => act(() => api('POST', '/api/tip-box/count', { counted: count }), 'Đã ghi số đếm').then((r) => { if (r) { setCount(''); toast(r.diff ? `Lệch ${money(r.diff)} so với sổ ${money(r.balance)}: đã báo chủ quán` : 'Khớp sổ', !!r.diff); } })}>Ghi đếm</button>
+      <button class="primary" disabled=${t.balance <= 0} onClick=${() => setPayout(true)}>Chia tip</button></div>
+    <details class="small"><summary>Sổ thùng tip (${t.moves.length})</summary>
+      ${t.moves.map((m) => html`<div class="row between"><span>${dayLabel(m.date)} · ${KIND[m.kind] || m.kind}${m.kind === 'count' ? ` ${money(m.counted)} · ${m.note}` : ''}${m.kind === 'payout' ? html` · <button class="link small" onClick=${() => setSlip(m)}>Phiếu chi #${m.id}</button>` : ''}</span>
+        ${m.kind !== 'count' ? html`<b class=${`num ${m.amount < 0 ? 'danger-text' : ''}`}>${m.amount > 0 ? '+' : ''}${money(m.amount)}</b>` : null}</div>`)}</details>
+    ${payout ? html`<${TipPayout} me=${me} balance=${t.balance} onClose=${() => setPayout(false)} onDone=${(m) => { setPayout(false); setSlip(m); }} />` : null}
+    ${slip ? html`<${TipSlip} m=${slip} onClose=${() => setSlip(null)} />` : null}
+  </section>`;
+}
+
+function TipPayout({ me, balance, onClose, onDone }) {
+  const today = me.today;
+  const [from, setFrom] = useState(`${today.slice(0, 8)}01`);
+  const [to, setTo] = useState(today);
+  const sg = useData(`/api/tip-box/suggest?from=${from}&to=${to}&amount=${balance}`);
+  const [lines, setLines] = useState(null);
+  const ls = lines || sg.data?.lines || [];
+  const total = ls.reduce((n, l) => n + (Number(l.amount) || 0), 0);
+  const save = async () => {
+    const r = await act(() => api('POST', '/api/tip-box/payout', { from, to, lines: ls.map((l) => ({ ...l, amount: Number(l.amount) || 0 })) }), 'Đã lập phiếu chi tip, đã báo chủ quán');
+    if (r) onDone({ id: r.id, date: today, amount: -r.total, period_from: from, period_to: to, lines: ls.filter((l) => Number(l.amount) > 0), by_name: me.name });
+  };
+  return html`<${Modal} title=${`Chia tip · thùng có ${money(balance)}`} onClose=${onClose} wide>
+    <div class="stack">
+      <div class="row wrap"><${Field} label="Từ ngày"><input type="date" value=${from} onChange=${(e) => { setFrom(e.target.value); setLines(null); }} /><//>
+        <${Field} label="Đến ngày"><input type="date" value=${to} onChange=${(e) => { setTo(e.target.value); setLines(null); }} /><//></div>
+      <p class="muted small">App gợi ý chia theo giờ công (chấm công) trong kỳ. Sửa số tiền từng người nếu quán chia cách khác; để 0 là không nhận.</p>
+      ${!sg.data ? html`<${Loading} state=${sg} />` : ls.map((l, i) => html`<div class="row between"><span>${l.name} <small class="muted">${l.team || ''} · ${l.hours ?? '—'} giờ</small></span>
+        <input class="unit" inputmode="numeric" value=${l.amount} onInput=${(e) => setLines(ls.map((x, j) => (j === i ? { ...x, amount: e.target.value.replace(/\D/g, '') } : x)))} /></div>`)}
+      <div class="row between total"><b>Tổng chia</b><b class=${`num ${total > balance ? 'danger-text' : ''}`}>${money(total)}${total < balance ? ` · còn lại thùng ${money(balance - total)}` : ''}</b></div>
+      <button class="primary big" disabled=${!total || total > balance} onClick=${save}>Lập phiếu chi tip ${money(total)}</button>
+    </div>
+  <//>`;
+}
+
+// Phiếu chi tip in ra cho từng người ký nhận
+function TipSlip({ m, onClose }) {
+  return html`<${Modal} title=${`Phiếu chi tip #${m.id}`} onClose=${onClose} wide>
+    <div class="stack print-area">
+      <h3 class="center">PHIẾU CHI TIP #${m.id}</h3>
+      <div class="center small">Ngày ${dayLabel(m.date, { long: true })}${m.period_from ? ` · kỳ ${dayLabel(m.period_from)} → ${dayLabel(m.period_to)}` : ''} · người chi: ${m.by_name || ''}</div>
+      <table class="slip-table"><thead><tr><th>Họ tên</th><th>Giờ</th><th class="r">Số tiền</th><th>Ký nhận</th></tr></thead>
+        <tbody>${(m.lines || []).map((l) => html`<tr><td>${l.name}</td><td>${l.hours ?? ''}</td><td class="r num">${money(l.amount)}</td><td style="min-width:90px"></td></tr>`)}</tbody>
+        <tfoot><tr><td colspan="2"><b>Tổng</b></td><td class="r num"><b>${money(-m.amount)}</b></td><td></td></tr></tfoot></table>
+      <div class="row between small"><span>Thu ngân ký</span><span>Quản lý ký</span></div>
+      <button class="primary no-print" onClick=${() => window.print()}>🖨 In phiếu chi</button>
+    </div>
+  <//>`;
 }
 
 function refundsBlock(d) {

@@ -67,6 +67,9 @@ export default function (r, ctx) {
   );
   CREATE INDEX IF NOT EXISTS idx_sessions_closed ON table_sessions (closed_date, status);`);
 
+  // Đối soát số dư tài khoản ngân hàng mỗi ngày: đầu ngày + thu − chi = phải có, so với số dư thật trên app ngân hàng
+  db.exec(`CREATE TABLE IF NOT EXISTS bank_day (date TEXT PRIMARY KEY, opening INTEGER, closing INTEGER, other_in INTEGER NOT NULL DEFAULT 0, other_out INTEGER NOT NULL DEFAULT 0,
+    note TEXT NOT NULL DEFAULT '', by_staff INTEGER, at INTEGER)`);
   const isCashier = (me) => rank(me.role) >= rank('shift_lead') || !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id);
   const needCashier = (me) => { if (!isCashier(me)) fail(403, 'Chỉ thu ngân / trưởng ca trở lên'); };
   const staffName = (id) => (id ? db.prepare('SELECT name FROM staff WHERE id = ?').get(id)?.name || '' : '');
@@ -265,10 +268,13 @@ export default function (r, ctx) {
       transfer = total - cash;
     }
     const got = bankReceived(s.id);
-    closeBill(s, { by: me.id, method, cash, transfer, given, tipCash, reconcile: transfer > 0 && got >= transfer ? 'matched' : 'pending', cashStatus: isCashier(me) ? 'received' : 'held' });
+    // Khách CK thêm tip (không nối ngân hàng): thu ngân lấy đúng số này tiền mặt trong két bỏ thùng tip
+    const tipTransfer = transfer > 0 && body.tip_transfer ? money(body.tip_transfer, 'Tip CK') : 0;
+    if (tipTransfer > Math.max(500000, total)) fail(400, `Tip CK ${vnd(tipTransfer)} lớn bất thường so với bill ${vnd(total)}: kiểm tra lại số`);
+    closeBill(s, { by: me.id, method, cash, transfer, given, tipCash, tipTransfer, reconcile: transfer > 0 && got >= transfer ? 'matched' : 'pending', cashStatus: isCashier(me) ? 'received' : 'held' });
     if (transfer > 0 && got > transfer) setExcess(s.id, got - transfer, total);
     const printed = body.print ? !!printBill(s.id) : false;
-    ctx.audit(me, 'pay.close', { id: s.id, total, method, cash, transfer, tip_cash: tipCash, unserved: unserved.length });
+    ctx.audit(me, 'pay.close', { id: s.id, total, method, cash, transfer, tip_cash: tipCash, tip_transfer: tipTransfer, unserved: unserved.length });
     ctx.broadcast('pos');
     return { ok: true, total, change: given ? given - cash - tipCash : 0, tip: tipCash, hand_over: cash + tipCash, printed };
   });
@@ -326,6 +332,23 @@ export default function (r, ctx) {
     ctx.audit(me, 'pay.drawer', { date, opening: body.opening, counted: body.counted });
     ctx.broadcast('pos');
     return { ok: true };
+  });
+
+  r.post('/api/payments/bank-balance', 'staff', ({ me, body }) => {
+    needCashier(me);
+    const date = body.date || ctx.clock().businessDate(ctx.now());
+    if (dayClosed(date) && rank(me.role) < rank('owner')) fail(400, 'Ngày này đã chốt');
+    const amt = (x, name) => (x === undefined ? undefined : x === null || x === '' ? null : v.int(Number(String(x).replace(/[.,\s]/g, '')), { min: 0, max: 100_000_000_000, name }));
+    db.prepare('INSERT OR IGNORE INTO bank_day (date) VALUES (?)').run(date);
+    const f = { opening: amt(body.opening, 'Số dư đầu ngày'), closing: amt(body.closing, 'Số dư cuối ngày'), other_in: amt(body.other_in, 'Thu khác'), other_out: amt(body.other_out, 'Chi khác') };
+    for (const [k, x] of Object.entries(f)) if (x !== undefined) db.prepare(`UPDATE bank_day SET ${k} = ? WHERE date = ?`).run(k.startsWith('other') ? x || 0 : x, date);
+    if (body.note !== undefined) db.prepare('UPDATE bank_day SET note = ? WHERE date = ?').run(v.text(body.note, { name: 'Ghi chú', max: 200 }), date);
+    db.prepare('UPDATE bank_day SET by_staff = ?, at = ? WHERE date = ?').run(me.id, ctx.now(), date);
+    const b = day(date).bank;
+    ctx.audit(me, 'pay.bank_balance', { date, ...f, diff: b.diff });
+    if (b.diff && Math.abs(b.diff) >= 10000) ctx.notify(bosses().filter((x) => x !== me.id), { title: `Số dư tài khoản ${date.slice(8)}/${date.slice(5, 7)} lệch ${vnd(b.diff)}`, body: `Phải có ${vnd(b.expected)} (đầu ngày ${vnd(b.opening)} + CK vào ${vnd(b.ck_in)} − chi CK ${vnd(b.ck_out)} ± khác), thật ${vnd(b.closing)}. ${me.name} ghi.`, link: '/thu-ngan', urgent: true });
+    ctx.broadcast('pos');
+    return { ok: true, bank: b };
   });
 
   r.post('/api/pos/sessions/:id/overpay', 'manager', ({ me, params, body }) => {
@@ -461,13 +484,31 @@ export default function (r, ctx) {
     const direct = bills.filter((b) => b.cash_status === 'received' && !b.handover_id).reduce((n, b) => n + b.cash_amount + b.tip_cash, 0);
     // Tiền mặt chi ra từ két: trả NCC, tạm ứng đi chợ (trừ tiền thừa hoàn ứng)
     const cashOut = ctx.cashOut ? ctx.cashOut(date) : { total: 0 };
-    const expectedDrawer = drawer?.opening != null ? drawer.opening + direct + handedIn - refundCash - cashOut.total : null;
+    // Tip bỏ thùng tip: tip TM thu ngân đã nhận + tip CK (lấy tiền mặt trong két bỏ vào bằng đúng số tip) → không nằm trong két
+    const tipBoxCash = bills.filter((b) => b.cash_status === 'received').reduce((n, b) => n + b.tip_cash, 0);
+    const tipBoxCk = sum(bills, 'tip_transfer');
+    const tipToBox = tipBoxCash + tipBoxCk;
+    const expectedDrawer = drawer?.opening != null ? drawer.opening + direct + handedIn - refundCash - cashOut.total - tipToBox : null;
+    // Số dư tài khoản: tiền CK vào (bill + tip + CK dư) − chi CK (trả NCC) ± khoản khác
+    const bk = db.prepare('SELECT b.*, s.name AS by_name FROM bank_day b LEFT JOIN staff s ON s.id = b.by_staff WHERE b.date = ?').get(date) || null;
+    const ckIn = sum(tr.filter((b) => b.reconcile_status !== 'missing'), 'transfer_amount') + sum(bills.filter((b) => b.reconcile_status !== 'missing'), 'tip_transfer')
+      + sum(bills.filter((b) => b.overpay && b.overpay_status !== 'tip'), 'overpay');
+    const ckOutNcc = db.prepare("SELECT COALESCE(SUM(amount), 0) AS n FROM supplier_payments WHERE date = ? AND method = 'transfer' AND status = 'done'").get(date)?.n || 0;
+    const ckOutBill = db.prepare("SELECT COALESCE(SUM(paid_now), 0) AS n FROM purchase_bills WHERE date = ? AND paid_method = 'transfer' AND status != 'void'").get(date)?.n || 0;
+    const ckOut = ckOutNcc + ckOutBill + sum(bills.filter((b) => b.overpay_status === 'refunded'), 'overpay');
+    const bankExpected = bk?.opening != null ? bk.opening + ckIn - ckOut + (bk.other_in || 0) - (bk.other_out || 0) : null;
+    const bank = {
+      opening: bk?.opening ?? null, closing: bk?.closing ?? null, other_in: bk?.other_in || 0, other_out: bk?.other_out || 0, note: bk?.note || '', by_name: bk?.by_name || '', at: bk?.at || null,
+      ck_in: ckIn, ck_out: ckOut, ck_out_ncc: ckOutNcc + ckOutBill, expected: bankExpected,
+      diff: bk?.closing != null && bankExpected != null ? bk.closing - bankExpected : null,
+      suggested_opening: db.prepare('SELECT closing FROM bank_day WHERE date < ? AND closing IS NOT NULL ORDER BY date DESC LIMIT 1').get(date)?.closing ?? null,
+    };
     const confirmedOf = (b) => (b.cash_amount + b.tip_cash === 0 || b.cash_status === 'received') && (b.transfer_amount === 0 || b.reconcile_status === 'confirmed');
     const summary = {
       bills: bills.length, gross: sum(bills, 'paid_total'), discount: sum(bills, 'discount'),
       refund_cash: refundCash, net: sum(bills, 'paid_total') - refundCash,
       confirmed: sum(bills.filter(confirmedOf), 'paid_total'), unconfirmed: sum(bills.filter((b) => !confirmedOf(b)), 'paid_total'),
-      tip_cash: sum(bills, 'tip_cash'), tip_transfer: sum(bills, 'tip_transfer'),
+      tip_cash: sum(bills, 'tip_cash'), tip_transfer: sum(bills, 'tip_transfer'), tip_to_box: tipToBox, tip_box_cash: tipBoxCash, tip_box_ck: tipBoxCk,
       cash_in: sum(bills, 'cash_amount'), cash_held: sum(held, 'amount'), cash_direct: direct, handed_in: handedIn, handover_diff: sum(handovers, 'diff'),
       cash_out: cashOut.total, cash_out_detail: cashOut,
       opening: drawer?.opening ?? null, drawer_expected: expectedDrawer, drawer_counted: drawer?.counted ?? null,
@@ -484,8 +525,8 @@ export default function (r, ctx) {
     };
     const closing = db.prepare('SELECT d.*, s.name AS by_name FROM day_closings d LEFT JOIN staff s ON s.id = d.confirmed_by WHERE d.date = ?').get(date);
     return {
-      date, bills, refunds, handovers, drawer, held, txns: txns.map(({ raw, ...t }) => t), summary,
-      anomalies: anomalies(date, { bills, refunds, handovers, summary, txns }),
+      date, bills, refunds, handovers, drawer, held, txns: txns.map(({ raw, ...t }) => t), summary, bank,
+      anomalies: anomalies(date, { bills, refunds, handovers, summary, txns, bank }),
       open_tables: db.prepare("SELECT COUNT(*) AS n FROM table_sessions WHERE status IN ('open','paying')").get().n,
       sepay: ctx.setting('sepay_enabled') === '1',
       photos: ctx.cashPhotos ? ctx.cashPhotos(date) : [],
@@ -496,7 +537,7 @@ export default function (r, ctx) {
   }
 
   // Báo cáo bất thường trong ngày (hiện ở Thu ngân, gửi chủ quán khi chốt)
-  function anomalies(date, { bills, refunds, handovers, summary, txns }) {
+  function anomalies(date, { bills, refunds, handovers, summary, txns, bank = {} }) {
     const clock = ctx.clock();
     const out = [];
     const add = (level, text) => out.push({ level, text });
@@ -521,6 +562,9 @@ export default function (r, ctx) {
     const um = txns.filter((t) => t.direction === 'in' && ['unmatched', 'review'].includes(t.status));
     if (um.length) add('bad', `Tiền CK vào chưa khớp bill: ${um.length} khoản, ${vnd(um.reduce((n, t) => n + t.amount, 0))}`);
     for (const b of bills.filter((x) => x.reconcile_status === 'missing')) add('bad', `Bill ${b.bill_no} CK chưa thấy tiền ${vnd(b.transfer_amount)} (đóng bởi ${b.closed_by_name})`);
+    for (const b of bills.filter((x) => x.reconcile_status === 'missing' && x.tip_transfer)) add('bad', `Bill ${b.bill_no} có tip CK ${vnd(b.tip_transfer)} đã lấy tiền mặt bỏ thùng tip, nhưng CK chưa thấy về`);
+    if (bank.diff) add(Math.abs(bank.diff) >= 10000 ? 'bad' : 'warn', `Số dư tài khoản lệch ${bank.diff > 0 ? '+' : '−'}${vnd(Math.abs(bank.diff))}: phải có ${vnd(bank.expected)}, thật ${vnd(bank.closing)}${Math.abs(bank.diff) < 10000 ? ' (lệch nhỏ: phí / lãi ngân hàng? ghi vào "khác")' : ''}`);
+    if (bills.some((b) => b.transfer_amount) && bank.closing == null) add('warn', 'Chưa đối soát số dư tài khoản ngân hàng cuối ngày');
     for (const b of bills.filter((x) => x.tip_cash + x.tip_transfer > Math.max(200000, x.paid_total * 0.3))) add('warn', `Tip lớn bất thường: bill ${b.bill_no} tip ${vnd(b.tip_cash + b.tip_transfer)} / bill ${vnd(b.paid_total)}`);
     if (summary.cash_held) add('bad', `Bill tiền mặt chưa được thu ngân xác nhận: ${vnd(summary.cash_held)}`);
     const long = db.prepare("SELECT COUNT(*) AS n FROM table_sessions WHERE status IN ('open','paying') AND opened_at < ?").get(ctx.now() - 3 * 3_600_000).n;
@@ -588,11 +632,12 @@ export default function (r, ctx) {
     if (d.drawer?.keep_float == null) fail(400, 'Chưa ghi số tiền để lại két cho ngày mai');
     if (d.drawer.keep_float > d.summary.drawer_counted) fail(400, 'Tiền để lại két lớn hơn tiền đếm được');
     db.prepare('INSERT INTO day_closings (date, totals, confirmed_by, confirmed_at) VALUES (?, ?, ?, ?)').run(date, JSON.stringify(d.summary), me.id, ctx.now());
+    ctx.tipBoxClose?.(date, d.summary, me);
     const owners = db.prepare("SELECT id FROM staff WHERE active = 1 AND role = 'owner'").all().map((x) => x.id).filter((x) => x !== me.id);
     const f = (n) => n.toLocaleString('vi-VN');
     ctx.notify(owners, {
       title: `Đã chốt doanh thu ${date.slice(8)}/${date.slice(5, 7)}: ${f(d.summary.net)}đ`,
-      body: `${d.summary.bills} bill · Doanh thu ${f(d.summary.net)}đ (CK ${f(d.summary.transfer_confirmed)}đ, TM ${f(d.summary.cash_in)}đ, hoàn ${f(d.summary.refund_cash)}đ, KM đã giảm ${f(d.summary.discount)}đ) · Tip quỹ chung ${f(d.summary.tip_cash + d.summary.tip_transfer)}đ (TM ${f(d.summary.tip_cash)}, CK ${f(d.summary.tip_transfer)}) · Két đếm ${f(d.summary.drawer_counted)}đ${d.summary.drawer_diff ? ` (LỆCH ${f(d.summary.drawer_diff)}đ)` : ' (khớp)'}${d.summary.transfer_missing ? ` · CK CHƯA THẤY ${f(d.summary.transfer_missing)}đ` : ''}. Người chốt: ${me.name}.${d.anomalies.length ? `\nBất thường:\n- ${d.anomalies.map((a) => a.text).join('\n- ')}` : '\nKhông có bất thường.'}`,
+      body: `${d.summary.bills} bill · Doanh thu ${f(d.summary.net)}đ (CK ${f(d.summary.transfer_confirmed)}đ, TM ${f(d.summary.cash_in)}đ, hoàn ${f(d.summary.refund_cash)}đ, KM đã giảm ${f(d.summary.discount)}đ) · Tip bỏ thùng ${f(d.summary.tip_to_box)}đ (TM ${f(d.summary.tip_box_cash)}, CK ${f(d.summary.tip_box_ck)})${d.bank.closing != null ? ` · Số dư TK ${f(d.bank.closing)}đ${d.bank.diff ? ` (LỆCH ${f(d.bank.diff)}đ)` : ' (khớp)'}` : ''} · Két đếm ${f(d.summary.drawer_counted)}đ${d.summary.drawer_diff ? ` (LỆCH ${f(d.summary.drawer_diff)}đ)` : ' (khớp)'}${d.summary.transfer_missing ? ` · CK CHƯA THẤY ${f(d.summary.transfer_missing)}đ` : ''}. Người chốt: ${me.name}.${d.anomalies.length ? `\nBất thường:\n- ${d.anomalies.map((a) => a.text).join('\n- ')}` : '\nKhông có bất thường.'}`,
       link: '/thu-ngan',
     });
     ctx.audit(me, 'pay.close_day', { date, ...d.summary });
