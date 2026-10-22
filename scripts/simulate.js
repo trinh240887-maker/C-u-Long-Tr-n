@@ -241,11 +241,11 @@ const cookView = await Promise.all(cooks.map((c) => c.api('GET', '/api/pos/ticke
 const canSee = cookView.filter((r) => r.status === 200).length;
 if (canSee < cooks.length) issue(`Chỉ ${canSee}/${cooks.length} người bếp xem được phiếu (nhân viên bếp chưa có màn hình bếp — làm ở 3C)`);
 const unprinted = tickets.filter((k) => k.print_status === 'pending').length;
-if (unprinted) issue(`${unprinted} phiếu đang chờ in: chưa có cầu nối in (3C)`);
+if (unprinted) note(`${unprinted} phiếu nằm chờ cầu in (giả lập này không bật cầu in; phiếu thật in qua cau-in.bat ở quán, xem giả lập ngày simulate-day)`);
 // Xin thanh toán
 let bills = 0;
 for (const s of open.slice(0, 5)) { const r = await s.w('POST', `/api/pos/sessions/${s.id}/request-bill`); if (r.status === 200) bills++; }
-note(`Xin thanh toán: ${bills} bàn báo thu ngân. Chưa có màn thanh toán / đóng bàn (3D) nên bàn vẫn giữ trạng thái "xin thanh toán"`);
+note(`Xin thanh toán: ${bills} bàn báo thu ngân. Thu ngân tính tiền ở màn Thanh toán (xem giả lập ngày simulate-day)`);
 const map = (await m1.api('GET', '/api/pos/tables')).data;
 const busy = map.zones.flatMap((z) => z.tables).filter((t) => t.session).length;
 note(`Sơ đồ bàn: ${busy} bàn có khách; doanh thu tạm tính ${map.zones.flatMap((z) => z.tables).reduce((n, t) => n + (t.session?.total || 0), 0).toLocaleString('vi-VN')}đ`);
