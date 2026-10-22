@@ -14,6 +14,9 @@ Thiết bị (ảnh 22/10): máy thái, tủ mát inox đứng có màn nhiệt 
 - Lắp lưỡi máy thái, chạy thử (Tick + 📷)
 - Thớt, dao, khay sạch (Tick + 📷)
 - Kiểm bình gas, van, dây (Tick + 📷)
+- Giấy thấm dầu đủ dùng, bổ sung (Tick) — chủ quán yêu cầu 22/10
+- Cân điện tử: bật, về 0, đặt chỗ cân tồn (Tick)
+- Bồn rửa tay có xà phòng + giấy lau tay (Tick)
 - Lau kính chắn quầy (Tick + 📷) — chủ quán yêu cầu 22/10
 - Lau mặt quầy (Tick + 📷) — chủ quán yêu cầu 22/10
 - ~~Khay đá để bò ra quầy~~ — chủ quán bỏ (22/10)
@@ -47,3 +50,7 @@ Thiết bị (5 ảnh): 2 nồi nấu điện lớn (tủ điện: đèn nguồn
 Điểm thấy: dây gas bếp 6 họng vắt qua mặt quầy; bình gas sát chân bếp, ống gas khè chạy trên sàn (dễ vấp); giấy công thức cũ rách; ớt khô để túi hở.
 **Mở ca**: van xả nồi điện đóng, bật CB, chỉnh nhiệt (Tick + 📷) · nước lẩu từng vị (Nhập số · lít, 1 dòng/vị) · nếm đạt vị theo công thức (Tick) · kiểm dây, van, mùi gas (Tick + 📷) · bình gas đầy dự phòng (Nhập số · bình) · thử lửa bếp 6 họng + bếp khè (Tick + 📷) · sốt, nước chấm theo công thức (Tick + 📷) · máy in có giấy (Tick).
 **Đóng ca**: nước lẩu còn từng vị (lít) · xả, rửa nồi điện + van xả (Tick + 📷) · tắt CB nồi điện (Tick + 📷) · rửa nồi inox, lau bếp khè (Tick + 📷) · lau bếp 6 họng + mặt quầy + kính (Tick + 📷) · khoá van tất cả bình gas (Tick + 📷) · sốt, gia vị đậy kín/bọc màng ghi ngày (Tick + 📷) · xếp gọn kệ dưới (Tick + 📷) · lau sàn khu nấu (Tick + 📷) · hàng thiếu cần báo (Ghi chữ).
+
+### Khu trong Thái tay (3 ảnh 22/10)
+Quầy dài mặt trắng + kính chắn, máy thái thứ 2, chỗ order/màn hình + giấy phiếu, **cân điện tử ở kệ dưới** (dùng cho cân tồn), thớt đỏ/trắng cất trong thau dưới gầm sát sàn, **4 xe cân bằng đậu dưới quầy**, bồn rửa tay (khăn, găng, hũ để trên bồn), chổi + cây lau, tủ đông Ouheng.
+Điểm thấy: thớt cất thau sát sàn cạnh bánh xe; xe đậu dưới quầy thực phẩm; bồn rửa tay chưa thấy xà phòng / giấy lau tay. Cần thêm: **giấy thấm dầu**.
