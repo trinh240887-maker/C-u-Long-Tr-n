@@ -31,6 +31,33 @@ export function PhotoViewer({ photo, onClose }) {
   return html`<div class="viewer" onClick=${onClose}><img src=${`/api/photos/${photo.id}`} alt="Ảnh báo cáo" /></div>`;
 }
 
+// Ảnh mẫu: nhân viên bấm xem để làm đúng chuẩn; tổ trưởng / quản lý chụp thêm hoặc xoá
+function Samples({ samples, templateId, itemId, canEdit, label = 'Ảnh mẫu' }) {
+  const [view, setView] = useState(null);
+  const [busy, setBusy] = useState(false);
+  if (!samples.length && !canEdit) return null;
+  const upload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    try {
+      const data = await compressImage(file);
+      await act(() => api('POST', `/api/checklist-templates/${templateId}/samples`, { data, item_id: itemId || undefined }), 'Đã lưu ảnh mẫu');
+    } catch (err) { act(() => Promise.reject(err)); } finally { setBusy(false); }
+  };
+  return html`<div class="samples">
+    ${samples.length ? html`<small class="muted">📷 ${label} · bấm để xem, làm giống ảnh</small>` : null}
+    <div class="thumbs">
+      ${samples.map((x) => html`<span class="thumb sample"><img src=${`/api/checklist-samples/${x.id}`} loading="lazy" alt=${label} onClick=${() => setView(x)} />
+        ${canEdit ? html`<button class="x" aria-label="Xoá ảnh mẫu" onClick=${() => confirm('Xoá ảnh mẫu này?') && act(() => api('POST', `/api/checklist-samples/${x.id}/delete`), 'Đã xoá ảnh mẫu')}>✕</button>` : null}</span>`)}
+      ${canEdit ? html`<label class=${`btn-photo sample-add ${itemId ? 'mini' : ''}`}><input type="file" accept="image/*" hidden onChange=${upload} />${busy ? 'Đang lưu…' : samples.length ? '+ Ảnh mẫu' : itemId ? '+ ảnh mẫu' : `+ Thêm ${label.toLowerCase()}`}</label>` : null}
+    </div>
+    ${view ? html`<div class="viewer" onClick=${() => setView(null)}><img src=${`/api/checklist-samples/${view.id}`} alt=${label} /></div>` : null}
+  </div>`;
+}
+const canEditTpl = (me, teamId) => atLeast(me, 'shift_lead') || (me.role === 'team_lead' && teamId && me.team?.id === teamId);
+
 function Item({ run, item, disabled, me }) {
   const [val, setVal] = useState(item.entry?.value ?? '');
   const [busy, setBusy] = useState(false);
@@ -62,6 +89,7 @@ function Item({ run, item, disabled, me }) {
       : html`<span class=${`check static ${done ? 'on' : ''}`}></span>`}
     <div class="grow">
       <div>${item.text}${!item.required ? html` <small class="muted">(không bắt buộc)</small>` : null} ${status}</div>
+      <${Samples} samples=${item.samples || []} templateId=${run.template_id} itemId=${item.id} canEdit=${!disabled && canEditTpl(me, run.team_id)} label="Mẫu việc này" />
       ${redo ? html`<div class="redo-box"><b>Làm lại:</b> ${item.entry.review_note}<br /><small>${item.entry.reviewed_by_name || ''} · ${hm(item.entry.reviewed_at)}. Sửa xong chụp ảnh mới rồi bấm xong lại.</small></div>` : null}
       ${item.entry?.review_status === 'ok' && item.entry.review_note ? html`<small class="muted">Nhận xét: ${item.entry.review_note}</small>` : null}
       ${item.kind !== 'check' ? html`<div class="row">
@@ -106,6 +134,7 @@ export function ChecklistView({ me }) {
       <div class="row between"><div><h3>${r.title}</h3><small class="muted">${r.team_name}${r.position_name ? ` · ${r.position_name}` : ''}${r.zone_name ? ` · 📍 ${r.zone_name}` : ''} · ${r.shift_name || 'Mọi ca'} · ${PHASE_LABEL[r.phase]}</small></div>
         <span class=${`pill ${r.redo ? 'bad' : r.done === r.total ? 'ok' : r.done ? 'warn' : ''}`}>${r.redo ? `${r.redo} việc làm lại` : r.done === r.total ? 'Xong' : `${r.done}/${r.total}`}</span></div>
       <div class="meter wide"><span style=${`width:${r.total ? Math.round((r.done / r.total) * 100) : 0}%`} class=${r.done === r.total ? 'full' : ''}></span></div>
+      <${Samples} samples=${r.samples || []} templateId=${r.template_id} canEdit=${!old && canEditTpl(me, r.team_id)} label="Ảnh mẫu khu" />
       <ul class="cklist">${r.items.map((i) => html`<${Item} key=${`${r.run_id}-${i.id}-${i.entry?.done_at || 0}`} run=${r} item=${i} disabled=${old} me=${me} />`)}</ul>
     </section>`) : html`<div class="empty">Không có checklist nào cho tổ của bạn.${atLeast(me, 'manager') ? ' Tạo checklist trong Cài đặt → Checklist.' : ''}</div>`}
   </div>`;

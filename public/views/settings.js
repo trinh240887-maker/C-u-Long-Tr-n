@@ -287,7 +287,7 @@ export function Checklists({ me, teams }) {
   const myTeams = own ? teams.filter((t) => t.id === me.team?.id) : teams;
   return html`<section class="card stack">
     ${own ? html`<p class="small"><b>Bạn là tổ trưởng ${me.team?.name || ''}:</b> tạo và sửa checklist của tổ mình.</p>` : null}
-    <p class="muted small">Checklist có chữ "(mẫu)" là ví dụ, hãy sửa lại theo cách làm của quán. Mỗi ngày mỗi checklist có một lượt mới.
+    <p class="muted small">Sửa, thêm việc dần theo cách làm của quán. Ảnh mẫu (khu / từng việc) thêm ngay trên màn Checklist hằng ngày: bấm "+ Thêm ảnh mẫu". Mỗi ngày mỗi checklist có một lượt mới.
       Muốn ca sáng và ca chiều có việc riêng: tạo 2 checklist, chọn "Áp dụng cho ca" tương ứng (loại ca tạo ở tab Loại ca).</p>
     ${list.map((c) => html`<button class=${`tpl-row ${c.active ? '' : 'off'}`} onClick=${() => setEdit(c)}>
       <b class="grow">${c.title}</b><span class="muted">${c.team_name || 'Cả quán'}${c.position_name ? ` · ${c.position_name}` : ''}${c.zone_name ? ` · ${c.zone_name}` : ''} · ${c.shift_name || 'Mọi ca'} · ${PHASE_LABEL[c.phase]} · ${c.items.length} việc</span></button>`)}

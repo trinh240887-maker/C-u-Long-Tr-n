@@ -16,7 +16,12 @@ export default function (r, ctx) {
       LEFT JOIN shift_templates st ON st.id = c.shift_template_id LEFT JOIN positions p ON p.id = c.position_id LEFT JOIN zones z ON z.id = c.zone_id
       ${activeOnly ? 'WHERE c.active = 1' : ''} ORDER BY t.sort, CASE c.phase WHEN 'open' THEN 0 WHEN 'during' THEN 1 ELSE 2 END, c.sort, c.id`).all();
     const items = db.prepare('SELECT * FROM checklist_items ORDER BY sort, id').all();
-    return tpls.map((c) => ({ ...c, active: !!c.active, items: items.filter((i) => i.template_id === c.id).map((i) => ({ ...i, required: !!i.required, photo_required: !!i.photo_required })) }));
+    const samples = db.prepare('SELECT id, template_id, item_id, note FROM checklist_samples ORDER BY id').all();
+    return tpls.map((c) => ({
+      ...c, active: !!c.active,
+      samples: samples.filter((x) => x.template_id === c.id && !x.item_id),
+      items: items.filter((i) => i.template_id === c.id).map((i) => ({ ...i, required: !!i.required, photo_required: !!i.photo_required, samples: samples.filter((x) => x.item_id === i.id) })),
+    }));
   }
 
   r.get('/api/checklist-templates', 'staff', ({ query }) => templates({ activeOnly: query.get('all') !== '1' }));
@@ -135,7 +140,7 @@ export default function (r, ctx) {
       return {
         run_id: run.id, template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán',
         shift_template_id: t.shift_template_id, shift_name: t.shift_name || '', position_id: t.position_id ?? null, position_name: t.position_name || '', zone_id: t.zone_id ?? null, zone_name: t.zone_name || '',
-        completed_at: run.completed_at, items,
+        completed_at: run.completed_at, items, samples: t.samples,
         done: required.filter((i) => i.entry && i.entry.review_status !== 'redo').length, total: required.length,
         redo: items.filter((i) => i.entry?.review_status === 'redo').length,
       };
@@ -211,6 +216,49 @@ export default function (r, ctx) {
     let buf;
     try { buf = fs.readFileSync(path.join(photoDir, p.file)); } catch { fail(410, 'Ảnh không còn'); }
     const ext = path.extname(p.file);
+    return { __binary: buf, type: ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg' };
+  });
+
+  // ---------- Ảnh mẫu: tổ trưởng / quản lý chụp ảnh chuẩn cho checklist (khu) hoặc từng việc ----------
+  const sampleDir = path.join(photoDir, 'mau');
+  r.post('/api/checklist-templates/:id/samples', 'team_lead', ({ me, params, body }) => {
+    const t = db.prepare('SELECT * FROM checklist_templates WHERE id = ?').get(params.id);
+    if (!t) fail(404, 'Không tìm thấy checklist');
+    canEditTpl(me, t.team_id);
+    const itemId = body.item_id ? v.int(body.item_id, { min: 1, name: 'Việc' }) : null;
+    if (itemId && !db.prepare('SELECT 1 FROM checklist_items WHERE id = ? AND template_id = ?').get(itemId, t.id)) fail(400, 'Việc không thuộc checklist này');
+    const m = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(body.data || ''));
+    if (!m) fail(400, 'Ảnh không hợp lệ');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length < 500) fail(400, 'Ảnh không hợp lệ');
+    if (buf.length > 1_500_000) fail(413, 'Ảnh quá lớn, chụp lại giúp');
+    const n = db.prepare(`SELECT COUNT(*) AS n FROM checklist_samples WHERE template_id = ? AND ${itemId ? 'item_id = ?' : 'item_id IS NULL'}`).get(...(itemId ? [t.id, itemId] : [t.id])).n;
+    if (n >= (itemId ? 3 : 6)) fail(400, itemId ? 'Tối đa 3 ảnh mẫu cho mỗi việc' : 'Tối đa 6 ảnh mẫu cho mỗi checklist');
+    const file = `${t.id}-${itemId || 0}-${crypto.randomBytes(6).toString('hex')}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
+    fs.mkdirSync(sampleDir, { recursive: true });
+    fs.writeFileSync(path.join(sampleDir, file), buf);
+    const note = v.text(body.note, { name: 'Ghi chú', max: 120 });
+    const id = Number(db.prepare('INSERT INTO checklist_samples (template_id, item_id, file, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(t.id, itemId, file, note, me.id, ctx.now()).lastInsertRowid);
+    ctx.audit(me, 'checklist.sample.add', { template: t.id, item: itemId });
+    ctx.broadcast('checklists');
+    return { id };
+  });
+  r.post('/api/checklist-samples/:id/delete', 'team_lead', ({ me, params }) => {
+    const x = db.prepare('SELECT s.*, t.team_id FROM checklist_samples s JOIN checklist_templates t ON t.id = s.template_id WHERE s.id = ?').get(params.id);
+    if (!x) fail(404, 'Không tìm thấy ảnh mẫu');
+    canEditTpl(me, x.team_id);
+    try { fs.unlinkSync(path.join(sampleDir, x.file)); } catch { /* đã mất */ }
+    db.prepare('DELETE FROM checklist_samples WHERE id = ?').run(x.id);
+    ctx.audit(me, 'checklist.sample.delete', { id: x.id });
+    ctx.broadcast('checklists');
+    return { ok: true };
+  });
+  r.get('/api/checklist-samples/:id', 'staff', ({ params }) => {
+    const x = db.prepare('SELECT * FROM checklist_samples WHERE id = ?').get(params.id);
+    if (!x) fail(404, 'Không tìm thấy ảnh mẫu');
+    let buf;
+    try { buf = fs.readFileSync(path.join(sampleDir, x.file)); } catch { fail(410, 'Ảnh mẫu không còn, chụp lại giúp'); }
+    const ext = path.extname(x.file);
     return { __binary: buf, type: ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg' };
   });
 

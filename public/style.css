@@ -556,3 +556,9 @@ img.thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; }
 .ticket .big-line { font-size: 1.15rem; }
 .ticket.cancel { border-left: 4px solid #dc2626; }
 .ticket.remind, .ticket.redo { border-left: 4px solid var(--warn); }
+
+/* Ảnh mẫu checklist */
+.samples { display: grid; gap: 4px; margin: 6px 0; }
+.thumb.sample img { outline: 2px solid color-mix(in srgb, #16a34a 55%, transparent); }
+.btn-photo.sample-add { min-height: 44px; display: inline-flex; align-items: center; }
+.btn-photo.sample-add.mini { min-height: 32px; font-size: 13px; padding: 4px 10px; opacity: .8; }

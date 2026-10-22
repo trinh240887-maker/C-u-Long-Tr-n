@@ -441,6 +441,21 @@ function migrate(db) {
     db.exec('ALTER TABLE checklist_entries ADD COLUMN reviewed_by INTEGER');
     db.exec('ALTER TABLE checklist_entries ADD COLUMN reviewed_at INTEGER');
   }
+  // Ảnh mẫu cho từng checklist (khu) / từng việc: nhân viên xem để làm đúng chuẩn; không tự xoá
+  db.exec(`CREATE TABLE IF NOT EXISTS checklist_samples (
+    id INTEGER PRIMARY KEY,
+    template_id INTEGER NOT NULL REFERENCES checklist_templates(id) ON DELETE CASCADE,
+    item_id INTEGER REFERENCES checklist_items(id) ON DELETE CASCADE,
+    file TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_by INTEGER,
+    created_at INTEGER NOT NULL
+  )`);
+  // Chủ quán chọn dùng bộ checklist mẫu làm bản chính thức (22/10/2026): bỏ chữ "(mẫu)" ở tên, chỉ làm 1 lần
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'checklist_official_v1'").get()) {
+    db.exec("UPDATE checklist_templates SET title = TRIM(REPLACE(title, '(mẫu)', '')) WHERE title LIKE '%(mẫu)%'");
+    db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('checklist_official_v1', '1')").run();
+  }
   if (!cols('checklist_templates').includes('zone_id')) db.exec('ALTER TABLE checklist_templates ADD COLUMN zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL');
   if (!cols('checklist_templates').includes('position_id')) db.exec('ALTER TABLE checklist_templates ADD COLUMN position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL');
   // Khu mặc định A, B, C (sửa số bàn trong Cài đặt → Khu & bàn)
@@ -561,32 +576,32 @@ function seedBase(db, now) {
     db.prepare(`INSERT INTO staff (name, role, pin_lookup, must_change_pin, created_at) VALUES (?, 'owner', ?, 1, ?)`)
       .run('Chủ quán', pinLookup(db, DEFAULT_OWNER_PIN), now);
 
-    // Checklist MẪU — sửa lại theo thực tế của quán
+    // Checklist ban đầu của quán (chủ quán bổ sung dần trong app)
     const addTpl = db.prepare('INSERT INTO checklist_templates (team_id, phase, title, sort) VALUES (?, ?, ?, ?)');
     const addItem = db.prepare('INSERT INTO checklist_items (template_id, text, kind, unit, required, sort) VALUES (?, ?, ?, ?, ?, ?)');
     const lists = [
-      ['Bếp steak', 'open', 'Mở ca bếp steak (mẫu)', [
+      ['Bếp steak', 'open', 'Mở ca bếp steak', [
         ['Nhiệt độ tủ mát', 'number', '°C'], ['Nhiệt độ tủ đông', 'number', '°C'],
         ['Rã đông thịt theo kế hoạch', 'check'], ['Chuẩn bị sốt tiêu đen, sốt nấm', 'check'],
         ['Khoai cắt sẵn, bơ tỏi', 'check'], ['Kiểm tra bếp gas, máy hút khói', 'check'],
       ]],
-      ['Bếp steak', 'close', 'Đóng ca bếp steak (mẫu)', [
+      ['Bếp steak', 'close', 'Đóng ca bếp steak', [
         ['Vệ sinh bếp, vỉ nướng', 'check'], ['Bọc màng, dán ngày thịt còn lại', 'check'],
         ['Khoá van gas', 'check'], ['Ghi chú bàn giao', 'text', '', 0],
       ]],
-      ['Lẩu', 'open', 'Mở ca lẩu (mẫu)', [
+      ['Lẩu', 'open', 'Mở ca lẩu', [
         ['Nấu nước lẩu', 'number', 'lít'], ['Thái bò (bắp, gầu)', 'number', 'kg'],
         ['Rau, nấm, topping sẵn sàng', 'check'], ['Nhiệt độ tủ mát', 'number', '°C'],
       ]],
-      ['Bar', 'open', 'Mở ca bar (mẫu)', [
+      ['Bar', 'open', 'Mở ca bar', [
         ['Đá viên đủ dùng', 'check'], ['Chanh, cam, bạc hà', 'check'],
         ['Siro, trà, sữa còn hạn', 'check'], ['Kiểm nước đóng chai trong tủ mát', 'check'],
       ]],
-      ['Phục vụ', 'open', 'Mở ca phục vụ (mẫu)', [
+      ['Phục vụ', 'open', 'Mở ca phục vụ', [
         ['Setup bàn, khăn, menu', 'check'], ['Kiểm tra bếp lẩu mini, bình gas mini', 'check'],
         ['Vệ sinh khu vực được phân', 'check'],
       ]],
-      ['Phục vụ', 'close', 'Đóng ca phục vụ (mẫu)', [
+      ['Phục vụ', 'close', 'Đóng ca phục vụ', [
         ['Thu dọn, lau bàn ghế', 'check'], ['Tắt bếp mini, cất bình gas', 'check'],
       ]],
     ];

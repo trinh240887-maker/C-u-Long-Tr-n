@@ -264,7 +264,7 @@ test('checklist theo ca: người làm ca sáng chỉ thấy checklist ca sáng'
   const tB = await titles(binh);
   assert.ok(tA.includes('Mở ca sáng bar') && !tA.includes('Mở ca chiều bar'));
   assert.ok(tB.includes('Mở ca chiều bar') && !tB.includes('Mở ca sáng bar'));
-  assert.ok(tA.includes('Mở ca bar (mẫu)')); // checklist "Mọi ca" vẫn hiện
+  assert.ok(tA.includes('Mở ca bar')); // checklist "Mọi ca" vẫn hiện
   const run = (await o.get('/api/checklists?date=2026-10-19')).data.runs.find((r) => r.title === 'Mở ca chiều bar');
   assert.equal(run.shift_name, 'Ca chiều');
   assert.equal((await an.post('/api/checklists/entry', { run_id: run.run_id, item_id: run.items[0].id })).status, 403);
