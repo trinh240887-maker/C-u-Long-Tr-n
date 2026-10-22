@@ -112,7 +112,8 @@ export default function (r, ctx) {
     const sitting = (sid) => { const s = bySession.get(sid); return s ? Math.round((now - s.opened_at) / 60_000) : 0; };
     const longSit = Number(ctx.setting('dining_minutes') || 70);
     const sessIds = new Set(tableSession.values());
-    const freeNums = tables.filter((t) => !tableSession.has(t.number) && !upcoming.get(t.number)?.locked).map((t) => t.number);
+    const dirty = ctx.dirtyTables ? ctx.dirtyTables() : new Map();
+    const freeNums = tables.filter((t) => !tableSession.has(t.number) && !upcoming.get(t.number)?.locked && !dirty.has(t.number)).map((t) => t.number);
     const zoneOfT = new Map(tables.map((t) => [t.number, t.zone_id]));
     const waitRows = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(guests), 0) AS g FROM reservations WHERE date = ? AND kind = 'walkin' AND status = 'waiting'").get(today);
     // Thời gian ngồi trung bình hôm nay (bàn đã tính tiền), chưa có thì dùng số trong Cài đặt
@@ -146,7 +147,8 @@ export default function (r, ctx) {
       waiting: waitRows.n, waiting_guests: waitRows.g, long_minutes: longSit,
       avg_dwell: avgDwell,
       soon: soon.slice(0, 8),
-      queue: waitList.map((w, k) => ({ ...w, waited: Math.round((now - w.created_at) / 60_000), eta: etaOf(k) })),
+      dirty: dirty.size,
+      queue: ctx.waitPlan ? ctx.waitPlan({ soon }).queue : waitList.map((w, k) => ({ ...w, waited: Math.round((now - w.created_at) / 60_000), eta: etaOf(k) })),
       next_eta: etaOf(waitList.length), // khách mới tới lúc này phải chờ khoảng bao lâu
     };
     return {
@@ -158,7 +160,7 @@ export default function (r, ctx) {
           const s = sid ? bySession.get(sid) : null;
           const tot = sid ? totals.get(sid) : null;
           return {
-            number: t.number, seats: t.seats, reservation: upcoming.get(t.number) || null,
+            number: t.number, seats: t.seats, reservation: upcoming.get(t.number) || null, dirty: !tableSession.has(t.number) && dirty.has(t.number) ? dirty.get(t.number).minutes : null,
             session: s ? { id: s.id, status: s.status, guests: s.guests, priority: !!s.priority, opened_at: s.opened_at, total: tot?.total || 0, unsent: tot?.unsent || 0, items: tot?.n || 0, late: lateBySession.get(s.id) || 0, tables: tablesOf(s.id) } : null,
           };
         }),
@@ -226,6 +228,19 @@ export default function (r, ctx) {
       for (const n of tables) {
         const rv = ctx.reservedSoon(n);
         if (rv) fail(409, `Bàn ${n} đang giữ cho ${rv.name} lúc ${fmtM(rv.time_min)}. Chọn bàn khác, hoặc xác nhận vẫn nhận khách.`);
+      }
+    }
+    // Đang đông khách (có nhóm chờ hoặc còn ≤ 10% bàn trống): nhóm nhỏ vào bàn lớn → gợi ý bàn vừa chỗ
+    if (!body.override_size && body.guests && tables.length === 1) {
+      const g = Number(body.guests);
+      const seats = db.prepare('SELECT seats FROM dining_tables WHERE number = ?').get(tables[0])?.seats || 0;
+      if (seats >= 6 && g <= seats - 3) {
+        const dwell = Number(ctx.setting('dining_minutes') || 70) + 15;
+        const free = ctx.freeTablesNow(dwell);
+        const waiting = db.prepare("SELECT COUNT(*) AS n FROM reservations WHERE date = ? AND kind = 'walkin' AND status = 'waiting'").get(ctx.today()).n;
+        const total = db.prepare('SELECT COUNT(*) AS n FROM dining_tables').get().n;
+        const better = free.filter((t) => t.seats >= g && t.seats < seats && t.number !== tables[0]).sort((a, b) => a.seats - b.seats || Math.abs(a.number - tables[0]) - Math.abs(b.number - tables[0])).slice(0, 3);
+        if ((waiting > 0 || free.length <= total * 0.1) && better.length) fail(409, `Đang đông khách: nhóm ${g} người vào bàn ${tables[0]} (${seats} chỗ) sẽ phí chỗ. Nên dùng bàn ${better.map((t) => `${t.number} (${t.seats} chỗ)`).join(', ')}. Vẫn ngồi bàn này thì bấm xác nhận.`);
       }
     }
     // Có khách đặt sắp tới mà khách vãng lai ngồi không kịp xong → cảnh báo, gợi ý bàn khác

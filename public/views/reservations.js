@@ -176,7 +176,7 @@ function ShareBooking() {
   const [f, setF] = useState(null);
   const s = st.data || {};
   const cur = f || { online_booking_enabled: s.online_booking_enabled, online_open: s.online_open, online_last: s.online_last, online_max_guests: s.online_max_guests, online_min_lead_minutes: s.online_min_lead_minutes,
-    zns_enabled: s.zns_enabled, zns_mode: s.zns_mode, zns_template_confirm: s.zns_template_confirm, zns_template_reject: s.zns_template_reject, zns_template_remind: s.zns_template_remind };
+    zns_enabled: s.zns_enabled, zns_mode: s.zns_mode, zns_template_confirm: s.zns_template_confirm, zns_template_reject: s.zns_template_reject, zns_template_remind: s.zns_template_remind, zns_template_queue: s.zns_template_queue, zns_template_ready: s.zns_template_ready };
   const set = (k, val) => setF({ ...cur, [k]: val });
   const inp = (k, label, extra = {}) => html`<${Field} label=${label}><input value=${cur[k] ?? ''} onInput=${(e) => set(k, e.target.value)} ...${extra} /><//>`;
   return html`<details class="card small"><summary><b>Đặt bàn online & Zalo xác nhận</b> · ${s.online_booking_enabled === '0' ? 'đang tắt' : 'đang nhận'}${s.zns_enabled === '1' ? ` · Zalo ${s.zns_mode === 'production' ? 'đang gửi thật' : 'chế độ thử'}` : ' · chưa bật Zalo'}</summary>
@@ -186,12 +186,14 @@ function ShareBooking() {
       <div class="row">${inp('online_max_guests', 'Tối đa khách / đơn', { inputmode: 'numeric' })}${inp('online_min_lead_minutes', 'Đặt trước tối thiểu (phút)', { inputmode: 'numeric' })}</div>
       <b>Zalo xác nhận cho khách (ZNS)</b>
       <p class="muted">Cần: OA đã xác thực, tài khoản Zalo Cloud có nạp ví, App được cấp quyền ZNS, mẫu tin loại "Giao dịch" đã duyệt (≈300đ/tin). Tham số mẫu phải đúng tên:
-        xác nhận <code>customer_name, booking_code, booking_date, booking_time, guests, table_no</code>; từ chối <code>customer_name, booking_code, booking_date, booking_time, reason</code>; nhắc trước 2 giờ <code>customer_name, booking_code, booking_date, booking_time, table_no</code>. Zalo chỉ gửi 6:00–22:00.</p>
+        xác nhận <code>customer_name, booking_code, booking_date, booking_time, guests, table_no</code>; từ chối <code>customer_name, booking_code, booking_date, booking_time, reason</code>; nhắc trước 2 giờ <code>customer_name, booking_code, booking_date, booking_time, table_no</code>; vào danh sách chờ <code>customer_name, queue_no, guests, wait_minutes</code>; đã có bàn <code>customer_name, table_no, hold_minutes</code>. Zalo chỉ gửi 6:00–22:00.</p>
       <label class="check-row"><input type="checkbox" checked=${cur.zns_enabled === '1'} onChange=${(e) => set('zns_enabled', e.target.checked ? '1' : '0')} /> Bật gửi Zalo cho khách</label>
       <div class="chips">${[['development', 'Thử (chỉ gửi quản trị viên OA, không mất tiền)'], ['production', 'Gửi thật cho khách']].map(([k, l]) => html`<button class=${`chip ${cur.zns_mode === k ? 'on' : ''}`} onClick=${() => set('zns_mode', k)}>${l}</button>`)}</div>
       ${inp('zns_template_confirm', 'Mã mẫu "Xác nhận đặt bàn"', { inputmode: 'numeric' })}
       ${inp('zns_template_reject', 'Mã mẫu "Từ chối đặt bàn"', { inputmode: 'numeric' })}
       ${inp('zns_template_remind', 'Mã mẫu "Nhắc trước 2 giờ" (để trống = không nhắc)', { inputmode: 'numeric' })}
+      ${inp('zns_template_queue', 'Mã mẫu "Đã vào danh sách chờ" (số thứ tự, chờ khoảng bao lâu)', { inputmode: 'numeric' })}
+      ${inp('zns_template_ready', 'Mã mẫu "Đã có bàn, mời vào"', { inputmode: 'numeric' })}
       ${f ? html`<button class="primary" onClick=${() => act(() => api('PUT', '/api/settings', f), 'Đã lưu').then((ok) => ok && setF(null))}>Lưu</button>` : null}
     </div>` : null}
     <div class="stack center" style="margin-top:8px">

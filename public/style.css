@@ -454,6 +454,10 @@ a.tile { text-decoration: none; color: inherit; }
 .tbl.unsent { background: color-mix(in srgb, #2563eb 25%, var(--panel)); color: var(--ink); }
 .tbl.paying { background: color-mix(in srgb, #ea580c 35%, var(--panel)); color: var(--ink); }
 .tbl.held { background: color-mix(in srgb, #7c3aed 18%, var(--panel)); color: var(--ink); border-style: dashed; }
+.tbl.dirty { background: repeating-linear-gradient(45deg, var(--panel-2) 0 6px, color-mix(in srgb, #a16207 22%, var(--panel)) 6px 12px); color: var(--ink); }
+.tbl-l.dirty { background: color-mix(in srgb, #a16207 22%, var(--panel)); }
+.wait-row { border-top: 1px solid var(--line, #ddd); padding-top: 6px; display: grid; gap: 4px; }
+.wait-row .row button { min-height: 44px; }
 .tbl.vip { outline: 3px solid #d97706; outline-offset: -2px; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .tbl-l { padding: 2px 8px; border-radius: 6px; }

@@ -12,6 +12,8 @@ export const ZNS_PARAMS = {
   confirm: ['customer_name', 'booking_code', 'booking_date', 'booking_time', 'guests', 'table_no'],
   reject: ['customer_name', 'booking_code', 'booking_date', 'booking_time', 'reason'],
   remind: ['customer_name', 'booking_code', 'booking_date', 'booking_time', 'table_no'],
+  queue: ['customer_name', 'queue_no', 'guests', 'wait_minutes'],   // khách vào danh sách chờ
+  ready: ['customer_name', 'table_no', 'hold_minutes'],             // đã có bàn, mời vào trong X phút
 };
 const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
@@ -40,7 +42,7 @@ export function createZns(ctx, { fetchImpl = globalThis.fetch, oa } = {}) {
     return { ok: false, error: `Zalo từ chối (mã ${j.error ?? res.status}): ${j.message || ''}`.trim() };
   }
 
-  // Báo khách về đơn đặt bàn: kind = confirm | reject | remind
+  // Báo khách: kind = confirm | reject | remind (đặt bàn) · queue | ready (danh sách chờ)
   return async function customerNotify(x, kind) {
     if (ctx.setting('zns_enabled') !== '1') return { ok: false, skipped: true };
     const templateId = ctx.setting(`zns_template_${kind}`);
@@ -49,6 +51,7 @@ export function createZns(ctx, { fetchImpl = globalThis.fetch, oa } = {}) {
     const data = {
       customer_name: x.name, booking_code: x.code || `B${x.id}`, booking_date: `${d.slice(8)}/${d.slice(5, 7)}/${d.slice(0, 4)}`,
       booking_time: hm(x.time_min), guests: String(x.guests), table_no: x.tables || 'Quán sắp xếp', reason: x.reject_reason || '',
+      queue_no: String(x.queue_no ?? ''), wait_minutes: x.wait_minutes == null ? 'đang ước tính' : String(x.wait_minutes), hold_minutes: String(x.hold_minutes ?? 5),
     };
     const want = ZNS_PARAMS[kind];
     return sendTemplate({ phone: x.phone, templateId, data: Object.fromEntries(want.map((k) => [k, data[k]])), tracking: `res${x.id}${kind}` });

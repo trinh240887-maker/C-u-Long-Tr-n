@@ -9,7 +9,8 @@
     "demo": "node --disable-warning=ExperimentalWarning scripts/demo-data.js",
     "simulate": "node --disable-warning=ExperimentalWarning scripts/simulate.js",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.js\"",
-    "simulate:day": "node --disable-warning=ExperimentalWarning scripts/simulate-day.js"
+    "simulate:day": "node --disable-warning=ExperimentalWarning scripts/simulate-day.js",
+    "simulate:peak": "node --disable-warning=ExperimentalWarning scripts/simulate-peak.js"
   },
   "engines": {
     "node": ">=22.13"
