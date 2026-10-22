@@ -584,3 +584,7 @@ img.thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; }
 .dcol i { display: block; width: 100%; background: color-mix(in srgb, var(--brand, #9a3412) 70%, var(--panel)); border-radius: 3px 3px 0 0; }
 .dcol i.we { background: #ea580c; } .dcol i.best { background: var(--brand, #9a3412); outline: 2px solid var(--ink); }
 .dcol small { font-size: 9px; color: var(--muted); writing-mode: vertical-rl; transform: rotate(180deg); margin-top: 2px; }
+
+/* Mua hàng */
+.pline { border-top: 1px solid var(--line, #e5e5e5); padding-top: 6px; display: grid; gap: 4px; }
+.pline input { min-height: 40px; }

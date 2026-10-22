@@ -330,7 +330,7 @@ export function CashierView({ me }) {
 
     <section class="card stack">
       <b>5. Đếm két cuối ngày</b>
-      <div class="row between"><span>Phải có = đầu ngày ${money(s.opening ?? 0)} + thu tiền mặt ${money(s.cash_direct + s.handed_in)} − hoàn ${money(s.refund_cash)}</span><b class="num">${s.drawer_expected == null ? '—' : money(s.drawer_expected)}</b></div>
+      <div class="row between"><span>Phải có = đầu ngày ${money(s.opening ?? 0)} + thu tiền mặt ${money(s.cash_direct + s.handed_in)} − hoàn ${money(s.refund_cash)}${s.cash_out ? ` − chi NCC / tạm ứng ${money(s.cash_out)}` : ''}</span><b class="num">${s.drawer_expected == null ? '—' : money(s.drawer_expected)}</b></div>
       ${s.drawer_counted != null ? html`<div class="row between"><span>Đếm được</span><b class=${`num ${s.drawer_diff ? 'danger-text' : 'ok-text'}`}>${money(s.drawer_counted)}${s.drawer_diff ? ` (lệch ${money(s.drawer_diff)})` : ' ✓ khớp'}</b></div>` : null}
       ${!locked ? html`<${DrawerClose} date=${date} d=${d} />` : d.drawer?.denoms ? html`<${DenomView} denoms=${JSON.parse(d.drawer.denoms)} />` : null}
     </section>

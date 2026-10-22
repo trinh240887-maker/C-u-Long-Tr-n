@@ -459,7 +459,9 @@ export default function (r, ctx) {
     const handedIn = sum(handovers, 'counted');
     // Thu ngân thu thẳng (không qua giao tiền) = tiền mặt + tip của bill đã nhận mà không có lần giao
     const direct = bills.filter((b) => b.cash_status === 'received' && !b.handover_id).reduce((n, b) => n + b.cash_amount + b.tip_cash, 0);
-    const expectedDrawer = drawer?.opening != null ? drawer.opening + direct + handedIn - refundCash : null;
+    // Tiền mặt chi ra từ két: trả NCC, tạm ứng đi chợ (trừ tiền thừa hoàn ứng)
+    const cashOut = ctx.cashOut ? ctx.cashOut(date) : { total: 0 };
+    const expectedDrawer = drawer?.opening != null ? drawer.opening + direct + handedIn - refundCash - cashOut.total : null;
     const confirmedOf = (b) => (b.cash_amount + b.tip_cash === 0 || b.cash_status === 'received') && (b.transfer_amount === 0 || b.reconcile_status === 'confirmed');
     const summary = {
       bills: bills.length, gross: sum(bills, 'paid_total'), discount: sum(bills, 'discount'),
@@ -467,6 +469,7 @@ export default function (r, ctx) {
       confirmed: sum(bills.filter(confirmedOf), 'paid_total'), unconfirmed: sum(bills.filter((b) => !confirmedOf(b)), 'paid_total'),
       tip_cash: sum(bills, 'tip_cash'), tip_transfer: sum(bills, 'tip_transfer'),
       cash_in: sum(bills, 'cash_amount'), cash_held: sum(held, 'amount'), cash_direct: direct, handed_in: handedIn, handover_diff: sum(handovers, 'diff'),
+      cash_out: cashOut.total, cash_out_detail: cashOut,
       opening: drawer?.opening ?? null, drawer_expected: expectedDrawer, drawer_counted: drawer?.counted ?? null,
       drawer_diff: drawer?.counted != null && expectedDrawer != null ? drawer.counted - expectedDrawer : null,
       transfer_in: sum(tr, 'transfer_amount'),

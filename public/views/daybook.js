@@ -52,6 +52,7 @@ export function DaybookView({ me, query }) {
       <div class="row between small"><span>Thu ngân đếm két</span><b class="num">${money(s.drawer_counted)}</b></div>
       ${b.denoms ? html`<${DenomView} denoms=${b.denoms} />` : null}
       <${CashPhotos} photos=${b.photos} />
+      ${s.cash_out ? html`<div class="row between small"><span>Chi từ két (trả NCC, tạm ứng − hoàn ứng)</span><b class="num">−${money(s.cash_out)}</b></div>` : null}
       <div class="row between small"><span>Phải có theo bill</span><b class=${`num ${s.drawer_diff ? 'danger-text' : ''}`}>${money(s.drawer_expected)}${s.drawer_diff ? ` (két lệch ${money(s.drawer_diff)})` : ''}</b></div>
       <div class="row between small"><span>Để lại két cho hôm sau</span><b class="num">${money(b.keep_float)}</b></div>
       <div class="row between"><b>Phong bì phải nộp</b><b class="num">${money(b.envelope)}</b></div>

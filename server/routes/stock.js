@@ -600,6 +600,37 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
+  // Dùng cho hoá đơn mua hàng (purchases.js): khu tự nhận hàng → vào kho ngay (bếp dùng liền), tiền tính khi thu ngân duyệt.
+  // poId: nhận theo đơn đã duyệt; không có thì nhập lẻ vào storeId. Trả về giá cũ từng nguyên liệu để so giá bất thường.
+  ctx.canReceiveStore = (me, storeId) => { const st = storeById(storeId); return !!st && (canStore(me, st) || isHolder(me)); };
+  ctx.stockReceive = (me, { poId = null, storeId, lines }) => {
+    const oldPrice = new Map();
+    if (poId) {
+      const po = loadPo(poId);
+      if (po.status !== 'approved') fail(409, 'Chỉ nhận hàng cho đơn đã duyệt');
+      const given = new Map((lines || []).filter((l) => l.ingredient_id).map((l) => [Number(l.ingredient_id), l]));
+      const ls = po.lines.map((pl) => {
+        const raw = given.get(pl.ingredient_id) || {};
+        const ing = ingById(pl.ingredient_id);
+        oldPrice.set(ing.id, ing.price);
+        return { ing, qty: raw.qty === undefined ? pl.qty : num(raw.qty, `Số nhận ${pl.name}`), raw, defaultPrice: pl.price };
+      });
+      receiveInto(me, { po, storeId: po.store_id, lines: ls });
+      db.prepare("UPDATE purchase_orders SET status = 'received', received_by = ?, received_at = ? WHERE id = ?").run(me.id, ctx.now(), po.id);
+      ctx.broadcast('stock');
+      return { oldPrice, po };
+    }
+    const withIng = (lines || []).filter((l) => l.ingredient_id);
+    if (withIng.length) {
+      const ls = readLines(withIng);
+      for (const l of ls) oldPrice.set(l.ing.id, l.ing.price);
+      receiveInto(me, { po: null, storeId, lines: ls });
+      ctx.broadcast('stock');
+    }
+    return { oldPrice, po: null };
+  };
+  ctx.loadPo = loadPo;
+
   // ---------- Lịch sử ----------
   r.get('/api/stock/moves', 'staff', ({ query }) => {
     const from = query.get('from') || addDays(today(), -7);
