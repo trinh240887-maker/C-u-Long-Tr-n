@@ -3,7 +3,7 @@ import { formatTableList, parseTableList } from '../lib/tables.js';
 // Chống quên đơn đặt bàn (chạy mỗi phút):
 // 1. 30′ trước giờ đặt: báo cả ca (ai đang chấm công + quản lý).
 // 2. 20′ trước giờ đặt mà bàn đã đặt vẫn có khách: tự chuyển đơn sang bàn trống phù hợp và báo;
-//    hết bàn thì báo gấp quản lý.
+//    hết bàn, hoặc đơn đánh dấu "không tự đổi bàn", thì báo gấp quản lý.
 // 3. Quá giờ giữ bàn (15′) khách chưa đến: nhắc gọi khách hoặc bấm "Không đến".
 // 4. Đầu ca chiều (mặc định 16:00): gửi tóm tắt các bàn đặt hôm nay.
 export default function (r, ctx) {
@@ -12,6 +12,7 @@ export default function (r, ctx) {
   addCol('pre_notified_at', 'INTEGER');
   addCol('moved_check_at', 'INTEGER');
   addCol('late_notified_at', 'INTEGER');
+  addCol('fixed_table', 'INTEGER NOT NULL DEFAULT 0'); // 1 = khách chọn bàn này, không tự đổi
 
   const hm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   const managers = () => db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager','shift_lead')").all().map((s) => s.id);
@@ -66,7 +67,7 @@ export default function (r, ctx) {
         const busy = busyNow();
         const stuck = parseTableList(rv.tables).filter((t) => busy.has(t));
         if (stuck.length) {
-          const alt = pickTables(rv);
+          const alt = rv.fixed_table ? null : pickTables(rv);
           if (alt) {
             const to = formatTableList(alt);
             db.prepare('UPDATE reservations SET tables = ?, moved_check_at = ? WHERE id = ?').run(to, now, rv.id);
@@ -74,7 +75,7 @@ export default function (r, ctx) {
             ctx.notify(team(today), { title: `Đã chuyển bàn đặt: ${rv.name} → bàn ${to}`, body: `Bàn ${stuck.join(', ')} còn khách. ${who}. Dọn sẵn bàn ${to}.`, link: `/dat-ban?date=${today}`, urgent: true });
           } else {
             db.prepare('UPDATE reservations SET moved_check_at = ? WHERE id = ?').run(now, rv.id);
-            ctx.notify(managers(), { title: `GẤP: bàn đặt của ${rv.name} còn khách, hết bàn trống`, body: `${who} · bàn ${rv.tables}. Hối bàn đang ngồi tính tiền, hoặc gọi khách ${rv.phone || ''} báo chờ.`, link: '/so-do', urgent: true });
+            ctx.notify(managers(), { title: `GẤP: bàn đặt của ${rv.name} còn khách${rv.fixed_table ? ' (khách chọn bàn này)' : ', hết bàn trống'}`, body: `${who} · bàn ${rv.tables}. Hối bàn đang ngồi tính tiền${rv.fixed_table ? ', hoặc gọi khách ' + (rv.phone || '') + ' hỏi đổi bàn khác' : ', hoặc gọi khách ' + (rv.phone || '') + ' báo chờ'}.`, link: '/so-do', urgent: true });
           }
           ctx.broadcast?.('reservations');
           n++;

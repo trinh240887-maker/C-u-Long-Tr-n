@@ -44,6 +44,8 @@ export default function (r, ctx) {
       zone: body.zone_id === undefined ? cur.zone_id ?? null : v.optInt(body.zone_id, { min: 1, name: 'Khu' }),
       priority: body.priority === undefined ? cur.priority ?? 0 : v.bool(body.priority),
       note: body.note === undefined ? cur.note ?? '' : v.text(body.note, { name: 'Ghi chú', max: 200 }),
+      // Khách chọn bàn cụ thể (góc view, phòng riêng…): app không tự đổi bàn, chỉ báo gấp quản lý
+      fixed: body.fixed_table === undefined ? cur.fixed_table ?? 0 : v.bool(body.fixed_table),
     };
   }
 
@@ -74,7 +76,7 @@ export default function (r, ctx) {
     const guests = rows.filter((x) => x.kind === 'booking' && ['booked', 'arrived'].includes(x.status)).reduce((n, x) => n + x.guests, 0);
     return {
       date, hold_minutes: Number(ctx.setting('reserve_hold_minutes') || 15), block_minutes: Number(ctx.setting('reserve_block_minutes') || 15), brief_time: ctx.setting('booking_brief_time') || '16:00', guests,
-      items: rows.map((x) => ({ ...x, priority: !!x.priority, history: history(x.phone) })),
+      items: rows.map((x) => ({ ...x, priority: !!x.priority, fixed_table: !!x.fixed_table, history: history(x.phone) })),
     };
   });
 
@@ -115,6 +117,7 @@ export default function (r, ctx) {
     const id = Number(db.prepare(`INSERT INTO reservations (kind, name, phone, guests, date, time_min, duration_min, zone_id, tables, priority, note, status, created_by, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(f.kind, f.name, f.phone, f.guests, f.date, f.time, f.duration, f.zone, f.tables, f.priority, f.note,
       f.kind === 'walkin' ? 'waiting' : 'booked', me.id, ctx.now()).lastInsertRowid);
+    db.prepare('UPDATE reservations SET fixed_table = ? WHERE id = ?').run(f.fixed, id);
     ctx.audit(me, 'reservation.create', { id, name: f.name, date: f.date, guests: f.guests });
     ctx.broadcast('reservations');
     ctx.broadcast('pos');
@@ -130,6 +133,7 @@ export default function (r, ctx) {
     if (['booked', 'arrived'].includes(status)) checkClash(f, cur.id);
     db.prepare(`UPDATE reservations SET name = ?, phone = ?, guests = ?, date = ?, time_min = ?, duration_min = ?, zone_id = ?, tables = ?, priority = ?, note = ?, status = ?, updated_at = ? WHERE id = ?`)
       .run(f.name, f.phone, f.guests, f.date, f.time, f.duration, f.zone, f.tables, f.priority, f.note, status, ctx.now(), cur.id);
+    db.prepare('UPDATE reservations SET fixed_table = ? WHERE id = ?').run(f.fixed, cur.id);
     ctx.audit(me, 'reservation.update', { id: cur.id, status });
     ctx.broadcast('reservations');
     ctx.broadcast('pos');

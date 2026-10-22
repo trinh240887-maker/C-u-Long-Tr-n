@@ -65,6 +65,19 @@ test('chống quên đơn đặt: cảnh báo nhận vãng lai, báo 30′, tự
   // Bàn mới không phải bàn đang có khách
   assert.ok(!db.prepare("SELECT 1 FROM session_tables t JOIN table_sessions s ON s.id = t.session_id WHERE s.status IN ('open','paying') AND t.table_number = ?").get(Number(moved)));
 
+  // Đơn "khách chọn bàn này" → không tự đổi, báo gấp quản lý
+  const busyT = new Set(db.prepare("SELECT t.table_number AS n FROM session_tables t JOIN table_sessions s ON s.id = t.session_id WHERE s.status IN ('open','paying')").all().map((x) => x.n));
+  const T2 = tables.find((x) => !busyT.has(x.number) && x.number !== T && !String(moved).split(/\D+/).map(Number).includes(x.number)).number;
+  const rvF = (await call('POST', '/api/reservations', { name: 'Chị Vân', phone: '0909000333', guests: 2, date: D, time: '19:00', tables: String(T2), fixed_table: true })).data;
+  assert.equal((await call('GET', `/api/reservations?date=${D}`)).data.items.find((x) => x.id === rvF.id).fixed_table, true);
+  db.prepare('UPDATE reservations SET pre_notified_at = 1 WHERE id = ?').run(rvF.id);
+  const sF = await call('POST', '/api/pos/sessions', { tables: [T2], override_soon: true, override_size: true, override_reserved: true });
+  assert.equal(sF.status, 200, sF.data?.error);
+  app.ctx.bookingGuardTick();
+  assert.equal(db.prepare('SELECT tables FROM reservations WHERE id = ?').get(rvF.id).tables, String(T2));
+  assert.equal(note(/^GẤP: bàn đặt của Chị Vân còn khách \(khách chọn bàn này\)/).length, 1);
+  assert.equal(note(/^Đã chuyển bàn đặt: Chị Vân/).length, 0);
+
   // 19:15 khách chưa đến → nhắc gọi / bấm Không đến
   now = at('19:15');
   app.ctx.bookingGuardTick(); app.ctx.bookingGuardTick();
@@ -73,7 +86,7 @@ test('chống quên đơn đặt: cảnh báo nhận vãng lai, báo 30′, tự
   assert.match(late[0].body, /0909000111/);
 
   // Hết bàn trống → báo gấp quản lý
-  const all = db.prepare('SELECT number FROM dining_tables').all().map((x) => x.number).filter((n) => n !== T);
+  const all = db.prepare('SELECT number FROM dining_tables').all().map((x) => x.number).filter((n) => n !== T && n !== T2);
   now = at('20:00');
   const rv2 = (await call('POST', '/api/reservations', { name: 'Chị Mai', phone: '0909000222', guests: 2, date: D, time: '20:30', tables: String(all[0]) })).data;
   for (const n of all) { const r = await call('POST', '/api/pos/sessions', { tables: [n], override_soon: true, override_reserved: true }); assert.equal(r.status, 200, `bàn ${n}: ${r.data?.error}`); }

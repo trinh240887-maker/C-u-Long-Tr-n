@@ -10,7 +10,7 @@ function Form({ init, date, zones, onClose }) {
   const [f, setF] = useState({
     kind: init.kind || 'booking', name: init.name || '', phone: init.phone || '', guests: init.guests || 2, date: init.date || date,
     time: init.time_min !== undefined ? fmtMin(init.time_min) : '19:00', zone_id: init.zone_id ?? '', tables: init.tables || '',
-    priority: !!init.priority, note: init.note || '',
+    priority: !!init.priority, fixed_table: !!init.fixed_table, note: init.note || '',
   });
   const set = (k, val) => setF({ ...f, [k]: val });
   const sug = useData(!walkin && f.guests && /^\d\d:\d\d$/.test(f.time)
@@ -36,6 +36,7 @@ function Form({ init, date, zones, onClose }) {
           ${x.zone_name} · bàn ${x.tables_text} <small>${x.seats} chỗ${x.busy_now ? ' · đang có khách' : ''}</small></button>`)}</div>` : sug.data ? html`<p class="warn-text small">Không còn bàn trống đủ chỗ giờ này.</p>` : null}` : null}
       <${Field} label="Ghi chú"><input id="rv-note" value=${f.note} placeholder="vd sinh nhật, ghế em bé, dị ứng tôm" onInput=${(e) => set('note', e.target.value)} /><//>
       <label class="check-row"><input type="checkbox" checked=${f.priority} onChange=${(e) => set('priority', e.target.checked)} /> Khách ưu tiên (VIP / nhóm đông): steak in máy Ưu tiên</label>
+      ${!walkin ? html`<label class="check-row"><input type="checkbox" checked=${f.fixed_table} onChange=${(e) => set('fixed_table', e.target.checked)} /> Khách chọn bàn này: không tự đổi bàn (bàn còn khách thì app báo gấp quản lý)</label>` : null}
       <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" onClick=${save}>Lưu</button></div>
     </div>
   <//>`;
@@ -77,7 +78,7 @@ export function ReservationsView({ me, query }) {
     const late = date === me.today && x.kind === 'booking' && x.status === 'booked' && nowMin > x.time_min + d.hold_minutes;
     return html`<section class=${`card rv-card ${x.status} ${late ? 'late' : ''}`} key=${x.id}>
       <div class="row between">
-        <div><b class="big-num">${x.kind === 'booking' ? fmtMin(x.time_min) : `#${x.id}`}</b> <b>${x.name}</b> · ${x.guests} khách ${x.priority ? html`<span class="pill warn">Ưu tiên</span>` : null}</div>
+        <div><b class="big-num">${x.kind === 'booking' ? fmtMin(x.time_min) : `#${x.id}`}</b> <b>${x.name}</b> · ${x.guests} khách ${x.priority ? html`<span class="pill warn">Ưu tiên</span>` : null} ${x.fixed_table ? html`<span class="pill">Giữ đúng bàn</span>` : null}</div>
         <span class=${`pill ${x.status === 'arrived' ? 'ok' : x.status === 'no_show' ? 'bad' : late ? 'bad' : 'muted'}`}>${late ? `Trễ ${nowMin - x.time_min}′` : LABEL[x.status]}</span>
       </div>
       <small class="muted">${x.phone ? html`<a href=${`tel:${x.phone}`}>${x.phone}</a> · ` : null}${x.tables ? `Bàn ${x.tables}` : 'Chưa giữ bàn'}${x.zone_name ? ` · ${x.zone_name}` : ''}${x.note ? ` · ${x.note}` : ''}</small>
