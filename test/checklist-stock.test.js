@@ -93,4 +93,28 @@ test('checklist cân tồn: nối kho, tự kiểm kho theo định lượng, b�
   assert.equal(Math.round(stock()), 9000);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM stock_counts').get().n, 0);
   void st;
+
+  // Topping đếm theo bịch + viên lẻ: Bò viên 50 viên/bịch, bán 3 phần × 4 viên
+  const bv = (await o('POST', '/api/stock/ingredients', { name: 'Bò viên', unit: 'viên', home_store_id: S['Kho Lẩu'], purchase_unit: 'bịch', purchase_factor: 50, price: 90000, min_stock: 50, freshness: 'dry' })).data.id;
+  const bvItem = menu.items.find((x) => x.name.startsWith('Bò viên'));
+  await o('PATCH', `/api/menu/items/${bvItem.id}`, { recipe: [{ ingredient_id: bv, qty: 4 }] });
+  await o('POST', '/api/stock/receive', { store_id: S['Kho Lẩu'], lines: [{ ingredient_id: bv, qty: 4 }] });
+  await o('POST', `/api/pos/sessions/${sid}/items`, { menu_item_id: bvItem.id, qty: 3 });
+  await o('POST', `/api/pos/sessions/${sid}/send`);
+  const tpl2 = (await o('POST', '/api/checklist-templates', { title: 'Đóng ca Topping', team_id: lauTeam.id, phase: 'close', items: [{ text: 'Bò viên còn', kind: 'number', unit: 'bịch', ingredient_id: bv }] })).data.id;
+  const it2 = (await o('GET', '/api/checklist-templates')).data.find((x) => x.id === tpl2).items[0];
+  assert.equal(it2.pack_mode, true);
+  const run2 = ((await o('GET', `/api/checklists?date=${D}`)).data.runs || []).find((x) => x.template_id === tpl2);
+  // Sổ: 200 − 12 = 188 viên = 3 bịch + 38 lẻ; đếm 3 bịch + 30 lẻ → thiếu 8 viên (4,3%) ≈ 2 phần
+  const p0 = await w('POST', '/api/checklists/entry', { run_id: run2.run_id, item_id: it2.id, value: '3', loose: '30' });
+  assert.equal(p0.status, 200, p0.data?.error);
+  assert.equal(note(/^Lệch Bò viên THIẾU 8 viên \(4\.3%\) ≈ 2 phần/).length, 1);
+  await w('POST', '/api/checklists/entry', { run_id: run2.run_id, item_id: it2.id, done: false });
+  const p1 = await o('POST', '/api/checklists/entry', { run_id: run2.run_id, item_id: it2.id, value: '3', loose: '30' });
+  assert.equal(p1.status, 200, p1.data?.error);
+  assert.equal(db.prepare('SELECT value FROM checklist_entries WHERE item_id = ?').get(it2.id).value, '3 bịch + 30 viên');
+  assert.equal(Math.round(db.prepare('SELECT SUM(qty) AS q FROM stock_lots WHERE ingredient_id = ?').get(bv).q), 180);
+  assert.equal(p1.data.count.text, 'Sổ 188 viên (3 bịch + 38 lẻ) · cân 180 viên (3 bịch + 30 lẻ) · thiếu 8 viên (4.3%)');
+  // Thiếu cả 2 ô → báo lỗi
+  assert.equal((await o('POST', '/api/checklists/entry', { run_id: run2.run_id, item_id: it2.id, value: '', loose: '' })).status, 400);
 });

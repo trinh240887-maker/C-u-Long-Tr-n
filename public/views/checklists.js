@@ -59,7 +59,7 @@ function Samples({ samples, templateId, itemId, canEdit, label = 'Ảnh mẫu' }
 const canEditTpl = (me, teamId) => atLeast(me, 'shift_lead') || (me.role === 'team_lead' && teamId && me.team?.id === teamId);
 
 function Item({ run, item, disabled, me }) {
-  const [val, setVal] = useState(item.entry?.value ?? '');
+  const [val, setVal] = useState(item.pack_mode && item.entry ? '' : item.entry?.value ?? '');
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState(null);
   const redo = item.entry?.review_status === 'redo';
@@ -69,8 +69,9 @@ function Item({ run, item, disabled, me }) {
   const fresh = photos.filter((p) => !p.deleted_at && !p.old);
   const needPhoto = item.photo_required && !done && !fresh.length;
   const [count, setCount] = useState(null);
+  const [loose, setLoose] = useState('');
   const save = async (value, isDone = true) => {
-    const r = await act(() => api('POST', '/api/checklists/entry', { run_id: run.run_id, item_id: item.id, value, done: isDone }));
+    const r = await act(() => api('POST', '/api/checklists/entry', { run_id: run.run_id, item_id: item.id, value, loose: item.pack_mode ? loose : undefined, done: isDone }));
     setCount(r?.count || null);
     if (r?.count) toast(`${r.count.name}: ${r.count.text}`, r.count.over);
   };
@@ -94,7 +95,8 @@ function Item({ run, item, disabled, me }) {
       : html`<span class=${`check static ${done ? 'on' : ''}`}></span>`}
     <div class="grow">
       <div>${item.text}${!item.required ? html` <small class="muted">(không bắt buộc)</small>` : null} ${status}</div>
-      ${item.ingredient_id ? html`<small class="muted">📦 Cân tồn ${item.ingredient_name}${item.store_name ? ` · ${item.store_name}` : ''}: số này là tồn thực tế, app tự kiểm kho</small>` : null}
+      ${item.ingredient_id ? html`<small class="muted">📦 ${item.pack_mode ? `Đếm tồn ${item.ingredient_name}: nhập số ${item.unit} nguyên + số ${item.ingredient_unit} lẻ (${item.ingredient_factor} ${item.ingredient_unit}/${item.unit})` : `Cân tồn ${item.ingredient_name}: số này là tồn thực tế`}${item.store_name ? ` · ${item.store_name}` : ''}, app tự kiểm kho</small>` : null}
+      ${item.pack_mode && done ? html`<small><b>Đã nhập: ${item.entry.value}</b></small>` : null}
       ${count ? html`<div class=${`pill ${count.over ? 'warn' : 'ok'}`}>${count.text}</div>` : null}
       <${Samples} samples=${item.samples || []} templateId=${run.template_id} itemId=${item.id} canEdit=${!disabled && canEditTpl(me, run.team_id)} label="Mẫu việc này" />
       ${redo ? html`<div class="redo-box"><b>Làm lại:</b> ${item.entry.review_note}<br /><small>${item.entry.reviewed_by_name || ''} · ${hm(item.entry.reviewed_at)}. Sửa xong chụp ảnh mới rồi bấm xong lại.</small></div>` : null}
@@ -104,7 +106,9 @@ function Item({ run, item, disabled, me }) {
           placeholder=${item.kind === 'number' ? 'Nhập số' : 'Ghi chú'} onInput=${(e) => setVal(e.target.value)}
           onKeyDown=${(e) => e.key === 'Enter' && save(val)} />
         ${item.unit ? html`<span class="muted">${item.unit}</span>` : null}
-        <button class="small" disabled=${disabled || needPhoto || (!val && item.kind === 'number')} onClick=${() => save(val)}>${done ? 'Cập nhật' : 'Lưu'}</button>
+        ${item.pack_mode ? html`<span class="muted">+</span><input class="inline" inputmode="decimal" value=${loose} disabled=${disabled} placeholder="lẻ"
+          aria-label=${`${item.ingredient_unit} lẻ`} onInput=${(e) => setLoose(e.target.value)} /><span class="muted">${item.ingredient_unit} lẻ</span>` : null}
+        <button class="small" disabled=${disabled || needPhoto || (!val && !(item.pack_mode && loose) && item.kind === 'number')} onClick=${() => save(val)}>${done ? 'Cập nhật' : 'Lưu'}</button>
         ${done ? html`<button class="small icon" aria-label="Bỏ" disabled=${disabled} onClick=${() => { setVal(''); save('', false); }}>↺</button>` : null}
       </div>` : null}
       <${PhotoThumbs} photos=${photos} onOpen=${setView} onDelete=${!disabled && (!item.entry || redo) ? (p) => (p.staff_id === me.id || atLeast(me, 'shift_lead')) && del(p) : null} />

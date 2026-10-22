@@ -18,6 +18,14 @@ export function unitFactor(unit, ing) {
   return UNIT_CONV[`${u}>${base}`] ?? null;
 }
 
+// Đếm theo bao bì: đơn vị của việc = đơn vị mua (bịch, gói, thùng…) của nguyên liệu tính theo cái (viên, cái, lon…)
+// → nhân viên nhập số bịch nguyên + số lẻ; cân theo khối lượng (g, ml) thì vẫn 1 ô
+export function packMode(unit, ing) {
+  if (!ing || ['g', 'ml'].includes(String(ing.unit || '').toLowerCase())) return false;
+  const u = String(unit || '').trim().toLowerCase();
+  return !!ing.purchase_unit && u === String(ing.purchase_unit).trim().toLowerCase() && (ing.purchase_factor || 1) > 1;
+}
+
 export default function (r, ctx) {
   const { db } = ctx;
   const addCol = (t, c, d) => { if (!db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`); };
@@ -30,13 +38,13 @@ export default function (r, ctx) {
     const tpls = db.prepare(`SELECT c.*, t.name AS team_name, st.name AS shift_name, p.name AS position_name, z.name AS zone_name FROM checklist_templates c LEFT JOIN teams t ON t.id = c.team_id
       LEFT JOIN shift_templates st ON st.id = c.shift_template_id LEFT JOIN positions p ON p.id = c.position_id LEFT JOIN zones z ON z.id = c.zone_id
       ${activeOnly ? 'WHERE c.active = 1' : ''} ORDER BY t.sort, CASE c.phase WHEN 'open' THEN 0 WHEN 'during' THEN 1 ELSE 2 END, c.sort, c.id`).all();
-    const items = db.prepare(`SELECT i.*, g.name AS ingredient_name, g.unit AS ingredient_unit, st.name AS store_name FROM checklist_items i
+    const items = db.prepare(`SELECT i.*, g.name AS ingredient_name, g.unit AS ingredient_unit, g.purchase_unit AS ingredient_pack, g.purchase_factor AS ingredient_factor, st.name AS store_name FROM checklist_items i
       LEFT JOIN ingredients g ON g.id = i.ingredient_id LEFT JOIN stores st ON st.id = i.store_id ORDER BY i.sort, i.id`).all();
     const samples = db.prepare('SELECT id, template_id, item_id, note FROM checklist_samples ORDER BY id').all();
     return tpls.map((c) => ({
       ...c, active: !!c.active,
       samples: samples.filter((x) => x.template_id === c.id && !x.item_id),
-      items: items.filter((i) => i.template_id === c.id).map((i) => ({ ...i, required: !!i.required, photo_required: !!i.photo_required, samples: samples.filter((x) => x.item_id === i.id) })),
+      items: items.filter((i) => i.template_id === c.id).map((i) => ({ ...i, pack_mode: !!i.ingredient_id && packMode(i.unit, { unit: i.ingredient_unit, purchase_unit: i.ingredient_pack, purchase_factor: i.ingredient_factor }), required: !!i.required, photo_required: !!i.photo_required, samples: samples.filter((x) => x.item_id === i.id) })),
     }));
   }
 
@@ -364,14 +372,25 @@ export default function (r, ctx) {
     const done = body.done === undefined ? true : v.bool(body.done);
     const prevEntry = db.prepare('SELECT count_id, value FROM checklist_entries WHERE run_id = ? AND item_id = ?').get(runId, itemId);
     const prevCount = prevEntry?.count_id;
+    let stockActual = null;
     tx(db, () => {
       if (!done) {
         db.prepare('DELETE FROM checklist_entries WHERE run_id = ? AND item_id = ?').run(runId, itemId);
       } else {
         let value = v.text(body.value, { name: 'Giá trị', max: 300 });
-        if (item.kind === 'number') {
+        const ing = item.ingredient_id ? db.prepare('SELECT * FROM ingredients WHERE id = ?').get(item.ingredient_id) : null;
+        const numOf = (x, label) => { const t = String(x ?? '').trim().replace(',', '.') || '0'; if (!/^\d+(\.\d+)?$/.test(t)) fail(400, `Nhập số ${label} cho "${item.text}"`); return Number(t); };
+        if (item.kind === 'number' && packMode(item.unit, ing)) {
+          // Nhập số bịch nguyên + số lẻ → tổng theo đơn vị dùng
+          const packs = numOf(body.value, item.unit);
+          const loose = numOf(body.loose, `${ing.unit} lẻ`);
+          if (!String(body.value ?? '').trim() && !String(body.loose ?? '').trim()) fail(400, `Nhập số ${item.unit} và ${ing.unit} lẻ cho "${item.text}" (không còn thì nhập 0)`);
+          stockActual = packs * (ing.purchase_factor || 1) + loose;
+          value = `${packs} ${item.unit} + ${loose} ${ing.unit}`;
+        } else if (item.kind === 'number') {
           value = value.replace(',', '.');
           if (!/^-?\d+(\.\d+)?$/.test(value)) fail(400, `Nhập số cho "${item.text}"`);
+          if (ing) stockActual = Math.round(Number(value) * (unitFactor(item.unit, ing) || 1) * 1000) / 1000;
         }
         if (item.kind === 'text' && item.required && !value) fail(400, `Nhập nội dung cho "${item.text}"`);
         // Bị chấm "Làm lại" thì phải có ảnh MỚI chụp sau lúc chấm
@@ -403,7 +422,7 @@ export default function (r, ctx) {
           });
         }
       }
-      if (done) count = countFromEntry(me, run, item);
+      if (done && stockActual != null) count = countFromEntry(me, run, item, stockActual);
       // Nhân viên không xem số trên sổ (tránh cân cho khớp); trưởng ca trở lên xem đủ
       if (count && rank(me.role) < rank('shift_lead')) count = { name: count.name, text: 'Đã ghi tồn, app đã tự kiểm kho', over: false };
     }
@@ -411,18 +430,19 @@ export default function (r, ctx) {
     return { ok: true, count };
   });
 
-  function countFromEntry(me, run, item) {
+  function countFromEntry(me, run, item, actual) {
     const ing = db.prepare('SELECT * FROM ingredients WHERE id = ?').get(item.ingredient_id);
     const e = db.prepare('SELECT * FROM checklist_entries WHERE run_id = ? AND item_id = ?').get(run.id, item.id);
     if (!ing || !e) return null;
-    const actual = Math.round(Number(e.value) * (unitFactor(item.unit, ing) || 1) * 1000) / 1000;
     const tpl = db.prepare('SELECT title FROM checklist_templates WHERE id = ?').get(run.template_id);
     const res = ctx.stockCount(me, item.store_id, [{ ingredient_id: ing.id, actual }], `Checklist: ${tpl?.title || ''} · ${item.text}`);
     db.prepare('UPDATE checklist_entries SET count_id = ? WHERE run_id = ? AND item_id = ?').run(res.count_id, run.id, item.id);
     const l = res.lines[0];
     const pct = l.before > 0 ? Math.round((l.diff / l.before) * 1000) / 10 : null;
     const tol = Number(ctx.setting('count_tolerance_pct') || 3);
-    const show = (q) => (ing.unit === 'g' && Math.abs(q) >= 1000 ? `${(q / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} kg` : `${Math.round(q * 100) / 100} ${ing.unit}`);
+    const pk = packMode(item.unit, ing) ? ing.purchase_factor : 0;
+    const show = (q) => (ing.unit === 'g' && Math.abs(q) >= 1000 ? `${(q / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} kg`
+      : pk && Math.abs(q) >= pk ? `${Math.round(q * 100) / 100} ${ing.unit} (${Math.floor(Math.abs(q) / pk)} ${item.unit} + ${Math.round((Math.abs(q) % pk) * 100) / 100} lẻ)` : `${Math.round(q * 100) / 100} ${ing.unit}`);
     const over = l.diff !== 0 && (pct === null || Math.abs(pct) > tol);
     if (over) {
       const recipeQty = db.prepare('SELECT MIN(qty) AS q FROM menu_recipes WHERE ingredient_id = ? AND qty > 0').get(ing.id)?.q;

@@ -280,7 +280,8 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
           ${x.kind === 'number' ? html`<input class="unit" value=${x.unit} placeholder="đơn vị" onInput=${(e) => item(i, 'unit', e.target.value)} aria-label="Đơn vị" />` : null}
           ${x.kind === 'number' && ings.length ? html`<select class="ing-link" value=${x.ingredient_id || ''} aria-label="Nối kho" onChange=${(e) => {
             const g = ings.find((y) => y.id === Number(e.target.value));
-            setF({ ...f, items: f.items.map((y, j) => (j === i ? { ...y, ingredient_id: g?.id || null, store_id: g?.home_store_id || null, unit: g && !y.unit ? (g.unit === 'g' ? 'kg' : g.unit) : y.unit } : y)) });
+            setF({ ...f, items: f.items.map((y, j) => (j === i ? { ...y, ingredient_id: g?.id || null, store_id: g?.home_store_id || null,
+              unit: g && !y.unit ? (g.unit === 'g' ? 'kg' : g.purchase_unit && g.purchase_factor > 1 && g.unit !== 'ml' ? g.purchase_unit : g.unit) : y.unit } : y)) });
           }}><option value="">Không nối kho</option>${ings.map((g) => html`<option value=${g.id}>📦 Cân tồn: ${g.name}</option>`)}</select>` : null}
           <label class="check-row small"><input type="checkbox" checked=${x.required} onChange=${(e) => item(i, 'required', e.target.checked)} />Bắt buộc</label>
           <label class="check-row small"><input type="checkbox" checked=${x.photo_required ?? x.kind === 'check'} onChange=${(e) => item(i, 'photo_required', e.target.checked)} />📷 Phải có ảnh</label>
@@ -290,7 +291,7 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
             <button class="icon" aria-label="Bỏ" onClick=${() => setF({ ...f, items: f.items.filter((_, j) => j !== i) })}>✕</button></span>
         </div>`)}
         <button class="link" onClick=${() => setF({ ...f, items: [...f.items, { text: '', kind: 'check', unit: '', required: true, photo_required: true }] })}>+ Thêm việc</button>
-        <p class="muted small">Việc "Nhập số" chọn <b>📦 Cân tồn</b>: số nhân viên cân = tồn thực tế trong kho. App tự kiểm kho, so với số đã bán theo định lượng và báo nếu lệch.</p>
+        <p class="muted small">Việc "Nhập số" chọn <b>📦 Cân tồn</b>: số nhân viên cân = tồn thực tế trong kho. App tự kiểm kho, so với số đã bán theo định lượng và báo nếu lệch. Đồ đếm theo cái (viên, cái…) mà đơn vị ghi là <b>bịch / gói</b> → nhân viên nhập số bịch nguyên + số lẻ.</p>
       </div>
       ${init.id ? html`<label class="check-row"><input type="checkbox" checked=${f.active} onChange=${(e) => setF({ ...f, active: e.target.checked })} /> Đang dùng (bỏ chọn để ẩn, vẫn giữ lịch sử)</label>` : null}
       <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" onClick=${save}>Lưu</button></div>
