@@ -108,7 +108,8 @@ export default function (r, ctx) {
       // Khoảng không thao tác dài khi đang trong ca (chỉ tổ dùng app thường xuyên)
       let idleBlocks = 0;
       let idleMinutes = 0;
-      if (APP_TEAMS.includes(s.team_name)) {
+      // Quản lý đi sàn giám sát, ít bấm app → không tính
+      if (APP_TEAMS.includes(s.team_name) && !['owner', 'manager'].includes(s.role)) {
         for (const x of mine) {
           const pts = [x.clock_in, ...activity(s.id, x.clock_in, x.clock_out), x.clock_out];
           for (let k = 1; k < pts.length; k++) {
