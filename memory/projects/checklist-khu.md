@@ -54,3 +54,8 @@ Thiết bị (5 ảnh): 2 nồi nấu điện lớn (tủ điện: đèn nguồn
 ### Khu trong Thái tay (3 ảnh 22/10)
 Quầy dài mặt trắng + kính chắn, máy thái thứ 2, chỗ order/màn hình + giấy phiếu, **cân điện tử ở kệ dưới** (dùng cho cân tồn), thớt đỏ/trắng cất trong thau dưới gầm sát sàn, **4 xe cân bằng đậu dưới quầy**, bồn rửa tay (khăn, găng, hũ để trên bồn), chổi + cây lau, tủ đông Ouheng.
 Điểm thấy: thớt cất thau sát sàn cạnh bánh xe; xe đậu dưới quầy thực phẩm; bồn rửa tay chưa thấy xà phòng / giấy lau tay. Cần thêm: **giấy thấm dầu**.
+
+## Tiếp thực (Tổ Tiếp thực) — xe cân bằng (4 xe) là của tiếp thực (chủ quán 22/10)
+**Mở ca**: đếm xe cân bằng (Nhập số · xe) · kiểm pin đủ chạy ca, xe nào yếu báo (Tick + 📷) · lau xe, bánh xe (Tick).
+**Đóng ca**: đếm xe (Nhập số · xe) · cắm sạc đủ xe (Tick + 📷) · lau bánh xe trước khi cất (Tick) · đậu đúng chỗ quy định (Tick + 📷).
+Gợi ý: chỗ đậu/sạc riêng, không để dưới quầy thực phẩm khu Thái tay.
