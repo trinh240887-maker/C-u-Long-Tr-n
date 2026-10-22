@@ -336,10 +336,12 @@ export async function run({ quiet = false } = {}) {
     expect(t.reservation?.name === 'Anh Hùng', 'không thấy giữ bàn');
     return 'bàn 50: "Đặt 20:00 · Anh Hùng"';
   });
-  await step('Bàn giữ cho khách đặt: còn 20′ vẫn nhận khách vãng lai; trong 15′ trước giờ đặt phải xác nhận', async () => {
+  await step('Bàn có khách đặt sắp tới: nhận vãng lai → cảnh báo + gợi ý bàn khác; trong 15′ trước giờ đặt phải xác nhận', async () => {
     await lead('POST', '/api/reservations', { name: 'Chị Lan', phone: '0912', guests: 4, date: DAY, time: '20:00', tables: '70' });
-    const r1 = await pv1('POST', '/api/pos/sessions', { tables: [70] }); // 19:40, còn 20′
-    expect(r1.status === 200, `còn 20′ mà bị chặn: ${r1.data?.error}`);
+    const r0 = await pv1('POST', '/api/pos/sessions', { tables: [70] }); // 19:40, còn 20′
+    expect(r0.status === 409 && /Bàn trống nên dùng/.test(r0.data?.error), `không cảnh báo: ${r0.status}`);
+    const r1 = await pv1('POST', '/api/pos/sessions', { tables: [70], override_soon: true });
+    expect(r1.status === 200, `xác nhận rồi vẫn bị chặn: ${r1.data?.error}`);
     await pv1('POST', `/api/pos/sessions/${r1.data.id}/cancel`, {});
     now = at(DAY, '19:46');
     const r2 = await pv1('POST', '/api/pos/sessions', { tables: [70] });

@@ -195,6 +195,29 @@ export default function (r, ctx) {
     }
     return null;
   };
+  // Bàn có khách đặt trong khoảng "khách vãng lai ngồi không kịp" (thời gian ngồi TB + 15′)
+  ctx.reservedWithin = (n, minutes) => {
+    const now = ctx.now();
+    const clock = ctx.clock();
+    const today = clock.businessDate(now);
+    for (const rv of db.prepare("SELECT * FROM reservations WHERE date = ? AND kind = 'booking' AND status = 'booked'").all(today)) {
+      const at = clock.toEpoch(today, rv.time_min);
+      if (at - now > 0 && at - now <= minutes * 60_000 && parseTableList(rv.tables).includes(n)) return { ...rv, in_min: Math.round((at - now) / 60_000) };
+    }
+    return null;
+  };
+  // Bàn trống lúc này, không vướng đơn đặt nào trong khung giờ tới
+  ctx.freeTablesNow = (minutes, exceptRes = 0) => {
+    const now = ctx.now();
+    const clock = ctx.clock();
+    const today = clock.businessDate(now);
+    const busy = new Set(db.prepare("SELECT t.table_number FROM session_tables t JOIN table_sessions s ON s.id = t.session_id WHERE s.status IN ('open','paying')").all().map((x) => x.table_number));
+    for (const rv of db.prepare("SELECT * FROM reservations WHERE date = ? AND kind = 'booking' AND status = 'booked' AND id != ?").all(today, exceptRes)) {
+      const at = clock.toEpoch(today, rv.time_min);
+      if (at - now <= minutes * 60_000 && now - at <= (rv.duration_min || 85) * 60_000) for (const x of parseTableList(rv.tables)) busy.add(x);
+    }
+    return db.prepare('SELECT t.number, t.seats, t.zone_id FROM dining_tables t JOIN zones z ON z.id = t.zone_id WHERE z.active = 1 ORDER BY t.number').all().filter((t) => !busy.has(t.number));
+  };
   const fmtM = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
   r.post('/api/pos/sessions', 'staff', ({ me, body }) => {
@@ -203,6 +226,17 @@ export default function (r, ctx) {
       for (const n of tables) {
         const rv = ctx.reservedSoon(n);
         if (rv) fail(409, `Bàn ${n} đang giữ cho ${rv.name} lúc ${fmtM(rv.time_min)}. Chọn bàn khác, hoặc xác nhận vẫn nhận khách.`);
+      }
+    }
+    // Có khách đặt sắp tới mà khách vãng lai ngồi không kịp xong → cảnh báo, gợi ý bàn khác
+    if (!body.override_reserved && !body.override_soon) {
+      const dwell = Number(ctx.setting('dining_minutes') || 70) + 15;
+      for (const n of tables) {
+        const rv = ctx.reservedWithin(n, dwell);
+        if (!rv) continue;
+        const zone = db.prepare('SELECT zone_id FROM dining_tables WHERE number = ?').get(n)?.zone_id;
+        const alt = ctx.freeTablesNow(dwell).sort((a, b) => Number(b.zone_id === zone) - Number(a.zone_id === zone) || Math.abs(a.number - n) - Math.abs(b.number - n)).slice(0, 4).map((t) => t.number);
+        fail(409, `Bàn ${n} có khách đặt ${fmtM(rv.time_min)} (còn ${rv.in_min}′), khách ngồi TB ${dwell - 15}′ sẽ chưa xong. ${alt.length ? `Bàn trống nên dùng: ${alt.join(', ')}.` : 'Hết bàn trống khác.'} Vẫn nhận thì bấm xác nhận.`);
       }
     }
     const guests = v.int(body.guests ?? 1, { min: 1, max: 500, name: 'Số khách' });

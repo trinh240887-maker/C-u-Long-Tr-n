@@ -526,6 +526,7 @@ const DEFAULT_SETTINGS = {
   area_count_is_usage: '1',      // chưa có bán hàng: chênh lệch kiểm kho khu = lượng đã dùng
   expiry_warn_days: '1',
   reserve_hold_minutes: '15',   // giữ bàn đặt trước bao lâu khi khách trễ
+  booking_brief_time: '16:00',  // giờ gửi tóm tắt bàn đặt hôm nay cho ca
   reserve_block_minutes: '15',  // trước giờ đặt bao nhiêu phút thì khoá bàn, không nhận khách vãng lai
   wash_cycle_minutes: '30',     // rửa xong 1 mẻ dụng cụ
   dining_minutes: '70',         // khách ngồi trung bình 1 lượt bàn

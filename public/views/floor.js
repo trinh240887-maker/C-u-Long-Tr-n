@@ -21,7 +21,14 @@ export function FloorView({ me }) {
     if (t.session) return navigate(`/goi-mon?s=${t.session.id}`);
     // Bàn có khách đặt: còn xa giờ đặt thì nhận khách bình thường; sát giờ (mặc định 15′) thì phải xác nhận
     if (t.reservation?.locked && !confirm(`Bàn ${t.number} đã khoá cho ${t.reservation.name} lúc ${fmtMin(t.reservation.time_min)}. Vẫn nhận khách khác vào bàn này?`)) return undefined;
-    const r = await act(() => api('POST', '/api/pos/sessions', { tables: [t.number], override_reserved: !!t.reservation?.locked }));
+    let r;
+    try {
+      r = await api('POST', '/api/pos/sessions', { tables: [t.number], override_reserved: !!t.reservation?.locked });
+    } catch (e) {
+      // Bàn có khách đặt sắp tới: app gợi ý bàn khác, chủ động xác nhận mới nhận
+      if (e.status === 409 && /có khách đặt/.test(e.message) && confirm(e.message)) r = await act(() => api('POST', '/api/pos/sessions', { tables: [t.number], override_soon: true }));
+      else if (!(e.status === 409 && /có khách đặt/.test(e.message))) act(() => Promise.reject(e));
+    }
     if (r?.id) navigate(`/goi-mon?s=${r.id}`);
     return undefined;
   };

@@ -73,7 +73,7 @@ export default function (r, ctx) {
       WHERE x.date = ? ORDER BY x.kind, x.time_min, x.id`).all(date);
     const guests = rows.filter((x) => x.kind === 'booking' && ['booked', 'arrived'].includes(x.status)).reduce((n, x) => n + x.guests, 0);
     return {
-      date, hold_minutes: Number(ctx.setting('reserve_hold_minutes') || 15), block_minutes: Number(ctx.setting('reserve_block_minutes') || 15), guests,
+      date, hold_minutes: Number(ctx.setting('reserve_hold_minutes') || 15), block_minutes: Number(ctx.setting('reserve_block_minutes') || 15), brief_time: ctx.setting('booking_brief_time') || '16:00', guests,
       items: rows.map((x) => ({ ...x, priority: !!x.priority, history: history(x.phone) })),
     };
   });

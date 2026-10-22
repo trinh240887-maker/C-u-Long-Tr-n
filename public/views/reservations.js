@@ -123,15 +123,18 @@ export function ReservationsView({ me, query }) {
 function HoldSettings({ d }) {
   const [b, setB] = useState(String(d.block_minutes));
   const [h, setH] = useState(String(d.hold_minutes));
-  const dirty = b !== String(d.block_minutes) || h !== String(d.hold_minutes);
+  const [bt, setBt] = useState(d.brief_time || '16:00');
+  const dirty = b !== String(d.block_minutes) || h !== String(d.hold_minutes) || bt !== (d.brief_time || '16:00');
   return html`<details class="card small">
     <summary>Giữ bàn: khoá trước giờ đặt <b>${d.block_minutes}′</b> · chờ khách trễ <b>${d.hold_minutes}′</b></summary>
     <div class="row wrap" style="margin-top:8px">
       <label>Khoá trước <input type="number" min="0" max="240" style="width:5em" value=${b} onInput=${(e) => setB(e.target.value)} /> phút</label>
       <label>Chờ trễ <input type="number" min="0" max="120" style="width:5em" value=${h} onInput=${(e) => setH(e.target.value)} /> phút</label>
-      ${dirty ? html`<button class="primary" onClick=${() => act(() => api('PUT', '/api/settings', { reserve_block_minutes: b, reserve_hold_minutes: h }), 'Đã lưu')}>Lưu</button>` : null}
+      <label>Gửi tóm tắt cho ca lúc <input type="time" value=${bt} onInput=${(e) => setBt(e.target.value)} /></label>
+      ${dirty ? html`<button class="primary" onClick=${() => act(() => api('PUT', '/api/settings', { reserve_block_minutes: b, reserve_hold_minutes: h, booking_brief_time: bt }), 'Đã lưu')}>Lưu</button>` : null}
     </div>
     <p class="muted">Trước giờ đặt quá ${d.block_minutes}′ thì bàn vẫn nhận khách vãng lai bình thường. Trong ${d.block_minutes}′ trước giờ đặt, phục vụ bấm vào bàn phải xác nhận. Khách trễ quá ${d.hold_minutes}′ thì bàn trả lại.</p>
+    <p class="muted">Tự động: nhận khách vãng lai vào bàn sắp có khách đặt → app cảnh báo và gợi ý bàn khác. 30′ trước giờ đặt báo cả ca. 20′ trước mà bàn còn khách → tự chuyển đơn sang bàn trống và báo; hết bàn thì báo gấp quản lý. Khách trễ ${d.hold_minutes}′ → nhắc gọi khách hoặc bấm "Không đến".</p>
   </details>`;
 }
 

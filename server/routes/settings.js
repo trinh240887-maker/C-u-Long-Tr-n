@@ -52,6 +52,7 @@ const FIELDS = {
   zalo_access_token: (x) => v.text(x, { name: 'Access token', max: 2000 }),
   zalo_refresh_token: (x) => v.text(x, { name: 'Refresh token', max: 2000 }),
   reserve_hold_minutes: (x) => String(v.int(x, { min: 0, max: 120, name: 'Giữ bàn' })),
+  booking_brief_time: (x) => { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(x))) fail(400, 'Giờ tóm tắt đặt bàn dạng HH:MM'); return String(x); },
   reserve_block_minutes: (x) => String(v.int(x, { min: 0, max: 240, name: 'Khoá bàn trước giờ đặt' })),
   wash_cycle_minutes: (x) => String(v.int(x, { min: 1, max: 240, name: 'Thời gian rửa 1 mẻ' })),
   dining_minutes: (x) => String(v.int(x, { min: 10, max: 300, name: 'Thời gian khách ngồi' })),

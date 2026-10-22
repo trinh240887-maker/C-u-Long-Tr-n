@@ -14,6 +14,7 @@ import { createZns } from './notify/zns.js';
 import bankRoutes from './routes/bank.js';
 import daybookRoutes from './routes/daybook.js';
 import bookingOnlineRoutes from './routes/booking-online.js';
+import bookingGuardRoutes from './routes/booking-guard.js';
 import staffRoutes from './routes/staff.js';
 import scheduleRoutes from './routes/schedule.js';
 import attendanceRoutes from './routes/attendance.js';
@@ -83,7 +84,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   ctx.version = () => ({ version, started_at: startedAt });
   router.get('/api/version', null, () => ({ ...ctx.version(), uptime_min: Math.round((now() - startedAt) / 60000) }));
 
-  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes, printRoutes, promoRoutes, paymentRoutes, bankRoutes, daybookRoutes, bookingOnlineRoutes]) {
+  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes, printRoutes, promoRoutes, paymentRoutes, bankRoutes, daybookRoutes, bookingOnlineRoutes, bookingGuardRoutes]) {
     register(router, ctx);
   }
 
