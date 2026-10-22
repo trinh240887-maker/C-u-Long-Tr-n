@@ -295,6 +295,9 @@ export default function (r, ctx) {
     if (item.sold_out) fail(400, `${item.name} đã hết`);
     const options = readOptions(item, body.option_ids);
     const qty = v.int(body.qty ?? 1, { min: 1, max: 99, name: 'Số lượng' });
+    // Tính cả phần đã gọi chưa gửi bếp của món này ở mọi bàn
+    const pendingQty = db.prepare("SELECT COALESCE(SUM(qty), 0) AS n FROM order_items WHERE menu_item_id = ? AND status = 'new'").get(item.id).n;
+    ctx.portionsCheck?.(item, qty + pendingQty, v.bool(body.override_stock));
     const unit = item.price + options.reduce((n, o) => n + o.price, 0);
     const id = Number(db.prepare(`INSERT INTO order_items (session_id, menu_item_id, name, unit_price, qty, options, note, rush, created_by, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(s.id, item.id, item.name, unit, qty, JSON.stringify(options),
@@ -364,6 +367,7 @@ export default function (r, ctx) {
     const first = !s.items.some((i) => i.status === 'sent' || i.status === 'done');
     const tickets = tx(db, () => {
       db.prepare("UPDATE order_items SET status = 'sent', sent_at = ?, sent_by = ? WHERE session_id = ? AND status = 'new'").run(ctx.now(), me.id, s.id);
+      ctx.consumeSale?.(me, items);
       return makeTickets(me, s, items, first ? 'new' : 'add');
     });
     ctx.audit(me, 'pos.send', { id: s.id, items: items.length, tickets: tickets.length });
@@ -390,6 +394,7 @@ export default function (r, ctx) {
     tx(db, () => {
       db.prepare("UPDATE order_items SET status = 'cancelled', cancelled_at = ?, cancelled_by = ?, cancel_reason = ? WHERE id = ?").run(ctx.now(), me.id, reason, i.id);
       makeTickets(me, s, [{ ...i, note: reason }], 'cancel');
+      if (!late) ctx.restoreSale?.(me, i);
       if (soldOut && i.menu_item_id) db.prepare('UPDATE menu_items SET sold_out = 1 WHERE id = ?').run(i.menu_item_id);
     });
     if (soldOut) ctx.broadcast('menu');

@@ -98,7 +98,17 @@ export function OrderView({ me, query }) {
     .sort((a, b) => catOrder(a.category_id) - catOrder(b.category_id) || a.sort - b.sort || a.id - b.id);
   const drafts = s.items.filter((i) => i.status === 'new');
   const sent = s.items.filter((i) => i.status !== 'new');
-  const add = async (body) => { if (await act(() => api('POST', `/api/pos/sessions/${id}/items`, body), 'Đã thêm')) setAdding(null); };
+  const add = async (body) => {
+    try {
+      await api('POST', `/api/pos/sessions/${id}/items`, body);
+      toast('Đã thêm'); bump(); setAdding(null);
+    } catch (e) {
+      // Kho theo định lượng không đủ: hỏi bếp còn thực tế không, còn thì xác nhận gọi
+      if (e.status === 409 && /kho chỉ còn/.test(e.message)) {
+        if (confirm(e.message) && await act(() => api('POST', `/api/pos/sessions/${id}/items`, { ...body, override_stock: true }), 'Đã thêm (bếp xác nhận còn hàng)')) setAdding(null);
+      } else act(() => Promise.reject(e));
+    }
+  };
   const quick = (item) => (item.options.length ? setAdding(item) : add({ menu_item_id: item.id, qty: 1 }));
   const send = () => act(() => api('POST', `/api/pos/sessions/${id}/send`), 'Đã gửi bếp');
   const sessions = (tablesD.data?.zones || []).flatMap((z) => z.tables).filter((t) => t.session && t.session.id !== id)
@@ -127,7 +137,7 @@ export function OrderView({ me, query }) {
       <div class="chips scroll-x"><button class=${`chip ${!cat ? 'on' : ''}`} onClick=${() => setCat('')}>Tất cả</button>
         ${m.categories.map((c) => html`<button class=${`chip ${cat === String(c.id) ? 'on' : ''}`} onClick=${() => setCat(String(c.id))}>${c.name}</button>`)}</div>
       <div class="menu-grid">${items.map((i) => html`<button class=${`menu-btn ${i.sold_out ? 'soldout' : ''}`} disabled=${i.sold_out} onClick=${() => quick(i)}>
-        <b>${i.name}</b><small>${i.sold_out ? 'Hết món' : money(i.price)}</small>${!i.sold_out && m.promo?.tags?.[i.id] ? html`<span class="promo-tag">🎁 ${m.promo.tags[i.id]}</span>` : null}</button>`)}</div>` : null}
+        <b>${i.name}</b><small>${i.sold_out ? (i.auto_sold_out ? 'Hết nguyên liệu' : 'Hết món') : money(i.price)}</small>${!i.sold_out && i.left != null && i.left <= 5 ? html`<span class="left-tag">còn ${i.left} phần</span>` : null}${!i.sold_out && m.promo?.tags?.[i.id] ? html`<span class="promo-tag">🎁 ${m.promo.tags[i.id]}</span>` : null}</button>`)}</div>` : null}
 
     ${tab === 'bill' || s.status === 'cancelled' ? html`<section class="card">
       ${sent.length ? html`<ul class="plain order-lines">${sent.map((i) => html`<li class=${`ol ${i.status}`}>

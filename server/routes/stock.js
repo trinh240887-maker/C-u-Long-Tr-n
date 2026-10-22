@@ -262,8 +262,11 @@ export default function (r, ctx) {
         const actual = num(l.actual, `Số thực tế của ${ing.name}`);
         const { before, diff } = setActual(db, { storeId: st.id, ingredientId: ing.id, actual, at: t });
         db.prepare('INSERT INTO stock_count_lines (count_id, ingredient_id, expected, actual) VALUES (?, ?, ?, ?)').run(countId, ing.id, before, actual);
+        // Nguyên liệu có định lượng và đang bật bán tự trừ kho: lượng dùng đã trừ khi bán → phần thiếu khi kiểm = lệch định lượng / hao hụt
+        const sold = ctx.setting('sell_deducts_stock') !== '0' && !!db.prepare('SELECT 1 FROM menu_recipes WHERE ingredient_id = ? LIMIT 1').get(ing.id);
+        const asUse = usageMode && !sold;
         if (diff < 0) {
-          recordMove(db, { at: t, date, type: usageMode ? 'consume' : 'waste', ingredientId: ing.id, fromStore: st.id, qty: -diff, cost: costOf(ing, -diff), ref: `count:${countId}`, staffId: me.id, note: usageMode ? 'Dùng trong ngày (kiểm kho cuối ca)' : 'Hao hụt khi kiểm kho' });
+          recordMove(db, { at: t, date, type: asUse ? 'consume' : 'waste', ingredientId: ing.id, fromStore: st.id, qty: -diff, cost: costOf(ing, -diff), ref: `count:${countId}`, staffId: me.id, note: asUse ? 'Dùng trong ngày (kiểm kho cuối ca)' : sold ? 'Lệch định lượng: kiểm kho thiếu so với số đã bán' : 'Hao hụt khi kiểm kho' });
         } else if (diff > 0) {
           recordMove(db, { at: t, date, type: 'adjust', ingredientId: ing.id, toStore: st.id, qty: diff, ref: `count:${countId}`, staffId: me.id, note: 'Kiểm kho thừa so với sổ' });
         }

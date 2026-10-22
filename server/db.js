@@ -556,6 +556,7 @@ const DEFAULT_SETTINGS = {
   review_report_time: '07:00',
   online_booking_enabled: '1', online_open: '10:00', online_last: '21:30', online_max_guests: '20', online_min_lead_minutes: '60',
   zns_enabled: '0', zns_mode: 'development', zns_template_confirm: '', zns_template_reject: '', zns_template_remind: '', zns_template_queue: '', zns_template_ready: '',
+  sell_deducts_stock: '1', low_portions_alert: '5', purchase_report_time: '22:00',  // bán món tự trừ kho; còn ≤ N phần thì báo; giờ gửi tổng hợp hàng cần nhập
   supplier_pay_approve_over: '5000000', price_jump_pct: '10',  // chi NCC trên mức này cần chủ/quản lý duyệt; giá nhập tăng quá % thì báo
   table_clear_minutes: '10', wait_call_minutes: '5', wait_big_protect_minutes: '15',  // lấp bàn lúc kín: thời gian dọn, chờ khách vào sau khi mời, giữ bàn ghép cho nhóm đông
 };

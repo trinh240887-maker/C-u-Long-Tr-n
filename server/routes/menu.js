@@ -21,8 +21,9 @@ export default function (r, ctx) {
     const parts = db.prepare('SELECT * FROM menu_item_parts ORDER BY sort, id').all();
     const opts = db.prepare('SELECT * FROM menu_options ORDER BY sort, id').all();
     const recipes = db.prepare('SELECT r.*, g.name AS ingredient_name, g.unit FROM menu_recipes r JOIN ingredients g ON g.id = r.ingredient_id').all();
+    const left = ctx.portionsMap ? ctx.portionsMap() : new Map();
     const items = db.prepare(`SELECT * FROM menu_items ${all ? '' : 'WHERE active = 1'} ORDER BY sort, id`).all().map((i) => ({
-      ...i, active: !!i.active, sold_out: !!i.sold_out,
+      ...i, active: !!i.active, sold_out: !!i.sold_out, auto_sold_out: !!i.auto_sold_out, left: left.has(i.id) ? left.get(i.id) : null,
       parts: parts.filter((p) => p.item_id === i.id).map(({ label, station_id }) => ({ label, station_id })),
       options: opts.filter((o) => o.item_id === i.id).map(({ id, group_name, name, price: p, required }) => ({ id, group_name, name, price: p, required: !!required })),
       recipe: recipes.filter((x) => x.item_id === i.id).map(({ ingredient_id, qty, ingredient_name, unit }) => ({ ingredient_id, qty, ingredient_name, unit })),
