@@ -28,3 +28,10 @@ Thiết bị (ảnh 22/10): máy thái, tủ mát inox đứng có màn nhiệt 
 - Hàng thiếu cần báo (Ghi chữ, không bắt buộc)
 
 Chờ: số người / vị trí mỗi ca; có lau máy thái giữa ca không; định lượng bò thật (g/phần).
+
+## Quầy Topping (Tổ Lẩu · vị trí Topping) — nháp 22/10
+Thiết bị (4 ảnh): tủ mát trưng bày 2 tầng (cửa kính trượt trên + nắp cong dưới, màn nhiệt độ, dán nhãn ngăn: Rau lẩu + Salad, Xúc xích + khoai tây, Nấm…), kệ inox + rổ, bồn rửa rau, 2 thùng đá Hitaco 250L, bếp chiên nhúng (xúc xích/khoai), lò/máy hâm, chuông + kẹp phiếu order, tủ điện "CP tổng 3 pha bếp".
+Điểm thấy: rau, cà chua trong thùng xốp/túi để tầng dưới sát sàn; đồ trong tủ để túi nilon, không hộp, không ghi ngày; thùng mì để trên nắp thùng đá; kính tủ đọng nước nhiều.
+
+**Mở ca**: rửa tay/găng/nón · nhiệt độ tủ trưng bày (°C) · kiểm rau/nấm/topping còn tươi, bỏ đồ hư (Tick + 📷) · rửa, để ráo rau lẩu + salad (Tick + 📷) · bày topping vào hộp đúng ngăn có nhãn (Tick + 📷) · kiểm dầu chiên, dầu đen thì thay (Tick + 📷) · bật bếp chiên/lò, chạy thử (Tick + 📷) · châm đá thùng đá (Tick).
+**Đóng ca**: cân tồn topping chính (chờ chủ quán chọn món) · topping thừa vào hộp có nắp, ghi ngày (Tick + 📷) · lọc dầu / đổ dầu, vệ sinh bếp chiên (Tick + 📷) · lau kính + khay tủ trưng bày trong ngoài (Tick + 📷) · rửa rổ, bồn rửa, đổ rác (Tick + 📷) · lau mặt quầy (Tick + 📷) · tắt bếp chiên, lò (Tick + 📷) · đóng kín cửa tủ (Tick + 📷) · nhiệt độ tủ lúc đóng (°C) · hàng thiếu cần báo (Ghi chữ).
