@@ -49,6 +49,9 @@ export function doc({ mode = 'khong_dau' } = {}) {
   return api;
 }
 
+export { promoLine } from '../../public/promo-line.js';
+import { promoLine } from '../../public/promo-line.js';
+
 export const KIND_LABEL = { new: '', add: 'GỌI THÊM', cancel: '*** HUỶ MÓN ***', redo: 'LÀM LẠI', remind: 'NHẮC MÓN - KHÁCH CHỜ' };
 
 // Phiếu bếp / bar
@@ -69,7 +72,7 @@ export function ticketBytes(t, { mode, time = '', by = '', lateMin = 0 } = {}) {
     if (l.label && l.label !== l.name) d.wrap(`> ${l.label}`, { indent: '   ' });
     for (const o of l.options || []) d.wrap(`- ${o}`, { indent: '   ' });
     if (l.note) d.bold(true).wrap(`* ${l.note}`, { indent: '   ' }).bold(false);
-    if (l.promo) d.wrap(`KM: ${l.promo}`, { indent: '   ' });
+    if (l.promo) d.bold(true).wrap(promoLine(l), { indent: '   ' }).bold(false);
   }
   d.rule();
   if (lateMin >= 2) d.align('center').bold(true).line(`IN TRỄ ${lateMin} PHÚT (mất mạng / máy in lỗi)`).bold(false);

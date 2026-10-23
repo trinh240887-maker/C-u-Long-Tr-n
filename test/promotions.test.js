@@ -86,7 +86,10 @@ test('khuyến mãi: mua 1 tặng 1 theo ngày, tự hết hạn, báo nhân vi�
   // Phiếu bếp: ghi rõ món nào đang khuyến mãi, tặng mấy phần (chủ quán 23/10: bếp phải thấy chương trình)
   await H('POST', `/api/pos/sessions/${s}/send`);
   const tk = db.prepare("SELECT lines FROM kitchen_tickets k JOIN kitchen_stations st ON st.id = k.station_id WHERE st.name = 'Pha chế' ORDER BY k.id DESC").get();
-  assert.equal(JSON.parse(tk.lines).find((l) => l.name === 'Trà đào').promo, 'Mua 1 tặng 1 trà · tặng 1');
+  const td = JSON.parse(tk.lines).find((l) => l.name === 'Trà đào');
+  assert.deepEqual([td.promo, td.qty, td.free], ['Mua 1 tặng 1 trà', 2, 1]);
+  const { promoLine } = await import('../server/lib/escpos.js');
+  assert.equal(promoLine(td), 'KM Mua 1 tặng 1 trà → 2 phần: 1 tính tiền + 1 TẶNG');
   assert.equal(JSON.parse(tk.lines).find((l) => l.name === 'Trà đào cam xả').promo, undefined);
   assert.equal(JSON.parse(tk.lines).find((l) => l.name === 'Trà đào').qty, 2);
 

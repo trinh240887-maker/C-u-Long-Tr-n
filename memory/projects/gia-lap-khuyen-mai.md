@@ -11,7 +11,7 @@
 - Đầu màn gọi món luôn có thanh hồng: "🎁 Quán đang có khuyến mãi: Lẩu bò tặng 100g bò thái tay (Mỗi set lẩu tặng 100g thịt tươi (bếp xếp chung các loại); bấm nút xanh "Thêm món tặng") · Mua 1 tặng 1 steak (Mời khách khi order steak: gọi 2 phần giống nhau, tính tiền 1)"
 - Steak Âu mới 1 phần → khung xanh: "🎁 Mua 1 tặng 1 steak: gọi thêm 1 phần Steak Âu là được tặng. Mời khách nhé!" + nút [+ Steak Âu (phần tặng)]
 
-## 3. Phiếu bếp in ra từng điểm (dòng "KM:" cho bếp biết phần tặng; 19:05 gọi thêm 1 Steak Âu → phiếu GỌI THÊM chỉ có món mới)
+## 3. Phiếu bếp in ra từng điểm (dòng "KM:" cho bếp biết phần tặng; 19:05 gọi thêm 1 Steak Âu sốt Hoàng kim làm phần tặng → phiếu GỌI THÊM chỉ có món mới)
 ```
 Steak
 KHU A - 12
@@ -21,7 +21,8 @@ KHU A - 12
    - Bánh mì
    - Tiêu đen
    * chín vừa
-   KM: Mua 1 tặng 1 steak · tặng 1
+   KM Mua 1 tặng 1 steak → 2 phần: 1 tính tiền +
+     1 TẶNG
 1 x Steak Âu
    - Kem phô mai
    - Mì Ý
@@ -76,9 +77,9 @@ KHU A - 12
 19:05 23/10  ·  NV: Hậu  ·  #6
 ------------------------------------------------
 1 x Steak Âu
-   - Kem phô mai
-   - Mì Ý
-   KM: Mua 1 tặng 1 steak · tặng 1
+   - Hoàng kim
+   - Bánh mì
+   KM Mua 1 tặng 1 steak → PHẦN TẶNG
 ------------------------------------------------
 ```
 
@@ -111,7 +112,7 @@ Kem phô mai, Mì Ý
    2 x 69.000                            138.000
    Tặng 2 · Lẩu bò tặng 100g bò thái    -138.000
 7. Steak Âu
-Kem phô mai, Mì Ý
+Hoàng kim, Bánh mì
    1 x 79.000                             79.000
    Tặng 1 · Mua 1 tặng 1 steak           -79.000
 ------------------------------------------------

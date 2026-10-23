@@ -111,14 +111,14 @@ if (!(s.promo_hints || []).length) P('- ⚠ LỖI: Steak Âu 1 phần mà không
 
 // ---------- 3. Gửi bếp ----------
 await waiter('POST', `/api/pos/sessions/${sid}/send`);
-// 19:05 khách đồng ý lấy phần tặng → phục vụ bấm nút trên khung xanh, gửi bếp: phiếu "GỌI THÊM" chỉ có món mới
+// 19:05 khách lấy phần tặng nhưng muốn sốt Hoàng kim → phục vụ bấm nút trên khung xanh, chọn sốt khác; phiếu "GỌI THÊM" chỉ có món mới
 now = clock.toEpoch(DAY, 19 * 60 + 5);
-await add('Steak Âu', 1, ['Kem phô mai', 'Mì Ý']);
+await add('Steak Âu', 1, ['Hoàng kim', 'Bánh mì']);
 s = await waiter('GET', `/api/pos/sessions/${sid}`);
 const firstTicket = db.prepare('SELECT MAX(id) AS id FROM kitchen_tickets WHERE session_id = ?').get(sid).id;
 await waiter('POST', `/api/pos/sessions/${sid}/send`);
 const tickets = db.prepare('SELECT t.*, st.name AS station_name FROM kitchen_tickets t LEFT JOIN kitchen_stations st ON st.id = t.station_id WHERE t.session_id = ? ORDER BY t.id').all(sid);
-P('\n## 3. Phiếu bếp in ra từng điểm (dòng "KM:" cho bếp biết phần tặng; 19:05 gọi thêm 1 Steak Âu → phiếu GỌI THÊM chỉ có món mới)');
+P('\n## 3. Phiếu bếp in ra từng điểm (dòng "KM:" cho bếp biết phần tặng; 19:05 gọi thêm 1 Steak Âu sốt Hoàng kim làm phần tặng → phiếu GỌI THÊM chỉ có món mới)');
 const ticketTxt = tickets.map((t) => receipt(ticketBytes({ ...t, lines: JSON.parse(t.lines) }, { mode: 'utf8', time: `${clock.fmt(t.created_at).slice(0, 5)} 23/10`, by: 'Hậu' }))).join('\n');
 P('```'); P(ticketTxt.trim()); P('```');
 
