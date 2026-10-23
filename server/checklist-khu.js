@@ -1,4 +1,5 @@
-// Bộ checklist theo từng khu, soạn từ ảnh chủ quán chụp (22–23/10/2026). Chạy 1 lần (settings.checklist_khu_v1).
+// Bộ checklist theo từng khu, soạn từ ảnh chủ quán chụp (22–23/10/2026). Mỗi checklist chỉ tạo 1 lần
+// (settings.checklist_khu_done ghi tên đã tạo) → thêm khu mới vào danh sách là app đang chạy tự có, chủ quán xoá thì không tạo lại.
 // - Gán tổ / vị trí theo TÊN đang có trong app (vị trí "Thái tay", "Topping"…; tổ "Lẩu", "Bar", "Tiếp thực", "Tạp vụ").
 //   Không tìm thấy thì để "Cả quán" và thêm "(chọn tổ)" vào tên để chủ quán gán lại, không tự tạo tổ mới.
 // - Không tìm thấy tổ → tạo ở trạng thái TẮT (chủ quán chọn tổ rồi bật), tránh hiện cho cả quán.
@@ -123,10 +124,37 @@ export const KHU_CHECKLISTS = [
     T('Tắt đèn bảng hiệu, đèn dây', false),
     T('Xếp gọn bàn ghế'),
   ] },
+  // Lối đi chính giữa 2 dãy quầy + cổng vào từ đường (ảnh 23/10): nước đọng, vết dầu, rác + lá ở cổng và miệng cống, xe đẩy / thang để giữa lối
+  { title: 'Mở ca Lối đi & cổng vào', phase: 'open', team: ['tạp vụ'], items: [
+    T('Quét cổng vào + vỉa hè trước quán, nhặt rác, lá'),
+    T('Vớt rác miệng cống trước cổng'),
+    T('Xịt rửa vết dầu, vết đen ở cổng vào'),
+    T('Lối đi chính khô ráo, không đọng nước (đọng thì gạt khô)'),
+    T('Dọn đồ chắn lối: xe đẩy, thang, thùng, ghế'),
+    T('Mở dù, bảng hiệu, đèn lối đi sáng đủ', false),
+  ] },
+  { title: 'Trong ca Lối đi', phase: 'during', team: ['tạp vụ'], items: [
+    T('19:00 đi 1 vòng: lau chỗ đổ, nhặt rác, gạt nước đọng'),
+    T('21:00 đi 1 vòng: lau chỗ đổ, nhặt rác, gạt nước đọng'),
+  ] },
+  { title: 'Đóng ca Lối đi & cổng vào', phase: 'close', team: ['tạp vụ'], items: [
+    T('Quét + lau lối đi chính, gạt khô nước'),
+    T('Xịt rửa vết dầu, vết bẩn trên lối đi'),
+    T('Quét cổng vào, vớt rác miệng cống'),
+    T('Cất xe đẩy, thang, thùng vào đúng chỗ'),
+    T('Thu dù, kéo bạt', false),
+    X('Chỗ hư cần sửa (sơn viền bong, gạch vỡ…)'),
+  ] },
 ];
 
 export function seedKhuChecklists(db) {
-  if (db.prepare("SELECT 1 FROM settings WHERE key = 'checklist_khu_v1'").get()) return;
+  const getSet = db.prepare('SELECT value FROM settings WHERE key = ?');
+  let done;
+  try { done = new Set(JSON.parse(getSet.get('checklist_khu_done')?.value || '[]')); } catch { done = new Set(); }
+  // Bản đầu (23/10, checklist_khu_v1) đã tạo 11 checklist đầu: coi như xong, không tạo lại cái chủ quán đã xoá
+  if (getSet.get('checklist_khu_v1')) for (const c of KHU_CHECKLISTS.filter((x) => !/Lối đi/.test(x.title))) done.add(c.title);
+  const todo = KHU_CHECKLISTS.filter((c) => !done.has(c.title));
+  if (!todo.length) return;
   const lc = (s) => String(s || '').toLocaleLowerCase('vi');
   const teams = db.prepare('SELECT id, name FROM teams').all();
   const positions = db.prepare('SELECT id, team_id, name FROM positions').all();
@@ -138,17 +166,16 @@ export function seedKhuChecklists(db) {
   db.exec('BEGIN');
   try {
     let sort = (db.prepare('SELECT COALESCE(MAX(sort), 0) AS s FROM checklist_templates').get().s || 0) + 1;
-    let made = 0;
-    for (const c of KHU_CHECKLISTS) {
+    for (const c of todo) {
+      done.add(c.title);
       const pos = c.position ? findPos(c.position) : null;
       const team = pos ? teams.find((t) => t.id === pos.team_id) : findTeam(c.team);
       const title = team ? c.title : `${c.title} (chọn tổ)`;
       if (exists.get(c.title) || exists.get(title)) continue;
       const id = Number(addTpl.run(team?.id ?? null, c.phase, title, sort++, pos?.id ?? null, team ? 1 : 0).lastInsertRowid);
       c.items.forEach(([text, kind, unit, required, photo], i) => addItem.run(id, text, kind, unit, required, photo, i));
-      made++;
     }
-    db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('checklist_khu_v1', ?)").run(String(made));
+    db.prepare("INSERT INTO settings (key, value) VALUES ('checklist_khu_done', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(JSON.stringify([...done]));
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }

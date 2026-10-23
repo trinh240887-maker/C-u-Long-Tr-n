@@ -71,3 +71,9 @@ Xe quầy "九龍鎮 Hong Kong 2005" có bánh xe, mái tôn: hàng siro có vò
 Trả lời chủ quán: ly thuỷ tinh cuối ngày **rửa, úp ráo, cất vào tủ inox dưới quầy, khoá** (không để ngoài trời qua đêm); nên mua giá úp ly; đếm ly mỗi đóng ca để biết bể/mất.
 **Mở ca**: lấy ly từ tủ, đếm ly (Nhập số · ly) · đá đủ (Tick + 📷) · siro/mứt/sữa còn hạn, đủ (Tick) · ly nhựa, ống hút, khay xách đủ (Tick) · lau quầy + xe (Tick + 📷) · bình nước uống còn (Tick) · máy in mini có giấy (Tick) · kiểm van/dây gas (Tick + 📷).
 **Đóng ca**: rửa ly + bình đong + thau, úp ráo (Tick + 📷) · đếm ly (Nhập số · ly; bể/mất ghi chữ) · cất ly vào tủ inox dưới quầy, khoá (Tick + 📷) · lau vòi bơm siro, đậy, cất (Tick + 📷) · xả nước đá thừa, lau thùng đá, mở nắp hong (Tick + 📷) · cọ hố rửa, đổ rác (Tick + 📷) · lau quầy, lau sàn chỗ đá chảy (Tick + 📷) · khoá van gas (Tick + 📷) · tắt quạt, đèn, rút điện máy in (Tick) · che xe / kéo bạt (Tick + 📷) · hàng thiếu cần báo (Ghi chữ).
+
+## Lối đi & cổng vào (Tạp vụ) — 4 ảnh 23/10, đã đưa vào app
+Lối đi bê tông giữa 2 dãy quầy, viền vỉa vàng–đen, vạch kẻ vàng, vạch sang đường, tường tranh Hong Kong cuối lối; cổng ra đường Nguyễn Văn Tố.
+Điểm thấy: **nước đọng loang lổ giữa lối** (trơn), vết dầu đen; **cổng vào bẩn**: đất, rác, lá, vết dầu, **miệng cống đầy rác**, sơn vàng bong; xe đẩy, thang, thùng để giữa lối.
+Checklist: Mở ca (quét cổng + vỉa hè, vớt cống, xịt vết dầu, lối khô, dọn đồ chắn lối, đèn/dù) · Trong ca (19h, 21h đi 1 vòng) · Đóng ca (quét lau lối, xịt dầu, cổng + cống, cất xe đẩy/thang, thu dù, ghi chỗ hư).
+Việc 1 lần (giao việc, không phải checklist): sơn lại viền vàng cổng vào.
