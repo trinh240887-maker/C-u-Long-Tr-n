@@ -74,10 +74,10 @@ await o('POST', '/api/promotions', {
   name: 'Mua 1 tặng 1 steak', type: 'bogo', buy_qty: 1, get_qty: 1, pair: 'same', scope: 'categories', category_ids: [cat('Steak')],
   start_date: '2026-10-18', end_date: '2026-10-27', note: 'Mời khách khi order steak: gọi 2 phần giống nhau, tính tiền 1',
 });
-const giftItems = ['Thăn bò tươi 100g', 'Bắp hoa tươi 100g', 'Gù bò tươi 100g', 'Gầu giòn 100g'].map((n) => M(n).id);
+const giftItems = [M('Thịt tươi tặng 100g').id];
 await o('POST', '/api/promotions', {
   name: 'Lẩu bò tặng 100g bò thái tay', type: 'gift', buy_qty: 1, get_qty: 1, scope: 'categories', category_ids: [cat('Combo lẩu')], gift_item_ids: giftItems,
-  start_date: '2026-10-18', end_date: '2026-10-27', note: 'Mỗi set lẩu tặng 1 phần bò 100g, khách chọn loại; bấm nút xanh "Thêm món tặng"',
+  start_date: '2026-10-18', end_date: '2026-10-27', note: 'Mỗi set lẩu tặng 100g thịt tươi (bếp xếp chung các loại); bấm nút xanh "Thêm món tặng"',
 });
 const promos = (await o('GET', '/api/promotions')).items;
 P('## 1. Chủ quán tạo khuyến mãi (Khuyến mãi → + Thêm chương trình)');
@@ -101,10 +101,9 @@ P('\n## 2. Phục vụ gọi món · bàn 12, 6 khách');
 P(`- Màn gọi món hiện nhãn 🎁 trên món: Combo 3 "${tags[M('Combo 3').id]}", Set lẩu "${tags[M('Set 2 Mala Tứ Xuyên').id]}"`);
 P('- Gọi: 2 Combo 3 (tiêu đen, bánh mì) · 1 Steak Âu (kem phô mai, mì Ý) · 1 Set 2 Mala · 1 Set 4 Cà chua · 2 Trà đào');
 for (const g of s.gifts.filter((x) => x.left)) P(`- Màn hình hiện khung xanh: "🎁 ${g.name}: bàn còn được tặng ${g.left} phần" + nút ${g.items.map((i) => `[+ ${i.name}]`).join(' ')}`);
-await add('Thăn bò tươi 100g', 1, [], 'KM tặng');
-await add('Gầu giòn 100g', 1, [], 'KM tặng');
+await add('Thịt tươi tặng 100g', 2, [], 'KM tặng');
 s = await waiter('GET', `/api/pos/sessions/${sid}`);
-P('- Khách chọn Thăn + Gầu giòn → phục vụ bấm 2 nút, khung xanh biến mất');
+P('- Phục vụ bấm nút [+ Thịt tươi tặng 100g] 2 lần (2 set) → khung xanh biến mất; khách không chọn loại');
 P('- Steak Âu chỉ gọi 1 phần → không đủ "mua 1 tặng 1 cùng món", tính đủ tiền (phục vụ nên mời khách gọi thêm 1 phần tặng)');
 
 // ---------- 3. Gửi bếp ----------
@@ -124,7 +123,7 @@ P(`\nTiền hàng ${b.subtotal.toLocaleString('vi-VN')}đ · khuyến mãi −${
 
 // Giá vốn phần tặng (chủ quán xem chương trình tốn bao nhiêu)
 const costOf = (name) => Math.round(db.prepare('SELECT SUM(r.qty * g.price / g.purchase_factor) AS c FROM menu_recipes r JOIN ingredients g ON g.id = r.ingredient_id JOIN menu_items m ON m.id = r.item_id WHERE m.name = ?').get(name).c || 0);
-P(`\nGiá vốn phần tặng: 1 Combo 3 ${costOf('Combo 3').toLocaleString('vi-VN')}đ + Thăn 100g ${costOf('Thăn bò tươi 100g').toLocaleString('vi-VN')}đ + Gầu 100g ${costOf('Gầu giòn 100g').toLocaleString('vi-VN')}đ`);
+P(`\nGiá vốn phần tặng: 1 Combo 3 ${costOf('Combo 3').toLocaleString('vi-VN')}đ + 100g thịt tươi tặng ${costOf('Thịt tươi tặng 100g').toLocaleString('vi-VN')}đ/phần`);
 const report = log.join('\n');
 fs.writeFileSync(path.join(outDir, 'gia-lap-khuyen-mai.md'), report);
 console.log(report);

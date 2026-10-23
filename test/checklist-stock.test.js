@@ -115,6 +115,37 @@ test('checklist cân tồn: nối kho, tự kiểm kho theo định lượng, b�
   assert.equal(db.prepare('SELECT value FROM checklist_entries WHERE item_id = ?').get(it2.id).value, '3 bịch + 30 viên');
   assert.equal(Math.round(db.prepare('SELECT SUM(qty) AS q FROM stock_lots WHERE ingredient_id = ?').get(bv).q), 180);
   assert.equal(p1.data.count.text, 'Sổ 188 viên (3 bịch + 38 lẻ) · cân 180 viên (3 bịch + 30 lẻ) · thiếu 8 viên (4.3%)');
+  // Cân chung 2 loại thịt: sổ 9kg bắp + 4kg gù = 13kg; cân chung 12kg → chia theo tỉ lệ, lệch tính cả nhóm 1kg
+  const gu = (await o('POST', '/api/stock/ingredients', { name: 'Gù bò', unit: 'g', home_store_id: S['Kho Lẩu'], purchase_unit: 'kg', purchase_factor: 1000, price: 240000, freshness: 'fresh' })).data.id;
+  await o('POST', '/api/stock/receive', { store_id: S['Kho Lẩu'], lines: [{ ingredient_id: gu, qty: 4 }] });
+  const tpl3 = (await o('POST', '/api/checklist-templates', { title: 'Cân thịt tươi', team_id: lauTeam.id, phase: 'close', items: [{ text: 'Thịt tươi còn', kind: 'number', unit: 'kg', ingredient_id: bap, extra_ingredient_ids: [gu] }] })).data.id;
+  const it3 = (await o('GET', '/api/checklist-templates')).data.find((x) => x.id === tpl3).items[0];
+  assert.deepEqual(it3.group_names, ['Bắp bò', 'Gù bò']);
+  const run3 = ((await o('GET', `/api/checklists?date=${D}`)).data.runs || []).find((x) => x.template_id === tpl3);
+  const g3 = await w('POST', '/api/checklists/entry', { run_id: run3.run_id, item_id: it3.id, value: '12' });
+  assert.equal(g3.status, 200, g3.data?.error);
+  const q = (id) => Math.round(db.prepare('SELECT SUM(qty) AS q FROM stock_lots WHERE ingredient_id = ?').get(id).q);
+  assert.equal(q(bap) + q(gu), 12000);
+  assert.ok(note(/^Lệch Thịt tươi \(Bắp bò, Gù bò\) THIẾU 1 kg/).length, JSON.stringify(note(/Lệch/).map((x) => x.title)));
   // Thiếu cả 2 ô → báo lỗi
   assert.equal((await o('POST', '/api/checklists/entry', { run_id: run2.run_id, item_id: it2.id, value: '', loose: '' })).status, 400);
+});
+
+test('thịt tươi: nhận hàng chia từng loại theo giá riêng, bán trừ theo giá vốn bình quân cả nhóm', async () => {
+  const { openDb } = await import('../server/db.js');
+  const { createApp } = await import('../server/app.js');
+  const db = openDb(':memory:');
+  const app = createApp({ db, now: () => Date.now(), publicDir: path.join(here, '..', 'public'), photoDir: fs.mkdtempSync(path.join(os.tmpdir(), 'tt-')), zaloTransport: { send: async () => {} } });
+  const st = db.prepare("SELECT id FROM stores WHERE name = 'Kho Lẩu'").get().id;
+  const add = (name, price) => Number(db.prepare("INSERT INTO ingredients (name, unit, home_store_id, purchase_unit, purchase_factor, price, cost_group) VALUES (?, 'g', ?, 'kg', 1000, ?, 'Thịt tươi')").run(name, st, price).lastInsertRowid);
+  const than = add('Thăn', 280000);
+  const gu = add('Gù', 240000);
+  // Nhận 22kg thăn + 3,35kg gù → bình quân (22×280 + 3,35×240) / 25,35 ≈ 274,7 đ/g
+  app.ctx.stockReceive(db.prepare("SELECT * FROM staff WHERE role = 'owner'").get(), { storeId: st, lines: [{ ingredient_id: than, qty: 22 }, { ingredient_id: gu, qty: 3.35 }] });
+  app.ctx.broadcast('stock');
+  const avg = db.prepare('SELECT avg_cost FROM ingredients WHERE id = ?').get(gu).avg_cost;
+  assert.ok(Math.abs(avg - (22 * 280 + 3.35 * 240) / 25.35) < 0.01, String(avg));
+  const { costOf } = await import('../server/lib/stock.js');
+  assert.equal(costOf(db.prepare('SELECT * FROM ingredients WHERE id = ?').get(gu), 100), Math.round(100 * avg));
+  app.close();
 });

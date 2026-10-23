@@ -66,7 +66,7 @@ export function describe(p, names = {}) {
 }
 
 // Nhãn gắn trên món ở màn gọi món
-export const tag = (p, names = {}) => (p.type === 'bogo' ? `Mua ${p.buy_qty} tặng ${p.get_qty}` : p.type === 'gift' ? `Tặng ${(p.gift_item_ids || []).map((id) => names.items?.[id]).filter(Boolean)[0] || 'món'}` : p.type === 'percent' ? `-${p.value}%` : `-${vnd(p.value)}`);
+export const tag = (p, names = {}) => (p.type === 'bogo' ? `Mua ${p.buy_qty} tặng ${p.get_qty}` : p.type === 'gift' ? p.name : p.type === 'percent' ? `-${p.value}%` : `-${vnd(p.value)}`);
 
 // Tỉ lệ được giảm ước tính, để chọn chương trình có lợi nhất cho 1 dòng món
 const rate = (p, unit) => (p.type === 'gift' ? 0 : p.type === 'bogo' ? p.get_qty / (p.buy_qty + p.get_qty) : p.type === 'percent' ? p.value / 100 : unit ? Math.min(1, p.value / unit) : 0);

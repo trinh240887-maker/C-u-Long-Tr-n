@@ -199,3 +199,56 @@ export function seedDinhLuong(db) {
     return report;
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
+
+// Bản 2 (23/10): thịt tươi nhập theo bill Sạp thịt Kim Thanh Ngọc, nhận hàng chia từng loại; cuối ca cân chung cả nhóm thịt tươi.
+// Bò nhập khẩu (Aukobe, lõi vai Úc, gù hoa Úc, ba chỉ Mỹ) cân riêng từng loại. Món tặng KM: "Thịt tươi tặng 100g" (bếp xếp chung các loại).
+export const THIT_TUOI = ['Thăn bò tươi', 'Đùi bò tươi', 'Bắp hoa tươi', 'Gù bò tươi', 'Bắp sau bò', 'Gầu giòn'];
+export const BO_NHAP = ['Aukobe bông tuyết', 'Lõi vai bò Úc', 'Gù hoa bò Úc', 'Ba chỉ bò Mỹ'];
+export function seedThitTuoi(db) {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'thit_tuoi_v1'").get()) return;
+  const than = db.prepare("SELECT * FROM ingredients WHERE name = 'Thăn bò tươi'").get();
+  if (!than) return; // chưa nạp định lượng
+  for (const [c, d] of [['ingredient_id', 'INTEGER'], ['store_id', 'INTEGER'], ['extra_ingredient_ids', "TEXT NOT NULL DEFAULT '[]'"]]) {
+    if (!db.prepare('PRAGMA table_info(checklist_items)').all().some((x) => x.name === c)) db.exec(`ALTER TABLE checklist_items ADD COLUMN ${c} ${d}`);
+  }
+  db.exec('BEGIN');
+  try {
+    const add = db.prepare(`INSERT INTO ingredients (name, unit, freshness, home_store_id, supplier_id, purchase_unit, purchase_factor, price, shelf_days, lead_days, active) VALUES (?, 'g', ?, ?, ?, 'kg', 1000, ?, ?, 1, 1)`);
+    for (const [name, price, fresh] of [['Đùi bò tươi', 270000, 'fresh'], ['Bắp sau bò', 240000, 'fresh'], ['Xương bò (nấu cốt lẩu)', 30000, 'fresh']]) {
+      if (!db.prepare('SELECT 1 FROM ingredients WHERE name = ?').get(name)) add.run(name, fresh, than.home_store_id, than.supplier_id, price, 2);
+    }
+    // Món tặng: 100g thịt tươi xếp chung (trừ kho chia đều 4 loại chính; cuối ca cân chung cả nhóm nên lệch tính theo nhóm)
+    if (!db.prepare("SELECT 1 FROM menu_items WHERE name = 'Thịt tươi tặng 100g'").get()) {
+      const ref = db.prepare("SELECT * FROM menu_items WHERE name = 'Thăn bò tươi 100g'").get();
+      if (ref) {
+        const id = Number(db.prepare('INSERT INTO menu_items (category_id, name, description, price, station_id, kit_id, sort) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(ref.category_id, 'Thịt tươi tặng 100g', 'Phần tặng khuyến mãi: bếp xếp các loại thịt tươi cho đủ 100g, khách không chọn loại', ref.price, ref.station_id, ref.kit_id, 99).lastInsertRowid);
+        for (const n of ['Thăn bò tươi', 'Đùi bò tươi', 'Bắp hoa tươi', 'Gù bò tươi']) {
+          const g = db.prepare('SELECT id FROM ingredients WHERE name = ?').get(n);
+          if (g) db.prepare('INSERT INTO menu_recipes (item_id, ingredient_id, qty) VALUES (?, ?, 25)').run(id, g.id);
+        }
+      }
+    }
+    // Checklist đóng ca Thái tay: dòng ghi chữ "Bò còn cuối ca" → cân chung thịt tươi + cân riêng từng loại bò nhập
+    const tpl = db.prepare("SELECT id FROM checklist_templates WHERE title = 'Đóng ca Thái tay'").get();
+    const old = tpl && db.prepare("SELECT * FROM checklist_items WHERE template_id = ? AND text LIKE 'Bò còn cuối ca%'").get(tpl.id);
+    if (old) {
+      const idOf = (n) => db.prepare('SELECT id, home_store_id FROM ingredients WHERE name = ?').get(n);
+      const group = THIT_TUOI.map(idOf).filter(Boolean);
+      db.prepare("UPDATE checklist_items SET text = 'Thịt tươi còn (cân chung thăn, đùi, bắp hoa, gù, bắp sau, gầu)', kind = 'number', unit = 'kg', photo_required = 1, ingredient_id = ?, store_id = ?, extra_ingredient_ids = ? WHERE id = ?")
+        .run(group[0].id, group[0].home_store_id, JSON.stringify(group.slice(1).map((x) => x.id)), old.id);
+      db.prepare('UPDATE checklist_items SET sort = sort + ? WHERE template_id = ? AND sort > ?').run(BO_NHAP.length, tpl.id, old.sort);
+      BO_NHAP.forEach((n, k) => {
+        const g = idOf(n);
+        if (g) db.prepare("INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, sort) VALUES (?, ?, 'number', 'kg', 1, 0, ?, ?, ?)").run(tpl.id, `${n} còn (cân riêng)`, g.id, g.home_store_id, old.sort + 1 + k);
+      });
+    }
+    if (!db.prepare('PRAGMA table_info(ingredients)').all().some((x) => x.name === 'cost_group')) {
+      db.exec("ALTER TABLE ingredients ADD COLUMN cost_group TEXT NOT NULL DEFAULT ''");
+      db.exec('ALTER TABLE ingredients ADD COLUMN avg_cost REAL NOT NULL DEFAULT 0');
+    }
+    for (const n of THIT_TUOI) db.prepare("UPDATE ingredients SET cost_group = 'Thịt tươi' WHERE name = ?").run(n);
+    db.prepare("INSERT INTO settings (key, value) VALUES ('thit_tuoi_v1', '1')").run();
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}

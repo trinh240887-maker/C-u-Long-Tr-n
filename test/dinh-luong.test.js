@@ -23,6 +23,13 @@ test('nạp sổ định lượng (file thật của quán): giá theo file, mó
   assert.deepEqual(set.filter((x) => /^(Thăn|Gù|Gầu)/.test(x.name)).map((x) => [x.name, x.qty]), [['Gù bò tươi', 50], ['Gầu giòn', 50], ['Thăn bò tươi', 50]]);
   const groups = db.prepare('SELECT DISTINCT group_name FROM menu_options WHERE item_id = ? ORDER BY group_name').all(item('Combo 1').id).map((x) => x.group_name);
   assert.deepEqual(groups, ['Sốt', 'Tinh bột']);
+  // Thịt tươi: thêm đùi, bắp sau, xương; món tặng 100g; checklist đóng ca Thái tay cân chung thịt tươi + cân riêng bò nhập
+  assert.ok(item('Thịt tươi tặng 100g'));
+  for (const n of ['Đùi bò tươi', 'Bắp sau bò', 'Xương bò (nấu cốt lẩu)']) assert.ok(db.prepare('SELECT 1 FROM ingredients WHERE name = ?').get(n), n);
+  const ck = db.prepare("SELECT i.* FROM checklist_items i JOIN checklist_templates t ON t.id = i.template_id WHERE t.title = 'Đóng ca Thái tay' ORDER BY i.sort").all();
+  const grp = ck.find((x) => /^Thịt tươi còn/.test(x.text));
+  assert.equal(JSON.parse(grp.extra_ingredient_ids).length, 5);
+  assert.ok(ck.some((x) => x.text === 'Ba chỉ bò Mỹ còn (cân riêng)' && x.ingredient_id));
   const n = db.prepare('SELECT COUNT(*) AS n FROM menu_items').get().n;
   db.close();
   db = openDb(file);

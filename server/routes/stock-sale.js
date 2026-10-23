@@ -12,6 +12,20 @@ export default function (r, ctx) {
   const addCol = (t, c, d) => { if (!db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`); };
   addCol('menu_items', 'auto_sold_out', 'INTEGER NOT NULL DEFAULT 0');   // 1 = app tự khoá vì hết nguyên liệu
   addCol('menu_items', 'low_alert_date', "TEXT NOT NULL DEFAULT ''");    // đã báo "sắp hết" hôm nay
+  addCol('ingredients', 'cost_group', "TEXT NOT NULL DEFAULT ''");       // nhóm cân chung, tính giá vốn bình quân (vd "Thịt tươi")
+  addCol('ingredients', 'avg_cost', 'REAL NOT NULL DEFAULT 0');           // giá vốn bình quân nhóm, đồng / đơn vị dùng
+
+  // Giá vốn bình quân nhóm = Σ(tồn từng loại × giá nhập loại đó) / Σ tồn; nhận hàng chia từng loại, bán / cân cuối ca theo cả nhóm
+  ctx.refreshGroupCost = () => {
+    for (const { cost_group: grp } of db.prepare("SELECT DISTINCT cost_group FROM ingredients WHERE cost_group != ''").all()) {
+      const rows = db.prepare(`SELECT g.id, g.price, g.purchase_factor, COALESCE((SELECT SUM(qty) FROM stock_lots l WHERE l.ingredient_id = g.id), 0) AS q
+        FROM ingredients g WHERE g.cost_group = ?`).all(grp);
+      const q = rows.reduce((n, r) => n + Math.max(0, r.q), 0);
+      const avg = q > 0 ? rows.reduce((n, r) => n + Math.max(0, r.q) * (r.price / (r.purchase_factor || 1)), 0) / q
+        : rows.reduce((n, r) => n + r.price / (r.purchase_factor || 1), 0) / (rows.length || 1);
+      db.prepare('UPDATE ingredients SET avg_cost = ? WHERE cost_group = ?').run(Math.round(avg * 1000) / 1000, grp);
+    }
+  };
 
   const enabled = () => ctx.setting('sell_deducts_stock') !== '0';
   const lowN = () => Number(ctx.setting('low_portions_alert') || 5);
@@ -119,7 +133,7 @@ export default function (r, ctx) {
   };
   // Mỗi lần kho thay đổi (nhận hàng, lĩnh hàng, kiểm kho) → xem lại món nào hết / có lại
   const orig = ctx.broadcast.bind(ctx);
-  ctx.broadcast = (kind) => { if (kind === 'stock') { try { ctx.refreshAvailability(); } catch (e) { console.error(e); } } return orig(kind); };
+  ctx.broadcast = (kind) => { if (kind === 'stock') { try { ctx.refreshGroupCost(); ctx.refreshAvailability(); } catch (e) { console.error(e); } } return orig(kind); };
 
   // ---------- 22:00 tổng hợp hàng cần nhập ----------
   ctx.purchaseReport = () => {

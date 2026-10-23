@@ -49,5 +49,7 @@ export function recordMove(db, { at, date, type, ingredientId, fromStore = null,
 
 // Giá vốn của một lượng (đơn vị dùng) theo giá nhập gần nhất
 export function costOf(ing, qtyUse) {
+  // Nhóm cân chung (vd thịt tươi): giá vốn bình quân của cả nhóm theo tồn kho (đồng / đơn vị dùng)
+  if (ing.cost_group && ing.avg_cost > 0) return Math.round(qtyUse * ing.avg_cost);
   return Math.round((qtyUse / (ing.purchase_factor || 1)) * (ing.price || 0));
 }

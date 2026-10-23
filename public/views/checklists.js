@@ -95,7 +95,7 @@ function Item({ run, item, disabled, me }) {
       : html`<span class=${`check static ${done ? 'on' : ''}`}></span>`}
     <div class="grow">
       <div>${item.text}${!item.required ? html` <small class="muted">(không bắt buộc)</small>` : null} ${status}</div>
-      ${item.ingredient_id ? html`<small class="muted">📦 ${item.pack_mode ? `Đếm tồn ${item.ingredient_name}: nhập số ${item.unit} nguyên + số ${item.ingredient_unit} lẻ (${item.ingredient_factor} ${item.ingredient_unit}/${item.unit})` : `Cân tồn ${item.ingredient_name}: số này là tồn thực tế`}${item.store_name ? ` · ${item.store_name}` : ''}, app tự kiểm kho</small>` : null}
+      ${item.ingredient_id ? html`<small class="muted">📦 ${item.pack_mode ? `Đếm tồn ${item.ingredient_name}: nhập số ${item.unit} nguyên + số ${item.ingredient_unit} lẻ (${item.ingredient_factor} ${item.ingredient_unit}/${item.unit})` : `Cân tồn ${item.group_names?.length ? `chung ${item.group_names.join(', ')}` : item.ingredient_name}: số này là tồn thực tế`}${item.store_name ? ` · ${item.store_name}` : ''}, app tự kiểm kho</small>` : null}
       ${item.pack_mode && done ? html`<small><b>Đã nhập: ${item.entry.value}</b></small>` : null}
       ${count ? html`<div class=${`pill ${count.over ? 'warn' : 'ok'}`}>${count.text}</div>` : null}
       <${Samples} samples=${item.samples || []} templateId=${run.template_id} itemId=${item.id} canEdit=${!disabled && canEditTpl(me, run.team_id)} label="Mẫu việc này" />

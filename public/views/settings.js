@@ -283,6 +283,13 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
             setF({ ...f, items: f.items.map((y, j) => (j === i ? { ...y, ingredient_id: g?.id || null, store_id: g?.home_store_id || null,
               unit: g && !y.unit ? (g.unit === 'g' ? 'kg' : g.purchase_unit && g.purchase_factor > 1 && g.unit !== 'ml' ? g.purchase_unit : g.unit) : y.unit } : y)) });
           }}><option value="">Không nối kho</option>${ings.map((g) => html`<option value=${g.id}>📦 Cân tồn: ${g.name}</option>`)}</select>` : null}
+          ${x.kind === 'number' && x.ingredient_id ? (() => {
+            const g0 = ings.find((y) => y.id === Number(x.ingredient_id));
+            const same = ings.filter((y) => g0 && y.id !== g0.id && y.unit === g0.unit && y.home_store_id === g0.home_store_id);
+            const ex = x.extra_ingredient_ids || [];
+            return same.length ? html`<div class="ing-link small"><span class="muted">Cân chung với (cân 1 lần cả nhóm):</span><div class="chips">${same.map((y) => html`<button class=${`chip ${ex.includes(y.id) ? 'on' : ''}`}
+              onClick=${() => item(i, 'extra_ingredient_ids', ex.includes(y.id) ? ex.filter((z) => z !== y.id) : [...ex, y.id])}>${y.name}</button>`)}</div></div>` : null;
+          })() : null}
           <label class="check-row small"><input type="checkbox" checked=${x.required} onChange=${(e) => item(i, 'required', e.target.checked)} />Bắt buộc</label>
           <label class="check-row small"><input type="checkbox" checked=${x.photo_required ?? x.kind === 'check'} onChange=${(e) => item(i, 'photo_required', e.target.checked)} />📷 Phải có ảnh</label>
           <span class="row tight">

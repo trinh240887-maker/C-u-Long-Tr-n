@@ -31,6 +31,7 @@ export default function (r, ctx) {
   const addCol = (t, c, d) => { if (!db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${d}`); };
   // Việc "Nhập số" nối kho: số nhân viên cân = tồn thực tế của nguyên liệu ở kho đó → app tự kiểm kho, tính lệch định lượng
   addCol('checklist_items', 'ingredient_id', 'INTEGER');
+  addCol('checklist_items', 'extra_ingredient_ids', "TEXT NOT NULL DEFAULT '[]'"); // cân chung nhiều loại (vd thịt tươi: thăn, bắp hoa, gù, gầu)
   addCol('checklist_items', 'store_id', 'INTEGER');
   addCol('checklist_entries', 'count_id', 'INTEGER');
 
@@ -44,7 +45,8 @@ export default function (r, ctx) {
     return tpls.map((c) => ({
       ...c, active: !!c.active,
       samples: samples.filter((x) => x.template_id === c.id && !x.item_id),
-      items: items.filter((i) => i.template_id === c.id).map((i) => ({ ...i, pack_mode: !!i.ingredient_id && packMode(i.unit, { unit: i.ingredient_unit, purchase_unit: i.ingredient_pack, purchase_factor: i.ingredient_factor }), required: !!i.required, photo_required: !!i.photo_required, samples: samples.filter((x) => x.item_id === i.id) })),
+      items: items.filter((i) => i.template_id === c.id).map((i) => ({ ...i, extra_ingredient_ids: JSON.parse(i.extra_ingredient_ids || '[]'),
+        group_names: JSON.parse(i.extra_ingredient_ids || '[]').length ? [i.ingredient_id, ...JSON.parse(i.extra_ingredient_ids)].map((id) => db.prepare('SELECT name FROM ingredients WHERE id = ?').get(id)?.name).filter(Boolean) : [], pack_mode: !!i.ingredient_id && packMode(i.unit, { unit: i.ingredient_unit, purchase_unit: i.ingredient_pack, purchase_factor: i.ingredient_factor }), required: !!i.required, photo_required: !!i.photo_required, samples: samples.filter((x) => x.item_id === i.id) })),
     }));
   }
 
@@ -61,6 +63,7 @@ export default function (r, ctx) {
       const unit = v.text(it.unit, { name: 'Đơn vị', max: 12 });
       const required = it.required === undefined ? 1 : v.bool(it.required);
       const photo = it.photo_required === undefined ? (kind === 'check' ? 1 : 0) : v.bool(it.photo_required);
+      let extra = [];
       let ingId = kind === 'number' ? v.optInt(it.ingredient_id || null, { min: 1, name: 'Nguyên liệu' }) : null;
       let storeId = null;
       if (ingId) {
@@ -70,12 +73,18 @@ export default function (r, ctx) {
         storeId = v.optInt(it.store_id || null, { min: 1, name: 'Kho' }) || ing.home_store_id
           || db.prepare("SELECT id FROM stores WHERE kind = 'main' AND active = 1 ORDER BY id LIMIT 1").get()?.id || null;
         if (!storeId || !db.prepare('SELECT 1 FROM stores WHERE id = ?').get(storeId)) fail(400, `"${text}": chọn kho để nối`);
+        extra = (Array.isArray(it.extra_ingredient_ids) ? it.extra_ingredient_ids : []).map(Number).filter((x) => x && x !== ingId);
+        for (const x of extra) {
+          const g2 = db.prepare('SELECT * FROM ingredients WHERE id = ?').get(x);
+          if (!g2) fail(400, 'Nguyên liệu cân chung không tồn tại');
+          if (g2.unit !== ing.unit) fail(400, `"${text}": ${g2.name} khác đơn vị (${g2.unit}), không cân chung với ${ing.name} (${ing.unit}) được`);
+        }
       } else ingId = null;
       if (it.id && existing.has(Number(it.id))) {
-        db.prepare('UPDATE checklist_items SET text = ?, kind = ?, unit = ?, required = ?, photo_required = ?, ingredient_id = ?, store_id = ?, sort = ? WHERE id = ?').run(text, kind, unit, required, photo, ingId, storeId, i, Number(it.id));
+        db.prepare('UPDATE checklist_items SET text = ?, kind = ?, unit = ?, required = ?, photo_required = ?, ingredient_id = ?, store_id = ?, extra_ingredient_ids = ?, sort = ? WHERE id = ?').run(text, kind, unit, required, photo, ingId, storeId, JSON.stringify(extra), i, Number(it.id));
         keep.add(Number(it.id));
       } else {
-        db.prepare('INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(templateId, text, kind, unit, required, photo, ingId, storeId, i);
+        db.prepare('INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, extra_ingredient_ids, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(templateId, text, kind, unit, required, photo, ingId, storeId, JSON.stringify(extra), i);
       }
     });
     for (const id of existing) if (!keep.has(id)) db.prepare('DELETE FROM checklist_items WHERE id = ?').run(id);
@@ -435,9 +444,15 @@ export default function (r, ctx) {
     const e = db.prepare('SELECT * FROM checklist_entries WHERE run_id = ? AND item_id = ?').get(run.id, item.id);
     if (!ing || !e) return null;
     const tpl = db.prepare('SELECT title FROM checklist_templates WHERE id = ?').get(run.template_id);
-    const res = ctx.stockCount(me, item.store_id, [{ ingredient_id: ing.id, actual }], `Checklist: ${tpl?.title || ''} · ${item.text}`);
+    // Cân chung nhiều loại: chia số cân theo tỉ lệ tồn trên sổ từng loại; lệch tính cho cả nhóm
+    const ids = [ing.id, ...JSON.parse(item.extra_ingredient_ids || '[]').filter((x) => x !== ing.id)];
+    const book = ids.map((id) => db.prepare('SELECT COALESCE(SUM(qty), 0) AS q FROM stock_lots WHERE store_id = ? AND ingredient_id = ?').get(item.store_id, id).q);
+    const sumBook = book.reduce((n, x) => n + x, 0);
+    const parts = ids.map((id, k) => ({ ingredient_id: id, actual: ids.length === 1 ? actual : sumBook > 0 ? Math.round((actual * book[k] / sumBook) * 1000) / 1000 : k === 0 ? actual : 0 }));
+    const res = ctx.stockCount(me, item.store_id, parts, `Checklist: ${tpl?.title || ''} · ${item.text}${ids.length > 1 ? ' (cân chung)' : ''}`);
     db.prepare('UPDATE checklist_entries SET count_id = ? WHERE run_id = ? AND item_id = ?').run(res.count_id, run.id, item.id);
-    const l = res.lines[0];
+    const l = res.lines.reduce((a, x) => ({ before: a.before + x.before, actual: a.actual + x.actual, diff: Math.round((a.diff + x.diff) * 1000) / 1000 }), { before: 0, actual: 0, diff: 0 });
+    if (ids.length > 1) ing.name = `${item.text.replace(/\s*còn.*$/i, '') || 'Nhóm'} (${res.lines.map((x) => x.name).join(', ')})`;
     const pct = l.before > 0 ? Math.round((l.diff / l.before) * 1000) / 10 : null;
     const tol = Number(ctx.setting('count_tolerance_pct') || 3);
     const pk = packMode(item.unit, ing) ? ing.purchase_factor : 0;
@@ -445,7 +460,7 @@ export default function (r, ctx) {
       : pk && Math.abs(q) >= pk ? `${Math.round(q * 100) / 100} ${ing.unit} (${Math.floor(Math.abs(q) / pk)} ${item.unit} + ${Math.round((Math.abs(q) % pk) * 100) / 100} lẻ)` : `${Math.round(q * 100) / 100} ${ing.unit}`);
     const over = l.diff !== 0 && (pct === null || Math.abs(pct) > tol);
     if (over) {
-      const recipeQty = db.prepare('SELECT MIN(qty) AS q FROM menu_recipes WHERE ingredient_id = ? AND qty > 0').get(ing.id)?.q;
+      const recipeQty = ids.length > 1 ? 100 : db.prepare('SELECT MIN(qty) AS q FROM menu_recipes WHERE ingredient_id = ? AND qty > 0').get(ing.id)?.q;
       const portions = recipeQty && l.diff < 0 ? ` ≈ ${Math.round(-l.diff / recipeQty)} phần` : '';
       ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager')").all().map((x) => x.id).filter((x) => x !== me.id), {
         title: `Lệch ${ing.name} ${l.diff < 0 ? 'THIẾU' : 'DƯ'} ${show(Math.abs(l.diff))}${pct !== null ? ` (${Math.abs(pct)}%)` : ''}${portions}`,
