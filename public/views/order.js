@@ -22,9 +22,11 @@ function AddItem({ item, onAdd, onClose, catName = '', bogo = null }) {
   const [note, setNote] = useState('');
   const [rush, setRush] = useState(false);
   const [warn, setWarn] = useState(false);
-  const [giftOther, setGiftOther] = useState(false); // phần tặng khách muốn sốt khác → thêm riêng sau
-  const total = bogo && !giftOther ? withGift(qty, bogo) : qty;
-  const free = total - qty;
+  const [giftOther, setGiftOther] = useState(false); // phần tặng khách muốn sốt khác → chọn ngay bên dưới, ra chung 1 phiếu
+  const [pick2, setPick2] = useState({});
+  const free = bogo ? withGift(qty, bogo) - qty : 0;
+  const total = qty + free;
+  const missing2 = giftOther && free ? groups.filter((g) => item.options.some((o) => o.group_name === g && o.required) && !pick2[g]) : [];
   const missing = groups.filter((g) => item.options.some((o) => o.group_name === g && o.required) && !pick[g]);
   const unit = item.price + item.options.filter((o) => pick[o.group_name] === o.id).reduce((n, o) => n + o.price, 0);
   return html`<${Modal} title=${item.name} onClose=${onClose}>
@@ -38,16 +40,24 @@ function AddItem({ item, onAdd, onClose, catName = '', bogo = null }) {
         <span class="grow r"><b>${money(unit * qty)}</b></span>
       </div>
       ${bogo ? html`<div class="gift-bar">
-        <div>🎁 <b>${bogo.name}</b>: ${free ? html`khách gọi <b>${qty}</b> → bếp làm <b>${total} phần</b> (tặng ${free}), bill tự trừ.` : qty < bogo.buy ? `gọi đủ ${bogo.buy} phần để được tặng.` : 'phần tặng thêm riêng ở khung xanh sau khi bấm Thêm.'}</div>
-        <div class="chips"><button class=${`chip ${!giftOther ? 'on' : ''}`} onClick=${() => setGiftOther(false)}>Phần tặng cùng ${groups[0] ? groups[0].toLowerCase() : 'loại'}</button>
-          <button class=${`chip ${giftOther ? 'on' : ''}`} onClick=${() => setGiftOther(true)}>Khách muốn ${groups[0] ? groups[0].toLowerCase() : 'loại'} khác</button></div>
+        <div>🎁 <b>${bogo.name}</b>: ${free ? html`khách gọi <b>${qty}</b> → bếp làm <b>${total} phần</b> (tặng ${free}), bill tự trừ.` : `gọi đủ ${bogo.buy} phần để được tặng.`}</div>
+        ${free && groups.length ? html`<div class="chips"><button class=${`chip ${!giftOther ? 'on' : ''}`} onClick=${() => setGiftOther(false)}>Phần tặng giống y</button>
+          <button class=${`chip ${giftOther ? 'on' : ''}`} onClick=${() => setGiftOther(true)}>Phần tặng chọn khác</button></div>` : null}
+        ${free && giftOther ? groups.map((g) => html`<div class=${`field ${warn && missing2.includes(g) ? 'need-pick' : ''}`}><span>${g} phần tặng</span>
+          <div class="chips">${item.options.filter((o) => o.group_name === g).map((o) => html`<button class=${`chip ${pick2[g] === o.id ? 'on' : ''}`}
+            onClick=${() => setPick2({ ...pick2, [g]: pick2[g] === o.id ? undefined : o.id })}>${o.name}</button>`)}</div></div>`) : null}
       </div>` : null}
       <${Field} label="Ghi chú cho bếp"><input id="ai-note" value=${note} placeholder=${notesFor(catName).length ? `vd ${notesFor(catName).join(', ').toLowerCase()}` : 'ghi chú cho bếp'} onInput=${(e) => setNote(e.target.value)} /><//>
       <div class="chips">${notesFor(catName).map((x) => html`<button class="chip" onClick=${() => setNote(note ? `${note}, ${x.toLowerCase()}` : x)}>${x}</button>`)}</div>
       <label class="check-row"><input type="checkbox" checked=${rush} onChange=${(e) => setRush(e.target.checked)} /> Gấp (in máy Ưu tiên, bếp làm trước)</label>
-      <button class=${`primary big ${missing.length ? 'soft' : ''}`} onClick=${() => (missing.length ? setWarn(true) : onAdd({ menu_item_id: item.id, option_ids: Object.values(pick).filter(Boolean), qty: total, note, rush }))}>
-        ${missing.length ? `Chưa chọn ${missing[0].toLowerCase()} ↑` : free ? `Thêm ${qty} + tặng ${free} · ${money(unit * qty)}` : `Thêm ${qty} món · ${money(unit * qty)}`}</button>
-      ${warn && missing.length ? html`<p class="warn-text r">Bấm 1 loại ${missing[0].toLowerCase()} ở trên rồi bấm lại.</p>` : null}
+      <button class=${`primary big ${missing.length || missing2.length ? 'soft' : ''}`} onClick=${() => {
+        if (missing.length || missing2.length) return setWarn(true);
+        const body = { menu_item_id: item.id, option_ids: Object.values(pick).filter(Boolean), note, rush };
+        // Giống y: 1 dòng "2 x"; chọn khác: 2 dòng (phần mua + phần tặng), cùng ra 1 phiếu khi gửi bếp
+        onAdd(giftOther && free ? [{ ...body, qty }, { ...body, option_ids: Object.values(pick2).filter(Boolean), qty: free }] : [{ ...body, qty: total }]);
+      }}>
+        ${missing.length ? `Chưa chọn ${missing[0].toLowerCase()} ↑` : missing2.length ? `Chưa chọn ${missing2[0].toLowerCase()} phần tặng ↑` : free ? `Thêm ${qty} + tặng ${free} · ${money(unit * qty)}` : `Thêm ${qty} món · ${money(unit * qty)}`}</button>
+      ${warn && (missing.length || missing2.length) ? html`<p class="warn-text r">Bấm 1 loại ${(missing[0] || `${missing2[0]} phần tặng`).toLowerCase()} rồi bấm lại.</p>` : null}
     </div>
   <//>`;
 }
@@ -117,8 +127,11 @@ export function OrderView({ me, query }) {
     .sort((a, b) => catOrder(a.category_id) - catOrder(b.category_id) || a.sort - b.sort || a.id - b.id);
   const drafts = s.items.filter((i) => i.status === 'new');
   const sent = s.items.filter((i) => i.status !== 'new');
-  const add = async (body) => {
+  const add = async (bodies) => {
+    const list = Array.isArray(bodies) ? bodies : [bodies];
+    const body = list[list.length - 1];
     try {
+      for (const b of list.slice(0, -1)) await api('POST', `/api/pos/sessions/${id}/items`, b);
       await api('POST', `/api/pos/sessions/${id}/items`, body);
       toast('Đã thêm'); bump(); setAdding(null);
     } catch (e) {

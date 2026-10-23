@@ -92,6 +92,7 @@ const pick = (item, names) => names.map((n) => item.options.find((x) => x.name =
 const add = (name, qty, opts = [], note = '') => waiter('POST', `/api/pos/sessions/${sid}/items`, { menu_item_id: M(name).id, qty, option_ids: opts.length ? pick(M(name), opts) : [], note });
 await add('Combo 3', 2, ['Tiêu đen', 'Bánh mì'], 'chín vừa');
 await add('Steak Âu', 1, ['Kem phô mai', 'Mì Ý']);
+await add('Steak Âu', 1, ['Hoàng kim', 'Mì Ý']); // phần tặng khách chọn sốt khác, bấm cùng lúc
 await add('Set 2 Mala Tứ Xuyên', 1);
 await add('Set 4 Cà chua Quý Châu', 1);
 await add('Trà đào', 2);
@@ -100,7 +101,7 @@ const tags = (await waiter('GET', '/api/menu')).promo?.tags || {};
 P('\n## 2. Phục vụ gọi món · bàn 12, 6 khách');
 P(`- Màn gọi món hiện nhãn 🎁 trên món: Combo 3 "${tags[M('Combo 3').id]}", Set lẩu "${tags[M('Set 2 Mala Tứ Xuyên').id]}"`);
 P('- Khách gọi 1 Combo 3 (tiêu đen, bánh mì): phục vụ bấm Combo 3, chọn sốt → khung "🎁 Mua 1 tặng 1 steak: khách gọi 1 → bếp làm 2 phần" → nút [Thêm 1 + tặng 1 · 139.000đ] → app ghi 2 Combo 3');
-P('- Khách gọi 1 Steak Âu kem phô mai nhưng phần tặng muốn sốt Hoàng kim → bấm "Khách muốn sốt khác" → app ghi 1 phần, phần tặng thêm sau ở khung xanh');
+P('- Khách gọi 1 Steak Âu kem phô mai, phần tặng muốn sốt Hoàng kim → bấm "Phần tặng chọn khác", chọn Hoàng kim ngay trong khung → [Thêm 1 + tặng 1 · 79.000đ] → app ghi 2 dòng, ra chung 1 phiếu');
 P('- Thêm: 1 Set 2 Mala · 1 Set 4 Cà chua · 2 Trà đào');
 for (const g of s.gifts.filter((x) => x.left)) P(`- Màn hình hiện khung xanh: "🎁 ${g.name}: bàn còn được tặng ${g.left} phần" + nút ${g.items.map((i) => `[+ ${i.name}]`).join(' ')}`);
 await add('Thịt tươi tặng 100g', 2);
@@ -108,19 +109,13 @@ s = await waiter('GET', `/api/pos/sessions/${sid}`);
 P('- Phục vụ bấm nút [+ Thịt tươi tặng 100g] 2 lần (2 set) → khung xanh biến mất; khách không chọn loại');
 const run = (await waiter('GET', '/api/menu')).promo?.running || [];
 P(`- Đầu màn gọi món luôn có thanh hồng: "🎁 Quán đang có khuyến mãi: ${run.join(' · ')}"`);
-for (const h of s.promo_hints || []) P(`- Steak Âu mới 1 phần → khung xanh: "🎁 ${h.name}: gọi thêm ${h.need} phần ${h.item_name} là được tặng. Mời khách nhé!" + nút [+ ${h.item_name} (phần tặng)]`);
-if (!(s.promo_hints || []).length) P('- ⚠ LỖI: Steak Âu 1 phần mà không có nhắc gọi thêm');
+if ((s.promo_hints || []).length) P(`- ⚠ LỖI: còn nhắc gọi thêm: ${s.promo_hints.map((h) => h.item_name).join(', ')}`);
 
 // ---------- 3. Gửi bếp ----------
 await waiter('POST', `/api/pos/sessions/${sid}/send`);
-// 19:05 khách lấy phần tặng nhưng muốn sốt Hoàng kim → phục vụ bấm nút trên khung xanh, chọn sốt khác; phiếu "GỌI THÊM" chỉ có món mới
-now = clock.toEpoch(DAY, 19 * 60 + 5);
-await add('Steak Âu', 1, ['Hoàng kim', 'Bánh mì']);
-s = await waiter('GET', `/api/pos/sessions/${sid}`);
-const firstTicket = db.prepare('SELECT MAX(id) AS id FROM kitchen_tickets WHERE session_id = ?').get(sid).id;
-await waiter('POST', `/api/pos/sessions/${sid}/send`);
+
 const tickets = db.prepare('SELECT t.*, st.name AS station_name FROM kitchen_tickets t LEFT JOIN kitchen_stations st ON st.id = t.station_id WHERE t.session_id = ? ORDER BY t.id').all(sid);
-P('\n## 3. Phiếu bếp in ra từng điểm (chỉ tổng số phần phải làm, không ghi tặng; 19:05 gọi thêm 1 Steak Âu sốt Hoàng kim làm phần tặng → phiếu GỌI THÊM chỉ có món mới)');
+P('\n## 3. Phiếu bếp in ra từng điểm (chỉ tổng số phần phải làm, không ghi tặng)');
 const ticketTxt = tickets.map((t) => receipt(ticketBytes({ ...t, lines: JSON.parse(t.lines) }, { mode: 'utf8', time: `${clock.fmt(t.created_at).slice(0, 5)} 23/10`, by: 'Hậu' }))).join('\n');
 P('```'); P(ticketTxt.trim()); P('```');
 

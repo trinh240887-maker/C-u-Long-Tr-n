@@ -5,13 +5,14 @@
 
 ## 2. Phục vụ gọi món · bàn 12, 6 khách
 - Màn gọi món hiện nhãn 🎁 trên món: Combo 3 "Mua 1 tặng 1", Set lẩu "Lẩu bò tặng 100g bò thái tay"
-- Gọi: 2 Combo 3 (tiêu đen, bánh mì) · 1 Steak Âu (kem phô mai, mì Ý) · 1 Set 2 Mala · 1 Set 4 Cà chua · 2 Trà đào
+- Khách gọi 1 Combo 3 (tiêu đen, bánh mì): phục vụ bấm Combo 3, chọn sốt → khung "🎁 Mua 1 tặng 1 steak: khách gọi 1 → bếp làm 2 phần" → nút [Thêm 1 + tặng 1 · 139.000đ] → app ghi 2 Combo 3
+- Khách gọi 1 Steak Âu kem phô mai, phần tặng muốn sốt Hoàng kim → bấm "Phần tặng chọn khác", chọn Hoàng kim ngay trong khung → [Thêm 1 + tặng 1 · 79.000đ] → app ghi 2 dòng, ra chung 1 phiếu
+- Thêm: 1 Set 2 Mala · 1 Set 4 Cà chua · 2 Trà đào
 - Màn hình hiện khung xanh: "🎁 Lẩu bò tặng 100g bò thái tay: bàn còn được tặng 2 phần" + nút [+ Thịt tươi tặng 100g]
 - Phục vụ bấm nút [+ Thịt tươi tặng 100g] 2 lần (2 set) → khung xanh biến mất; khách không chọn loại
 - Đầu màn gọi món luôn có thanh hồng: "🎁 Quán đang có khuyến mãi: Lẩu bò tặng 100g bò thái tay (Mỗi set lẩu tặng 100g thịt tươi (bếp xếp chung các loại); bấm nút xanh "Thêm món tặng") · Mua 1 tặng 1 steak (Mời khách khi order steak: gọi 2 phần giống nhau, tính tiền 1)"
-- Steak Âu mới 1 phần → khung xanh: "🎁 Mua 1 tặng 1 steak: gọi thêm 1 phần Steak Âu là được tặng. Mời khách nhé!" + nút [+ Steak Âu (phần tặng)]
 
-## 3. Phiếu bếp in ra từng điểm (chỉ tổng số phần phải làm, không ghi tặng; 19:05 gọi thêm 1 Steak Âu sốt Hoàng kim làm phần tặng → phiếu GỌI THÊM chỉ có món mới)
+## 3. Phiếu bếp in ra từng điểm (chỉ tổng số phần phải làm, không ghi tặng)
 ```
 Steak
 KHU A - 12
@@ -23,6 +24,9 @@ KHU A - 12
    * chín vừa
 1 x Steak Âu
    - Kem phô mai
+   - Mì Ý
+1 x Steak Âu
+   - Hoàng kim
    - Mì Ý
 ------------------------------------------------
 
@@ -67,16 +71,6 @@ KHU A - 12
 ------------------------------------------------
 2 x Trà đào
 ------------------------------------------------
-
-Steak
- GỌI THÊM 
-KHU A - 12
-19:05 23/10  ·  NV: Hậu  ·  #6
-------------------------------------------------
-1 x Steak Âu
-   - Hoàng kim
-   - Bánh mì
-------------------------------------------------
 ```
 
 ## 4. Khách xin tính tiền: phiếu tạm tính in ra
@@ -98,19 +92,19 @@ Bánh mì, Tiêu đen
 2. Steak Âu
 Kem phô mai, Mì Ý
    1 x 79.000                             79.000
-3. Set 2 Mala Tứ Xuyên
-   1 x 150.000                           150.000
-4. Set 4 Cà chua Quý Châu
-   1 x 150.000                           150.000
-5. Trà đào
-   2 x 25.000                             50.000
-6. Thịt tươi tặng 100g
-   2 x 69.000                            138.000
-   Tặng 2 · Lẩu bò tặng 100g bò thái    -138.000
-7. Steak Âu
-Hoàng kim, Bánh mì
+3. Steak Âu
+Hoàng kim, Mì Ý
    1 x 79.000                             79.000
    Tặng 1 · Mua 1 tặng 1 steak           -79.000
+4. Set 2 Mala Tứ Xuyên
+   1 x 150.000                           150.000
+5. Set 4 Cà chua Quý Châu
+   1 x 150.000                           150.000
+6. Trà đào
+   2 x 25.000                             50.000
+7. Thịt tươi tặng 100g
+   2 x 69.000                            138.000
+   Tặng 2 · Lẩu bò tặng 100g bò thái    -138.000
 ------------------------------------------------
 Tiền hàng (10)                           924.000
 Khuyến mãi món                          -356.000
