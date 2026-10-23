@@ -4,7 +4,15 @@ import { PayModal, PaidPanel } from './pay.js';
 
 const STATUS = { new: 'Chưa gửi', sent: 'Đã gửi bếp', done: 'Đã ra', cancelled: 'Đã huỷ' };
 
-function AddItem({ item, onAdd, onClose }) {
+// Ghi chú nhanh theo nhóm món (bếp chỉ thấy cái liên quan)
+const QUICK_NOTES = [
+  [/steak|món xào/i, ['Chín vừa', 'Chín kỹ']],
+  [/lẩu|bò tươi|topping|rau|xiên/i, ['Ít cay', 'Không cay', 'Không hành']],
+  [/cà phê|trà|nước|bia|soju/i, ['Ít đá', 'Không đá', 'Ít ngọt']],
+];
+const notesFor = (catName) => QUICK_NOTES.find(([re]) => re.test(catName || ''))?.[1] || [];
+
+function AddItem({ item, onAdd, onClose, catName = '' }) {
   const groups = [...new Set(item.options.map((o) => o.group_name))];
   const [pick, setPick] = useState({});
   const [qty, setQty] = useState(1);
@@ -23,8 +31,8 @@ function AddItem({ item, onAdd, onClose }) {
         <button class="icon big" onClick=${() => setQty(Math.max(1, qty - 1))}>−</button><b class="big-num">${qty}</b><button class="icon big" onClick=${() => setQty(qty + 1)}>+</button>
         <span class="grow r"><b>${money(unit * qty)}</b></span>
       </div>
-      <${Field} label="Ghi chú cho bếp"><input id="ai-note" value=${note} placeholder="vd chín kỹ, ít cay, không hành" onInput=${(e) => setNote(e.target.value)} /><//>
-      <div class="chips">${['Chín vừa', 'Chín kỹ', 'Ít cay', 'Không hành', 'Ít đá'].map((x) => html`<button class="chip" onClick=${() => setNote(note ? `${note}, ${x.toLowerCase()}` : x)}>${x}</button>`)}</div>
+      <${Field} label="Ghi chú cho bếp"><input id="ai-note" value=${note} placeholder=${notesFor(catName).length ? `vd ${notesFor(catName).join(', ').toLowerCase()}` : 'ghi chú cho bếp'} onInput=${(e) => setNote(e.target.value)} /><//>
+      <div class="chips">${notesFor(catName).map((x) => html`<button class="chip" onClick=${() => setNote(note ? `${note}, ${x.toLowerCase()}` : x)}>${x}</button>`)}</div>
       <label class="check-row"><input type="checkbox" checked=${rush} onChange=${(e) => setRush(e.target.checked)} /> Gấp (in máy Ưu tiên, bếp làm trước)</label>
       <button class=${`primary big ${missing.length ? 'soft' : ''}`} onClick=${() => (missing.length ? setWarn(true) : onAdd({ menu_item_id: item.id, option_ids: Object.values(pick).filter(Boolean), qty, note, rush }))}>
         ${missing.length ? `Chưa chọn ${missing[0].toLowerCase()} ↑` : `Thêm ${qty} món · ${money(unit * qty)}`}</button>
@@ -176,7 +184,7 @@ export function OrderView({ me, query }) {
     </div>` : null}
 
     ${paying ? html`<${PayModal} me=${me} id=${id} onClose=${() => setPaying(false)} onDone=${(r) => { setPaying(false); toast(r.requested ? 'Đã báo thu ngân thu tiền mặt' : r.auto ? 'Đã nhận tiền, bàn trống' : r.hand_over ? `Đã đóng bill.${r.change ? ` Thối khách ${money(r.change)}.` : ''} Giao ${money(r.hand_over)} + bill cho thu ngân` : 'Đã đóng bill, bàn trống'); bump(); navigate('/ban'); }} />` : null}
-    ${adding ? html`<${AddItem} item=${adding} onAdd=${add} onClose=${() => setAdding(null)} />` : null}
+    ${adding ? html`<${AddItem} item=${adding} catName=${m.categories.find((c) => c.id === adding.category_id)?.name} onAdd=${add} onClose=${() => setAdding(null)} />` : null}
     ${reason ? html`<${Reason} title=${reason.kind === 'redo' ? `Làm lại: ${reason.item.name}` : reason.kind === 'cancel' ? `Huỷ: ${reason.item.name}` : 'Huỷ cả bàn'}
       chips=${reason.kind === 'redo' ? ['Khách chê', 'Làm hỏng', 'Sai món', 'Rơi đổ'] : ['Khách đổi ý', 'Gọi nhầm', 'Ra lâu, khách huỷ', 'Hết nguyên liệu']}
       onClose=${() => setReason(null)}

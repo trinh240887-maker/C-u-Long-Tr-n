@@ -603,3 +603,6 @@ tr.warn-row td { background: color-mix(in srgb, var(--warn, #b45309) 10%, transp
 }
 
 .gift-bar { border: 2px dashed #16a34a; background: color-mix(in srgb, #16a34a 10%, var(--panel)); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; }
+
+.promo-step { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.promo-preview { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, #16a34a 10%, var(--panel)); font-weight: 600; }

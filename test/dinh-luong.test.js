@@ -36,3 +36,10 @@ test('nạp sổ định lượng (file thật của quán): giá theo file, mó
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM menu_items').get().n, n, 'không nạp lại');
   db.close();
 });
+
+test('DB file thật luôn nạp định lượng (không phụ thuộc phiên bản Node)', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dl2-')), 'q.db');
+  const db = openDb(file);
+  assert.equal(db.prepare("SELECT price FROM menu_items WHERE name = 'Steak Âu'").get().price, 79000);
+  db.close();
+});

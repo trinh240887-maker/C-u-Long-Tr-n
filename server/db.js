@@ -415,12 +415,12 @@ export function openDb(file, { now = Date.now() } = {}) {
   db.exec(MENU_SCHEMA);
   db.exec(POS_SCHEMA);
   seedBase(db, now);
-  migrate(db);
+  migrate(db, { real: String(file) !== ':memory:' && !String(file).startsWith('file::memory') });
   return db;
 }
 
 // Nâng cấp dữ liệu cũ khi thêm cột mới
-function migrate(db) {
+function migrate(db, { real = false } = {}) {
   const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
   if (!cols('checklist_templates').includes('shift_template_id')) {
     db.exec('ALTER TABLE checklist_templates ADD COLUMN shift_template_id INTEGER REFERENCES shift_templates(id) ON DELETE SET NULL');
@@ -507,7 +507,7 @@ function migrate(db) {
       add.run(`Kho ${name}`, 'area', team?.id ?? null, i + 1);
     });
   }
-  if (db.location?.() || process.env.DINH_LUONG === '1') { seedDinhLuong(db); seedThitTuoi(db); } // dữ liệu thật của quán; DB tạm trong bộ nhớ (test, giả lập) giữ thực đơn mẫu
+  if (real || process.env.DINH_LUONG === '1') { seedDinhLuong(db); seedThitTuoi(db); } // dữ liệu thật của quán; DB tạm trong bộ nhớ (test, giả lập) giữ thực đơn mẫu
 }
 
 export function tx(db, fn) {
