@@ -143,7 +143,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
       const list = [];
       const walk = (dir) => { for (const n of readdirSync(dir, { withFileTypes: true })) { const f = path.join(dir, n.name); if (n.isDirectory()) walk(f); else if (n.name.endsWith('.js')) list.push('/' + path.relative(root, f).split(path.sep).join('/')); } };
       walk(root);
-      return list.filter((x) => !/datban|sw\.js$/.test(x)).map((x) => `<link rel="modulepreload" href="${x}">`).join('\n  ');
+      return list.filter((x) => !/datban|sw\.js$|^\/cau-in\//.test(x)).map((x) => `<link rel="modulepreload" href="${x}">`).join('\n  ');
     } catch { return ''; }
   })();
   async function loadStatic(file) {
