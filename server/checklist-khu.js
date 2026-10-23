@@ -106,10 +106,25 @@ export const KHU_CHECKLISTS = [
     T('Che xe / kéo bạt'),
     X('Hàng thiếu cần báo'),
   ] },
-  { title: 'Mở ca Tiếp thực', phase: 'open', team: ['tiếp thực'], items: [
+  { title: 'Mở ca Tiếp thực', rev: 2, phase: 'open', team: ['tiếp thực'], items: [
+    N('Số bạn tiếp thực đi làm ca này', 'người'),
+    N('Số mâm sạch đủ dùng', 'mâm'),
+    T('📷 ĐẦU CA: chụp 1 ảnh cả tổ xếp hàng, đội nón, cầm mâm sạch'),
+    X('Bạn nào thiếu nón / mâm (ghi tên + thiếu gì)'),
     N('Đếm xe cân bằng', 'xe'),
-    T('Kiểm pin xe đủ chạy ca, xe yếu thì báo'),
+    T('Kiểm pin xe đủ chạy ca, xe yếu thì báo', false),
     T('Lau xe, bánh xe', false),
+  ] },
+  // Phục vụ: mỗi bạn 2 khăn sạch + nón. Trưởng ca cho cả tổ xếp hàng 30 giây, chụp 1 ảnh chung (không bắt từng bạn chụp)
+  { title: 'Đầu ca Phục vụ: khăn + nón', phase: 'open', team: ['phục vụ'], items: [
+    N('Số bạn phục vụ đi làm ca này', 'người'),
+    N('Số bạn đủ 2 khăn sạch + nón', 'người'),
+    T('📷 ĐẦU CA: chụp 1 ảnh cả tổ xếp hàng, cầm 2 khăn, đội nón'),
+    X('Bạn nào thiếu (ghi tên + thiếu gì)'),
+  ] },
+  { title: 'Cuối ca Phục vụ: gom khăn', phase: 'close', team: ['phục vụ'], items: [
+    N('Số khăn bẩn gom vào giỏ giặt', 'cái'),
+    T('Khăn đem giặt / phơi, cất khăn sạch cho ca sau', false),
   ] },
   { title: 'Đóng ca Tiếp thực', phase: 'close', team: ['tiếp thực'], items: [
     N('Đếm xe cân bằng', 'xe'),

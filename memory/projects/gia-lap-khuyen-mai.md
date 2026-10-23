@@ -1,13 +1,13 @@
 ## 1. Chủ quán tạo khuyến mãi (Khuyến mãi → + Thêm chương trình)
-- 🎁 **Lẩu bò tặng 100g bò thái tay** · Mua 1 tặng 1 Thăn bò tươi 100g / Bắp hoa tươi 100g / Gù bò tươi 100g / Gầu giòn 100g · nhóm Combo lẩu · 18/10–27/10 · Đang chạy
+- 🎁 **Lẩu bò tặng 100g bò thái tay** · Mua 1 tặng 1 Thịt tươi tặng 100g · nhóm Combo lẩu · 18/10–27/10 · Đang chạy
 - 🎁 **Mua 1 tặng 1 steak** · Mua 1 tặng 1 cùng món · nhóm Steak · 18/10–27/10 · Đang chạy
 - App báo cho nhân viên: 4 thông báo
 
 ## 2. Phục vụ gọi món · bàn 12, 6 khách
-- Màn gọi món hiện nhãn 🎁 trên món: Combo 3 "Mua 1 tặng 1", Set lẩu "Tặng Thăn bò tươi 100g"
+- Màn gọi món hiện nhãn 🎁 trên món: Combo 3 "Mua 1 tặng 1", Set lẩu "Lẩu bò tặng 100g bò thái tay"
 - Gọi: 2 Combo 3 (tiêu đen, bánh mì) · 1 Steak Âu (kem phô mai, mì Ý) · 1 Set 2 Mala · 1 Set 4 Cà chua · 2 Trà đào
-- Màn hình hiện khung xanh: "🎁 Lẩu bò tặng 100g bò thái tay: bàn còn được tặng 2 phần" + nút [+ Thăn bò tươi 100g] [+ Bắp hoa tươi 100g] [+ Gù bò tươi 100g] [+ Gầu giòn 100g]
-- Khách chọn Thăn + Gầu giòn → phục vụ bấm 2 nút, khung xanh biến mất
+- Màn hình hiện khung xanh: "🎁 Lẩu bò tặng 100g bò thái tay: bàn còn được tặng 2 phần" + nút [+ Thịt tươi tặng 100g]
+- Phục vụ bấm nút [+ Thịt tươi tặng 100g] 2 lần (2 set) → khung xanh biến mất; khách không chọn loại
 - Steak Âu chỉ gọi 1 phần → không đủ "mua 1 tặng 1 cùng món", tính đủ tiền (phục vụ nên mời khách gọi thêm 1 phần tặng)
 
 ## 3. Phiếu bếp in ra từng điểm (không ghi "tặng" ở steak; món tặng bò có ghi chú "KM tặng")
@@ -43,9 +43,7 @@ KHU A - 12
    > Bò tươi 150g (thăn, gù, gầu giòn)
 1 x Set 4 Cà chua Quý Châu
    > Bò tươi 150g (thăn, gù, gầu giòn)
-1 x Thăn bò tươi 100g
-   * KM tặng
-1 x Gầu giòn 100g
+2 x Thịt tươi tặng 100g
    * KM tặng
 ------------------------------------------------
 
@@ -96,12 +94,9 @@ Kem phô mai, Mì Ý
    1 x 150.000                           150.000
 5. Trà đào
    2 x 25.000                             50.000
-6. Thăn bò tươi 100g
-   1 x 69.000                             69.000
-   Tặng 1 · Lẩu bò tặng 100g bò thái     -69.000
-7. Gầu giòn 100g
-   1 x 69.000                             69.000
-   Tặng 1 · Lẩu bò tặng 100g bò thái     -69.000
+6. Thịt tươi tặng 100g
+   2 x 69.000                            138.000
+   Tặng 2 · Lẩu bò tặng 100g bò thái    -138.000
 ------------------------------------------------
 Tiền hàng (9)                            845.000
 Khuyến mãi món                          -277.000
@@ -112,4 +107,4 @@ Cảm ơn quý khách, hẹn gặp lại!
 
 Tiền hàng 845.000đ · khuyến mãi −277.000đ · khách trả **568.000đ**
 
-Giá vốn phần tặng: 1 Combo 3 72.842đ + Thăn 100g 27.500đ + Gầu 100g 19.000đ
+Giá vốn phần tặng: 1 Combo 3 72.842đ + 100g thịt tươi tặng 25.500đ/phần

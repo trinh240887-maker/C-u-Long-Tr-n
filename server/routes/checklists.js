@@ -435,6 +435,16 @@ export default function (r, ctx) {
       // Nhân viên không xem số trên sổ (tránh cân cho khớp); trưởng ca trở lên xem đủ
       if (count && rank(me.role) < rank('shift_lead')) count = { name: count.name, text: 'Đã ghi tồn, app đã tự kiểm kho', over: false };
     }
+    // Đầu ca đồng phục: "Số bạn đủ …" ít hơn "Số bạn … đi làm" → báo trưởng ca / quản lý
+    if (done && item.kind === 'number' && /^Số bạn đủ/i.test(item.text)) {
+      const total = db.prepare("SELECT e.value FROM checklist_entries e JOIN checklist_items i ON i.id = e.item_id WHERE e.run_id = ? AND i.text LIKE 'Số bạn % đi làm%'").get(run.id)?.value;
+      const okN = Number(body.value);
+      if (total != null && okN < Number(total)) {
+        const tpl = db.prepare('SELECT title FROM checklist_templates WHERE id = ?').get(run.template_id);
+        ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager','shift_lead')").all().map((x) => x.id).filter((x) => x !== me.id),
+          { title: `${tpl?.title}: ${Number(total) - okN}/${total} bạn thiếu đồ`, body: `${me.name} ghi: ${okN}/${total} bạn đủ. Xem dòng "Bạn nào thiếu" trong checklist.`, link: '/checklist' });
+      }
+    }
     // Nhiệt độ tủ ngoài mức an toàn (tủ mát > 5°C, tủ đông > −15°C) → báo quản lý + tổ trưởng ngay
     if (done && item.kind === 'number' && /°c/i.test(item.unit)) {
       const val = Number(String(body.value).replace(',', '.'));

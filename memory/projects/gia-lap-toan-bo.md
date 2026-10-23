@@ -52,7 +52,7 @@ Nhập hàng 4 bill 35.840.000đ (1 bill lệch/giá tăng), chi NCC 0đ · CK 2
 - 08:30 [Bếp/khu] Đại lý bia → Bar (12 thùng Heineken): nhận 5.040.000đ, chụp bill, ký "Mai"
 - 09:15 [Thu ngân] so ảnh bill, duyệt 4 hoá đơn mua → công nợ NCC 35.840.000đ
 - 09:15 [Thu ngân] ghi két đầu ngày 3.000.000đ
-- 10:12 [Khách] Chị Mai tự đặt online (mã EA02DF48) → [Trưởng ca] Bảo xác nhận bàn 40 sau 7′ (chưa cài Zalo ZNS → gọi điện báo khách)
+- 10:12 [Khách] Chị Mai tự đặt online (mã 3729DB8F) → [Trưởng ca] Bảo xác nhận bàn 40 sau 7′ (chưa cài Zalo ZNS → gọi điện báo khách)
 - 18:00 [Phục vụ] Hậu nhận khách vãng lai vào bàn 50 → app: "Bàn 50 có khách đặt 19:00 (còn 60′), khách ngồi TB 70′ sẽ chưa xong. Bàn trống nên dùng: 4…"
 - 18:00 [Phục vụ] Hậu vẫn bấm xác nhận cho ngồi (giả lập quên) → 18:40 app sẽ tự chuyển đơn Anh Hùng
 - 18:33 [Khách đặt] Cô Hạnh đến, vào bàn 30
