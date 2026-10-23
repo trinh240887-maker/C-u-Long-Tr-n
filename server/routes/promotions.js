@@ -30,13 +30,16 @@ export default function (r, ctx) {
     created_at INTEGER NOT NULL
   )`);
 
-  const parse = (p) => ({ ...p, active: !!p.active, stack: !!p.stack, item_ids: JSON.parse(p.item_ids || '[]'), category_ids: JSON.parse(p.category_ids || '[]') });
+  for (const [c, d] of [['pair', "TEXT NOT NULL DEFAULT 'cheapest'"], ['gift_item_ids', "TEXT NOT NULL DEFAULT '[]'"]]) {
+    if (!db.prepare('PRAGMA table_info(promotions)').all().some((x) => x.name === c)) db.exec(`ALTER TABLE promotions ADD COLUMN ${c} ${d}`);
+  }
+  const parse = (p) => ({ ...p, active: !!p.active, stack: !!p.stack, item_ids: JSON.parse(p.item_ids || '[]'), category_ids: JSON.parse(p.category_ids || '[]'), gift_item_ids: JSON.parse(p.gift_item_ids || '[]') });
   const all = () => db.prepare('SELECT * FROM promotions ORDER BY start_date DESC, id DESC').all().map(parse);
   const names = () => ({
     items: Object.fromEntries(db.prepare('SELECT id, name FROM menu_items').all().map((x) => [x.id, x.name])),
     categories: Object.fromEntries(db.prepare('SELECT id, name FROM menu_categories').all().map((x) => [x.id, x.name])),
   });
-  const view = (p, nm = names()) => ({ ...p, summary: describe(p, nm), status: status(p, ctx.now(), ctx.clock()), tag: isBill(p) ? '' : tag(p) });
+  const view = (p, nm = names()) => ({ ...p, summary: describe(p, nm), status: status(p, ctx.now(), ctx.clock()), tag: isBill(p) ? '' : tag(p, nm) });
 
   // Dùng cho tính bill: mọi chương trình đang bật và còn hạn (giờ áp dụng do bộ tính kiểm tra theo lúc gọi món)
   ctx.promosFor = () => {
@@ -50,9 +53,10 @@ export default function (r, ctx) {
     const live = all().filter((p) => !isBill(p) && validAt(p, now, clock));
     if (!live.length) return { tags: {}, bill: billNow(now, clock) };
     const tags = {};
+    const nm = names();
     for (const it of db.prepare('SELECT id, category_id FROM menu_items WHERE active = 1').all()) {
       const ps = live.filter((p) => matches(p, { menu_item_id: it.id, category_id: it.category_id }));
-      if (ps.length) tags[it.id] = ps.map(tag).join(' · ');
+      if (ps.length) tags[it.id] = ps.map((p) => tag(p, nm)).join(' · ');
     }
     return { tags, bill: billNow(now, clock) };
   };
@@ -77,6 +81,8 @@ export default function (r, ctx) {
       category_ids: get('category_ids', (x) => (Array.isArray(x) ? x.map((n) => v.int(n, { min: 1, name: 'Nhóm' })) : fail(400, 'Danh sách nhóm không hợp lệ'))) ?? [],
       min_bill: get('min_bill', (x) => v.int(Number(String(x || 0).replace(/[.,\s]/g, '')), { min: 0, max: 1_000_000_000, name: 'Bill tối thiểu' })) ?? 0,
       stack: get('stack', (x) => v.bool(x)) ?? false,
+      pair: get('pair', (x) => (x === 'same' ? 'same' : 'cheapest')) ?? 'cheapest',
+      gift_item_ids: get('gift_item_ids', (x) => (Array.isArray(x) ? x.map((n) => v.int(n, { min: 1, name: 'Món tặng' })) : fail(400, 'Danh sách món tặng không hợp lệ'))) ?? [],
       start_date: get('start_date', (x) => { if (!isDate(x)) fail(400, 'Ngày bắt đầu không hợp lệ'); return x; }),
       end_date: get('end_date', (x) => { if (!isDate(x)) fail(400, 'Ngày kết thúc không hợp lệ'); return x; }),
       days: get('days', (x) => { const s = [...new Set(String(x).replace(/[^1-7]/g, ''))].sort().join(''); if (!s) fail(400, 'Chọn ít nhất 1 ngày trong tuần'); return s; }) ?? '1234567',
@@ -90,13 +96,14 @@ export default function (r, ctx) {
     if (f.end_date < f.start_date) fail(400, 'Ngày kết thúc phải sau ngày bắt đầu');
     if ((f.type === 'percent' || f.type === 'bill_percent') && (f.value < 1 || f.value > 100)) fail(400, 'Giảm % phải từ 1 đến 100');
     if ((f.type === 'amount' || f.type === 'bill_amount') && f.value < 1000) fail(400, 'Nhập số tiền giảm');
-    if (!isBill(f) && f.scope === 'items' && !f.item_ids.length) fail(400, 'Chọn món áp dụng');
+    if (!isBill(f) && f.scope === 'items' && !f.item_ids.length) fail(400, f.type === 'gift' ? 'Chọn món khách phải mua' : 'Chọn món áp dụng');
+    if (f.type === 'gift' && !f.gift_item_ids.length) fail(400, 'Chọn món tặng');
     if (!isBill(f) && f.scope === 'categories' && !f.category_ids.length) fail(400, 'Chọn nhóm món áp dụng');
     if ((f.time_from == null) !== (f.time_to == null)) fail(400, 'Nhập đủ giờ bắt đầu và kết thúc, hoặc để trống cả hai');
     return f;
   }
   const save = (f, id) => {
-    const cols = ['name', 'type', 'buy_qty', 'get_qty', 'value', 'scope', 'item_ids', 'category_ids', 'min_bill', 'stack', 'start_date', 'end_date', 'days', 'time_from', 'time_to', 'note', 'active'];
+    const cols = ['name', 'type', 'buy_qty', 'get_qty', 'value', 'scope', 'item_ids', 'category_ids', 'min_bill', 'stack', 'pair', 'gift_item_ids', 'start_date', 'end_date', 'days', 'time_from', 'time_to', 'note', 'active'];
     const vals = cols.map((c) => (Array.isArray(f[c]) ? JSON.stringify(f[c]) : typeof f[c] === 'boolean' ? Number(f[c]) : f[c]));
     if (id) { db.prepare(`UPDATE promotions SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(...vals, id); return id; }
     return Number(db.prepare(`INSERT INTO promotions (${cols.join(', ')}, created_at) VALUES (${cols.map(() => '?').join(', ')}, ?)`).run(...vals, ctx.now()).lastInsertRowid);

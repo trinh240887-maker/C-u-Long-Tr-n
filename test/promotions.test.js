@@ -122,3 +122,31 @@ test('khuyến mãi: mua 1 tặng 1 theo ngày, tự hết hạn, báo nhân vi�
   assert.ok(list.every((p) => p.status === 'ended'));
   assert.deepEqual((await H('GET', '/api/menu')).data.promo.tags, {});
 });
+
+test('khuyến mãi: mua 1 tặng 1 cùng món, mua lẩu tặng bò (món B) chỉ trừ đúng số phần được tặng', async () => {
+  const { applyPromos } = await import('../server/lib/promo.js');
+  const { makeClock } = await import('../server/lib/time.js');
+  const clock = makeClock({ offset: '+07:00' });
+  const at = clock.toEpoch('2026-10-23', 19 * 60);
+  const base = { active: true, start_date: '2026-10-18', end_date: '2026-10-27', days: '1234567', time_from: null, time_to: null, item_ids: [], gift_item_ids: [] };
+  const bogo = { ...base, id: 1, name: 'Mua 1 tặng 1 steak', type: 'bogo', buy_qty: 1, get_qty: 1, pair: 'same', scope: 'categories', category_ids: [1] };
+  const gift = { ...base, id: 2, name: 'Lẩu tặng bò', type: 'gift', buy_qty: 1, get_qty: 1, scope: 'categories', category_ids: [2], gift_item_ids: [30, 31] };
+  const it = (id, menu, cat, price, qty) => ({ id, menu_item_id: menu, category_id: cat, unit_price: price, qty, created_at: at });
+  // 2 Combo 3 + 1 Steak Âu: chỉ Combo 3 được tặng 1 (cùng món), Steak Âu không ghép với Combo 3
+  let r = applyPromos([it(1, 10, 1, 139000, 2), it(2, 11, 1, 79000, 1)], [bogo], { clock, openedAt: at });
+  assert.equal(r.item_discount, 139000);
+  // Kiểu cũ (tặng món rẻ nhất trong nhóm): Steak Âu được tặng
+  r = applyPromos([it(1, 10, 1, 139000, 1), it(2, 11, 1, 79000, 1)], [{ ...bogo, pair: 'cheapest' }], { clock, openedAt: at });
+  assert.equal(r.item_discount, 79000);
+  // 2 set lẩu + 3 phần bò tặng: chỉ trừ 2 phần (đắt nhất trước), còn 1 phần tính tiền; gifts báo còn 0
+  r = applyPromos([it(1, 20, 2, 150000, 2), it(2, 30, 3, 69000, 2), it(3, 31, 3, 79000, 1)], [gift], { clock, openedAt: at });
+  assert.equal(r.item_discount, 79000 + 69000);
+  assert.deepEqual(r.gifts.map((g) => [g.allow, g.left]), [[2, 0]]);
+  // Chưa gọi bò tặng → còn được tặng 2
+  r = applyPromos([it(1, 20, 2, 150000, 2)], [gift], { clock, openedAt: at });
+  assert.equal(r.gifts[0].left, 2);
+  // Hết hạn (28/10) → không tặng
+  const late = clock.toEpoch('2026-10-28', 19 * 60);
+  r = applyPromos([{ ...it(1, 20, 2, 150000, 1), created_at: late }, { ...it(2, 30, 3, 69000, 1), created_at: late }], [gift], { clock, openedAt: late });
+  assert.equal(r.item_discount, 0);
+});

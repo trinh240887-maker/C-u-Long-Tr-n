@@ -74,6 +74,8 @@ export default function (r, ctx) {
     return {
       ...s, priority: !!s.priority, tables: tablesOf(id), header: headerOf(id), items,
       subtotal: pr.subtotal, item_discount: pr.item_discount, bill_promos: pr.bill, discount: pr.discount, total: pr.total,
+      // Mua A tặng B: còn được tặng bao nhiêu phần → màn gọi món hiện nút "Thêm món tặng"
+      gifts: s.bill_snapshot ? [] : (pr.gifts || []).map((g) => ({ ...g, items: g.gift_item_ids.map((mid) => db.prepare('SELECT id, name, price, sold_out FROM menu_items WHERE id = ? AND active = 1').get(mid)).filter(Boolean) })),
       unsent: live.filter((i) => i.status === 'new').length,
       late: live.filter((i) => i.late_min > 0).length,
     };

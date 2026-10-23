@@ -131,6 +131,10 @@ export function OrderView({ me, query }) {
     <div class="tabs"><button class=${tab === 'menu' ? 'on' : ''} onClick=${() => setTab('menu')}>Thực đơn</button>
       <button class=${tab === 'bill' ? 'on' : ''} onClick=${() => setTab('bill')}>Đã gọi (${s.items.filter((i) => i.status !== 'cancelled').length})</button></div>`}
 
+    ${!closed ? (s.gifts || []).filter((g) => g.left > 0).map((g) => html`<div class="gift-bar">
+      <div>🎁 <b>${g.name}</b>: bàn còn được tặng <b>${g.left} phần</b>. Bấm món khách chọn để thêm, app tự trừ tiền.</div>
+      <div class="chips">${g.items.map((it) => html`<button class="chip big" disabled=${it.sold_out} onClick=${() => add({ menu_item_id: it.id, qty: 1, note: 'KM tặng' })}>+ ${it.name}${it.sold_out ? ' (hết)' : ''}</button>`)}</div>
+    </div>`) : null}
     ${tab === 'menu' && !closed ? html`
       ${m.promo?.bill?.length ? html`<div class="promo-bar">🎁 Đang có: ${m.promo.bill.join(' · ')}</div>` : null}
       <input id="om-q" type="search" placeholder="Tìm món" value=${q} onInput=${(e) => setQ(e.target.value)} />

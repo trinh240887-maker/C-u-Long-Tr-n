@@ -113,7 +113,7 @@ export function billBytes(b, { mode } = {}) {
     d.bold(true).wrap(t(`${k + 1}. ${l.name}`)).bold(false);
     if (l.options) d.wrap(t(`   ${l.options}`));
     d.line(t(lr(`   ${l.qty} x ${vnd(l.unit_price)}`, vnd(l.total))));
-    for (const p of l.promos) d.line(t(lr(`   KM ${p.name}${p.free_qty ? ` (tặng ${p.free_qty})` : ''}`.slice(0, 36), `-${vnd(p.amount)}`)));
+    for (const p of l.promos) d.line(t(lr(`   ${p.free_qty ? `Tặng ${p.free_qty} · ` : 'KM '}${p.name}`.slice(0, 36), `-${vnd(p.amount)}`)));
   });
   d.rule();
   d.line(t(lr(`Tiền hàng (${b.count})`, vnd(b.subtotal))));

@@ -601,3 +601,5 @@ tr.warn-row td { background: color-mix(in srgb, var(--warn, #b45309) 10%, transp
   .print-area { position: absolute; inset: 0; padding: 16px; background: #fff; }
   .no-print { display: none !important; }
 }
+
+.gift-bar { border: 2px dashed #16a34a; background: color-mix(in srgb, #16a34a 10%, var(--panel)); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; }

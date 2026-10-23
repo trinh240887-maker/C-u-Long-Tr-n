@@ -12,7 +12,8 @@
     "simulate:day": "node --disable-warning=ExperimentalWarning scripts/simulate-day.js",
     "simulate:peak": "node --disable-warning=ExperimentalWarning scripts/simulate-peak.js",
     "simulate:stock": "node --disable-warning=ExperimentalWarning scripts/simulate-stock.js",
-    "simulate:full": "node --disable-warning=ExperimentalWarning scripts/simulate-full.js"
+    "simulate:full": "node --disable-warning=ExperimentalWarning scripts/simulate-full.js",
+    "simulate:promo": "node --disable-warning=ExperimentalWarning scripts/simulate-promo.js"
   },
   "engines": {
     "node": ">=22.13"
