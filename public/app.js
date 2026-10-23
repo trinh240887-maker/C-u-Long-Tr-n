@@ -168,13 +168,42 @@ function App() {
     return () => window.removeEventListener('auth:lost', lost);
   }, []);
 
+  // Kênh cập nhật trực tiếp. Railway / điện thoại hay cắt kết nối giữ lâu (tắt màn hình, chuyển app, proxy đóng sau vài phút):
+  // tự nối lại ngay, chỉ hiện báo "mất kết nối" khi mất quá 10 giây liền.
   useEffect(() => {
     if (!me) return undefined;
-    const es = new EventSource('/api/events');
-    es.addEventListener('change', () => bump());
-    es.onopen = () => { setOnline(true); bump(); };
-    es.onerror = () => setOnline(false);
-    return () => es.close();
+    let es = null;
+    let warn = null;
+    let retry = null;
+    let stopped = false;
+    const ok = () => { clearTimeout(warn); warn = null; setOnline(true); };
+    const lost = () => { if (!warn) warn = setTimeout(() => setOnline(false), 10_000); };
+    const open = () => {
+      if (stopped) return;
+      clearTimeout(retry);
+      es?.close();
+      es = new EventSource('/api/events');
+      es.addEventListener('change', () => bump());
+      es.onopen = () => { ok(); bump(); };
+      es.onerror = () => {
+        lost();
+        // Trình duyệt bỏ cuộc (CLOSED) thì tự mở lại sau 3 giây
+        if (es.readyState === 2) retry = setTimeout(open, 3000);
+      };
+    };
+    const wake = () => { if (document.visibilityState === 'visible' && (!es || es.readyState !== 1)) open(); };
+    open();
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('online', wake);
+    window.addEventListener('focus', wake);
+    return () => {
+      stopped = true;
+      clearTimeout(warn); clearTimeout(retry);
+      es?.close();
+      document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener('online', wake);
+      window.removeEventListener('focus', wake);
+    };
   }, [me?.id]);
 
   if (me === undefined) return html`<div class="empty">Đang tải…</div>`;

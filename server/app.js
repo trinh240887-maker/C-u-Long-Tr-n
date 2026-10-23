@@ -157,7 +157,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
 
       if (pathname === '/api/events') {
         if (!me) fail(401, 'Chưa đăng nhập');
-        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
         res.write('retry: 3000\n\n');
         const client = { res, staffId: me.id };
         clients.add(client);
