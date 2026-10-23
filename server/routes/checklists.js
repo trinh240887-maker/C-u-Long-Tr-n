@@ -435,6 +435,17 @@ export default function (r, ctx) {
       // Nhân viên không xem số trên sổ (tránh cân cho khớp); trưởng ca trở lên xem đủ
       if (count && rank(me.role) < rank('shift_lead')) count = { name: count.name, text: 'Đã ghi tồn, app đã tự kiểm kho', over: false };
     }
+    // Nhiệt độ tủ ngoài mức an toàn (tủ mát > 5°C, tủ đông > −15°C) → báo quản lý + tổ trưởng ngay
+    if (done && item.kind === 'number' && /°c/i.test(item.unit)) {
+      const val = Number(String(body.value).replace(',', '.'));
+      const freezer = /đông/i.test(item.text);
+      const limit = freezer ? Number(ctx.setting('freezer_max_c') || -15) : Number(ctx.setting('fridge_max_c') || 5);
+      if (Number.isFinite(val) && val > limit) {
+        const tpl = db.prepare('SELECT title, team_id FROM checklist_templates WHERE id = ?').get(run.template_id);
+        const to = db.prepare("SELECT id FROM staff WHERE active = 1 AND (role IN ('owner','manager') OR (role = 'team_lead' AND team_id = ?))").all(tpl?.team_id ?? -1).map((x) => x.id).filter((x) => x !== me.id);
+        ctx.notify(to, { title: `Tủ ${freezer ? 'đông' : 'mát'} ${val}°C (chuẩn ≤ ${limit}°C): ${tpl?.title || ''}`, body: `${me.name} ghi "${item.text}" = ${val}°C. Kiểm tra cửa tủ, đá bám, gioăng; đồ tươi chuyển tủ khác nếu tủ hỏng.`, link: '/checklist', urgent: true });
+      }
+    }
     ctx.broadcast('checklists');
     return { ok: true, count };
   });
