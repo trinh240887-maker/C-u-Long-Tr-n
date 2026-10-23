@@ -151,7 +151,16 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
     const hit = staticCache.get(file);
     if (hit && hit.mtime === st.mtimeMs) return hit;
     let data = await readFile(file);
-    if (path.basename(file) === 'index.html' && preloadTags) data = Buffer.from(String(data).replace('</head>', `  ${preloadTags}\n</head>`));
+    if (path.basename(file) === 'index.html') {
+      // Mỗi bản code có tiền tố /v/<mã>/ riêng: điện thoại (Safari) không dùng lại file giao diện cũ.
+      // Import tương đối trong app.js tự đi theo tiền tố; importmap + css + modulepreload sửa ở đây.
+      const V = `/v/${version}`;
+      const html = String(data)
+        .replace('src="/app.js"', `src="${V}/app.js"`).replace('href="/style.css"', `href="${V}/style.css"`)
+        .replace(/"\/vendor\//g, `"${V}/vendor/`)
+        .replace('</head>', `  ${preloadTags.replace(/href="\//g, `href="${V}/`)}\n</head>`);
+      data = Buffer.from(html);
+    }
     const text = /\.(js|css|html|svg|json|webmanifest)$/.test(file);
     const entry = {
       mtime: st.mtimeMs, data, type: MIME[path.extname(file)] || 'application/octet-stream',
@@ -164,13 +173,16 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   }
   async function serveStatic(res, pathname, req) {
     // /datban: trang khách tự đặt bàn (công khai, không cần đăng nhập)
+    // /v/<mã bản>/... = file giao diện của 1 bản cố định → cho trình duyệt giữ lâu (đổi bản thì đổi đường dẫn)
+    const ver = /^\/v\/[\w-]+\//.exec(pathname);
+    if (ver) pathname = pathname.slice(ver[0].length - 1);
     const rel = pathname === '/' ? 'index.html' : pathname === '/datban' ? 'datban.html' : decodeURIComponent(pathname.slice(1));
     const root = path.resolve(publicDir);
     const file = path.resolve(root, rel);
     if (!file.startsWith(root + path.sep)) { res.writeHead(404); return res.end('Not found'); }
     try {
       const f = await loadStatic(file);
-      const head = { 'Content-Type': f.type, 'Cache-Control': 'no-cache', ETag: f.etag, Vary: 'Accept-Encoding' };
+      const head = { 'Content-Type': f.type, 'Cache-Control': ver && !/\.html$/.test(file) ? 'public, max-age=31536000, immutable' : 'no-cache', ETag: f.etag, Vary: 'Accept-Encoding' };
       if (req?.headers['if-none-match'] === f.etag) { res.writeHead(304, head); return res.end(); }
       const ae = String(req?.headers['accept-encoding'] || '');
       if (f.br && /\bbr\b/.test(ae)) { res.writeHead(200, { ...head, 'Content-Encoding': 'br', 'Content-Length': f.br.length }); return res.end(f.br); }

@@ -13,9 +13,11 @@
   <script type="importmap">
     { "imports": { "preact": "/vendor/preact.js", "preact/hooks": "/vendor/hooks.js", "htm": "/vendor/htm.js" } }
   </script>
+  <style>#boot{font:16px system-ui;text-align:center;margin-top:40vh;color:#7c2d12}#root:not(:empty)~#boot{display:none}</style>
 </head>
 <body>
-  <div id="root"><p style="font:16px system-ui;text-align:center;margin-top:40vh;color:#7c2d12">Đang mở app…</p></div>
+  <div id="root"></div>
+  <p id="boot">Đang mở app…</p>
   <noscript>Cần bật JavaScript để dùng app.</noscript>
   <script type="module" src="/app.js"></script>
 </body>
