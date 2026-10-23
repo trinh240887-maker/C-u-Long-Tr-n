@@ -101,6 +101,7 @@ export function applyPromos(items, promos, { clock, openedAt }) {
   }
   // 1. Mỗi dòng chọn 1 chương trình giảm món tốt nhất
   const groups = new Map();
+  const hints = [];
   for (const it of items) {
     if (giftLine.has(it.id)) continue;
     const cands = promos.filter((p) => !isBill(p) && p.type !== 'gift' && matches(p, it) && validAt(p, it.created_at, clock));
@@ -120,6 +121,9 @@ export function applyPromos(items, promos, { clock, openedAt }) {
       for (let g = 0; g + n <= units.length; g += n) {
         for (let k = g + p.buy_qty; k < g + n; k++) free.set(units[k].id, (free.get(units[k].id) || 0) + 1);
       }
+      // Thiếu phần để được tặng (vd mới gọi 1 steak, mua 1 tặng 1) → nhắc phục vụ mời khách gọi thêm
+      const rest = units.length % n;
+      if (rest >= p.buy_qty) hints.push({ promo_id: p.id, name: p.name, menu_item_id: p.pair === 'same' ? part[0].menu_item_id : null, need: n - rest });
       for (const it of part) {
         const q = free.get(it.id) || 0;
         if (q) { push(it.id, { promo_id: p.id, name: p.name, amount: q * it.unit_price, free_qty: q }); itemDiscount += q * it.unit_price; }
@@ -143,5 +147,5 @@ export function applyPromos(items, promos, { clock, openedAt }) {
     if (amount > 0 && (!bill || amount > bill.amount)) bill = { promo_id: p.id, name: p.name, amount };
   }
   const discount = itemDiscount + (bill?.amount || 0);
-  return { lines, item_discount: itemDiscount, bill: bill ? [bill] : [], discount, subtotal, total: subtotal - discount, gifts };
+  return { lines, item_discount: itemDiscount, bill: bill ? [bill] : [], discount, subtotal, total: subtotal - discount, gifts, hints };
 }

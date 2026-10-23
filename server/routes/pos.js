@@ -76,6 +76,7 @@ export default function (r, ctx) {
       subtotal: pr.subtotal, item_discount: pr.item_discount, bill_promos: pr.bill, discount: pr.discount, total: pr.total,
       // Mua A tặng B: còn được tặng bao nhiêu phần → màn gọi món hiện nút "Thêm món tặng"
       gifts: s.bill_snapshot ? [] : (pr.gifts || []).map((g) => ({ ...g, items: g.gift_item_ids.map((mid) => db.prepare('SELECT id, name, price, sold_out FROM menu_items WHERE id = ? AND active = 1').get(mid)).filter(Boolean) })),
+      promo_hints: s.bill_snapshot ? [] : (pr.hints || []).map((h) => ({ ...h, item_name: h.menu_item_id ? live.find((i) => i.menu_item_id === h.menu_item_id)?.name : null })),
       unsent: live.filter((i) => i.status === 'new').length,
       late: live.filter((i) => i.late_min > 0).length,
     };
@@ -343,9 +344,11 @@ export default function (r, ctx) {
         if (urgent && st?.priority_station_id) sid = st.priority_station_id;
         const key = `${sid}:${urgent ? 1 : 0}`;
         if (!byStation.has(key)) byStation.set(key, { station_id: sid, priority: urgent ? 1 : 0, lines: [] });
-        const line = { item_id: i.id, name: i.name, qty: i.qty, options: JSON.parse(i.options || '[]').map((o) => o.name), note: i.note, label: t.label, rush: !!i.rush };
+        const line = { item_id: i.id, name: i.name, qty: i.qty, options: JSON.parse(i.options || '[]').map((o) => o.name), note: i.note, label: t.label, rush: !!i.rush,
+          // Khuyến mãi của món (vd "Mua 1 tặng 1 steak · tặng 1") → bếp biết phần nào là phần tặng
+          promo: (i.promos || []).filter((p) => !p.gift).map((p) => `${p.name}${p.free_qty ? ` · tặng ${p.free_qty}` : ''}`).join(', ') || undefined };
         // Dòng giống hệt (cùng món, tuỳ chọn, ghi chú) thì cộng số lượng: bếp đọc 1 dòng "2 x" thay vì 2 dòng
-        const same = byStation.get(key).lines.find((l) => l.name === line.name && l.label === line.label && l.note === line.note && l.rush === line.rush && l.options.join('|') === line.options.join('|'));
+        const same = byStation.get(key).lines.find((l) => l.name === line.name && l.label === line.label && l.note === line.note && l.promo === line.promo && l.rush === line.rush && l.options.join('|') === line.options.join('|'));
         if (same) same.qty += line.qty; else byStation.get(key).lines.push(line);
       }
     }

@@ -11,7 +11,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const clock = makeClock({ offset: '+07:00' });
 const at = (date, hm) => clock.toEpoch(date, Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3)));
 
-test('khuyến mãi: mua 1 tặng 1 theo ngày, tự hết hạn, báo nhân viên, phiếu bếp không ghi tặng, happy hour, giảm bill', async (t) => {
+test('khuyến mãi: mua 1 tặng 1 theo ngày, tự hết hạn, báo nhân viên, phiếu bếp ghi KM, happy hour, giảm bill', async (t) => {
   let now = at('2026-10-21', '20:00');
   const db = openDb(':memory:', { now });
   const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
@@ -83,10 +83,11 @@ test('khuyến mãi: mua 1 tặng 1 theo ngày, tự hết hạn, báo nhân vi�
   assert.equal(v.items.find((i) => i.id === a).promos[0].free_qty, 1);
   assert.equal(v.items.find((i) => i.name === 'Combo 2').discount, 0);
 
-  // Phiếu bếp: chỉ số lượng, không chữ "tặng"
+  // Phiếu bếp: ghi rõ món nào đang khuyến mãi, tặng mấy phần (chủ quán 23/10: bếp phải thấy chương trình)
   await H('POST', `/api/pos/sessions/${s}/send`);
   const tk = db.prepare("SELECT lines FROM kitchen_tickets k JOIN kitchen_stations st ON st.id = k.station_id WHERE st.name = 'Pha chế' ORDER BY k.id DESC").get();
-  assert.ok(!/tặng|TẶNG|KM|khuyến/i.test(tk.lines), tk.lines);
+  assert.equal(JSON.parse(tk.lines).find((l) => l.name === 'Trà đào').promo, 'Mua 1 tặng 1 trà · tặng 1');
+  assert.equal(JSON.parse(tk.lines).find((l) => l.name === 'Trà đào cam xả').promo, undefined);
   assert.equal(JSON.parse(tk.lines).find((l) => l.name === 'Trà đào').qty, 2);
 
   // Khách huỷ Trà đào cam xả → còn 3 ly (25,25,20) → tặng 1 ly 25k, app tự tính lại
@@ -135,6 +136,8 @@ test('khuyến mãi: mua 1 tặng 1 cùng món, mua lẩu tặng bò (món B) ch
   // 2 Combo 3 + 1 Steak Âu: chỉ Combo 3 được tặng 1 (cùng món), Steak Âu không ghép với Combo 3
   let r = applyPromos([it(1, 10, 1, 139000, 2), it(2, 11, 1, 79000, 1)], [bogo], { clock, openedAt: at });
   assert.equal(r.item_discount, 139000);
+  // Steak Âu mới 1 phần → nhắc gọi thêm 1 phần Steak Âu để được tặng; Combo 3 đủ cặp → không nhắc
+  assert.deepEqual(r.hints.map((h) => [h.menu_item_id, h.need]), [[11, 1]]);
   // Kiểu cũ (tặng món rẻ nhất trong nhóm): Steak Âu được tặng
   r = applyPromos([it(1, 10, 1, 139000, 1), it(2, 11, 1, 79000, 1)], [{ ...bogo, pair: 'cheapest' }], { clock, openedAt: at });
   assert.equal(r.item_discount, 79000);

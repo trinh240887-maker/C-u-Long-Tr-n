@@ -143,8 +143,12 @@ export function OrderView({ me, query }) {
       <div>🎁 <b>${g.name}</b>: bàn còn được tặng <b>${g.left} phần</b>. Bấm món khách chọn để thêm, app tự trừ tiền.</div>
       <div class="chips">${g.items.map((it) => html`<button class="chip big" disabled=${it.sold_out} onClick=${() => add({ menu_item_id: it.id, qty: 1, note: 'KM tặng' })}>+ ${it.name}${it.sold_out ? ' (hết)' : ''}</button>`)}</div>
     </div>`) : null}
+    ${!closed && (m.promo?.running || m.promo?.bill || []).length ? html`<div class="promo-bar">🎁 <b>Quán đang có khuyến mãi:</b>${(m.promo.running || m.promo.bill).map((x) => html`<div>• ${x}</div>`)}</div>` : null}
+    ${!closed ? (s.promo_hints || []).map((h) => { const mi = m.items.find((x) => x.id === h.menu_item_id); return html`<div class="gift-bar">
+      <div>🎁 <b>${h.name}</b>: gọi thêm <b>${h.need} phần${h.item_name ? ` ${h.item_name}` : ''}</b> là được tặng. Mời khách nhé!</div>
+      ${mi && !mi.sold_out ? html`<div class="chips"><button class="chip big" onClick=${() => quick(mi)}>+ ${mi.name} (phần tặng)</button></div>` : null}
+    </div>`; }) : null}
     ${tab === 'menu' && !closed ? html`
-      ${m.promo?.bill?.length ? html`<div class="promo-bar">🎁 Đang có: ${m.promo.bill.join(' · ')}</div>` : null}
       <input id="om-q" type="search" placeholder="Tìm món" value=${q} onInput=${(e) => setQ(e.target.value)} />
       <div class="chips scroll-x"><button class=${`chip ${!cat ? 'on' : ''}`} onClick=${() => setCat('')}>Tất cả</button>
         ${m.categories.map((c) => html`<button class=${`chip ${cat === String(c.id) ? 'on' : ''}`} onClick=${() => setCat(String(c.id))}>${c.name}</button>`)}</div>
