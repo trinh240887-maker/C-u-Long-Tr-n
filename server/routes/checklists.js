@@ -483,7 +483,8 @@ export default function (r, ctx) {
     const tpl = db.prepare('SELECT title FROM checklist_templates WHERE id = ?').get(run.template_id);
     // Cân chung nhiều loại: chia số cân theo tỉ lệ tồn trên sổ từng loại; lệch tính cho cả nhóm
     const ids = [ing.id, ...JSON.parse(item.extra_ingredient_ids || '[]').filter((x) => x !== ing.id)];
-    const book = ids.map((id) => db.prepare('SELECT COALESCE(SUM(qty), 0) AS q FROM stock_lots WHERE store_id = ? AND ingredient_id = ?').get(item.store_id, id).q);
+    const sid = ctx.effectiveStore ? ctx.effectiveStore(item.store_id) : item.store_id;
+    const book = ids.map((id) => db.prepare('SELECT COALESCE(SUM(qty), 0) AS q FROM stock_lots WHERE store_id = ? AND ingredient_id = ?').get(sid, id).q);
     const sumBook = book.reduce((n, x) => n + x, 0);
     const parts = ids.map((id, k) => ({ ingredient_id: id, actual: ids.length === 1 ? actual : sumBook > 0 ? Math.round((actual * book[k] / sumBook) * 1000) / 1000 : k === 0 ? actual : 0 }));
     const res = ctx.stockCount(me, item.store_id, parts, `Checklist: ${tpl?.title || ''} · ${item.text}${ids.length > 1 ? ' (cân chung)' : ''}`);

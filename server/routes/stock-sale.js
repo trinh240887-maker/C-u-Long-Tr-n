@@ -30,7 +30,7 @@ export default function (r, ctx) {
   const enabled = () => ctx.setting('sell_deducts_stock') !== '0';
   const lowN = () => Number(ctx.setting('low_portions_alert') || 5);
   const mainStore = () => db.prepare("SELECT * FROM stores WHERE kind = 'main' AND active = 1 ORDER BY id LIMIT 1").get();
-  const storeOf = (ing) => ing.home_store_id || mainStore()?.id;
+  const storeOf = (ing) => (ctx.setting('single_store') === '1' ? mainStore()?.id : ing.home_store_id || mainStore()?.id);
   const recipe = (menuItemId) => db.prepare(`SELECT r.qty, g.* FROM menu_recipes r JOIN ingredients g ON g.id = r.ingredient_id WHERE r.item_id = ?`).all(menuItemId);
   const kitchenAndService = () => db.prepare(`SELECT s.id FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.active = 1
     AND (s.role IN ('owner','manager','shift_lead','team_lead') OR t.name IN ('Phục vụ','Tiếp thực'))`).all().map((x) => x.id);

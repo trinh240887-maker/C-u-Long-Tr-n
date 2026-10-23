@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import { MENU_SCHEMA, POS_SCHEMA, seedMenu } from './menu-seed.js';
 import { seedKhuChecklists } from './checklist-khu.js';
-import { seedDinhLuong, seedThitTuoi, dropSetNoodlePart, renameLau } from './dinh-luong.js';
+import { seedDinhLuong, seedThitTuoi, dropSetNoodlePart, renameLau, singleStoreV1 } from './dinh-luong.js';
 
 export const ROLES = ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'];
 export const ROLE_LABEL = { owner: 'Chủ', manager: 'Quản lý', shift_lead: 'Trưởng ca', team_lead: 'Tổ trưởng', staff: 'Nhân viên' };
@@ -507,7 +507,7 @@ function migrate(db, { real = false } = {}) {
       add.run(`Kho ${name}`, 'area', team?.id ?? null, i + 1);
     });
   }
-  if (real || process.env.DINH_LUONG === '1') { seedDinhLuong(db); seedThitTuoi(db); dropSetNoodlePart(db); renameLau(db); } // dữ liệu thật của quán; DB tạm trong bộ nhớ (test, giả lập) giữ thực đơn mẫu
+  if (real || process.env.DINH_LUONG === '1') { seedDinhLuong(db); seedThitTuoi(db); dropSetNoodlePart(db); renameLau(db); singleStoreV1(db); } // dữ liệu thật của quán; DB tạm trong bộ nhớ (test, giả lập) giữ thực đơn mẫu
 }
 
 export function tx(db, fn) {

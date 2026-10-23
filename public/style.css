@@ -640,3 +640,8 @@ details.cart { padding: 8px 12px; }
 .tbl-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; }
 .tbl-pick .chip { min-height: 48px; justify-content: center; font-weight: 700; }
 .tbl-pick .chip.busy { opacity: .45; }
+.table-wrap { overflow-x: auto; }
+table.nxt th, table.nxt td { white-space: nowrap; padding: 6px 6px; }
+table.nxt td:first-child { white-space: normal; min-width: 120px; }
+table.nxt tr { cursor: pointer; }
+table.nxt tr.bad-row td { background: color-mix(in srgb, #dc2626 10%, var(--panel)); }

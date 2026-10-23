@@ -1,6 +1,7 @@
 import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
 import { addDays, isDate } from '../lib/time.js';
+import { makeXlsx } from '../lib/xlsx.js';
 import { forecastDay, areaNeed, purchaseNeed, toPurchaseUnits, r3 } from '../lib/forecast.js';
 import { stockQty, addLot, takeLots, setActual, recordMove, costOf } from '../lib/stock.js';
 
@@ -21,6 +22,13 @@ export default function (r, ctx) {
     LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN suppliers p ON p.id = s.supplier_id WHERE s.active = 1 ORDER BY s.sort, s.id`).all();
   const storeById = (id) => db.prepare('SELECT * FROM stores WHERE id = ? AND active = 1').get(id);
   const mainStore = () => db.prepare("SELECT * FROM stores WHERE kind = 'main' AND active = 1 ORDER BY id LIMIT 1").get();
+  // Chế độ 1 kho (chủ quán 24/10): mọi nhập / bán / cân kiểm tính vào Kho tổng.
+  //  - Hàng có định lượng: bán tự trừ Kho tổng. Xuất kho cho khu chỉ để ghi (không trừ thêm).
+  //  - Hàng không có định lượng (gas, đá, khăn giấy…): trừ Kho tổng mỗi lần xuất kho.
+  const single = () => ctx.setting('single_store') === '1';
+  const hasRecipe = (id) => !!db.prepare('SELECT 1 FROM menu_recipes WHERE ingredient_id = ? LIMIT 1').get(id);
+  ctx.singleStore = single;
+  ctx.effectiveStore = (id) => (single() ? mainStore()?.id ?? id : id);
   const ingredients = ({ all = false } = {}) => db.prepare(`SELECT i.*, hs.name AS home_name, hs.supplier_id AS home_supplier_id,
       COALESCE(i.supplier_id, hs.supplier_id) AS eff_supplier_id, p.name AS supplier_name
     FROM ingredients i LEFT JOIN stores hs ON hs.id = i.home_store_id
@@ -103,6 +111,72 @@ export default function (r, ctx) {
       holder_id: holderId() || null,
       freshness: FRESH_LABEL,
     };
+  });
+
+  // ---------- Báo cáo Nhập – Xuất – Tồn chung (cả quán), chia Đồ tươi / Đồ bình thường ----------
+  // Tồn đầu + Nhập − Bán theo định lượng − Xuất dùng (hàng không định lượng) − Huỷ ± Lệch kiểm = Tồn cuối.
+  // Tồn sổ = tồn cuối nếu không cân kiểm; Lệch = cân thực tế − sổ (âm = thiếu). Số theo đơn vị dùng (g, ml, cái…).
+  const kindOf = (m) => {
+    if (m.type === 'receive') return 'nhap';
+    if (m.type === 'consume') return /^sale:/.test(m.ref) ? 'ban' : 'xuat';
+    if (m.type === 'adjust') return /^cancel:/.test(m.ref) ? 'ban' : /^count:/.test(m.ref) ? 'lech' : 'nhap';
+    if (m.type === 'waste') return /^Lệch định lượng/.test(m.note) ? 'lech' : 'huy';
+    return null; // chuyển kho trong quán: không đổi tồn chung
+  };
+  const sign = (m) => (m.type === 'receive' || m.type === 'adjust' ? 1 : m.type === 'transfer' ? 0 : -1);
+  function nxt(from, to) {
+    const ings = db.prepare('SELECT * FROM ingredients ORDER BY name').all();
+    const nowQty = new Map(db.prepare('SELECT ingredient_id, SUM(qty) AS q FROM stock_lots GROUP BY ingredient_id').all().map((x) => [x.ingredient_id, x.q]));
+    const after = new Map(db.prepare("SELECT ingredient_id, SUM(CASE WHEN type IN ('receive','adjust') THEN qty WHEN type = 'transfer' THEN 0 ELSE -qty END) AS n FROM stock_moves WHERE date > ? GROUP BY ingredient_id").all(to).map((x) => [x.ingredient_id, x.n]));
+    const moves = db.prepare('SELECT * FROM stock_moves WHERE date BETWEEN ? AND ? ORDER BY at').all(from, to);
+    const tol = Number(ctx.setting('count_tolerance_pct') || 3);
+    const rows = new Map();
+    for (const g of ings) rows.set(g.id, { id: g.id, name: g.name, unit: g.unit, group: g.freshness === 'dry' ? 'thuong' : 'tuoi', nhap: 0, ban: 0, xuat: 0, huy: 0, lech: 0, lech_tien: 0, nhap_tien: 0, recipe: hasRecipe(g.id), active: !!g.active, ing: g });
+    for (const m of moves) {
+      const r = rows.get(m.ingredient_id); const k = kindOf(m);
+      if (!r || !k) continue;
+      const q = m.qty * sign(m);
+      if (k === 'nhap') { r.nhap += q; r.nhap_tien += m.type === 'receive' ? m.cost : 0; }
+      else if (k === 'ban') r.ban -= q;
+      else if (k === 'xuat') r.xuat -= q;
+      else if (k === 'huy') r.huy -= q;
+      else { r.lech += q; r.lech_tien += q < 0 ? -(m.cost || costOf(r.ing, -q)) : costOf(r.ing, q); }
+    }
+    const out = [];
+    for (const r of rows.values()) {
+      const cuoi = r3((nowQty.get(r.id) || 0) - (after.get(r.id) || 0));
+      const dau = r3(cuoi - r.nhap + r.ban + r.xuat + r.huy - r.lech);
+      if (!r.active && !dau && !cuoi && !r.nhap && !r.ban && !r.xuat) continue;
+      if (!dau && !cuoi && !r.nhap && !r.ban && !r.xuat && !r.huy && !r.lech) continue;
+      const dung = r.ban + r.xuat;
+      const pct = dung > 0 ? Math.round((r.lech / dung) * 1000) / 10 : null;
+      const { ing, ...rest } = r;
+      out.push({ ...rest, dau, cuoi, so: r3(cuoi - r.lech), nhap: r3(r.nhap), ban: r3(r.ban), xuat: r3(r.xuat), huy: r3(r.huy), lech: r3(r.lech), lech_pct: pct, over: pct != null && Math.abs(pct) > tol, gia_tri_cuoi: costOf(ing, Math.max(0, cuoi)) });
+    }
+    const sortRows = (a, b) => Number(b.over) - Number(a.over) || Math.abs(b.lech_tien) - Math.abs(a.lech_tien) || a.name.localeCompare(b.name);
+    const group = (k) => out.filter((x) => x.group === k).sort(sortRows);
+    const sum = (list) => ({ nhap_tien: list.reduce((n, x) => n + x.nhap_tien, 0), lech_tien: list.reduce((n, x) => n + x.lech_tien, 0), gia_tri_cuoi: list.reduce((n, x) => n + x.gia_tri_cuoi, 0), over: list.filter((x) => x.over).length });
+    const tuoi = group('tuoi'); const thuong = group('thuong');
+    return { from, to, tolerance: tol, groups: [{ key: 'tuoi', name: 'Đồ tươi (thịt, rau, topping lạnh…)', rows: tuoi, total: sum(tuoi) }, { key: 'thuong', name: 'Đồ bình thường (khô, đồ uống, gas, vật dụng…)', rows: thuong, total: sum(thuong) }] };
+  }
+  const nxtRange = (query) => {
+    const to = query.get('to') || today();
+    const from = query.get('from') || to;
+    if (!isDate(from) || !isDate(to) || from > to) fail(400, 'Khoảng ngày không hợp lệ');
+    return [from, to];
+  };
+  r.get('/api/stock/nxt', 'manager', ({ query }) => nxt(...nxtRange(query)));
+  r.get('/api/stock/nxt/:id', 'manager', ({ params, query }) => {
+    const [from, to] = nxtRange(query);
+    return db.prepare(`SELECT m.*, s.name AS staff_name FROM stock_moves m LEFT JOIN staff s ON s.id = m.staff_id WHERE m.ingredient_id = ? AND m.date BETWEEN ? AND ? AND m.type != 'transfer' ORDER BY m.at`).all(Number(params.id), from, to)
+      .map((m) => ({ at: m.at, date: m.date, kind: kindOf(m), qty: r3(m.qty * sign(m)), cost: m.cost, note: m.note, staff_name: m.staff_name }));
+  });
+  r.get('/api/stock/nxt.xlsx', 'manager', ({ me, query }) => {
+    const x = nxt(...nxtRange(query));
+    const head = ['Nguyên liệu', 'Đơn vị', 'Tồn đầu', 'Nhập', 'Bán theo định lượng', 'Xuất dùng', 'Huỷ', 'Tồn sổ', 'Tồn thực tế', 'Lệch', 'Lệch %', 'Tiền lệch', 'Giá trị tồn'];
+    const sheets = x.groups.map((g) => ({ name: g.key === 'tuoi' ? 'Đồ tươi' : 'Đồ bình thường', rows: [head, ...g.rows.map((r) => [r.name, r.unit, r.dau, r.nhap, r.ban, r.xuat, r.huy, r.so, r.cuoi, r.lech, r.lech_pct ?? '', r.lech_tien, r.gia_tri_cuoi]), ['Tổng', '', '', '', '', '', '', '', '', '', '', g.total.lech_tien, g.total.gia_tri_cuoi]] }));
+    ctx.audit(me, 'stock.nxt.xlsx', `${x.from}..${x.to}`);
+    return { __binary: makeXlsx(sheets), type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename: `nhap-xuat-ton_${x.from}_${x.to}.xlsx` };
   });
 
   r.get('/api/stock/alerts', 'staff', () => {
@@ -245,6 +319,7 @@ export default function (r, ctx) {
 
   // Kiểm kho (dùng chung cho màn Kiểm kho và việc "cân tồn" trong checklist)
   function doCount(me, st, lines, note = '') {
+    if (single()) st = mainStore() || st;
     const usageMode = st.kind === 'area' && ctx.setting('area_count_is_usage') === '1';
     const t = ctx.now();
     const date = today();
@@ -283,7 +358,7 @@ export default function (r, ctx) {
     ctx.broadcast('stock');
     return { count_id: result.countId, lines: result.out, suggestion };
   }
-  ctx.stockCount = (me, storeId, lines, note) => { const st = storeById(storeId); if (!st) fail(404, 'Không tìm thấy kho'); return doCount(me, st, lines, note); };
+  ctx.stockCount = (me, storeId, lines, note) => { const st = storeById(ctx.effectiveStore(storeId)); if (!st) fail(404, 'Không tìm thấy kho'); return doCount(me, st, lines, note); };
   // Huỷ một lần kiểm (nhân viên sửa lại số cân): trả tồn về như chưa kiểm, xoá ghi nhận lệch
   ctx.undoCount = (countId) => {
     const c = db.prepare('SELECT * FROM stock_counts WHERE id = ?').get(countId);
@@ -367,6 +442,15 @@ export default function (r, ctx) {
       for (const l of t.lines) {
         const ing = ingById(l.ingredient_id);
         const qty = given.has(l.ingredient_id) ? num(given.get(l.ingredient_id), `Số xuất ${l.name}`) : l.qty_requested;
+        if (single()) {
+          // 1 kho: hàng có định lượng để nguyên (bán tự trừ); hàng không định lượng trừ ngay = đã dùng
+          if (qty > 0 && !hasRecipe(l.ingredient_id)) {
+            takeLots(db, { storeId: t.from_store, ingredientId: l.ingredient_id, qty, allowShort: true });
+            recordMove(db, { at, date: today(), type: 'consume', ingredientId: l.ingredient_id, fromStore: t.from_store, qty, cost: costOf(ing, qty), ref: `transfer:${t.id}`, staffId: me.id, note: `Xuất dùng cho ${t.to_name}` });
+          }
+          db.prepare('UPDATE transfer_lines SET qty_sent = ? WHERE transfer_id = ? AND ingredient_id = ?').run(qty, t.id, l.ingredient_id);
+          continue;
+        }
         const taken = qty > 0 ? takeLots(db, { storeId: t.from_store, ingredientId: l.ingredient_id, qty, name: l.name }) : [];
         const exp = taken.map((x) => x.expires_on).filter(Boolean).sort()[0] || null;
         db.prepare('UPDATE transfer_lines SET qty_sent = ?, expires_on = ? WHERE transfer_id = ? AND ingredient_id = ?').run(qty, exp, t.id, l.ingredient_id);
@@ -392,6 +476,7 @@ export default function (r, ctx) {
       for (const l of t.lines) {
         const ing = ingById(l.ingredient_id);
         const got = given.has(l.ingredient_id) ? num(given.get(l.ingredient_id), `Số nhận ${l.name}`, { max: l.qty_sent }) : l.qty_sent;
+        if (single()) { db.prepare('UPDATE transfer_lines SET qty_received = ? WHERE transfer_id = ? AND ingredient_id = ?').run(got, t.id, l.ingredient_id); if (got < l.qty_sent) missing.push(`${l.name}: thiếu ${r3(l.qty_sent - got)} ${l.unit}`); continue; }
         addLot(db, { storeId: t.to_store, ingredientId: l.ingredient_id, qty: got, expiresOn: l.expires_on, at });
         db.prepare('UPDATE transfer_lines SET qty_received = ? WHERE transfer_id = ? AND ingredient_id = ?').run(got, t.id, l.ingredient_id);
         const lost = r3(l.qty_sent - got);
@@ -574,6 +659,7 @@ export default function (r, ctx) {
   });
 
   function receiveInto(me, { po, storeId, lines }) {
+    storeId = ctx.effectiveStore(storeId);
     const at = ctx.now();
     const t = today();
     for (const l of lines) {

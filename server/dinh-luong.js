@@ -285,3 +285,18 @@ export function renameLau(db) {
   db.prepare("INSERT INTO settings (key, value) VALUES ('ten_lau_v1', ?)").run(String(n));
   return n;
 }
+
+// 24/10: chủ quán chọn chạy 1 kho (mọi thứ vào Kho tổng). Bật 1 lần cho dữ liệu thật; hàng đang nằm ở kho khu dồn về Kho tổng (ghi sổ chuyển kho).
+export function singleStoreV1(db) {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'single_store_v1'").get()) return 0;
+  const main = db.prepare("SELECT id FROM stores WHERE kind = 'main' AND active = 1 ORDER BY id LIMIT 1").get();
+  if (!main) return 0;
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('single_store', '1')").run();
+  const at = Date.now();
+  const date = new Date(at + 7 * 3600_000).toISOString().slice(0, 10);
+  const rows = db.prepare('SELECT store_id, ingredient_id, SUM(qty) AS q FROM stock_lots WHERE store_id != ? GROUP BY store_id, ingredient_id HAVING q > 0').all(main.id);
+  for (const r of rows) db.prepare("INSERT INTO stock_moves (at, date, type, ingredient_id, from_store, to_store, qty, cost, ref, note) VALUES (?, ?, 'transfer', ?, ?, ?, ?, 0, 'gop-1-kho', 'Dồn về Kho tổng (chạy 1 kho)')").run(at, date, r.ingredient_id, r.store_id, main.id, r.q);
+  db.prepare('UPDATE stock_lots SET store_id = ? WHERE store_id != ?').run(main.id, main.id);
+  db.prepare("INSERT INTO settings (key, value) VALUES ('single_store_v1', ?)").run(String(rows.length));
+  return rows.length;
+}
