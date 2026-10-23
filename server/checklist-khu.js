@@ -168,41 +168,27 @@ export const KHU_CHECKLISTS = [
   ] },
   // Bếp steak (8 ảnh 23/10) + định lượng Sổ 5: bò Aukobe 120g Steak Âu · 100g Combo 1, 2, món xào · 150g Combo 3; sốt 100g/dĩa;
   // salad 40g xà lách + dầu giấm; pate 30g; nui / mì Ý 80g chín (món thêm), 160g chín (món xào). Chia phần sẵn trước giờ đông.
-  { title: 'Sơ chế & mở ca Bếp steak', phase: 'open', team: ['bếp steak', 'bếp'], items: [
-    T('Rửa tay, đeo tạp dề, nón, giày kín mũi (không dép tông)', false),
+  { title: 'Sơ chế & mở ca Bếp steak', rev: 2, phase: 'open', team: ['bếp steak', 'bếp'], items: [
     N('Nhiệt độ tủ mát trưng bày', '°C'),
     N('Nhiệt độ tủ đông', '°C'),
-    T('Hàng mới nhận vào tủ ngay, không để bao thịt dưới sàn'),
     N('Chia sẵn bò Aukobe 100g (Combo 1, 2, món xào)', 'phần'),
     N('Chia sẵn bò Aukobe 120g (Steak Âu)', 'phần'),
     N('Chia sẵn bò Aukobe 150g (Combo 3)', 'phần'),
-    T('Sốt: Hoàng kim, Tứ xuyên, Kem phô mai, Tiêu đen đủ, chia hũ 100g'),
-    T('Salad: xà lách 40g/phần rửa ráo, dầu giấm pha sẵn'),
-    T('Luộc sẵn nui + mì Ý (80g chín món thêm, 160g chín món xào)'),
-    T('Trứng, pate (30g/phần), xúc xích, bánh mì đủ dùng', false),
-    T('Rau sơ chế trên bàn / kệ, không ngồi làm dưới sàn'),
-    T('Cân điện tử bật, về 0', false),
-    T('Kiểm dây, van, mùi gas; dây gas không vắt qua mặt bếp'),
-    T('Thử lửa bếp, bếp hầm, đĩa gang làm nóng sẵn'),
-    T('Đồ cá nhân (balo, túi, nón) cất đúng chỗ, không treo cạnh khu chế biến', false),
+    T('Sốt 4 loại chia hũ 100g · salad 40g · nui, mì Ý luộc sẵn · trứng, pate, xúc xích, bánh mì đủ', false),
+    T('Gas: kiểm dây, van, thử lửa; đĩa gang làm nóng', false),
+    T('Hàng vào tủ hết, không để thịt / rau / đồ dùng dưới sàn; đồ cá nhân cất ngoài bếp', false),
+    T('📷 SƠ CHẾ XONG: chụp 1 ảnh toàn bộ khay chuẩn bị + mặt bếp'),
   ] },
-  { title: 'Trong ca Bếp steak', phase: 'during', team: ['bếp steak', 'bếp'], items: [
+  { title: 'Trong ca Bếp steak', rev: 2, phase: 'during', team: ['bếp steak', 'bếp'], items: [
     T('18:00 bò chia sẵn còn đủ cho giờ đông (thiếu thì chia thêm)', false),
-    T('19:00 thay khăn lau, lau mặt bếp, gom rác'),
-    T('20:30 kiểm sốt, salad còn; báo phục vụ món sắp hết', false),
   ] },
-  { title: 'Dọn & đóng ca Bếp steak', phase: 'close', team: ['bếp steak', 'bếp'], items: [
-    X('Bò Aukobe / lõi vai còn: cân, ghi kg + số phần đã chia còn', 1),
-    T('Bò, sốt, salad thừa bọc màng, ghi ngày, cất tủ'),
-    T('Đĩa gang + khay gỗ rửa, lau khô, xếp kệ (không chồng ướt)'),
-    T('Vệ sinh bếp, vỉ, bếp hầm, mặt bàn đá'),
-    T('Rửa bồn rửa, lưới chặn rác'),
-    T('Hũ gia vị, túi bột đậy kín / kẹp miệng, xếp lên kệ (không để dưới sàn)'),
-    T('Thớt, dao, khăn lau: rửa, phơi, thay khăn mới'),
-    T('Đổ rác, thay túi, thùng rác có nắp'),
-    T('Lau sàn bếp'),
-    T('Khoá van gas tất cả bình'),
+  { title: 'Dọn & đóng ca Bếp steak', rev: 2, phase: 'close', team: ['bếp steak', 'bếp'], items: [
+    N('Bò đã chia phần còn lại', 'phần'),
+    T('Bò, sốt, salad thừa bọc màng, ghi ngày, cất tủ', false),
+    T('Rửa đĩa gang, khay gỗ, thớt, dao, bồn rửa; lau bếp, mặt bàn', false),
+    T('Gia vị, túi bột đậy kín, lên kệ; đổ rác, lau sàn', false),
     N('Nhiệt độ tủ mát lúc đóng', '°C'),
+    T('📷 KHOÁ GAS + chụp 1 ảnh toàn khu bếp sạch'),
     X('Hàng thiếu cần báo (bò, sốt, trứng, bánh mì…)'),
   ] },
 ];
@@ -217,8 +203,10 @@ export function seedKhuChecklists(db) {
   try { done = new Set(JSON.parse(getSet.get('checklist_khu_done')?.value || '[]')); } catch { done = new Set(); }
   // Bản đầu (23/10, checklist_khu_v1) đã tạo 11 checklist đầu: coi như xong, không tạo lại cái chủ quán đã xoá
   if (getSet.get('checklist_khu_v1')) for (const t of V1_TITLES) done.add(t);
+  // Bản sửa (rev): checklist đã tạo trước thì thay danh sách việc 1 lần theo bản mới (vd Bếp steak bớt chụp ảnh 23/10)
+  const resync = KHU_CHECKLISTS.filter((c) => c.rev && done.has(c.title) && !done.has(`${c.title}#${c.rev}`));
   const todo = KHU_CHECKLISTS.filter((c) => !done.has(c.title));
-  if (!todo.length) return;
+  if (!todo.length && !resync.length) return;
   const lc = (s) => String(s || '').toLocaleLowerCase('vi');
   const teams = db.prepare('SELECT id, name FROM teams').all();
   const positions = db.prepare('SELECT id, team_id, name FROM positions').all();
@@ -239,6 +227,14 @@ export function seedKhuChecklists(db) {
       const id = Number(addTpl.run(team?.id ?? null, c.phase, title, sort++, pos?.id ?? null, team ? 1 : 0).lastInsertRowid);
       c.items.forEach(([text, kind, unit, required, photo], i) => addItem.run(id, text, kind, unit, required, photo, i));
     }
+    for (const c of resync) {
+      done.add(`${c.title}#${c.rev}`);
+      const t = db.prepare('SELECT id FROM checklist_templates WHERE lower(title) = lower(?)').get(c.title);
+      if (!t) continue;
+      db.prepare('DELETE FROM checklist_items WHERE template_id = ?').run(t.id);
+      c.items.forEach(([text, kind, unit, required, photo], i) => addItem.run(t.id, text, kind, unit, required, photo, i));
+    }
+    for (const c of todo) if (c.rev) done.add(`${c.title}#${c.rev}`);
     db.prepare("INSERT INTO settings (key, value) VALUES ('checklist_khu_done', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(JSON.stringify([...done]));
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
