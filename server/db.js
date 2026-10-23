@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import { MENU_SCHEMA, POS_SCHEMA, seedMenu } from './menu-seed.js';
+import { seedKhuChecklists } from './checklist-khu.js';
 
 export const ROLES = ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'];
 export const ROLE_LABEL = { owner: 'Chủ', manager: 'Quản lý', shift_lead: 'Trưởng ca', team_lead: 'Tổ trưởng', staff: 'Nhân viên' };
@@ -489,6 +490,7 @@ function migrate(db) {
   }
   if (!cols('order_items').includes('reminded_at')) db.exec('ALTER TABLE order_items ADD COLUMN reminded_at INTEGER');
   seedMenu(db);
+  seedKhuChecklists(db);
   for (const [n, m] of [['Steak', 15], ['Ưu tiên', 12], ['Nước lẩu', 5], ['Bò', 8], ['Topping – Nướng – Rau', 10], ['Pha chế', 7]]) {
     db.prepare("UPDATE kitchen_stations SET late_minutes = ? WHERE name = ? AND late_minutes = 10 AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'late_seeded')").run(m, n);
   }
