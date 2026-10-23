@@ -15,11 +15,11 @@ const SET_DESC = '1 ngăn nước lẩu, 150g bò tươi (50 thăn, 50 gù, 50 g
 const STEAK_SOT = ['Hoàng kim', 'Tứ xuyên', 'Kem phô mai', 'Tiêu đen'];
 const TINH_BOT = ['Bánh mì', 'Mì Ý', 'Nui'];
 const MAP = {
-  'LAU-S1': { name: 'Set 1 Thảo mộc Triều Châu', cat: 'Combo lẩu', set: 'Thảo mộc Triều Châu' },
-  'LAU-S2': { name: 'Set 2 Mala Tứ Xuyên', cat: 'Combo lẩu', set: 'Mala Tứ Xuyên' },
-  'LAU-S3': { name: 'Set 3 Lẩu Nấm Vân Nam', cat: 'Combo lẩu', set: 'Nấm Vân Nam' },
-  'LAU-S4': { name: 'Set 4 Cà chua Quý Châu', old: ['Set 3 Cà chua Quý Châu'], cat: 'Combo lẩu', set: 'Cà chua Quý Châu' },
-  'LAU-S5': { name: 'Set 5 Mala Trứng Muối', cat: 'Combo lẩu', set: 'Mala Trứng Muối' },
+  'LAU-S1': { name: 'Lẩu Thảo mộc Triều Châu', old: ['Set 1 Thảo mộc Triều Châu'], cat: 'Combo lẩu', set: 'Thảo mộc Triều Châu' },
+  'LAU-S2': { name: 'Lẩu Mala Tứ Xuyên', old: ['Set 2 Mala Tứ Xuyên'], cat: 'Combo lẩu', set: 'Mala Tứ Xuyên' },
+  'LAU-S3': { name: 'Lẩu Nấm Vân Nam', old: ['Set 3 Lẩu Nấm Vân Nam'], cat: 'Combo lẩu', set: 'Nấm Vân Nam' },
+  'LAU-S4': { name: 'Lẩu Cà chua Quý Châu', old: ['Set 3 Cà chua Quý Châu', 'Set 4 Cà chua Quý Châu'], cat: 'Combo lẩu', set: 'Cà chua Quý Châu' },
+  'LAU-S5': { name: 'Lẩu Mala Trứng Muối', old: ['Set 5 Mala Trứng Muối'], cat: 'Combo lẩu', set: 'Mala Trứng Muối' },
   'LAU-N1': { name: 'Nước lẩu Thảo mộc Triều Châu', cat: 'Ngăn nước lẩu thêm' },
   'LAU-N2': { name: 'Nước lẩu Mala Tứ Xuyên', cat: 'Ngăn nước lẩu thêm' },
   'LAU-N3': { name: 'Nước lẩu Nấm Vân Nam', cat: 'Ngăn nước lẩu thêm' },
@@ -271,5 +271,17 @@ export function dropSetNoodlePart(db) {
   const n = Number(db.prepare("DELETE FROM menu_item_parts WHERE label = 'Mì trứng 2 vắt' AND item_id IN (SELECT item_id FROM menu_item_parts WHERE label = 'Rau tổng hợp')").run().changes);
   db.prepare("UPDATE menu_item_parts SET label = 'Set bò' WHERE label LIKE 'Bò tươi 150g%'").run();
   db.prepare("INSERT INTO settings (key, value) VALUES ('set_mi_part_v1', ?)").run(String(n));
+  return n;
+}
+
+// 23/10: chủ quán gọi món lẩu theo tên nước lẩu, không đánh số set ("Set 2 Mala Tứ Xuyên" → "Lẩu Mala Tứ Xuyên").
+export function renameLau(db) {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'ten_lau_v1'").get()) return 0;
+  let n = 0;
+  for (const it of db.prepare("SELECT m.id, m.name FROM menu_items m JOIN menu_categories c ON c.id = m.category_id WHERE c.name = 'Combo lẩu' AND m.name LIKE 'Set %'").all()) {
+    const to = `Lẩu ${it.name.replace(/^Set \d+\s*(Lẩu\s+)?/, '')}`;
+    if (!db.prepare('SELECT 1 FROM menu_items WHERE name = ? AND id != ?').get(to, it.id)) { db.prepare('UPDATE menu_items SET name = ? WHERE id = ?').run(to, it.id); n++; }
+  }
+  db.prepare("INSERT INTO settings (key, value) VALUES ('ten_lau_v1', ?)").run(String(n));
   return n;
 }

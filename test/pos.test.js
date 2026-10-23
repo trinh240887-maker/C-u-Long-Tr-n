@@ -167,7 +167,7 @@ test('đặt bàn: giữ bàn không trùng giờ, gợi ý bàn, khách đến 
   assert.equal((await o('POST', `/api/reservations/${w.data.id}/arrive`, { tables: '30' })).status, 200);
 });
 
-test('phiếu lẩu: 2 set + 1 ngăn thêm → Nước lẩu "Lẩu 2 ngăn" / "Lẩu 1 ngăn", Bò "2 x Set bò", Topping "2 x Rau tổng hợp"', async (t) => {
+test('phiếu lẩu: 2 lẩu + 1 ngăn thêm → Nước lẩu "Lẩu 2 ngăn: Ngăn 1 / Ngăn 2" và "Lẩu 1 ngăn", Bò "2 x Set bò", Topping "2 x Rau tổng hợp"', async (t) => {
   const { db, mk } = await setup(t, at('2026-10-24', '18:00'));
   const o = mk();
   await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
@@ -179,8 +179,8 @@ test('phiếu lẩu: 2 set + 1 ngăn thêm → Nước lẩu "Lẩu 2 ngăn" / "
     assert.equal((await o('POST', `/api/pos/sessions/${sid}/items`, { menu_item_id: M(n), qty: q })).status, 200);
   }
   assert.equal((await o('POST', `/api/pos/sessions/${sid}/send`)).status, 200);
-  const by = Object.fromEntries(db.prepare('SELECT st.name, k.lines FROM kitchen_tickets k JOIN kitchen_stations st ON st.id = k.station_id WHERE k.session_id = ?').all(sid).map((k) => [k.name, JSON.parse(k.lines).map((l) => `${l.qty} x ${l.name}`)]));
-  assert.deepEqual(by['Nước lẩu'], ['1 x Lẩu 2 ngăn · Mala Tứ Xuyên + Cà chua Quý Châu', '1 x Lẩu 1 ngăn · Thảo mộc Triều Châu']);
+  const by = Object.fromEntries(db.prepare('SELECT st.name, k.lines FROM kitchen_tickets k JOIN kitchen_stations st ON st.id = k.station_id WHERE k.session_id = ?').all(sid).map((k) => [k.name, JSON.parse(k.lines).map((l) => `${l.qty} x ${l.name}${l.options.length ? ` (${l.options.join(' / ')})` : ''}`)]));
+  assert.deepEqual(by['Nước lẩu'], ['1 x Lẩu 2 ngăn (Ngăn 1: Mala Tứ Xuyên / Ngăn 2: Cà chua Quý Châu)', '1 x Lẩu 1 ngăn (Thảo mộc Triều Châu)']);
   assert.deepEqual(by['Bò'], ['2 x Set bò']);
   assert.deepEqual(by['Topping – Nướng – Rau'], ['2 x Rau tổng hợp']);
 });

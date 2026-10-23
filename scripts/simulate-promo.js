@@ -93,17 +93,17 @@ const add = (name, qty, opts = [], note = '') => waiter('POST', `/api/pos/sessio
 await add('Combo 3', 2, ['Tiêu đen', 'Bánh mì'], 'chín vừa');
 await add('Steak Âu', 1, ['Kem phô mai', 'Mì Ý']);
 await add('Steak Âu', 1, ['Hoàng kim', 'Mì Ý']); // phần tặng khách chọn sốt khác, bấm cùng lúc
-await add('Set 2 Mala Tứ Xuyên', 1);
+await add('Lẩu Mala Tứ Xuyên', 1);
 await add('Nước lẩu Cà chua Quý Châu', 1); // khách lấy lẩu 2 ngăn
-await add('Set 4 Cà chua Quý Châu', 1);
+await add('Lẩu Cà chua Quý Châu', 1);
 await add('Trà đào', 2);
 let s = await waiter('GET', `/api/pos/sessions/${sid}`);
 const tags = (await waiter('GET', '/api/menu')).promo?.tags || {};
 P('\n## 2. Phục vụ gọi món · bàn 12, 6 khách');
-P(`- Màn gọi món hiện nhãn 🎁 trên món: Combo 3 "${tags[M('Combo 3').id]}", Set lẩu "${tags[M('Set 2 Mala Tứ Xuyên').id]}"`);
+P(`- Màn gọi món hiện nhãn 🎁 trên món: Combo 3 "${tags[M('Combo 3').id]}", Lẩu "${tags[M('Lẩu Mala Tứ Xuyên').id]}"`);
 P('- Khách gọi 1 Combo 3 (tiêu đen, bánh mì): phục vụ bấm Combo 3, chọn sốt → khung "🎁 Mua 1 tặng 1 steak: khách gọi 1 → bếp làm 2 phần" → nút [Thêm 1 + tặng 1 · 139.000đ] → app ghi 2 Combo 3');
 P('- Khách gọi 1 Steak Âu kem phô mai, phần tặng muốn sốt Hoàng kim → bấm "Phần tặng chọn khác", chọn Hoàng kim ngay trong khung → [Thêm 1 + tặng 1 · 79.000đ] → app ghi 2 dòng, ra chung 1 phiếu');
-P('- Thêm: 1 Set 2 Mala + 1 ngăn thêm Cà chua (lẩu 2 ngăn) · 1 Set 4 Cà chua (1 ngăn) · 2 Trà đào');
+P('- Thêm: 1 Lẩu Mala 2 ngăn (ngăn 2 Cà chua) · 1 Lẩu Cà chua 1 ngăn · 2 Trà đào');
 for (const g of s.gifts.filter((x) => x.left)) P(`- Màn hình hiện khung xanh: "🎁 ${g.name}: bàn còn được tặng ${g.left} phần" + nút ${g.items.map((i) => `[+ ${i.name}]`).join(' ')}`);
 await add('Thịt tươi tặng 100g', 2);
 s = await waiter('GET', `/api/pos/sessions/${sid}`);
@@ -136,7 +136,7 @@ fs.writeFileSync(path.join(outDir, 'gia-lap-khuyen-mai.md'), report);
 console.log(report);
 // Bàn 15 chỉ gọi 1 set lẩu (để chụp màn hình khung xanh "còn được tặng")
 const sid2 = (await waiter('POST', '/api/pos/sessions', { tables: [15], guests: 2 })).id;
-await waiter('POST', `/api/pos/sessions/${sid2}/items`, { menu_item_id: M('Set 1 Thảo mộc Triều Châu').id, qty: 1 });
+await waiter('POST', `/api/pos/sessions/${sid2}/items`, { menu_item_id: M('Lẩu Thảo mộc Triều Châu').id, qty: 1 });
 await waiter('POST', `/api/pos/sessions/${sid2}/items`, { menu_item_id: M('Combo 1').id, qty: 2, option_ids: pick(M('Combo 1'), ['Hoàng kim', 'Nui']) });
 console.log(`\nSESSION=${sid} SESSION2=${sid2} URL=${base}`);
 if (process.env.KEEP !== '1') { app.close(); server.close(); }

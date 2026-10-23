@@ -93,7 +93,7 @@ const menu = (await o('GET', '/api/menu')).data;
 const M = (n) => menu.items.find((x) => x.name === n);
 now = at('18:00');
 const sid = (await quan.c('POST', '/api/pos/sessions', { tables: [30], guests: 40, override_size: true })).data.id;
-for (const [n, q] of [['Set 1 Thảo mộc Triều Châu', 12], ['Set 2 Mala Tứ Xuyên', 16], ['Set 4 Cà chua Quý Châu', 12], ['Thăn bò tươi 100g', 10], ['Bắp hoa tươi 100g', 6], ['Gù bò tươi 100g', 5], ['Ba chỉ bò Mỹ 100g', 4]]) {
+for (const [n, q] of [['Lẩu Thảo mộc Triều Châu', 12], ['Lẩu Mala Tứ Xuyên', 16], ['Lẩu Cà chua Quý Châu', 12], ['Thăn bò tươi 100g', 10], ['Bắp hoa tươi 100g', 6], ['Gù bò tươi 100g', 5], ['Ba chỉ bò Mỹ 100g', 4]]) {
   const r = await quan.c('POST', `/api/pos/sessions/${sid}/items`, { menu_item_id: M(n).id, qty: q, override_stock: true });
   if (r.status !== 200) issues.push(`Gọi ${n}: ${r.data?.error}`);
 }

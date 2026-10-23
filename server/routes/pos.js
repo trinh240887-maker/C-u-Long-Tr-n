@@ -350,7 +350,7 @@ export default function (r, ctx) {
       for (let k = 0; k < i.qty; k++) {
         const add = addons.find((x) => !x.used && x.item.created_at >= (i.created_at || 0)) || addons.find((x) => !x.used);
         if (add) add.used = true;
-        list.push(add ? `Lẩu 2 ngăn · ${a} + ${brothOf(add.item.name)}` : `Lẩu 1 ngăn · ${a}`);
+        list.push(add ? `Lẩu 2 ngăn\t${a}\t${brothOf(add.item.name)}` : `Lẩu 1 ngăn\t${a}`);
       }
       pots.set(i.id, list);
     }
@@ -361,12 +361,16 @@ export default function (r, ctx) {
       targets = targets.flatMap((t) => {
         if (!BROTH_PART.test(t.label) || !pots.has(i.id)) return [t];
         const list = pots.get(i.id);
-        return [...new Set(list)].map((label) => ({ station_id: t.station_id, label, qty: list.filter((x) => x === label).length }));
+        // "Lẩu 2 ngăn" + dòng "Ngăn 1: Mala Tứ Xuyên", "Ngăn 2: Cà chua Quý Châu"; 1 ngăn: "Lẩu 1 ngăn" + "Mala Tứ Xuyên"
+        return [...new Set(list)].map((key) => {
+          const [label, ...ng] = key.split('\t');
+          return { station_id: t.station_id, label, pre: ng.length > 1 ? ng.map((x, k) => `Ngăn ${k + 1}: ${x}`) : ng, qty: list.filter((x) => x === key).length };
+        });
       });
       if (addons.some((x) => x.item === i)) {
         const left = addons.filter((x) => x.item === i && !x.used).length;
         if (!left) continue; // đã ghép hết vào set
-        targets = targets.map((t) => ({ ...t, label: `Thêm ngăn · ${brothOf(i.name)}`, qty: left }));
+        targets = targets.map((t) => ({ ...t, label: 'Thêm ngăn nước lẩu', pre: [brothOf(i.name)], qty: left }));
       }
       for (const t of targets) {
         if (!t.station_id) continue;
@@ -377,7 +381,7 @@ export default function (r, ctx) {
         const key = `${sid}:${urgent ? 1 : 0}`;
         if (!byStation.has(key)) byStation.set(key, { station_id: sid, priority: urgent ? 1 : 0, lines: [] });
         // Món có nhiều phần (set lẩu): mỗi điểm in tên PHẦN (vd "Rau tổng hợp"), cộng dồn cả bàn → "2 x Rau tổng hợp"
-        const line = { item_id: i.id, name: t.label || i.name, qty: t.qty, options: JSON.parse(i.options || '[]').map((o) => o.name), note: i.note, label: '', rush: !!i.rush };
+        const line = { item_id: i.id, name: t.label || i.name, qty: t.qty, options: [...(t.pre || []), ...JSON.parse(i.options || '[]').map((o) => o.name)], note: i.note, label: '', rush: !!i.rush };
         // Khuyến mãi chỉ đổi tiền: phiếu bếp KHÔNG ghi tặng, chỉ tổng số phần phải làm (chủ quán chốt)
         // Dòng giống hệt (cùng món, tuỳ chọn, ghi chú) thì cộng số lượng: bếp đọc 1 dòng "2 x" thay vì 2 dòng
         const same = byStation.get(key).lines.find((l) => l.name === line.name && l.label === line.label && l.note === line.note && l.rush === line.rush && l.options.join('|') === line.options.join('|'));
