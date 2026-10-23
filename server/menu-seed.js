@@ -60,7 +60,7 @@ const STATIONS = [
   ['Topping – Nướng – Rau', '192.168.1.248'], ['Pha chế', '192.168.1.244'],
 ];
 const SOT = ['Tứ xuyên', 'Kem phô mai', 'Tiêu đen'];
-const LAU_PARTS = (nuoc) => [[`Ngăn nước lẩu ${nuoc}`, 'Nước lẩu'], ['Bò tươi 150g (thăn, bắp hoa, gù)', 'Bò'], ['Rau tổng hợp', 'Topping – Nướng – Rau'], ['Mì trứng 2 vắt', 'Topping – Nướng – Rau']];
+const LAU_PARTS = (nuoc) => [[`Ngăn nước lẩu ${nuoc}`, 'Nước lẩu'], ['Set bò', 'Bò'], ['Rau tổng hợp', 'Topping – Nướng – Rau']];
 // [danh mục, điểm in, kiểu dụng cụ, [[tên, giá, mô tả, {sot, parts}]]]
 const MENU = [
   ['Steak', 'Steak', 'Steak', [

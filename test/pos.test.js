@@ -61,7 +61,8 @@ test('gọi món: mở bàn, bắt chọn sốt, gửi bếp tách phiếu theo 
   const byStation = Object.fromEntries(tickets.map((k) => [st[k.station_id], k]));
   assert.deepEqual(Object.keys(byStation).sort(), ['Bò', 'Nước lẩu', 'Pha chế', 'Steak', 'Topping – Nướng – Rau']);
   assert.deepEqual(byStation['Steak'].lines[0], { item_id: byStation['Steak'].lines[0].item_id, name: 'Combo 2', qty: 2, options: ['Tiêu đen'], note: 'chín vừa', label: '', rush: false });
-  assert.deepEqual(byStation['Topping – Nướng – Rau'].lines.map((l) => l.label), ['Rau tổng hợp', 'Mì trứng 2 vắt']);
+  // Set lẩu: mỗi khu in tên phần, cả bàn cộng dồn; mì đi kèm rổ rau không in riêng
+  assert.deepEqual(byStation['Topping – Nướng – Rau'].lines.map((l) => [l.qty, l.name]), [[1, 'Rau tổng hợp']]);
   assert.ok(tickets.every((k) => k.kind === 'new' && k.print_status === 'pending' && k.header === 'KHU A - 20'));
   assert.equal((await H('POST', `/api/pos/sessions/${sid}/send`)).status, 400); // không còn món mới
 
@@ -164,4 +165,22 @@ test('đặt bàn: giữ bàn không trùng giờ, gợi ý bàn, khách đến 
   const w = await o('POST', '/api/reservations', { kind: 'walkin', name: 'Khách áo xanh', guests: 3, date: '2026-10-24' });
   assert.equal(w.status, 200);
   assert.equal((await o('POST', `/api/reservations/${w.data.id}/arrive`, { tables: '30' })).status, 200);
+});
+
+test('phiếu lẩu: 2 set + 1 ngăn thêm → Nước lẩu "Lẩu 2 ngăn" / "Lẩu 1 ngăn", Bò "2 x Set bò", Topping "2 x Rau tổng hợp"', async (t) => {
+  const { db, mk } = await setup(t, at('2026-10-24', '18:00'));
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  const menu = (await o('GET', '/api/menu')).data;
+  const M = (n) => menu.items.find((x) => x.name === n).id;
+  const sid = (await o('POST', '/api/pos/sessions', { tables: [5], guests: 4 })).data.id;
+  for (const [n, q] of [['Set 2 Mala Tứ Xuyên', 1], ['Nước lẩu Cà chua Quý Châu', 1], ['Set 1 Thảo mộc Triều Châu', 1]]) {
+    assert.equal((await o('POST', `/api/pos/sessions/${sid}/items`, { menu_item_id: M(n), qty: q })).status, 200);
+  }
+  assert.equal((await o('POST', `/api/pos/sessions/${sid}/send`)).status, 200);
+  const by = Object.fromEntries(db.prepare('SELECT st.name, k.lines FROM kitchen_tickets k JOIN kitchen_stations st ON st.id = k.station_id WHERE k.session_id = ?').all(sid).map((k) => [k.name, JSON.parse(k.lines).map((l) => `${l.qty} x ${l.name}`)]));
+  assert.deepEqual(by['Nước lẩu'], ['1 x Lẩu 2 ngăn · Mala Tứ Xuyên + Cà chua Quý Châu', '1 x Lẩu 1 ngăn · Thảo mộc Triều Châu']);
+  assert.deepEqual(by['Bò'], ['2 x Set bò']);
+  assert.deepEqual(by['Topping – Nướng – Rau'], ['2 x Rau tổng hợp']);
 });

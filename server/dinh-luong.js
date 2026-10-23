@@ -169,14 +169,14 @@ export function seedDinhLuong(db) {
         row = { id, name: m.name, price: it.price || 0 };
         report.items_new.push(m.name);
         if (m.set) {
-          const parts = [[`Ngăn nước lẩu ${m.set}`, 'Nước lẩu'], ['Bò tươi 150g (thăn, gù, gầu giòn)', 'Bò'], ['Rau tổng hợp', 'Topping – Nướng – Rau'], ['Mì trứng 2 vắt', 'Topping – Nướng – Rau']];
+          const parts = [[`Ngăn nước lẩu ${m.set}`, 'Nước lẩu'], ['Set bò', 'Bò'], ['Rau tổng hợp', 'Topping – Nướng – Rau']]; // mì 2 vắt đi kèm rổ rau, không in riêng (chủ quán 23/10)
           parts.forEach(([label, ps], j) => db.prepare('INSERT INTO menu_item_parts (item_id, label, station_id, sort) VALUES (?, ?, ?, ?)').run(id, label, st[ps] ?? null, j));
         }
       } else {
         if (it.price && row.price !== it.price) { report.items_price.push(`${m.name}: ${row.price} → ${it.price}`); db.prepare('UPDATE menu_items SET price = ? WHERE id = ?').run(it.price, row.id); }
         if (row.name !== m.name) db.prepare('UPDATE menu_items SET name = ? WHERE id = ?').run(m.name, row.id);
         if (m.desc || m.set) db.prepare('UPDATE menu_items SET description = ? WHERE id = ?').run(m.desc || SET_DESC, row.id);
-        if (m.set) db.prepare("UPDATE menu_item_parts SET label = 'Bò tươi 150g (thăn, gù, gầu giòn)' WHERE item_id = ? AND label LIKE 'Bò tươi 150g%'").run(row.id);
+        if (m.set) db.prepare("UPDATE menu_item_parts SET label = 'Set bò' WHERE item_id = ? AND label LIKE 'Bò tươi 150g%'").run(row.id);
       }
       if (m.steak) { ensureOpts(row.id, 'Sốt', STEAK_SOT); ensureOpts(row.id, 'Tinh bột', TINH_BOT); }
       if (m.sot) ensureOpts(row.id, 'Sốt', STEAK_SOT);
@@ -261,4 +261,15 @@ function convertThaiTay(db) {
       if (g) db.prepare("INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, sort) VALUES (?, ?, 'number', 'kg', 1, 0, ?, ?, ?)").run(tpl.id, `${n} còn (cân riêng)`, g.id, g.home_store_id, old.sort + 1 + k);
     });
   }
+}
+
+// 23/10: phiếu Topping chỉ in "Rau tổng hợp" cho set lẩu (mì 2 vắt đi kèm rổ rau, bếp tự biết); mì gọi thêm vẫn in như món thêm.
+// Phiếu Bò: set bò mọi loại lẩu như nhau → in "Set bò", cả bàn cộng dồn ("2 x Set bò").
+// Chạy 1 lần cho dữ liệu đã nạp trước đó; chủ quán muốn in lại thì thêm phần ở Thực đơn → món → Phần in.
+export function dropSetNoodlePart(db) {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'set_mi_part_v1'").get()) return 0;
+  const n = Number(db.prepare("DELETE FROM menu_item_parts WHERE label = 'Mì trứng 2 vắt' AND item_id IN (SELECT item_id FROM menu_item_parts WHERE label = 'Rau tổng hợp')").run().changes);
+  db.prepare("UPDATE menu_item_parts SET label = 'Set bò' WHERE label LIKE 'Bò tươi 150g%'").run();
+  db.prepare("INSERT INTO settings (key, value) VALUES ('set_mi_part_v1', ?)").run(String(n));
+  return n;
 }

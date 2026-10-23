@@ -199,7 +199,7 @@ test('thực đơn: có sẵn menu quán, sửa giá/công thức, tổ trưởn
   assert.equal(combo3.station_id, st['Steak'].id);
   assert.deepEqual(combo3.options.map((x) => [x.group_name, x.name, x.required]), [['Sốt', 'Tứ xuyên', true], ['Sốt', 'Kem phô mai', true], ['Sốt', 'Tiêu đen', true]]);
   const set1 = m.items.find((i) => i.name.startsWith('Set 1'));
-  assert.deepEqual(set1.parts.map((p) => m.stations.find((s) => s.id === p.station_id).name), ['Nước lẩu', 'Bò', 'Topping – Nướng – Rau', 'Topping – Nướng – Rau']);
+  assert.deepEqual(set1.parts.map((p) => m.stations.find((s) => s.id === p.station_id).name), ['Nước lẩu', 'Bò', 'Topping – Nướng – Rau']);
 
   // Công thức trừ kho
   const ing = (await o('POST', '/api/stock/ingredients', { name: 'Thịt bò steak', unit: 'g' })).data.id;

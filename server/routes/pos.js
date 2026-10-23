@@ -330,12 +330,44 @@ export default function (r, ctx) {
   // ---------- Phiếu bếp ----------
   const station = (id) => (id ? db.prepare('SELECT * FROM kitchen_stations WHERE id = ?').get(id) : null);
   // Tách món thành các dòng theo điểm in (combo có nhiều phần); bàn ưu tiên / gấp / làm lại → máy ưu tiên của điểm đó
+  // Lẩu 1 ngăn / 2 ngăn: món nhóm "Ngăn nước lẩu thêm" gọi cùng lượt được ghép vào set lẩu (theo thứ tự gọi)
+  // → phiếu Nước lẩu in "Lẩu 2 ngăn · Mala Tứ Xuyên + Cà chua Quý Châu"; set không có ngăn thêm → "Lẩu 1 ngăn · Mala Tứ Xuyên".
+  const BROTH_PART = /^Ngăn nước lẩu /;
+  const ADDON_CAT = 'Ngăn nước lẩu thêm';
+  const brothOf = (name) => String(name).replace(/^Nước lẩu /, '');
   function routeLines(items, { priority = false } = {}) {
     const byStation = new Map();
+    const catName = (mid) => db.prepare('SELECT c.name FROM menu_items m JOIN menu_categories c ON c.id = m.category_id WHERE m.id = ?').get(mid)?.name;
+    const addons = []; // từng ngăn thêm chờ ghép: { item, used }
+    for (const i of items) if (i.menu_item_id && catName(i.menu_item_id) === ADDON_CAT) for (let k = 0; k < i.qty; k++) addons.push({ item: i, used: false });
+    // Lượt 1: ghép từng nồi của set với ngăn thêm (theo thứ tự gọi)
+    const pots = new Map(); // set item id → ['Lẩu 2 ngăn · A + B', ...]
+    for (const i of items) {
+      const bp = i.menu_item_id && db.prepare('SELECT label FROM menu_item_parts WHERE item_id = ? AND label LIKE ?').get(i.menu_item_id, 'Ngăn nước lẩu %');
+      if (!bp) continue;
+      const a = bp.label.replace(BROTH_PART, '');
+      const list = [];
+      for (let k = 0; k < i.qty; k++) {
+        const add = addons.find((x) => !x.used && x.item.created_at >= (i.created_at || 0)) || addons.find((x) => !x.used);
+        if (add) add.used = true;
+        list.push(add ? `Lẩu 2 ngăn · ${a} + ${brothOf(add.item.name)}` : `Lẩu 1 ngăn · ${a}`);
+      }
+      pots.set(i.id, list);
+    }
     for (const i of items) {
       const parts = i.menu_item_id ? db.prepare('SELECT * FROM menu_item_parts WHERE item_id = ? ORDER BY sort, id').all(i.menu_item_id) : [];
       const main = i.menu_item_id ? db.prepare('SELECT station_id FROM menu_items WHERE id = ?').get(i.menu_item_id)?.station_id : null;
-      const targets = parts.length ? parts.map((p) => ({ station_id: p.station_id, label: p.label })) : [{ station_id: main, label: '' }];
+      let targets = parts.length ? parts.map((p) => ({ station_id: p.station_id, label: p.label, qty: i.qty })) : [{ station_id: main, label: '', qty: i.qty }];
+      targets = targets.flatMap((t) => {
+        if (!BROTH_PART.test(t.label) || !pots.has(i.id)) return [t];
+        const list = pots.get(i.id);
+        return [...new Set(list)].map((label) => ({ station_id: t.station_id, label, qty: list.filter((x) => x === label).length }));
+      });
+      if (addons.some((x) => x.item === i)) {
+        const left = addons.filter((x) => x.item === i && !x.used).length;
+        if (!left) continue; // đã ghép hết vào set
+        targets = targets.map((t) => ({ ...t, label: `Thêm ngăn · ${brothOf(i.name)}`, qty: left }));
+      }
       for (const t of targets) {
         if (!t.station_id) continue;
         let sid = t.station_id;
@@ -344,7 +376,8 @@ export default function (r, ctx) {
         if (urgent && st?.priority_station_id) sid = st.priority_station_id;
         const key = `${sid}:${urgent ? 1 : 0}`;
         if (!byStation.has(key)) byStation.set(key, { station_id: sid, priority: urgent ? 1 : 0, lines: [] });
-        const line = { item_id: i.id, name: i.name, qty: i.qty, options: JSON.parse(i.options || '[]').map((o) => o.name), note: i.note, label: t.label, rush: !!i.rush };
+        // Món có nhiều phần (set lẩu): mỗi điểm in tên PHẦN (vd "Rau tổng hợp"), cộng dồn cả bàn → "2 x Rau tổng hợp"
+        const line = { item_id: i.id, name: t.label || i.name, qty: t.qty, options: JSON.parse(i.options || '[]').map((o) => o.name), note: i.note, label: '', rush: !!i.rush };
         // Khuyến mãi chỉ đổi tiền: phiếu bếp KHÔNG ghi tặng, chỉ tổng số phần phải làm (chủ quán chốt)
         // Dòng giống hệt (cùng món, tuỳ chọn, ghi chú) thì cộng số lượng: bếp đọc 1 dòng "2 x" thay vì 2 dòng
         const same = byStation.get(key).lines.find((l) => l.name === line.name && l.label === line.label && l.note === line.note && l.rush === line.rush && l.options.join('|') === line.options.join('|'));
