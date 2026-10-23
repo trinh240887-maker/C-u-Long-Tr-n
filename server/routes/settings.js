@@ -26,6 +26,7 @@ const FIELDS = {
   supplier_pay_approve_over: (x) => String(v.int(Number(String(x).replace(/[.,\s]/g, '')), { min: 0, max: 1_000_000_000, name: 'Mức chi NCC cần duyệt' })),
   spot_photos_per_run: (x) => String(v.int(x, { min: 0, max: 5, name: 'Số việc kiểm tra ngẫu nhiên' })),
   count_tolerance_pct: (x) => String(v.int(x, { min: 0, max: 50, name: '% lệch kiểm kho cho phép' })),
+  bill_reader_daily_max: (x) => String(v.int(x, { min: 0, max: 1000, name: 'Số bill đọc tự động / ngày' })),
   price_jump_pct: (x) => String(v.int(x, { min: 1, max: 200, name: '% giá tăng bất thường' })),
   table_clear_minutes: (x) => String(v.int(x, { min: 1, max: 60, name: 'Thời gian dọn bàn' })),
   wait_call_minutes: (x) => String(v.int(x, { min: 1, max: 30, name: 'Chờ khách vào sau khi mời' })),

@@ -6,6 +6,7 @@ import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
 import { isDate, addDays } from '../lib/time.js';
 import { makeXlsx } from '../lib/xlsx.js';
+import { readBill, billReaderReady } from '../lib/bill-reader.js';
 
 // Hoá đơn mua hàng + công nợ NCC + tạm ứng đi chợ.
 // 1. Khu nhận hàng (bếp / lẩu / bar): nhập số thực nhận, CHỤP BILL NCC (có chữ ký người nhận), ghi tên người ký,
@@ -206,7 +207,34 @@ export default function (r, ctx) {
     const ids = db.prepare(`SELECT id FROM purchase_bills WHERE date BETWEEN ? AND ? ${status ? 'AND status = ?' : ''} ${mine ? 'AND received_by = ?' : ''} ORDER BY id DESC LIMIT 300`)
       .all(...[from, to, ...(status ? [status] : []), ...(mine ? [me.id] : [])]).map((x) => x.id);
     const pending = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS t FROM purchase_bills WHERE status = 'received'").get();
-    return { bills: ids.map(load), pending: pending.n, pending_total: pending.t, can_approve: isCashier(me), is_boss: isBoss(me) };
+    return { bills: ids.map(load), pending: pending.n, pending_total: pending.t, can_approve: isCashier(me), is_boss: isBoss(me), bill_reader: billReaderReady() };
+  });
+
+  // Đọc ảnh bill bằng AI → điền sẵn dòng hàng; nhân viên vẫn kiểm & sửa trước khi lưu. Giới hạn số lần / ngày để khỏi tốn tiền.
+  r.post('/api/purchases/read-bill', 'staff', async ({ me, body }) => {
+    const photos = Array.isArray(body.photos) ? body.photos.slice(0, 4) : [];
+    if (!photos.length) fail(400, 'Chụp bill trước rồi bấm Đọc bill');
+    const max = Number(ctx.setting('bill_reader_daily_max') || 80);
+    const today = ctx.today();
+    const cnt = JSON.parse(ctx.setting('bill_reader_count') || '{}');
+    const n = cnt.date === today ? cnt.n : 0;
+    if (n >= max) fail(429, `Hôm nay đã đọc ${n} bill (tối đa ${max}). Nhập tay giúp, hoặc chủ quán tăng giới hạn`);
+    ctx.setSetting('bill_reader_count', JSON.stringify({ date: today, n: n + 1 }));
+    const ings = db.prepare('SELECT id, name, unit, purchase_unit FROM ingredients WHERE active = 1 ORDER BY name').all();
+    let out;
+    try { out = await (ctx.readBill || readBill)(photos, ings); } catch (e) { fail(502, e.message); }
+    const norm = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+    const byId = new Map(ings.map((g) => [g.id, g]));
+    const sup = out.supplier_name ? db.prepare('SELECT id, name FROM suppliers WHERE active = 1').all().find((x) => norm(x.name) === norm(out.supplier_name) || norm(out.supplier_name).includes(norm(x.name))) : null;
+    ctx.audit(me, 'purchase.read_bill', { photos: photos.length, lines: out.lines.length, usage: out.usage });
+    return {
+      supplier_id: sup?.id || null, supplier_name: sup ? sup.name : out.supplier_name || '', signer_name: out.signer_name || '', total: out.total || 0, note: out.note || '',
+      lines: out.lines.map((l) => {
+        const g = l.ingredient_id ? byId.get(l.ingredient_id) : null;
+        const ku = g ? g.purchase_unit || g.unit : '';
+        return { ingredient_id: g?.id || null, name: g ? g.name : l.name, bill_name: l.name, unit: g ? ku : l.unit, bill_unit: l.unit, qty: l.qty, price: l.price, unit_mismatch: !!g && norm(ku) !== norm(l.unit) };
+      }),
+    };
   });
 
   r.get('/api/purchases/photo/:id', 'staff', ({ params }) => {

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { html, api, act, useData, Loading, money, hm, dayLabel, addDays, Modal, Field, navigate } from '../ui.js';
+import { html, api, act, useData, Loading, money, hm, dayLabel, addDays, Modal, Field, navigate, toast } from '../ui.js';
 import { compressImage } from './checklists.js';
 
 // Mua hàng: khu nhận hàng chụp bill NCC (ký nhận) → thu ngân duyệt → công nợ NCC → trả NCC / tạm ứng đi chợ
@@ -37,7 +37,10 @@ function Lines({ lines, setLines, ingredients }) {
         <label>Đơn giá <input inputmode="numeric" style="width:7em" value=${l.price} onInput=${(e) => set(i, 'price', e.target.value)} /></label>
         <button class="small icon" aria-label="Xoá dòng" onClick=${() => setLines(lines.filter((_, j) => j !== i))}>✕</button>
       </div>
-      <small class="muted">= ${money(Math.round(num(l.qty) * num(l.price)))}${l.ordered != null ? ` · đặt ${l.ordered}` : ''}</small>
+      <small class="muted">= ${money(Math.round(num(l.qty) * num(l.price)))}${l.ordered != null ? ` · đặt ${l.ordered}` : ''}${l.ai ? ' · 📖 máy đọc' : ''}</small>
+      ${l.warn ? html`<small class="warn-text">⚠ ${l.warn}</small>` : null}
+      ${l.ai && !l.ingredient_id ? html`<select onChange=${(e) => { const g = ingredients.find((x) => x.id === Number(e.target.value)); if (g) setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, warn: '' } : x))); }}>
+        <option value="">Là hàng trong kho… (bỏ qua nếu là hàng khác)</option>${ingredients.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>` : null}
     </div>`)}
     <div class="row wrap">
       <select onChange=${(e) => { const g = ingredients.find((x) => x.id === Number(e.target.value)); e.target.value = ''; if (g && !lines.some((l) => l.ingredient_id === g.id)) setLines([...lines, { ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, qty: '', price: g.price || '' }]); }}>
@@ -54,6 +57,21 @@ function Receive({ me, meta, advances, onDone }) {
   const [lines, setLines] = useState([]);
   const [photos, setPhotos] = useState([]);
   const set = (k, val) => setF({ ...f, [k]: val });
+  // 📖 Đọc bill: AI đọc ảnh → điền nơi bán, dòng hàng, tổng, người ký; nhân viên kiểm lại rồi mới lưu
+  const [reading, setReading] = useState(false);
+  const [readNote, setReadNote] = useState('');
+  const readBill = async () => {
+    setReading(true); setReadNote('');
+    try {
+      const r = await api('POST', '/api/purchases/read-bill', { photos });
+      const got = r.lines.map((l) => ({ ingredient_id: l.ingredient_id || undefined, name: l.name, unit: l.unit, qty: String(l.qty), price: String(l.price), ai: true, warn: !l.ingredient_id ? 'Không có trong kho: chọn hàng hoặc để là hàng khác' : l.unit_mismatch ? `Bill ghi "${l.bill_unit}", kho tính "${l.unit}": đổi số lượng cho đúng` : '' }));
+      // Theo đơn đặt: giữ dòng của đơn, cập nhật số đọc được; mua lẻ: thay bằng dòng đọc được
+      setLines(f.po_id ? lines.map((l) => { const g = got.find((x) => x.ingredient_id && x.ingredient_id === l.ingredient_id); return g ? { ...l, qty: g.qty, price: g.price, ai: true, warn: g.warn } : l; }).concat(got.filter((g) => !lines.some((l) => l.ingredient_id && l.ingredient_id === g.ingredient_id))) : got);
+      setF({ ...f, ...(f.po_id ? {} : { supplier_id: r.supplier_id ? String(r.supplier_id) : '', supplier_name: r.supplier_id ? '' : r.supplier_name }), total: r.total ? String(r.total) : f.total, signer_name: f.signer_name || r.signer_name });
+      setReadNote(r.note);
+      toast(`Đã đọc ${got.length} dòng: kiểm lại số lượng, đơn giá trước khi lưu`);
+    } catch (e) { act(() => Promise.reject(e)); } finally { setReading(false); }
+  };
   const myAdv = (advances.data || []).filter((a) => a.status === 'open' && a.staff_id === me.id);
   const usePo = (id) => {
     const po = (pos.data || []).find((p) => p.id === Number(id));
@@ -86,6 +104,9 @@ function Receive({ me, meta, advances, onDone }) {
     <${Field} label="Tổng tiền ghi trên bill" hint=${`Cộng các dòng: ${money(sum)}. Để trống = lấy số cộng.`}><input inputmode="numeric" value=${f.total} placeholder=${String(sum || '')} onInput=${(e) => set('total', e.target.value)} /><//>
     <${Field} label="Tên người ký nhận trên bill"><input value=${f.signer_name} placeholder="Họ tên như chữ ký trên bill" onInput=${(e) => set('signer_name', e.target.value)} /><//>
     <${PhotoPicker} photos=${photos} setPhotos=${setPhotos} />
+    ${photos.length ? (meta.bill_reader ? html`<button class="primary big" disabled=${reading} onClick=${readBill}>${reading ? '📖 Đang đọc bill… (10–40 giây)' : '📖 Đọc bill: tự điền hàng, số lượng, giá'}</button>`
+      : html`<p class="small muted">📖 Đọc bill tự động: chưa cài (chủ quán thêm ANTHROPIC_API_KEY trên Railway).</p>`) : null}
+    ${readNote ? html`<p class="warn-text small">⚠ Máy đọc ghi chú: ${readNote}</p>` : null}
     <${Field} label="Thanh toán"><div class="chips">
       ${[['', 'Ghi nợ'], ['transfer', 'Đã CK tại chỗ'], ...(meta.is_cashier ? [['cash', 'Trả tiền mặt từ két']] : [])].map(([k, l]) => html`<button class=${`chip ${!f.advance_id && f.paid_method === k ? 'on' : ''}`} onClick=${() => setF({ ...f, paid_method: k, advance_id: '' })}>${l}</button>`)}
       ${myAdv.map((a) => html`<button class=${`chip ${Number(f.advance_id) === a.id ? 'on' : ''}`} onClick=${() => setF({ ...f, advance_id: String(a.id), paid_method: '' })}>Tiền tạm ứng ${money(a.amount)} (còn ${money(a.should_return)})</button>`)}
@@ -216,7 +237,7 @@ export function PurchasesView({ me, query }) {
   if (!meta0.data || !list.data) return html`<${Loading} state=${meta0.data ? list : meta0} />`;
   const L = list.data;
   const isCashier = L.can_approve;
-  const meta = { ...meta0.data, is_cashier: isCashier };
+  const meta = { ...meta0.data, is_cashier: isCashier, bill_reader: !!L.bill_reader };
   const waiting = L.bills.filter((b) => b.status === 'received');
   const mineReturned = L.bills.filter((b) => b.status === 'returned' && b.received_by === me.id);
   const tabs = [['nhan', 'Nhận hàng'], ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ['lichsu', 'Bill đã nhận'], ...(isCashier ? [['congno', 'Công nợ NCC']] : []), ['tamung', 'Tạm ứng']];
