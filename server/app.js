@@ -1,4 +1,7 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { brotliCompressSync, gzipSync, constants as zlibConstants } from 'node:zlib';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { HttpError, fail, createRouter, readJson, readCookie, sendJson } from './http.js';
@@ -131,19 +134,52 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
     ok(ip) { failedLogins.delete(ip); },
   };
 
-  async function serveStatic(res, pathname) {
+  // File giao diện: nén (brotli / gzip) + ETag → lần sau điện thoại chỉ hỏi "có đổi không" (304), không tải lại.
+  // index.html báo trước mọi file JS (modulepreload) để trình duyệt tải song song, không phải chờ từng lớp import.
+  const staticCache = new Map();
+  const preloadTags = (() => {
+    try {
+      const root = path.resolve(publicDir);
+      const list = [];
+      const walk = (dir) => { for (const n of readdirSync(dir, { withFileTypes: true })) { const f = path.join(dir, n.name); if (n.isDirectory()) walk(f); else if (n.name.endsWith('.js')) list.push('/' + path.relative(root, f).split(path.sep).join('/')); } };
+      walk(root);
+      return list.filter((x) => !/datban|sw\.js$/.test(x)).map((x) => `<link rel="modulepreload" href="${x}">`).join('\n  ');
+    } catch { return ''; }
+  })();
+  async function loadStatic(file) {
+    const st = await stat(file);
+    const hit = staticCache.get(file);
+    if (hit && hit.mtime === st.mtimeMs) return hit;
+    let data = await readFile(file);
+    if (path.basename(file) === 'index.html' && preloadTags) data = Buffer.from(String(data).replace('</head>', `  ${preloadTags}\n</head>`));
+    const text = /\.(js|css|html|svg|json|webmanifest)$/.test(file);
+    const entry = {
+      mtime: st.mtimeMs, data, type: MIME[path.extname(file)] || 'application/octet-stream',
+      etag: `"${createHash('sha1').update(data).digest('base64url').slice(0, 16)}"`,
+      br: text && data.length > 1024 ? brotliCompressSync(data, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 9 } }) : null,
+      gz: text && data.length > 1024 ? gzipSync(data, { level: 9 }) : null,
+    };
+    staticCache.set(file, entry);
+    return entry;
+  }
+  async function serveStatic(res, pathname, req) {
     // /datban: trang khách tự đặt bàn (công khai, không cần đăng nhập)
     const rel = pathname === '/' ? 'index.html' : pathname === '/datban' ? 'datban.html' : decodeURIComponent(pathname.slice(1));
     const root = path.resolve(publicDir);
     const file = path.resolve(root, rel);
     if (!file.startsWith(root + path.sep)) { res.writeHead(404); return res.end('Not found'); }
     try {
-      const data = await readFile(file);
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
-      res.end(data);
+      const f = await loadStatic(file);
+      const head = { 'Content-Type': f.type, 'Cache-Control': 'no-cache', ETag: f.etag, Vary: 'Accept-Encoding' };
+      if (req?.headers['if-none-match'] === f.etag) { res.writeHead(304, head); return res.end(); }
+      const ae = String(req?.headers['accept-encoding'] || '');
+      if (f.br && /\bbr\b/.test(ae)) { res.writeHead(200, { ...head, 'Content-Encoding': 'br', 'Content-Length': f.br.length }); return res.end(f.br); }
+      if (f.gz && /gzip/.test(ae)) { res.writeHead(200, { ...head, 'Content-Encoding': 'gzip', 'Content-Length': f.gz.length }); return res.end(f.gz); }
+      res.writeHead(200, { ...head, 'Content-Length': f.data.length });
+      res.end(f.data);
     } catch {
       // Ứng dụng một trang: đường dẫn lạ trả về index.html
-      if (!path.extname(file)) return serveStatic(res, '/');
+      if (!path.extname(file)) return serveStatic(res, '/', req);
       res.writeHead(404); res.end('Not found');
     }
   }
@@ -193,7 +229,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
       }
 
       if (req.method !== 'GET') fail(405, 'Không hỗ trợ');
-      return serveStatic(res, pathname);
+      return serveStatic(res, pathname, req);
     } catch (err) {
       if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message });
       console.error(err);
