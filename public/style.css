@@ -637,3 +637,6 @@ details.cart { padding: 8px 12px; }
   .order .menu-btn b { line-height: 1.2; }
 }
 .cat-sub { font-weight: 700; color: #15803d; margin: 4px 2px -2px; }
+.tbl-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; }
+.tbl-pick .chip { min-height: 48px; justify-content: center; font-weight: 700; }
+.tbl-pick .chip.busy { opacity: .45; }

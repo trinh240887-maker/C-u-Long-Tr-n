@@ -88,7 +88,7 @@ P(`- Không gửi thông báo riêng (${notes}): chương trình hiện ở th�
 // ---------- 2. Phục vụ gọi món bàn 12 ----------
 now = clock.toEpoch(DAY, 18 * 60 + 45);
 const sid = (await waiter('POST', '/api/pos/sessions', { tables: [12], guests: 6 })).id;
-const pick = (item, names) => names.map((n) => item.options.find((x) => x.name === n).id);
+const pick = (item, names) => names.map((n) => item.options.find((x) => x.name === n)?.id).filter(Boolean); // nhóm tuỳ chọn đang ẩn (tinh bột) thì bỏ qua
 const add = (name, qty, opts = [], note = '') => waiter('POST', `/api/pos/sessions/${sid}/items`, { menu_item_id: M(name).id, qty, option_ids: opts.length ? pick(M(name), opts) : [], note });
 await add('Combo 3', 2, ['Tiêu đen', 'Bánh mì'], 'chín vừa');
 await add('Steak Âu', 1, ['Kem phô mai', 'Mì Ý']);

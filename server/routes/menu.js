@@ -19,7 +19,9 @@ export default function (r, ctx) {
     const stations = db.prepare('SELECT * FROM kitchen_stations ORDER BY sort, id').all().map((s) => ({ ...s, active: !!s.active }));
     const cats = db.prepare(`SELECT * FROM menu_categories ${all ? '' : 'WHERE active = 1'} ORDER BY sort, id`).all().map((c) => ({ ...c, active: !!c.active }));
     const parts = db.prepare('SELECT * FROM menu_item_parts ORDER BY sort, id').all();
-    const opts = db.prepare('SELECT * FROM menu_options ORDER BY sort, id').all();
+    // Nhóm tuỳ chọn tạm ẩn khi gọi món (chủ quán 24/10: chưa bắt chọn tinh bột). Bỏ khỏi setting hidden_option_groups là hiện lại.
+    const hidden = new Set(JSON.parse(ctx.setting('hidden_option_groups') || '["Tinh bột"]'));
+    const opts = db.prepare('SELECT * FROM menu_options ORDER BY sort, id').all().filter((o) => all || !hidden.has(o.group_name));
     const recipes = db.prepare('SELECT r.*, g.name AS ingredient_name, g.unit FROM menu_recipes r JOIN ingredients g ON g.id = r.ingredient_id').all();
     const left = ctx.portionsMap ? ctx.portionsMap() : new Map();
     const items = db.prepare(`SELECT * FROM menu_items ${all ? '' : 'WHERE active = 1'} ORDER BY sort, id`).all().map((i) => ({

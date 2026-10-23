@@ -7,7 +7,6 @@ const STATUS = { new: 'Chưa gửi', sent: 'Đã gửi bếp', done: 'Đã ra', 
 // Ghi chú nhanh theo nhóm món (bếp chỉ thấy cái liên quan)
 const QUICK_NOTES = [
   [/steak|món xào/i, ['Chín vừa', 'Chín kỹ']],
-  [/lẩu|bò tươi|topping|rau|xiên/i, ['Ít cay', 'Không cay', 'Không hành']],
   [/cà phê|trà|nước|bia|soju/i, ['Ít đá', 'Không đá', 'Ít ngọt']],
 ];
 const notesFor = (catName) => QUICK_NOTES.find(([re]) => re.test(catName || ''))?.[1] || [];
@@ -48,11 +47,6 @@ function AddItem({ item, onAdd, onClose, catName = '', bogo = null, addons = [] 
         <button class="icon big" onClick=${() => setQty(Math.max(1, qty - 1))}>−</button><b class="big-num">${qty}</b><button class="icon big" onClick=${() => setQty(qty + 1)}>+</button>
         <span class="grow r"><b>${money(unit * qty)}</b></span>
       </div>
-      ${broth ? html`<div class="field"><span>Số ngăn</span>
-        <div class="chips"><button class=${`chip big ${ngan === 1 ? 'on' : ''}`} onClick=${() => setNgan(1)}>1 ngăn</button><button class=${`chip big ${ngan === 2 ? 'on' : ''}`} onClick=${() => setNgan(2)}>2 ngăn</button></div>
-        <small class="muted">Ngăn 1: <b>${broth}</b></small></div>
-      ${ngan === 2 ? html`<div class=${`field ${warn && needN2 ? 'need-pick' : ''}`}><span>Ngăn 2 <b class="req">bấm chọn 1 loại</b></span>
-        <div class="chips">${addons.map((a) => html`<button class=${`chip big ${n2 === a.id ? 'on' : ''}`} disabled=${a.sold_out} onClick=${() => setN2(a.id)}>${a.name.replace(/^Nước lẩu /, '')} +${money(a.price)}</button>`)}</div></div>` : null}` : null}
       ${bogo ? html`<div class="gift-bar">
         <div>🎁 <b>${bogo.name}</b>: ${free ? html`khách gọi <b>${qty}</b> → bếp làm <b>${total} phần</b> (tặng ${free}), bill tự trừ.` : `gọi đủ ${bogo.buy} phần để được tặng.`}</div>
         ${free && groups.length ? html`<div class="chips"><button class=${`chip ${!giftOther ? 'on' : ''}`} onClick=${() => setGiftOther(false)}>Phần tặng giống y</button>
@@ -109,15 +103,22 @@ function Split({ items, onOk, onClose }) {
   </div><//>`;
 }
 
-function TablePrompt({ title, hint, onOk, onClose, items = null }) {
-  const [txt, setTxt] = useState('');
+// Chọn bàn bằng cách bấm (theo khu). busyOk: được chọn bàn đang có khách (chuyển món gọi nhầm sang bàn đúng)
+function TablePrompt({ title, hint, onOk, onClose, items = null, zones = [], selfId = null, busyOk = false, multi = true }) {
+  const [sel, setSel] = useState([]);
   const [pick, setPick] = useState(() => new Set((items || []).map((i) => i.id)));
+  const toggle = (n) => setSel(sel.includes(n) ? sel.filter((x) => x !== n) : multi ? [...sel, n] : [n]);
   return html`<${Modal} title=${title} onClose=${onClose}><div class="stack">
-    <${Field} label="Bàn" hint=${hint}><input id="tp-text" inputmode="numeric" value=${txt} onInput=${(e) => setTxt(e.target.value)} /><//>
+    <small class="muted">${hint}</small>
+    ${zones.map((z) => html`<div class="field"><span>${z.name}</span><div class="tbl-pick">${z.tables.map((t) => {
+      const busy = t.session && t.session.id !== selfId;
+      const mine = t.session && t.session.id === selfId;
+      return html`<button class=${`chip ${sel.includes(t.number) ? 'on' : ''} ${busy ? 'busy' : ''}`} disabled=${mine || (busy && !busyOk)} onClick=${() => toggle(t.number)}>${t.number}${t.reservation ? ' 📅' : ''}</button>`;
+    })}</div></div>`)}
     ${items?.length ? html`<div class="field"><span>Báo bếp giao sang bàn mới: chỉ tick món <b>CHƯA RA</b></span>
       ${items.map((i) => html`<label class="check-row"><input type="checkbox" checked=${pick.has(i.id)} onChange=${(e) => { const n = new Set(pick); if (e.target.checked) n.add(i.id); else n.delete(i.id); setPick(n); }} /> ${i.qty} × ${i.name}</label>`)}
       <small class="muted">Món đã ra bàn thì bỏ tick, bếp không nhận phiếu.</small></div>` : null}
-    <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" disabled=${!txt.trim()} onClick=${() => onOk(txt, [...pick])}>Xong</button></div>
+    <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" disabled=${!sel.length} onClick=${() => onOk(sel.join(', '), [...pick])}>${sel.length ? `Chuyển sang bàn ${sel.join(', ')}` : 'Bấm chọn bàn'}</button></div>
   </div><//>`;
 }
 
@@ -163,7 +164,13 @@ export function OrderView({ me, query }) {
   const drafts = s.items.filter((i) => i.status === 'new');
   const sent = s.items.filter((i) => i.status !== 'new');
   const add = async (bodies) => {
-    const list = Array.isArray(bodies) ? bodies : [bodies];
+    const list = Array.isArray(bodies) ? [...bodies] : [bodies];
+    for (const b0 of [...list]) {
+      const g = m.promo?.gift?.[b0.menu_item_id];
+      const gi = g && m.items.find((x) => x.id === g.item_id);
+      const n = g ? Math.floor(b0.qty / g.buy) * g.get : 0;
+      if (gi && !gi.sold_out && n) list.push({ menu_item_id: gi.id, qty: n });
+    }
     const body = list[list.length - 1];
     try {
       for (const b of list.slice(0, -1)) await api('POST', `/api/pos/sessions/${id}/items`, b);
@@ -179,13 +186,13 @@ export function OrderView({ me, query }) {
   const bogoOf = (item, gift) => (gift ? null : m.promo?.bogo?.[item.id] || null);
   const addonCat = m.categories.find((c) => c.name === 'Ngăn nước lẩu thêm')?.id;
   const addons = m.items.filter((x) => x.category_id === addonCat);
-  const quick = (item, gift = false) => (item.options.length || isLau(item) ? setAdding({ ...item, gift }) : add({ menu_item_id: item.id, qty: withGift(1, bogoOf(item, gift)) }));
+  const quick = (item, gift = false) => (item.options.length ? setAdding({ ...item, gift }) : add({ menu_item_id: item.id, qty: withGift(1, bogoOf(item, gift)) }));
   const send = () => act(() => api('POST', `/api/pos/sessions/${id}/send`), 'Đã gửi bếp');
   const sessions = (tablesD.data?.zones || []).flatMap((z) => z.tables).filter((t) => t.session && t.session.id !== id)
     .map((t) => t.session).filter((x, k, a) => a.findIndex((y) => y.id === x.id) === k);
   return html`<div class="stack order">
     <div class="row between order-head">
-      <div><h2>Bàn ${s.header}</h2><small class="muted">${hm(s.opened_at)} · ${s.opened_by_name || ''} · 👥 ${s.guests} · <b class="ink">${money(s.total)}</b>${s.discount ? ` (KM −${money(s.discount)})` : ''}${s.status === 'paying' ? ' · đang chờ thanh toán' : ''}</small></div>
+      <div><h2>Bàn ${s.header}</h2><small class="muted">${hm(s.opened_at)} · ${s.opened_by_name || ''} · <b class="ink">${money(s.total)}</b>${s.discount ? ` (KM −${money(s.discount)})` : ''}${s.status === 'paying' ? ' · đang chờ thanh toán' : ''}</small></div>
       <button class="small" onClick=${async () => { if (!closed && !s.items.length) await api('POST', `/api/pos/sessions/${id}/cancel`, { reason: 'Nhận nhầm bàn, chưa gọi món' }).catch(() => {}); navigate('/ban'); }}>← Sơ đồ</button>
     </div>
     ${s.status === 'closed' ? html`<${PaidPanel} me=${me} id=${id} />` : null}
@@ -193,7 +200,6 @@ export function OrderView({ me, query }) {
     ${closed ? null : html`
     <div class="chips scroll-x tbl-acts">
       <label class="check-row"><input type="checkbox" checked=${s.priority} onChange=${(e) => act(() => api('PATCH', `/api/pos/sessions/${id}`, { priority: e.target.checked }))} /> Ưu tiên</label>
-      <button onClick=${() => { const g = prompt_(s.guests); if (g) act(() => api('PATCH', `/api/pos/sessions/${id}`, { guests: g }), 'Đã sửa số khách'); }}>Số khách${s.guests > 1 ? `: ${s.guests}` : ''}</button>
       <button onClick=${() => setPrompt('move')}>Chuyển bàn</button>
       <button onClick=${() => setPrompt('split')}>Tách bàn</button>
       <button onClick=${() => setPrompt('merge')}>Gộp bàn</button>
@@ -220,6 +226,15 @@ export function OrderView({ me, query }) {
         <b>${i.name}</b><small>${i.sold_out ? (i.auto_sold_out ? 'Hết nguyên liệu' : 'Hết món') : money(i.price)}</small>${!i.sold_out && i.left != null && i.left <= 5 ? html`<span class="left-tag">còn ${i.left} phần</span>` : null}${!i.sold_out && m.promo?.tags?.[i.id] ? html`<span class="promo-tag" title=${m.promo.tags[i.id]}>🎁 KM</span>` : null}</button>`)}</div>`)}`)}
       ${q && !items.length ? html`<div class="empty">Không thấy món "${q}".</div>` : null}` : null}
 
+    ${tab === 'bill' && !closed && drafts.length ? html`<section class="card cart"><b>Chưa gửi bếp (bấm − / + để sửa)</b>
+        <ul class="plain order-lines">${drafts.map((i) => html`<li class="ol new">
+          <div class="grow"><b>${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.note ? html`<br /><small class="muted">${i.note}</small>` : null}${i.promos?.length ? html`<br /><small class="promo-line">🎁 ${i.promos.map((p) => `${p.name} −${money(p.amount)}`).join(', ')}</small>` : null}</div>
+          <div class="row tight">
+            <button class="icon" onClick=${() => (i.qty > 1 ? act(() => api('PATCH', `/api/pos/items/${i.id}`, { qty: i.qty - 1 })) : act(() => api('POST', `/api/pos/items/${i.id}/cancel`, {})))}>−</button>
+            <b>${i.qty}</b>
+            <button class="icon" onClick=${() => act(() => api('PATCH', `/api/pos/items/${i.id}`, { qty: i.qty + 1 }))}>+</button></div>
+        </li>`)}</ul>
+      </section>` : null}
     ${tab === 'bill' || s.status === 'cancelled' ? html`<section class="card">
       ${sent.length ? html`<ul class="plain order-lines">${sent.map((i) => html`<li class=${`ol ${i.status}`}>
         <div class="grow"><b>${i.qty} × ${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}
@@ -234,15 +249,7 @@ export function OrderView({ me, query }) {
     </section>` : null}
 
     ${!closed ? html`<div class="cart-bar">
-      ${drafts.length ? html`<details class="card cart"><summary class="one-line"><b>Chưa gửi bếp: ${drafts.reduce((n, i) => n + i.qty, 0)} món</b> · ${drafts.map((i) => `${i.qty} ${i.name}`).join(', ').slice(0, 60)}${drafts.map((i) => `${i.qty} ${i.name}`).join(', ').length > 60 ? '…' : ''} <span class="muted">(bấm sửa)</span></summary>
-        <ul class="plain order-lines">${drafts.map((i) => html`<li class="ol new">
-          <div class="grow"><b>${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.note ? html`<br /><small class="muted">${i.note}</small>` : null}${i.promos?.length ? html`<br /><small class="promo-line">🎁 ${i.promos.map((p) => `${p.name} −${money(p.amount)}`).join(', ')}</small>` : null}</div>
-          <div class="row tight">
-            <button class="icon" onClick=${() => (i.qty > 1 ? act(() => api('PATCH', `/api/pos/items/${i.id}`, { qty: i.qty - 1 })) : act(() => api('POST', `/api/pos/items/${i.id}/cancel`, {})))}>−</button>
-            <b>${i.qty}</b>
-            <button class="icon" onClick=${() => act(() => api('PATCH', `/api/pos/items/${i.id}`, { qty: i.qty + 1 }))}>+</button></div>
-        </li>`)}</ul>
-      </details>` : null}
+
       <div class="row">
         <button class="primary big grow" disabled=${!drafts.length} onClick=${send}>${drafts.length ? `Gửi bếp (${drafts.reduce((n, i) => n + i.qty, 0)} món)` : 'Chọn món để gửi bếp'}</button>
         ${sent.length ? html`<button class="big" onClick=${() => setPaying(true)}>₫ Thanh toán</button>` : null}
@@ -263,9 +270,9 @@ export function OrderView({ me, query }) {
       }} />` : null}
     ${prompt === 'split' ? html`<${Split} items=${s.items.filter((i) => i.status !== 'cancelled')} onClose=${() => setPrompt(null)}
       onOk=${async (table, items) => { const r = await act(() => api('POST', `/api/pos/sessions/${id}/split`, { table, items }), 'Đã tách bàn'); if (r) setPrompt(null); }} />` : null}
-    ${prompt === 'move' ? html`<${TablePrompt} title="Chuyển sang bàn" hint="vd 25, hoặc 25, 26 nếu ngồi 2 bàn" onClose=${() => setPrompt(null)}
+    ${prompt === 'move' ? html`<${TablePrompt} title="Chuyển sang bàn" hint="Bấm bàn trống muốn chuyển tới (khách ngồi 2 bàn thì bấm cả 2). Bàn mờ = đang có khách, 📅 = có khách đặt" zones=${tablesD.data?.zones || []} selfId=${id} onClose=${() => setPrompt(null)}
       onOk=${async (txt, ids) => { if (await act(() => api('POST', `/api/pos/sessions/${id}/move`, { tables: txt, notify_item_ids: ids }), 'Đã chuyển bàn')) setPrompt(null); }} />` : null}
-    ${prompt?.kind === 'item' ? html`<${TablePrompt} title=${`Chuyển "${prompt.item.name}" sang bàn`} hint="Gọi nhầm bàn: món và tiền chuyển sang bàn đúng (không in phiếu, báo bếp bằng bộ đàm)" onClose=${() => setPrompt(null)}
+    ${prompt?.kind === 'item' ? html`<${TablePrompt} title=${`Chuyển "${prompt.item.name}" sang bàn`} hint="Gọi nhầm bàn: bấm bàn đúng, món và tiền chuyển sang đó (không in phiếu, báo bếp bằng bộ đàm)" zones=${tablesD.data?.zones || []} selfId=${id} busyOk=${true} multi=${false} onClose=${() => setPrompt(null)}
       onOk=${async (txt, ids) => { if (await act(() => api('POST', `/api/pos/items/${prompt.item.id}/move`, { table: Number(txt) }), 'Đã chuyển món')) setPrompt(null); }} />` : null}
     ${prompt === 'merge' ? html`<${Modal} title="Gộp bàn khác vào bàn này" onClose=${() => setPrompt(null)}><div class="stack">
       <p class="muted small">Món và khách của bàn được chọn sẽ chuyển sang bàn ${s.header}.</p>

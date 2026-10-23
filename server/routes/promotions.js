@@ -55,6 +55,7 @@ export default function (r, ctx) {
     const running = all().filter((p) => validAt(p, now, clock)).map((p) => `${p.name}${p.note ? ` (${p.note})` : ''}`);
     if (!live.length) return { tags: {}, bill: billNow(now, clock), running };
     const tags = {};
+    const gift = {};
     const bogo = {}; // món có "mua X tặng Y cùng món" → màn gọi món tự cộng phần tặng (bếp thấy tổng số phải làm)
     const nm = names();
     for (const it of db.prepare('SELECT id, category_id FROM menu_items WHERE active = 1').all()) {
@@ -62,8 +63,11 @@ export default function (r, ctx) {
       if (ps.length) tags[it.id] = ps.map((p) => tag(p, nm)).join(' · ');
       const b = ps.find((p) => p.type === 'bogo' && p.pair === 'same');
       if (b) bogo[it.id] = { name: b.name, buy: b.buy_qty, get: b.get_qty };
+      // Mua A tặng B (1 món tặng duy nhất, vd lẩu tặng 100g bò): gọi A là app tự thêm B
+      const g = ps.find((p) => p.type === 'gift' && (p.gift_item_ids || []).length === 1 && !p.gift_item_ids.includes(it.id));
+      if (g) gift[it.id] = { name: g.name, item_id: g.gift_item_ids[0], buy: g.buy_qty, get: g.get_qty };
     }
-    return { tags, bogo, bill: billNow(now, clock), running };
+    return { tags, bogo, gift, bill: billNow(now, clock), running };
   };
   const billNow = (now, clock) => all().filter((p) => isBill(p) && validAt(p, now, clock)).map((p) => view(p).summary);
 

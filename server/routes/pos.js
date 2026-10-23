@@ -282,7 +282,8 @@ export default function (r, ctx) {
     const all = db.prepare('SELECT * FROM menu_options WHERE item_id = ? ORDER BY sort, id').all(item.id);
     const ids = new Set((Array.isArray(optionIds) ? optionIds : []).map(Number));
     const chosen = all.filter((o) => ids.has(o.id));
-    const groups = [...new Set(all.map((o) => o.group_name))];
+    const hidden = new Set(JSON.parse(ctx.setting('hidden_option_groups') || '["Tinh bột"]'));
+    const groups = [...new Set(all.map((o) => o.group_name))].filter((g) => !hidden.has(g));
     for (const g of groups) {
       const inGroup = all.filter((o) => o.group_name === g);
       const picked = chosen.filter((o) => o.group_name === g);
