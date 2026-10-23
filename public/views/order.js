@@ -139,7 +139,8 @@ export function OrderView({ me, query }) {
   const m = menuD.data;
   const closed = !['open', 'paying'].includes(s.status);
   const catOrder = (cid) => { const k = m.categories.findIndex((c) => c.id === cid); return k < 0 ? 999 : k; };
-  const items = m.items.filter((i) => (!cat || i.category_id === Number(cat)) && (!q || i.name.toLowerCase().includes(q.toLowerCase())))
+  const plain = (x) => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase();
+  const items = m.items.filter((i) => (q ? plain(i.name).includes(plain(q)) : !cat || i.category_id === Number(cat)))
     .sort((a, b) => catOrder(a.category_id) - catOrder(b.category_id) || a.sort - b.sort || a.id - b.id);
   const drafts = s.items.filter((i) => i.status === 'new');
   const sent = s.items.filter((i) => i.status !== 'new');
@@ -165,14 +166,14 @@ export function OrderView({ me, query }) {
   const sessions = (tablesD.data?.zones || []).flatMap((z) => z.tables).filter((t) => t.session && t.session.id !== id)
     .map((t) => t.session).filter((x, k, a) => a.findIndex((y) => y.id === x.id) === k);
   return html`<div class="stack order">
-    <div class="row between wrap">
-      <div><h2>Bàn ${s.header}</h2><small class="muted">Vào lúc ${hm(s.opened_at)} bởi ${s.opened_by_name || ''}${s.status === 'paying' ? ' · đang chờ thanh toán' : ''}</small></div>
-      <button onClick=${async () => { if (!closed && !s.items.length) await api('POST', `/api/pos/sessions/${id}/cancel`, { reason: 'Nhận nhầm bàn, chưa gọi món' }).catch(() => {}); navigate('/ban'); }}>← Sơ đồ bàn</button>
+    <div class="row between order-head">
+      <div><h2>Bàn ${s.header}</h2><small class="muted">${hm(s.opened_at)} · ${s.opened_by_name || ''} · 👥 ${s.guests} · <b class="ink">${money(s.total)}</b>${s.discount ? ` (KM −${money(s.discount)})` : ''}${s.status === 'paying' ? ' · đang chờ thanh toán' : ''}</small></div>
+      <button class="small" onClick=${async () => { if (!closed && !s.items.length) await api('POST', `/api/pos/sessions/${id}/cancel`, { reason: 'Nhận nhầm bàn, chưa gọi món' }).catch(() => {}); navigate('/ban'); }}>← Sơ đồ</button>
     </div>
     ${s.status === 'closed' ? html`<${PaidPanel} me=${me} id=${id} />` : null}
     ${s.status === 'cancelled' ? html`<p class="warn-text">Bàn này đã huỷ.</p>` : null}
     ${closed ? null : html`
-    <div class="row wrap">
+    <div class="chips scroll-x tbl-acts">
       <label class="check-row"><input type="checkbox" checked=${s.priority} onChange=${(e) => act(() => api('PATCH', `/api/pos/sessions/${id}`, { priority: e.target.checked }))} /> Ưu tiên</label>
       <button onClick=${() => { const g = prompt_(s.guests); if (g) act(() => api('PATCH', `/api/pos/sessions/${id}`, { guests: g }), 'Đã sửa số khách'); }}>Số khách${s.guests > 1 ? `: ${s.guests}` : ''}</button>
       <button onClick=${() => setPrompt('move')}>Chuyển bàn</button>
@@ -182,21 +183,23 @@ export function OrderView({ me, query }) {
     <div class="tabs"><button class=${tab === 'menu' ? 'on' : ''} onClick=${() => setTab('menu')}>Thực đơn</button>
       <button class=${tab === 'bill' ? 'on' : ''} onClick=${() => setTab('bill')}>Đã gọi (${s.items.filter((i) => i.status !== 'cancelled').length})</button></div>`}
 
-    ${!closed ? (s.gifts || []).filter((g) => g.left > 0).map((g) => html`<div class="gift-bar">
-      <div>🎁 <b>${g.name}</b>: bàn còn được tặng <b>${g.left} phần</b>. Bấm món khách chọn để thêm, app tự trừ tiền.</div>
+    ${!closed ? (s.gifts || []).filter((g) => g.left > 0).map((g) => html`<div class="gift-bar gift-inline">
+      <div>🎁 <b>Còn tặng ${g.left} phần</b> (${g.name}):</div>
       <div class="chips">${g.items.map((it) => html`<button class="chip big" disabled=${it.sold_out} onClick=${() => add({ menu_item_id: it.id, qty: 1 })}>+ ${it.name}${it.sold_out ? ' (hết)' : ''}</button>`)}</div>
     </div>`) : null}
-    ${!closed && (m.promo?.running || m.promo?.bill || []).length ? html`<div class="promo-bar">🎁 <b>Quán đang có khuyến mãi:</b>${(m.promo.running || m.promo.bill).map((x) => html`<div>• ${x}</div>`)}</div>` : null}
+    ${!closed && (m.promo?.running || m.promo?.bill || []).length ? html`<details class="promo-bar"><summary>🎁 <b>Đang có ${(m.promo.running || m.promo.bill).length} khuyến mãi</b> (bấm xem)</summary>${(m.promo.running || m.promo.bill).map((x) => html`<div>• ${x}</div>`)}</details>` : null}
     ${!closed ? (s.promo_hints || []).map((h) => { const mi = m.items.find((x) => x.id === h.menu_item_id); return html`<div class="gift-bar">
       <div>🎁 <b>${h.name}</b>: gọi thêm <b>${h.need} phần${h.item_name ? ` ${h.item_name}` : ''}</b> là được tặng. Mời khách nhé!</div>
       ${mi && !mi.sold_out ? html`<div class="chips"><button class="chip big" onClick=${() => quick(mi, true)}>+ ${mi.name} (phần tặng)</button></div>` : null}
     </div>`; }) : null}
     ${tab === 'menu' && !closed ? html`
-      <input id="om-q" type="search" placeholder="Tìm món" value=${q} onInput=${(e) => setQ(e.target.value)} />
-      <div class="chips scroll-x"><button class=${`chip ${!cat ? 'on' : ''}`} onClick=${() => setCat('')}>Tất cả</button>
-        ${m.categories.map((c) => html`<button class=${`chip ${cat === String(c.id) ? 'on' : ''}`} onClick=${() => setCat(String(c.id))}>${c.name}</button>`)}</div>
+      <input id="om-q" type="search" placeholder="🔍 Tìm món (gõ vài chữ, vd steak, mala)" value=${q} onInput=${(e) => setQ(e.target.value)} />
+      ${!q && !cat ? html`<div class="cat-head">Chọn nhóm món</div>
+        <div class="cat-grid">${m.categories.filter((c) => m.items.some((i) => i.category_id === c.id)).map((c) => html`<button class="cat-btn" onClick=${() => setCat(String(c.id))}>${c.name}<small>${m.items.filter((i) => i.category_id === c.id).length} món</small></button>`)}</div>`
+      : html`${cat && !q ? html`<div class="row between cat-bar"><button class="primary" onClick=${() => setCat('')}>← Nhóm món</button><b>${m.categories.find((c) => String(c.id) === cat)?.name}</b></div>` : null}
       <div class="menu-grid">${items.map((i) => html`<button class=${`menu-btn ${i.sold_out ? 'soldout' : ''}`} disabled=${i.sold_out} onClick=${() => quick(i)}>
-        <b>${i.name}</b><small>${i.sold_out ? (i.auto_sold_out ? 'Hết nguyên liệu' : 'Hết món') : money(i.price)}</small>${!i.sold_out && i.left != null && i.left <= 5 ? html`<span class="left-tag">còn ${i.left} phần</span>` : null}${!i.sold_out && m.promo?.tags?.[i.id] ? html`<span class="promo-tag">🎁 ${m.promo.tags[i.id]}</span>` : null}</button>`)}</div>` : null}
+        <b>${i.name}</b><small>${i.sold_out ? (i.auto_sold_out ? 'Hết nguyên liệu' : 'Hết món') : money(i.price)}</small>${!i.sold_out && i.left != null && i.left <= 5 ? html`<span class="left-tag">còn ${i.left} phần</span>` : null}${!i.sold_out && m.promo?.tags?.[i.id] ? html`<span class="promo-tag">🎁 ${m.promo.tags[i.id]}</span>` : null}</button>`)}</div>
+      ${!items.length ? html`<div class="empty">Không thấy món "${q}".</div>` : null}`}` : null}
 
     ${tab === 'bill' || s.status === 'cancelled' ? html`<section class="card">
       ${sent.length ? html`<ul class="plain order-lines">${sent.map((i) => html`<li class=${`ol ${i.status}`}>
@@ -212,8 +215,7 @@ export function OrderView({ me, query }) {
     </section>` : null}
 
     ${!closed ? html`<div class="cart-bar">
-      ${drafts.length ? html`<section class="card cart">
-        <b>Chưa gửi bếp (${drafts.length})</b>
+      ${drafts.length ? html`<details class="card cart"><summary class="one-line"><b>Chưa gửi bếp: ${drafts.reduce((n, i) => n + i.qty, 0)} món</b> · ${drafts.map((i) => `${i.qty} ${i.name}`).join(', ').slice(0, 60)}${drafts.map((i) => `${i.qty} ${i.name}`).join(', ').length > 60 ? '…' : ''} <span class="muted">(bấm sửa)</span></summary>
         <ul class="plain order-lines">${drafts.map((i) => html`<li class="ol new">
           <div class="grow"><b>${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.note ? html`<br /><small class="muted">${i.note}</small>` : null}${i.promos?.length ? html`<br /><small class="promo-line">🎁 ${i.promos.map((p) => `${p.name} −${money(p.amount)}`).join(', ')}</small>` : null}</div>
           <div class="row tight">
@@ -221,14 +223,14 @@ export function OrderView({ me, query }) {
             <b>${i.qty}</b>
             <button class="icon" onClick=${() => act(() => api('PATCH', `/api/pos/items/${i.id}`, { qty: i.qty + 1 }))}>+</button></div>
         </li>`)}</ul>
-      </section>` : null}
+      </details>` : null}
       <div class="row">
         <button class="primary big grow" disabled=${!drafts.length} onClick=${send}>${drafts.length ? `Gửi bếp (${drafts.reduce((n, i) => n + i.qty, 0)} món)` : 'Chọn món để gửi bếp'}</button>
-        ${!drafts.length && sent.length ? html`<button class="big" onClick=${() => setPaying(true)}>₫ Tính tiền</button>` : null}
+        ${sent.length ? html`<button class="big" onClick=${() => setPaying(true)}>₫ Thanh toán</button>` : null}
       </div>
-      ${!sent.length ? html`<button class="link danger-text" onClick=${() => act(() => api('POST', `/api/pos/sessions/${id}/cancel`, {}), 'Đã huỷ bàn').then((ok) => ok && navigate('/ban'))}>Huỷ bàn (mở nhầm / khách về)</button>`
-        : atLeast(me, 'shift_lead') ? html`<button class="link danger-text" onClick=${() => setReason({ kind: 'close' })}>Huỷ cả bàn…</button>` : null}
     </div>` : null}
+    ${!closed ? (!sent.length ? html`<button class="link danger-text" onClick=${() => act(() => api('POST', `/api/pos/sessions/${id}/cancel`, {}), 'Đã huỷ bàn').then((ok) => ok && navigate('/ban'))}>Huỷ bàn (mở nhầm / khách về)</button>`
+      : atLeast(me, 'shift_lead') ? html`<button class="link danger-text" onClick=${() => setReason({ kind: 'close' })}>Huỷ cả bàn…</button>` : null) : null}
 
     ${paying ? html`<${PayModal} me=${me} id=${id} onClose=${() => setPaying(false)} onDone=${(r) => { setPaying(false); toast(r.requested ? 'Đã báo thu ngân thu tiền mặt' : r.auto ? 'Đã nhận tiền, bàn trống' : r.hand_over ? `Đã đóng bill.${r.change ? ` Thối khách ${money(r.change)}.` : ''} Giao ${money(r.hand_over)} + bill cho thu ngân` : 'Đã đóng bill, bàn trống'); bump(); navigate('/ban'); }} />` : null}
     ${adding ? html`<${AddItem} item=${adding} addons=${addons} bogo=${bogoOf(adding, adding.gift)} catName=${m.categories.find((c) => c.id === adding.category_id)?.name} onAdd=${add} onClose=${() => setAdding(null)} />` : null}

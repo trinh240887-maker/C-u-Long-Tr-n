@@ -606,3 +606,22 @@ tr.warn-row td { background: color-mix(in srgb, var(--warn, #b45309) 10%, transp
 
 .promo-step { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
 .promo-preview { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, #16a34a 10%, var(--panel)); font-weight: 600; }
+
+/* Gọi món: chọn nhóm trước (lưới 2 cột nút lớn), rồi mới tới món */
+.cat-head { font-weight: 700; padding: 8px 12px; border-radius: 10px; background: #15803d; color: #fff; text-align: center; }
+.cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cat-btn { min-height: 64px; font-size: 1.05rem; font-weight: 600; border: 2px solid #15803d; border-radius: 12px; background: var(--panel); display: grid; place-content: center; gap: 2px; text-align: center; padding: 8px; }
+.cat-btn small { font-weight: 400; color: var(--muted); font-size: .8rem; }
+.cat-bar { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 6px 0; }
+.sum-bar { padding: 8px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); font-size: 1.05rem; }
+.tbl-acts { flex-wrap: nowrap; }
+.tbl-acts button, .tbl-acts label { white-space: nowrap; padding: 8px 12px; min-height: 44px; }
+details.promo-bar summary, details.cart summary { cursor: pointer; }
+details.cart[open] { max-height: 40vh; overflow: auto; }
+.one-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+details.cart { padding: 8px 12px; }
+.ink { color: var(--ink); }
+.order-head { align-items: flex-start; gap: 8px; }
+.order-head h2 { margin: 0; }
+.gift-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; }
+.gift-inline .chips { margin: 0; }
