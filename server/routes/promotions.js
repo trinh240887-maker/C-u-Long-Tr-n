@@ -55,12 +55,15 @@ export default function (r, ctx) {
     const running = all().filter((p) => validAt(p, now, clock)).map((p) => `${p.name}${p.note ? ` (${p.note})` : ''}`);
     if (!live.length) return { tags: {}, bill: billNow(now, clock), running };
     const tags = {};
+    const bogo = {}; // món có "mua X tặng Y cùng món" → màn gọi món tự cộng phần tặng (bếp thấy tổng số phải làm)
     const nm = names();
     for (const it of db.prepare('SELECT id, category_id FROM menu_items WHERE active = 1').all()) {
       const ps = live.filter((p) => matches(p, { menu_item_id: it.id, category_id: it.category_id }));
       if (ps.length) tags[it.id] = ps.map((p) => tag(p, nm)).join(' · ');
+      const b = ps.find((p) => p.type === 'bogo' && p.pair === 'same');
+      if (b) bogo[it.id] = { name: b.name, buy: b.buy_qty, get: b.get_qty };
     }
-    return { tags, bill: billNow(now, clock), running };
+    return { tags, bogo, bill: billNow(now, clock), running };
   };
   const billNow = (now, clock) => all().filter((p) => isBill(p) && validAt(p, now, clock)).map((p) => view(p).summary);
 

@@ -12,13 +12,19 @@ const QUICK_NOTES = [
 ];
 const notesFor = (catName) => QUICK_NOTES.find(([re]) => re.test(catName || ''))?.[1] || [];
 
-function AddItem({ item, onAdd, onClose, catName = '' }) {
+// Mua X tặng Y cùng món: khách gọi X phần → bếp làm X + Y (app tự cộng phần tặng, bill tự trừ)
+export const withGift = (qty, b) => (b ? qty + Math.floor(qty / b.buy) * b.get : qty);
+
+function AddItem({ item, onAdd, onClose, catName = '', bogo = null }) {
   const groups = [...new Set(item.options.map((o) => o.group_name))];
   const [pick, setPick] = useState({});
   const [qty, setQty] = useState(1);
   const [note, setNote] = useState('');
   const [rush, setRush] = useState(false);
   const [warn, setWarn] = useState(false);
+  const [giftOther, setGiftOther] = useState(false); // phần tặng khách muốn sốt khác → thêm riêng sau
+  const total = bogo && !giftOther ? withGift(qty, bogo) : qty;
+  const free = total - qty;
   const missing = groups.filter((g) => item.options.some((o) => o.group_name === g && o.required) && !pick[g]);
   const unit = item.price + item.options.filter((o) => pick[o.group_name] === o.id).reduce((n, o) => n + o.price, 0);
   return html`<${Modal} title=${item.name} onClose=${onClose}>
@@ -31,11 +37,16 @@ function AddItem({ item, onAdd, onClose, catName = '' }) {
         <button class="icon big" onClick=${() => setQty(Math.max(1, qty - 1))}>−</button><b class="big-num">${qty}</b><button class="icon big" onClick=${() => setQty(qty + 1)}>+</button>
         <span class="grow r"><b>${money(unit * qty)}</b></span>
       </div>
+      ${bogo ? html`<div class="gift-bar">
+        <div>🎁 <b>${bogo.name}</b>: ${free ? html`khách gọi <b>${qty}</b> → bếp làm <b>${total} phần</b> (tặng ${free}), bill tự trừ.` : qty < bogo.buy ? `gọi đủ ${bogo.buy} phần để được tặng.` : 'phần tặng thêm riêng ở khung xanh sau khi bấm Thêm.'}</div>
+        <div class="chips"><button class=${`chip ${!giftOther ? 'on' : ''}`} onClick=${() => setGiftOther(false)}>Phần tặng cùng ${groups[0] ? groups[0].toLowerCase() : 'loại'}</button>
+          <button class=${`chip ${giftOther ? 'on' : ''}`} onClick=${() => setGiftOther(true)}>Khách muốn ${groups[0] ? groups[0].toLowerCase() : 'loại'} khác</button></div>
+      </div>` : null}
       <${Field} label="Ghi chú cho bếp"><input id="ai-note" value=${note} placeholder=${notesFor(catName).length ? `vd ${notesFor(catName).join(', ').toLowerCase()}` : 'ghi chú cho bếp'} onInput=${(e) => setNote(e.target.value)} /><//>
       <div class="chips">${notesFor(catName).map((x) => html`<button class="chip" onClick=${() => setNote(note ? `${note}, ${x.toLowerCase()}` : x)}>${x}</button>`)}</div>
       <label class="check-row"><input type="checkbox" checked=${rush} onChange=${(e) => setRush(e.target.checked)} /> Gấp (in máy Ưu tiên, bếp làm trước)</label>
-      <button class=${`primary big ${missing.length ? 'soft' : ''}`} onClick=${() => (missing.length ? setWarn(true) : onAdd({ menu_item_id: item.id, option_ids: Object.values(pick).filter(Boolean), qty, note, rush }))}>
-        ${missing.length ? `Chưa chọn ${missing[0].toLowerCase()} ↑` : `Thêm ${qty} món · ${money(unit * qty)}`}</button>
+      <button class=${`primary big ${missing.length ? 'soft' : ''}`} onClick=${() => (missing.length ? setWarn(true) : onAdd({ menu_item_id: item.id, option_ids: Object.values(pick).filter(Boolean), qty: total, note, rush }))}>
+        ${missing.length ? `Chưa chọn ${missing[0].toLowerCase()} ↑` : free ? `Thêm ${qty} + tặng ${free} · ${money(unit * qty)}` : `Thêm ${qty} món · ${money(unit * qty)}`}</button>
       ${warn && missing.length ? html`<p class="warn-text r">Bấm 1 loại ${missing[0].toLowerCase()} ở trên rồi bấm lại.</p>` : null}
     </div>
   <//>`;
@@ -117,7 +128,8 @@ export function OrderView({ me, query }) {
       } else act(() => Promise.reject(e));
     }
   };
-  const quick = (item) => (item.options.length ? setAdding(item) : add({ menu_item_id: item.id, qty: 1 }));
+  const bogoOf = (item, gift) => (gift ? null : m.promo?.bogo?.[item.id] || null);
+  const quick = (item, gift = false) => (item.options.length ? setAdding({ ...item, gift }) : add({ menu_item_id: item.id, qty: withGift(1, bogoOf(item, gift)) }));
   const send = () => act(() => api('POST', `/api/pos/sessions/${id}/send`), 'Đã gửi bếp');
   const sessions = (tablesD.data?.zones || []).flatMap((z) => z.tables).filter((t) => t.session && t.session.id !== id)
     .map((t) => t.session).filter((x, k, a) => a.findIndex((y) => y.id === x.id) === k);
@@ -146,7 +158,7 @@ export function OrderView({ me, query }) {
     ${!closed && (m.promo?.running || m.promo?.bill || []).length ? html`<div class="promo-bar">🎁 <b>Quán đang có khuyến mãi:</b>${(m.promo.running || m.promo.bill).map((x) => html`<div>• ${x}</div>`)}</div>` : null}
     ${!closed ? (s.promo_hints || []).map((h) => { const mi = m.items.find((x) => x.id === h.menu_item_id); return html`<div class="gift-bar">
       <div>🎁 <b>${h.name}</b>: gọi thêm <b>${h.need} phần${h.item_name ? ` ${h.item_name}` : ''}</b> là được tặng. Mời khách nhé!</div>
-      ${mi && !mi.sold_out ? html`<div class="chips"><button class="chip big" onClick=${() => quick(mi)}>+ ${mi.name} (phần tặng)</button></div>` : null}
+      ${mi && !mi.sold_out ? html`<div class="chips"><button class="chip big" onClick=${() => quick(mi, true)}>+ ${mi.name} (phần tặng)</button></div>` : null}
     </div>`; }) : null}
     ${tab === 'menu' && !closed ? html`
       <input id="om-q" type="search" placeholder="Tìm món" value=${q} onInput=${(e) => setQ(e.target.value)} />
@@ -188,7 +200,7 @@ export function OrderView({ me, query }) {
     </div>` : null}
 
     ${paying ? html`<${PayModal} me=${me} id=${id} onClose=${() => setPaying(false)} onDone=${(r) => { setPaying(false); toast(r.requested ? 'Đã báo thu ngân thu tiền mặt' : r.auto ? 'Đã nhận tiền, bàn trống' : r.hand_over ? `Đã đóng bill.${r.change ? ` Thối khách ${money(r.change)}.` : ''} Giao ${money(r.hand_over)} + bill cho thu ngân` : 'Đã đóng bill, bàn trống'); bump(); navigate('/ban'); }} />` : null}
-    ${adding ? html`<${AddItem} item=${adding} catName=${m.categories.find((c) => c.id === adding.category_id)?.name} onAdd=${add} onClose=${() => setAdding(null)} />` : null}
+    ${adding ? html`<${AddItem} item=${adding} bogo=${bogoOf(adding, adding.gift)} catName=${m.categories.find((c) => c.id === adding.category_id)?.name} onAdd=${add} onClose=${() => setAdding(null)} />` : null}
     ${reason ? html`<${Reason} title=${reason.kind === 'redo' ? `Làm lại: ${reason.item.name}` : reason.kind === 'cancel' ? `Huỷ: ${reason.item.name}` : 'Huỷ cả bàn'}
       chips=${reason.kind === 'redo' ? ['Khách chê', 'Làm hỏng', 'Sai món', 'Rơi đổ'] : ['Khách đổi ý', 'Gọi nhầm', 'Ra lâu, khách huỷ', 'Hết nguyên liệu']}
       onClose=${() => setReason(null)}
