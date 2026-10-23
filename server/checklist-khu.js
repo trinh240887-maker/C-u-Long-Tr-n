@@ -166,6 +166,45 @@ export const KHU_CHECKLISTS = [
     T('Tắt đèn bảng hiệu, đèn lồng', false),
     X('Xe khách còn gửi qua đêm / sự cố (ghi biển số nếu có)'),
   ] },
+  // Bếp steak (8 ảnh 23/10) + định lượng Sổ 5: bò Aukobe 120g Steak Âu · 100g Combo 1, 2, món xào · 150g Combo 3; sốt 100g/dĩa;
+  // salad 40g xà lách + dầu giấm; pate 30g; nui / mì Ý 80g chín (món thêm), 160g chín (món xào). Chia phần sẵn trước giờ đông.
+  { title: 'Sơ chế & mở ca Bếp steak', phase: 'open', team: ['bếp steak', 'bếp'], items: [
+    T('Rửa tay, đeo tạp dề, nón, giày kín mũi (không dép tông)', false),
+    N('Nhiệt độ tủ mát trưng bày', '°C'),
+    N('Nhiệt độ tủ đông', '°C'),
+    T('Hàng mới nhận vào tủ ngay, không để bao thịt dưới sàn'),
+    N('Chia sẵn bò Aukobe 100g (Combo 1, 2, món xào)', 'phần'),
+    N('Chia sẵn bò Aukobe 120g (Steak Âu)', 'phần'),
+    N('Chia sẵn bò Aukobe 150g (Combo 3)', 'phần'),
+    T('Sốt: Hoàng kim, Tứ xuyên, Kem phô mai, Tiêu đen đủ, chia hũ 100g'),
+    T('Salad: xà lách 40g/phần rửa ráo, dầu giấm pha sẵn'),
+    T('Luộc sẵn nui + mì Ý (80g chín món thêm, 160g chín món xào)'),
+    T('Trứng, pate (30g/phần), xúc xích, bánh mì đủ dùng', false),
+    T('Rau sơ chế trên bàn / kệ, không ngồi làm dưới sàn'),
+    T('Cân điện tử bật, về 0', false),
+    T('Kiểm dây, van, mùi gas; dây gas không vắt qua mặt bếp'),
+    T('Thử lửa bếp, bếp hầm, đĩa gang làm nóng sẵn'),
+    T('Đồ cá nhân (balo, túi, nón) cất đúng chỗ, không treo cạnh khu chế biến', false),
+  ] },
+  { title: 'Trong ca Bếp steak', phase: 'during', team: ['bếp steak', 'bếp'], items: [
+    T('18:00 bò chia sẵn còn đủ cho giờ đông (thiếu thì chia thêm)', false),
+    T('19:00 thay khăn lau, lau mặt bếp, gom rác'),
+    T('20:30 kiểm sốt, salad còn; báo phục vụ món sắp hết', false),
+  ] },
+  { title: 'Dọn & đóng ca Bếp steak', phase: 'close', team: ['bếp steak', 'bếp'], items: [
+    X('Bò Aukobe / lõi vai còn: cân, ghi kg + số phần đã chia còn', 1),
+    T('Bò, sốt, salad thừa bọc màng, ghi ngày, cất tủ'),
+    T('Đĩa gang + khay gỗ rửa, lau khô, xếp kệ (không chồng ướt)'),
+    T('Vệ sinh bếp, vỉ, bếp hầm, mặt bàn đá'),
+    T('Rửa bồn rửa, lưới chặn rác'),
+    T('Hũ gia vị, túi bột đậy kín / kẹp miệng, xếp lên kệ (không để dưới sàn)'),
+    T('Thớt, dao, khăn lau: rửa, phơi, thay khăn mới'),
+    T('Đổ rác, thay túi, thùng rác có nắp'),
+    T('Lau sàn bếp'),
+    T('Khoá van gas tất cả bình'),
+    N('Nhiệt độ tủ mát lúc đóng', '°C'),
+    X('Hàng thiếu cần báo (bò, sốt, trứng, bánh mì…)'),
+  ] },
 ];
 
 // 11 checklist của bản đầu (23/10, settings.checklist_khu_v1)

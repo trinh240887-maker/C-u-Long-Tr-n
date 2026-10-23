@@ -83,3 +83,10 @@ Sân gạch đỏ trước quán, cổng lưới đỏ có bánh xe, chậu cau 
 Điểm thấy: tàn thuốc, giấy, túi nilon, lá, gạch vỡ trên sân; xe đậu chắn lối đi bộ vào quán; chưa thấy thùng rác / gạt tàn ở mặt tiền.
 Checklist: Mở ca (mở cổng lưới chặn bánh, quét lau sân, dọn gạch vỡ, tưới cây, xếp xe chừa lối, đèn bảng hiệu) · Trong ca (19h, 21h xếp xe, nhặt tàn thuốc) · Đóng ca (quét, đem rác đúng chỗ, đóng khoá cổng, tắt đèn, ghi xe gửi qua đêm).
 Gợi ý mua: 1 thùng rác + gạt tàn đặt mặt tiền; vạch / biển khu để xe.
+
+## Bếp steak — 8 ảnh 23/10 + định lượng Sổ 5, đã đưa vào app
+Thiết bị: kệ inox/đá terrazzo 3 tầng, bếp gas đôi + 3 họng (Izzyli, NiceKit), bếp mini Namilux, bếp hầm 2 nồi lớn, tủ mát trưng bày Oucboll (ngăn có nhãn Bò Mỹ, Lõi vai, Sốt), quầy gia vị (hũ sốt, chai, cân điện tử, khay trứng), bồn rửa inox + kệ trên, máy xay, nhiều đĩa gang + khay gỗ.
+Điểm thấy: **bao thịt để dưới sàn**; **người sơ chế rau ngồi dưới sàn**; dây gas vắt qua mặt bếp, bình gas sát bếp mini; khăn lau bẩn trên bàn; túi bột mở miệng, can nhựa + thùng giấy dưới sàn; kính tủ đọng nước; **balo, túi cá nhân treo cạnh khu chế biến**; thùng rác không nắp; nhân viên dép tông.
+Checklist: Sơ chế & mở ca (16 việc: nhiệt độ, chia bò 100/120/150g theo định lượng, sốt chia hũ 100g, salad 40g, luộc nui/mì Ý, gas…) · Trong ca (18h, 19h, 20h30) · Dọn & đóng ca (12 việc).
+Checklist cũ "Mở ca bếp steak" / "Đóng ca bếp steak" vẫn còn — chủ quán tắt nếu trùng.
+Gợi ý mua: thùng rác có nắp đạp chân, kệ / ghế cao sơ chế rau, móc treo đồ cá nhân ngoài bếp, kẹp miệng túi.
