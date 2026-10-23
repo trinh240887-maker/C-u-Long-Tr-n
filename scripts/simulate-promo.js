@@ -101,7 +101,7 @@ P('\n## 2. Phục vụ gọi món · bàn 12, 6 khách');
 P(`- Màn gọi món hiện nhãn 🎁 trên món: Combo 3 "${tags[M('Combo 3').id]}", Set lẩu "${tags[M('Set 2 Mala Tứ Xuyên').id]}"`);
 P('- Gọi: 2 Combo 3 (tiêu đen, bánh mì) · 1 Steak Âu (kem phô mai, mì Ý) · 1 Set 2 Mala · 1 Set 4 Cà chua · 2 Trà đào');
 for (const g of s.gifts.filter((x) => x.left)) P(`- Màn hình hiện khung xanh: "🎁 ${g.name}: bàn còn được tặng ${g.left} phần" + nút ${g.items.map((i) => `[+ ${i.name}]`).join(' ')}`);
-await add('Thịt tươi tặng 100g', 2, [], 'KM tặng');
+await add('Thịt tươi tặng 100g', 2);
 s = await waiter('GET', `/api/pos/sessions/${sid}`);
 P('- Phục vụ bấm nút [+ Thịt tươi tặng 100g] 2 lần (2 set) → khung xanh biến mất; khách không chọn loại');
 const run = (await waiter('GET', '/api/menu')).promo?.running || [];
@@ -118,7 +118,7 @@ s = await waiter('GET', `/api/pos/sessions/${sid}`);
 const firstTicket = db.prepare('SELECT MAX(id) AS id FROM kitchen_tickets WHERE session_id = ?').get(sid).id;
 await waiter('POST', `/api/pos/sessions/${sid}/send`);
 const tickets = db.prepare('SELECT t.*, st.name AS station_name FROM kitchen_tickets t LEFT JOIN kitchen_stations st ON st.id = t.station_id WHERE t.session_id = ? ORDER BY t.id').all(sid);
-P('\n## 3. Phiếu bếp in ra từng điểm (dòng "KM:" cho bếp biết phần tặng; 19:05 gọi thêm 1 Steak Âu sốt Hoàng kim làm phần tặng → phiếu GỌI THÊM chỉ có món mới)');
+P('\n## 3. Phiếu bếp in ra từng điểm (chỉ tổng số phần phải làm, không ghi tặng; 19:05 gọi thêm 1 Steak Âu sốt Hoàng kim làm phần tặng → phiếu GỌI THÊM chỉ có món mới)');
 const ticketTxt = tickets.map((t) => receipt(ticketBytes({ ...t, lines: JSON.parse(t.lines) }, { mode: 'utf8', time: `${clock.fmt(t.created_at).slice(0, 5)} 23/10`, by: 'Hậu' }))).join('\n');
 P('```'); P(ticketTxt.trim()); P('```');
 

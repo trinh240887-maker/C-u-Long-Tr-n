@@ -141,7 +141,7 @@ export function OrderView({ me, query }) {
 
     ${!closed ? (s.gifts || []).filter((g) => g.left > 0).map((g) => html`<div class="gift-bar">
       <div>🎁 <b>${g.name}</b>: bàn còn được tặng <b>${g.left} phần</b>. Bấm món khách chọn để thêm, app tự trừ tiền.</div>
-      <div class="chips">${g.items.map((it) => html`<button class="chip big" disabled=${it.sold_out} onClick=${() => add({ menu_item_id: it.id, qty: 1, note: 'KM tặng' })}>+ ${it.name}${it.sold_out ? ' (hết)' : ''}</button>`)}</div>
+      <div class="chips">${g.items.map((it) => html`<button class="chip big" disabled=${it.sold_out} onClick=${() => add({ menu_item_id: it.id, qty: 1 })}>+ ${it.name}${it.sold_out ? ' (hết)' : ''}</button>`)}</div>
     </div>`) : null}
     ${!closed && (m.promo?.running || m.promo?.bill || []).length ? html`<div class="promo-bar">🎁 <b>Quán đang có khuyến mãi:</b>${(m.promo.running || m.promo.bill).map((x) => html`<div>• ${x}</div>`)}</div>` : null}
     ${!closed ? (s.promo_hints || []).map((h) => { const mi = m.items.find((x) => x.id === h.menu_item_id); return html`<div class="gift-bar">

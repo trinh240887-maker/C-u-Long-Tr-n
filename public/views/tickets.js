@@ -1,4 +1,3 @@
-import { promoLine } from '../promo-line.js';
 import { useState } from 'preact/hooks';
 import { html, api, act, useData, Loading, hm } from '../ui.js';
 
@@ -31,7 +30,7 @@ export function TicketsView({ me }) {
         <div class="row between wrap"><b>${k.header}</b><span class="small">${k.station_name} · ${hm(k.created_at)}</span></div>
         <div class="row wrap">${KIND[k.kind] ? html`<span class="pill bad">${KIND[k.kind]}</span>` : null}${k.priority ? html`<span class="pill warn">ƯU TIÊN</span>` : null}<span class=${`pill ${p[0]}`}>${p[1]}</span></div>
         ${k.lines.map((l) => html`<div><b class="big-line">${l.qty} × ${l.name}</b>${l.label && l.label !== l.name ? html`<br /><small>› ${l.label}</small>` : null}
-          ${l.options?.length ? html`<br /><small>${l.options.join(', ')}</small>` : null}${l.note ? html`<br /><small class="warn-text">* ${l.note}</small>` : null}${l.promo ? html`<br /><small class="promo-line">🎁 ${promoLine(l)}</small>` : null}</div>`)}
+          ${l.options?.length ? html`<br /><small>${l.options.join(', ')}</small>` : null}${l.note ? html`<br /><small class="warn-text">* ${l.note}</small>` : null}</div>`)}
         <div class="row wrap">
           ${!k.done_at ? html`<button class="primary grow" onClick=${() => act(() => api('POST', `/api/pos/tickets/${k.id}/done`), 'Đã nhận phiếu')}>Đã nhận</button>` : html`<small class="muted grow">Đã nhận ${hm(k.done_at)}</small>`}
           <button onClick=${() => { const r = prompt('In lại phiếu này? Lý do (vd mất phiếu, phiếu rách)', 'Mất phiếu'); if (r) act(() => api('POST', `/api/pos/tickets/${k.id}/reprint`, { reason: r }), 'Đã gửi in lại'); }}>🖨 In lại${k.reprint ? ` (${k.reprint})` : ''}</button>

@@ -344,13 +344,11 @@ export default function (r, ctx) {
         if (urgent && st?.priority_station_id) sid = st.priority_station_id;
         const key = `${sid}:${urgent ? 1 : 0}`;
         if (!byStation.has(key)) byStation.set(key, { station_id: sid, priority: urgent ? 1 : 0, lines: [] });
-        const line = { item_id: i.id, name: i.name, qty: i.qty, options: JSON.parse(i.options || '[]').map((o) => o.name), note: i.note, label: t.label, rush: !!i.rush,
-          // Khuyến mãi của món (vd "Mua 1 tặng 1 steak · tặng 1") → bếp biết phần nào là phần tặng
-          promo: (i.promos || []).filter((p) => !p.gift).map((p) => p.name).join(', ') || undefined,
-          free: (i.promos || []).filter((p) => !p.gift).reduce((n, p) => n + (p.free_qty || 0), 0) || undefined };
+        const line = { item_id: i.id, name: i.name, qty: i.qty, options: JSON.parse(i.options || '[]').map((o) => o.name), note: i.note, label: t.label, rush: !!i.rush };
+        // Khuyến mãi chỉ đổi tiền: phiếu bếp KHÔNG ghi tặng, chỉ tổng số phần phải làm (chủ quán chốt)
         // Dòng giống hệt (cùng món, tuỳ chọn, ghi chú) thì cộng số lượng: bếp đọc 1 dòng "2 x" thay vì 2 dòng
-        const same = byStation.get(key).lines.find((l) => l.name === line.name && l.label === line.label && l.note === line.note && l.promo === line.promo && l.rush === line.rush && l.options.join('|') === line.options.join('|'));
-        if (same) { same.qty += line.qty; if (line.free) same.free = (same.free || 0) + line.free; } else byStation.get(key).lines.push(line);
+        const same = byStation.get(key).lines.find((l) => l.name === line.name && l.label === line.label && l.note === line.note && l.rush === line.rush && l.options.join('|') === line.options.join('|'));
+        if (same) same.qty += line.qty; else byStation.get(key).lines.push(line);
       }
     }
     return [...byStation.values()];
