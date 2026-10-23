@@ -221,4 +221,7 @@ function App() {
   return html`<${Shell} me=${me} path=${base} online=${online}><${View} me=${me} query=${query} reloadMe=${loadMe} /><//>`;
 }
 
-render(html`<${App} /><${Toaster} />`, document.getElementById('root'));
+// Xoá chữ "Đang mở app…" có sẵn trong index.html trước khi vẽ app (không thì nó nằm lại phía trên)
+const root = document.getElementById('root');
+root.textContent = '';
+render(html`<${App} /><${Toaster} />`, root);
