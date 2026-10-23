@@ -559,7 +559,7 @@ const DEFAULT_SETTINGS = {
   bank_name: 'Techcombank',
   review_report_time: '07:00',
   online_booking_enabled: '1', online_open: '10:00', online_last: '21:30', online_max_guests: '20', online_min_lead_minutes: '60',
-  zns_enabled: '0', zns_mode: 'development', zns_template_confirm: '', zns_template_reject: '', zns_template_remind: '', zns_template_queue: '', zns_template_ready: '',
+  zns_enabled: '0', zns_mode: 'development', zns_template_confirm: '', zns_template_reject: '', zns_template_remind: '', zns_template_cancel: '', zns_template_queue: '', zns_template_ready: '',
   labor_target_pct: '25', idle_alert_minutes: '60', labor_report_time: '08:00',  // % lương / doanh thu mục tiêu; khoảng không thao tác đáng chú ý; giờ gửi báo cáo năng suất thứ Hai
   sell_deducts_stock: '1', low_portions_alert: '5', purchase_report_time: '22:00',  // bán món tự trừ kho; còn ≤ N phần thì báo; giờ gửi tổng hợp hàng cần nhập
   supplier_pay_approve_over: '5000000', price_jump_pct: '10', count_tolerance_pct: '3', spot_photos_per_run: '1',  // chi NCC trên mức này cần chủ/quản lý duyệt; giá nhập tăng quá % thì báo

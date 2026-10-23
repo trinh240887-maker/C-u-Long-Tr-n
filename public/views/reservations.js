@@ -31,12 +31,13 @@ function Form({ init, date, zones, onClose }) {
           <${Field} label="Giờ đến"><input id="rv-time" type="time" value=${f.time} onInput=${(e) => set('time', e.target.value)} /><//>
           <${Field} label="Khu muốn ngồi"><select value=${f.zone_id} onChange=${(e) => set('zone_id', e.target.value)}><option value="">Khu nào cũng được</option>${zones.map((z) => html`<option value=${z.id}>${z.name}</option>`)}</select><//>` : null}
       </div>
-      ${!walkin ? html`<${Field} label="Giữ bàn" hint="Bấm gợi ý bên dưới, hoặc ghi số bàn vd 12, 13"><input id="rv-tables" inputmode="numeric" value=${f.tables} placeholder="chưa giữ bàn" onInput=${(e) => set('tables', e.target.value)} /><//>
+      ${!walkin ? html`<details class="stack" open=${!!init.tables || !!init.openTables}><summary class="muted">Xếp bàn luôn (không bắt buộc: quản lý xếp sau cũng được)</summary>
+        <${Field} label="Giữ bàn" hint="Bấm gợi ý bên dưới, hoặc ghi số bàn vd 12, 13"><input id="rv-tables" inputmode="numeric" value=${f.tables} placeholder="chưa giữ bàn" onInput=${(e) => set('tables', e.target.value)} /><//>
         ${sug.data?.length ? html`<div class="chips">${sug.data.map((x) => html`<button class=${`chip ${f.tables === x.tables_text ? 'on' : ''}`} onClick=${() => set('tables', x.tables_text)}>
-          ${x.zone_name} · bàn ${x.tables_text} <small>${x.seats} chỗ${x.busy_now ? ' · đang có khách' : ''}</small></button>`)}</div>` : sug.data ? html`<p class="warn-text small">Không còn bàn trống đủ chỗ giờ này.</p>` : null}` : null}
+          ${x.zone_name} · bàn ${x.tables_text} <small>${x.seats} chỗ${x.busy_now ? ' · đang có khách' : ''}</small></button>`)}</div>` : sug.data ? html`<p class="warn-text small">Không còn bàn trống đủ chỗ giờ này.</p>` : null}
+        <label class="check-row"><input type="checkbox" checked=${f.fixed_table} onChange=${(e) => set('fixed_table', e.target.checked)} /> Khách chọn bàn này: không tự đổi bàn (bàn còn khách thì app báo gấp quản lý)</label></details>` : null}
       <${Field} label="Ghi chú"><input id="rv-note" value=${f.note} placeholder="vd sinh nhật, ghế em bé, dị ứng tôm" onInput=${(e) => set('note', e.target.value)} /><//>
       <label class="check-row"><input type="checkbox" checked=${f.priority} onChange=${(e) => set('priority', e.target.checked)} /> Khách ưu tiên (VIP / nhóm đông): steak in máy Ưu tiên</label>
-      ${!walkin ? html`<label class="check-row"><input type="checkbox" checked=${f.fixed_table} onChange=${(e) => set('fixed_table', e.target.checked)} /> Khách chọn bàn này: không tự đổi bàn (bàn còn khách thì app báo gấp quản lý)</label>` : null}
       <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" onClick=${save}>Lưu</button></div>
     </div>
   <//>`;
@@ -84,6 +85,7 @@ export function ReservationsView({ me, query }) {
       <small class="muted">${x.phone ? html`<a href=${`tel:${x.phone}`}>${x.phone}</a> · ` : null}${x.tables ? `Bàn ${x.tables}` : 'Chưa giữ bàn'}${x.zone_name ? ` · ${x.zone_name}` : ''}${x.note ? ` · ${x.note}` : ''}</small>
       ${x.history && (x.history.no_show || x.history.arrived) ? html`<small class=${x.history.no_show ? 'warn-text' : 'muted'}>Khách cũ: đến ${x.history.arrived} lần${x.history.no_show ? `, bỏ đặt ${x.history.no_show} lần` : ''}</small>` : null}
       ${['booked', 'waiting'].includes(x.status) ? html`<div class="row wrap end">
+        ${x.kind === 'booking' && !x.tables ? html`<button class="primary" onClick=${() => setEdit({ ...x, openTables: true })}>Xếp bàn</button>` : null}
         <button onClick=${() => setEdit(x)}>Sửa</button>
         ${x.kind === 'booking' ? html`<button onClick=${() => setStatus(x, 'no_show', 'Đã ghi không đến')}>Không đến</button>` : null}
         <button onClick=${() => setStatus(x, 'cancelled', 'Đã huỷ')}>Huỷ</button>
@@ -177,7 +179,7 @@ function ShareBooking() {
   const [f, setF] = useState(null);
   const s = st.data || {};
   const cur = f || { online_booking_enabled: s.online_booking_enabled, online_open: s.online_open, online_last: s.online_last, online_max_guests: s.online_max_guests, online_min_lead_minutes: s.online_min_lead_minutes,
-    zns_enabled: s.zns_enabled, zns_mode: s.zns_mode, zns_template_confirm: s.zns_template_confirm, zns_template_reject: s.zns_template_reject, zns_template_remind: s.zns_template_remind, zns_template_queue: s.zns_template_queue, zns_template_ready: s.zns_template_ready };
+    zns_enabled: s.zns_enabled, zns_mode: s.zns_mode, zns_template_confirm: s.zns_template_confirm, zns_template_reject: s.zns_template_reject, zns_template_remind: s.zns_template_remind, zns_template_cancel: s.zns_template_cancel, zns_template_queue: s.zns_template_queue, zns_template_ready: s.zns_template_ready };
   const set = (k, val) => setF({ ...cur, [k]: val });
   const inp = (k, label, extra = {}) => html`<${Field} label=${label}><input value=${cur[k] ?? ''} onInput=${(e) => set(k, e.target.value)} ...${extra} /><//>`;
   return html`<details class="card small"><summary><b>Đặt bàn online & Zalo xác nhận</b> · ${s.online_booking_enabled === '0' ? 'đang tắt' : 'đang nhận'}${s.zns_enabled === '1' ? ` · Zalo ${s.zns_mode === 'production' ? 'đang gửi thật' : 'chế độ thử'}` : ' · chưa bật Zalo'}</summary>
@@ -193,6 +195,7 @@ function ShareBooking() {
       ${inp('zns_template_confirm', 'Mã mẫu "Xác nhận đặt bàn"', { inputmode: 'numeric' })}
       ${inp('zns_template_reject', 'Mã mẫu "Từ chối đặt bàn"', { inputmode: 'numeric' })}
       ${inp('zns_template_remind', 'Mã mẫu "Nhắc trước 2 giờ" (để trống = không nhắc)', { inputmode: 'numeric' })}
+      ${inp('zns_template_cancel', 'Mã mẫu "Quá giờ giữ bàn, quán đã huỷ" (customer_name, booking_code, booking_date, booking_time, hold_minutes)', { inputmode: 'numeric' })}
       ${inp('zns_template_queue', 'Mã mẫu "Đã vào danh sách chờ" (số thứ tự, chờ khoảng bao lâu)', { inputmode: 'numeric' })}
       ${inp('zns_template_ready', 'Mã mẫu "Đã có bàn, mời vào"', { inputmode: 'numeric' })}
       ${f ? html`<button class="primary" onClick=${() => act(() => api('PUT', '/api/settings', f), 'Đã lưu').then((ok) => ok && setF(null))}>Lưu</button>` : null}

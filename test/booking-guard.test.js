@@ -78,12 +78,14 @@ test('chống quên đơn đặt: cảnh báo nhận vãng lai, báo 30′, tự
   assert.equal(note(/^GẤP: bàn đặt của Chị Vân còn khách \(khách chọn bàn này\)/).length, 1);
   assert.equal(note(/^Đã chuyển bàn đặt: Chị Vân/).length, 0);
 
-  // 19:15 khách chưa đến → nhắc gọi / bấm Không đến
+  // 19:15 khách chưa đến → tự huỷ (Không đến), nhả bàn, báo ca (chưa bật Zalo → nhắc gọi khách)
   now = at('19:15');
   app.ctx.bookingGuardTick(); app.ctx.bookingGuardTick();
-  const late = note(/^Khách đặt trễ 15′: Anh Tuấn/);
+  await new Promise((r) => setTimeout(r, 20));
+  const late = note(/^Tự huỷ bàn đặt: Anh Tuấn trễ 15′/);
   assert.equal(late.length, 1);
-  assert.match(late[0].body, /0909000111/);
+  assert.match(late[0].body, /gọi 0909000111/);
+  assert.equal(db.prepare("SELECT status FROM reservations WHERE name = 'Anh Tuấn'").get().status, 'no_show');
 
   // Hết bàn trống → báo gấp quản lý
   const all = db.prepare('SELECT number FROM dining_tables').all().map((x) => x.number).filter((n) => n !== T && n !== T2);

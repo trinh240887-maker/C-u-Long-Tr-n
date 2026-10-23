@@ -12,6 +12,7 @@ export const ZNS_PARAMS = {
   confirm: ['customer_name', 'booking_code', 'booking_date', 'booking_time', 'guests', 'table_no'],
   reject: ['customer_name', 'booking_code', 'booking_date', 'booking_time', 'reason'],
   remind: ['customer_name', 'booking_code', 'booking_date', 'booking_time', 'table_no'],
+  cancel: ['customer_name', 'booking_code', 'booking_date', 'booking_time', 'hold_minutes'], // quá giờ giữ bàn, quán tự huỷ
   queue: ['customer_name', 'queue_no', 'guests', 'wait_minutes'],   // khách vào danh sách chờ
   ready: ['customer_name', 'table_no', 'hold_minutes'],             // đã có bàn, mời vào trong X phút
 };
@@ -42,7 +43,7 @@ export function createZns(ctx, { fetchImpl = globalThis.fetch, oa } = {}) {
     return { ok: false, error: `Zalo từ chối (mã ${j.error ?? res.status}): ${j.message || ''}`.trim() };
   }
 
-  // Báo khách: kind = confirm | reject | remind (đặt bàn) · queue | ready (danh sách chờ)
+  // Báo khách: kind = confirm | reject | remind | cancel (đặt bàn) · queue | ready (danh sách chờ)
   return async function customerNotify(x, kind) {
     if (ctx.setting('zns_enabled') !== '1') return { ok: false, skipped: true };
     const templateId = ctx.setting(`zns_template_${kind}`);

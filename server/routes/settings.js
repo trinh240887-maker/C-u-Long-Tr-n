@@ -15,6 +15,7 @@ const FIELDS = {
   zns_template_confirm: (x) => v.text(x, { name: 'Mã mẫu xác nhận', max: 20 }).replace(/\D/g, ''),
   zns_template_reject: (x) => v.text(x, { name: 'Mã mẫu từ chối', max: 20 }).replace(/\D/g, ''),
   zns_template_remind: (x) => v.text(x, { name: 'Mã mẫu nhắc', max: 20 }).replace(/\D/g, ''),
+  zns_template_cancel: (x) => v.text(x, { name: 'Mã mẫu tự huỷ', max: 20 }).replace(/\D/g, ''),
   zns_template_queue: (x) => v.text(x, { name: 'Mã mẫu vào danh sách chờ', max: 20 }).replace(/\D/g, ''),
   zns_template_ready: (x) => v.text(x, { name: 'Mã mẫu đã có bàn', max: 20 }).replace(/\D/g, ''),
   labor_target_pct: (x) => String(v.int(x, { min: 5, max: 80, name: '% lương / doanh thu mục tiêu' })),

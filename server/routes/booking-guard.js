@@ -4,7 +4,7 @@ import { formatTableList, parseTableList } from '../lib/tables.js';
 // 1. 30′ trước giờ đặt: báo cả ca (ai đang chấm công + quản lý).
 // 2. 20′ trước giờ đặt mà bàn đã đặt vẫn có khách: tự chuyển đơn sang bàn trống phù hợp và báo;
 //    hết bàn, hoặc đơn đánh dấu "không tự đổi bàn", thì báo gấp quản lý.
-// 3. Quá giờ giữ bàn (15′) khách chưa đến: nhắc gọi khách hoặc bấm "Không đến".
+// 3. Quá giờ giữ bàn (15′) khách chưa đến: tự huỷ (Không đến), nhả bàn, nhắn Zalo khách (mẫu "cancel"), báo cả ca.
 // 4. Đầu ca chiều (mặc định 16:00): gửi tóm tắt các bàn đặt hôm nay.
 export default function (r, ctx) {
   const { db } = ctx;
@@ -81,9 +81,19 @@ export default function (r, ctx) {
           n++;
         }
       }
+      // Quá giờ giữ bàn (mặc định 15′) khách chưa đến → tự huỷ (ghi "Không đến"), nhả bàn, báo Zalo cho khách
       if (mins <= -hold && !rv.late_notified_at) {
-        ctx.notify(team(today), { title: `Khách đặt trễ ${hold}′: ${rv.name}`, body: `${who}${rv.phone ? ` · gọi ${rv.phone}` : ''}. Khách không đến thì bấm "Không đến" để mở bàn.`, link: `/dat-ban?date=${today}`, urgent: true });
-        db.prepare('UPDATE reservations SET late_notified_at = ? WHERE id = ?').run(now, rv.id);
+        db.prepare("UPDATE reservations SET status = 'no_show', late_notified_at = ? WHERE id = ? AND status = 'booked'").run(now, rv.id);
+        ctx.audit(null, 'reservation.auto_no_show', { id: rv.id, hold });
+        ctx.broadcast?.('reservations');
+        const tell = ctx.tellCustomer && rv.phone ? ctx.tellCustomer({ ...rv, hold_minutes: hold }, 'cancel') : Promise.resolve({ skipped: true });
+        Promise.resolve(tell).catch((e) => ({ ok: false, error: e.message })).then((res) => {
+          ctx.notify(team(today), {
+            title: `Tự huỷ bàn đặt: ${rv.name} trễ ${hold}′`,
+            body: `${who}${rv.tables ? ` · nhả bàn ${rv.tables}` : ''}. ${res?.ok ? 'Đã nhắn Zalo báo khách.' : `Chưa nhắn được Zalo${res?.error ? ` (${res.error})` : ''}${rv.phone ? `: gọi ${rv.phone} báo khách` : ''}.`} Khách tới sau thì xếp bàn như khách vãng lai.`,
+            link: `/dat-ban?date=${today}`,
+          });
+        });
         n++;
       }
     }
