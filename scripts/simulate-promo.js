@@ -104,13 +104,22 @@ for (const g of s.gifts.filter((x) => x.left)) P(`- Màn hình hiện khung xanh
 await add('Thịt tươi tặng 100g', 2, [], 'KM tặng');
 s = await waiter('GET', `/api/pos/sessions/${sid}`);
 P('- Phục vụ bấm nút [+ Thịt tươi tặng 100g] 2 lần (2 set) → khung xanh biến mất; khách không chọn loại');
-P('- Steak Âu chỉ gọi 1 phần → không đủ "mua 1 tặng 1 cùng món", tính đủ tiền (phục vụ nên mời khách gọi thêm 1 phần tặng)');
+const run = (await waiter('GET', '/api/menu')).promo?.running || [];
+P(`- Đầu màn gọi món luôn có thanh hồng: "🎁 Quán đang có khuyến mãi: ${run.join(' · ')}"`);
+for (const h of s.promo_hints || []) P(`- Steak Âu mới 1 phần → khung xanh: "🎁 ${h.name}: gọi thêm ${h.need} phần ${h.item_name} là được tặng. Mời khách nhé!" + nút [+ ${h.item_name} (phần tặng)]`);
+if (!(s.promo_hints || []).length) P('- ⚠ LỖI: Steak Âu 1 phần mà không có nhắc gọi thêm');
 
 // ---------- 3. Gửi bếp ----------
 await waiter('POST', `/api/pos/sessions/${sid}/send`);
+// 19:05 khách đồng ý lấy phần tặng → phục vụ bấm nút trên khung xanh, gửi bếp: phiếu "GỌI THÊM" chỉ có món mới
+now = clock.toEpoch(DAY, 19 * 60 + 5);
+await add('Steak Âu', 1, ['Kem phô mai', 'Mì Ý']);
+s = await waiter('GET', `/api/pos/sessions/${sid}`);
+const firstTicket = db.prepare('SELECT MAX(id) AS id FROM kitchen_tickets WHERE session_id = ?').get(sid).id;
+await waiter('POST', `/api/pos/sessions/${sid}/send`);
 const tickets = db.prepare('SELECT t.*, st.name AS station_name FROM kitchen_tickets t LEFT JOIN kitchen_stations st ON st.id = t.station_id WHERE t.session_id = ? ORDER BY t.id').all(sid);
-P('\n## 3. Phiếu bếp in ra từng điểm (không ghi "tặng" ở steak; món tặng bò có ghi chú "KM tặng")');
-const ticketTxt = tickets.map((t) => receipt(ticketBytes({ ...t, lines: JSON.parse(t.lines) }, { mode: 'utf8', time: clock.fmt(t.created_at).slice(0, 5), by: 'Hậu' }))).join('\n');
+P('\n## 3. Phiếu bếp in ra từng điểm (dòng "KM:" cho bếp biết phần tặng; 19:05 gọi thêm 1 Steak Âu → phiếu GỌI THÊM chỉ có món mới)');
+const ticketTxt = tickets.map((t) => receipt(ticketBytes({ ...t, lines: JSON.parse(t.lines) }, { mode: 'utf8', time: `${clock.fmt(t.created_at).slice(0, 5)} 23/10`, by: 'Hậu' }))).join('\n');
 P('```'); P(ticketTxt.trim()); P('```');
 
 // ---------- 4. Bill ----------

@@ -62,7 +62,7 @@ export function ticketBytes(t, { mode, time = '', by = '', lateMin = 0 } = {}) {
   if (t.kind === 'cancel' || t.kind === 'remind' || t.priority) d.beep();
   d.line(t.header || '').bold(false).size(1, 1);
   if (t.reprint) d.bold(true).line(`BẢN IN LẠI lần ${t.reprint} (phiếu gốc ${String(t.time0 || '')}) - KIỂM TRA ĐÃ LÀM CHƯA`).bold(false);
-  d.line([time, by, `#${t.id}`].filter(Boolean).join('  ·  '));
+  d.line([time, by ? `NV: ${by}` : '', `#${t.id}`].filter(Boolean).join('  ·  '));
   d.align('left').rule();
   for (const l of t.lines || []) {
     d.size(1, 2).bold(true).wrap(`${l.qty} x ${l.name}${l.rush ? ' (GẤP)' : ''}`, { width: WIDTH }).bold(false).size(1, 1);

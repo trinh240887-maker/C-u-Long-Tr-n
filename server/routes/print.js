@@ -101,7 +101,7 @@ export default function (r, ctx) {
       if (!to.length) continue; // máy chưa có IP: chờ, màn quản lý báo "chưa cài máy in"
       const t = { ...k, lines: JSON.parse(k.lines || '[]'), time0: hm(k.created_at) };
       const lateMin = Math.floor((now - (k.reprint_at || k.created_at)) / 60_000);
-      jobs.push({ key: `t${k.id}`, station: k.station_name, targets: to, data: ticketBytes(t, { mode: mode(), time: hm(k.created_at), by: k.by_name || '', lateMin }).toString('base64') });
+      jobs.push({ key: `t${k.id}`, station: k.station_name, targets: to, data: ticketBytes(t, { mode: mode(), time: `${hm(k.created_at)} ${ctx.clock().dateOf(k.created_at).slice(8, 10)}/${ctx.clock().dateOf(k.created_at).slice(5, 7)}`, by: k.by_name || '', lateMin }).toString('base64') });
     }
     for (const p of db.prepare("SELECT p.*, st.name, st.printer_ip, st.printer_port FROM print_tests p JOIN kitchen_stations st ON st.id = p.station_id WHERE p.status = 'pending'").all()) {
       if (!p.printer_ip) { db.prepare("UPDATE print_tests SET status = 'failed', error = 'Chưa nhập IP' WHERE id = ?").run(p.id); continue; }

@@ -301,10 +301,12 @@ schedule(at('18:00'), async () => {
   if (r2.status === 200) { const g = { id: 9000, size: 4, w, dwell: 95, sid: r2.data.id, tables: [50] }; st.groups++; st.guests += 4; await order(g); say('[Phục vụ] Hậu vẫn bấm xác nhận cho ngồi (giả lập quên) → 18:40 app sẽ tự chuyển đơn Anh Hùng'); }
 });
 schedule(at('19:16'), async () => {
-  const n = db.prepare("SELECT title FROM notifications WHERE title LIKE 'Khách đặt trễ%Anh Tuấn%' LIMIT 1").get();
-  await bao('PATCH', `/api/reservations/${bookings.find((b) => b.name === 'Anh Tuấn').id}`, { status: 'no_show' });
-  st.noShow++;
-  say(`[Trưởng ca] ${n ? `app nhắc "${n.title}"` : 'không có nhắc'} → gọi không được → bấm "Không đến", bàn 95 mở bán`);
+  await new Promise((r) => setTimeout(r, 20));
+  const n = db.prepare("SELECT title FROM notifications WHERE title LIKE 'Tự huỷ bàn đặt: Anh Tuấn%' LIMIT 1").get();
+  const s0 = db.prepare('SELECT status FROM reservations WHERE id = ?').get(bookings.find((b) => b.name === 'Anh Tuấn').id).status;
+  if (s0 === 'no_show') st.noShow++;
+  else issues.push('Anh Tuấn trễ 15′ mà app chưa tự huỷ');
+  say(`[App] ${n ? `"${n.title}"` : 'KHÔNG tự huỷ'} → nhả bàn 95, báo cả ca gọi khách (chưa cài Zalo ZNS)`);
 });
 
 // Khách vãng lai: trưa 18 nhóm, tối 125 nhóm dồn 18:00–20:30
@@ -375,13 +377,13 @@ P('## Khách hàng');
 P(`- ${st.groups} nhóm / ${st.guests} khách được phục vụ (vãng lai ${st.walkins}, khách đặt ${st.bookArrive}/${st.bookings}, mời từ danh sách chờ ${st.waitSeated})`);
 P(`- Hết bàn phải chờ: ${st.waitlisted} nhóm · chờ TB ${avg(st.waits).toFixed(1)}′ · bỏ về ${st.waitGone} nhóm`);
 P(`- Khách gọi món đã hết → phục vụ mời món khác ${st.swaps} lần`);
-P(`- Đặt online: Chị Mai tự đặt, quán xác nhận sau 7′ · Anh Tuấn đặt không đến → app nhắc, trưởng ca bấm "Không đến"`);
+P(`- Đặt online: Chị Mai tự đặt, quán xác nhận sau 7′ · Anh Tuấn đặt không đến → quá 15′ app tự huỷ, nhả bàn, báo ca`);
 P();
 P('## Phục vụ / quản lý');
 P(`- App tự mời khách chờ ${st.calls} lượt (bàn trống / đang dọn, nhóm vừa chỗ)`);
 P(`- Lúc có khách chờ: bàn từ lúc khách cũ trả tiền đến khách mới ngồi TB ${avg(st.dirtyWait).toFixed(1)}′ (gồm dọn bàn) · ${st.cleaned} lượt dọn`);
 P(`- Chống quên đặt bàn: app tự chuyển ${st.autoMove} đơn đặt sang bàn trống khi bàn đặt còn khách lúc T−20′`);
-for (const x of note(/^(Đã chuyển bàn đặt|Khách đặt trễ|30′ nữa có khách đặt|Hôm nay \d+ bàn đặt|GẤP)/).slice(0, 8)) P(`  - ${x}`);
+for (const x of note(/^(Đã chuyển bàn đặt|Tự huỷ bàn đặt|30′ nữa có khách đặt|Hôm nay \d+ bàn đặt|GẤP)/).slice(0, 8)) P(`  - ${x}`);
 P();
 P('## Bếp');
 P(`- ${st.items} phần gọi, ${st.served} lần bấm "đã ra", ~${st.late} bàn ra món trễ > 20′`);
