@@ -77,3 +77,9 @@ Lối đi bê tông giữa 2 dãy quầy, viền vỉa vàng–đen, vạch kẻ
 Điểm thấy: **nước đọng loang lổ giữa lối** (trơn), vết dầu đen; **cổng vào bẩn**: đất, rác, lá, vết dầu, **miệng cống đầy rác**, sơn vàng bong; xe đẩy, thang, thùng để giữa lối.
 Checklist: Mở ca (quét cổng + vỉa hè, vớt cống, xịt vết dầu, lối khô, dọn đồ chắn lối, đèn/dù) · Trong ca (19h, 21h đi 1 vòng) · Đóng ca (quét lau lối, xịt dầu, cổng + cống, cất xe đẩy/thang, thu dù, ghi chỗ hư).
 Việc 1 lần (giao việc, không phải checklist): sơn lại viền vàng cổng vào.
+
+## Mặt tiền & giữ xe (tổ Bảo vệ / giữ xe nếu có, không thì Tạp vụ) — 2 ảnh 23/10, đã đưa vào app
+Sân gạch đỏ trước quán, cổng lưới đỏ có bánh xe, chậu cau lớn, xe khách đậu trên sân gạch / sát lối vào, cột điện dán giấy; rác nhà bên (thùng xốp, bao đen) sát lề.
+Điểm thấy: tàn thuốc, giấy, túi nilon, lá, gạch vỡ trên sân; xe đậu chắn lối đi bộ vào quán; chưa thấy thùng rác / gạt tàn ở mặt tiền.
+Checklist: Mở ca (mở cổng lưới chặn bánh, quét lau sân, dọn gạch vỡ, tưới cây, xếp xe chừa lối, đèn bảng hiệu) · Trong ca (19h, 21h xếp xe, nhặt tàn thuốc) · Đóng ca (quét, đem rác đúng chỗ, đóng khoá cổng, tắt đèn, ghi xe gửi qua đêm).
+Gợi ý mua: 1 thùng rác + gạt tàn đặt mặt tiền; vạch / biển khu để xe.

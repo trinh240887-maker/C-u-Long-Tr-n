@@ -30,6 +30,7 @@ test('checklist theo khu: tạo 1 lần, gán đúng vị trí theo tên, không
   db.close();
   db = openDb(file);
   assert.ok(get('Mở ca Lối đi & cổng vào'), 'khu mới được thêm');
+  assert.equal(get('Đóng ca Mặt tiền & giữ xe').team, 'Tạp vụ', 'chưa có tổ Bảo vệ → giao Tạp vụ');
   assert.ok(!get('Mở ca Pha chế'), 'không tạo lại checklist chủ quán đã xoá');
   db.exec("DELETE FROM settings WHERE key IN ('checklist_khu_v1', 'checklist_khu_done')");
   for (const c of KHU_CHECKLISTS) db.prepare('DELETE FROM checklist_templates WHERE title IN (?, ?)').run(c.title, `${c.title} (chọn tổ)`);

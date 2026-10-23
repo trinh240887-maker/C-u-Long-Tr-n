@@ -145,14 +145,39 @@ export const KHU_CHECKLISTS = [
     T('Thu dù, kéo bạt', false),
     X('Chỗ hư cần sửa (sơn viền bong, gạch vỡ…)'),
   ] },
+  // Mặt tiền ra đường (ảnh 23/10): sân gạch đỏ có tàn thuốc, giấy, túi nilon, lá, gạch vỡ; cổng lưới đỏ có bánh xe;
+  // xe khách đậu trên sân gạch / sát lối vào; chậu cau lớn; rác nhà bên đặt sát cột điện
+  { title: 'Mở ca Mặt tiền & giữ xe', phase: 'open', team: ['bảo vệ', 'giữ xe', 'tạp vụ'], items: [
+    T('Kéo mở cổng lưới, chặn bánh xe cho đứng yên'),
+    T('Quét + lau sân gạch đỏ mặt tiền: tàn thuốc, giấy, túi nilon, lá'),
+    T('Dọn gạch vỡ, vật cản trước cổng'),
+    T('Tưới cây, nhặt lá úa chậu cau', false),
+    T('Khu để xe xếp gọn, chừa lối đi bộ cho khách vào'),
+    T('Đèn lồng, bảng hiệu mặt tiền sáng / ngay ngắn', false),
+  ] },
+  { title: 'Trong ca Mặt tiền & giữ xe', phase: 'during', team: ['bảo vệ', 'giữ xe', 'tạp vụ'], items: [
+    T('19:00 xếp lại xe gọn, không chắn cổng; nhặt tàn thuốc, rác', false),
+    T('21:00 xếp lại xe gọn, không chắn cổng; nhặt tàn thuốc, rác', false),
+  ] },
+  { title: 'Đóng ca Mặt tiền & giữ xe', phase: 'close', team: ['bảo vệ', 'giữ xe', 'tạp vụ'], items: [
+    T('Quét sân gạch mặt tiền'),
+    T('Đem rác ra điểm tập kết đúng chỗ (không để trước nhà bên cạnh)'),
+    T('Kéo đóng cổng lưới, khoá'),
+    T('Tắt đèn bảng hiệu, đèn lồng', false),
+    X('Xe khách còn gửi qua đêm / sự cố (ghi biển số nếu có)'),
+  ] },
 ];
+
+// 11 checklist của bản đầu (23/10, settings.checklist_khu_v1)
+const V1_TITLES = ['Mở ca Thái tay', 'Đóng ca Thái tay', 'Mở ca Topping', 'Đóng ca Topping', 'Mở ca Nước lẩu', 'Đóng ca Nước lẩu',
+  'Mở ca Pha chế', 'Đóng ca Pha chế', 'Mở ca Tiếp thực', 'Đóng ca Tiếp thực', 'Đóng ca khu bán hàng'];
 
 export function seedKhuChecklists(db) {
   const getSet = db.prepare('SELECT value FROM settings WHERE key = ?');
   let done;
   try { done = new Set(JSON.parse(getSet.get('checklist_khu_done')?.value || '[]')); } catch { done = new Set(); }
   // Bản đầu (23/10, checklist_khu_v1) đã tạo 11 checklist đầu: coi như xong, không tạo lại cái chủ quán đã xoá
-  if (getSet.get('checklist_khu_v1')) for (const c of KHU_CHECKLISTS.filter((x) => !/Lối đi/.test(x.title))) done.add(c.title);
+  if (getSet.get('checklist_khu_v1')) for (const t of V1_TITLES) done.add(t);
   const todo = KHU_CHECKLISTS.filter((c) => !done.has(c.title));
   if (!todo.length) return;
   const lc = (s) => String(s || '').toLocaleLowerCase('vi');
