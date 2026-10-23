@@ -142,7 +142,8 @@ export function OrderView({ me, query }) {
   const catName = (id) => m.categories.find((c) => c.id === id)?.name || '';
   // Tìm rộng: mọi chữ gõ vào phải có trong tên / nhóm / mô tả món (không dấu cũng được)
   const words = plain(q).split(/\s+/).filter(Boolean);
-  const items = m.items.filter((i) => { if (!words.length) return true; const hay = plain(`${i.name} ${catName(i.category_id)} ${i.description || ''}`); return words.every((w) => hay.includes(w)); })
+  // Món chỉ dùng để tặng (vd "Thịt tươi tặng 100g") không hiện ở thực đơn: thêm bằng nút xanh "Còn tặng N phần"
+  const items = m.items.filter((i) => { if (/tặng/i.test(i.name)) return false; if (!words.length) return true; const hay = plain(`${i.name} ${catName(i.category_id)} ${i.description || ''}`); return words.every((w) => hay.includes(w)); })
     .sort((a, b) => catOrder(a.category_id) - catOrder(b.category_id) || a.sort - b.sort || a.id - b.id);
   // Nhóm hiển thị trên màn gọi món (chủ quán 24/10): Steak = steak + món thêm; Lẩu = set lẩu, ngăn thêm, bò, topping, rau…; Nướng riêng.
   // Chỉ gom để hiển thị; nhóm món trong dữ liệu giữ nguyên (khuyến mãi theo nhóm không đổi).
