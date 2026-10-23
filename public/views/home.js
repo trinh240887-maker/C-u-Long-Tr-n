@@ -70,7 +70,8 @@ export function Home({ me }) {
   const avail = useData(must ? '/api/availability/me' : null);
   const [leaveFor, setLeaveFor] = useState(null);
   const myTasks = (tasks.data || []).filter((t) => t.assignee_id === me.id || (!t.assignee_id && t.team_id === me.team_id));
-  const unread = (notes.data || []).filter((n) => !n.read_at).slice(0, 3);
+  // Khuyến mãi đã có thẻ 🎁 ở trên → không lặp trong Thông báo mới
+  const unread = (notes.data || []).filter((n) => !n.read_at && n.link !== '/khuyen-mai').slice(0, 3);
   const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
 
   return html`<div class="stack">

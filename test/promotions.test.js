@@ -44,7 +44,8 @@ test('khuyến mãi: mua 1 tặng 1 theo ngày, tự hết hạn, báo nhân vi�
   assert.equal((await H('POST', '/api/promotions', { name: 'x', type: 'bogo', start_date: '2026-10-22', end_date: '2026-10-31' })).status, 403);
   assert.equal((await o('POST', '/api/promotions', { name: 'x', type: 'bogo', scope: 'all', start_date: '2026-10-31', end_date: '2026-10-22' })).status, 400);
 
-  // Chủ quán tạo "Mua 1 tặng 1 trà trái cây" 22/10–31/10 → mọi nhân viên nhận báo
+  // Chủ quán tạo "Mua 1 tặng 1 trà trái cây" 22/10–31/10 → mặc định không gửi thông báo (đã hiện ở Hôm nay); bật promo_notify thì báo mọi nhân viên
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('promo_notify', '1')").run();
   const c = await o('POST', '/api/promotions', { name: 'Mua 1 tặng 1 trà', type: 'bogo', buy_qty: 1, get_qty: 1, scope: 'categories', category_ids: [cat('Trà trái cây')], start_date: '2026-10-22', end_date: '2026-10-31', note: 'Mời khách khi order nước' });
   assert.equal(c.status, 200, JSON.stringify(c.data));
   assert.equal(c.data.notified, 3);

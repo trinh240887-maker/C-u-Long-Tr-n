@@ -114,7 +114,9 @@ export default function (r, ctx) {
     return Number(db.prepare(`INSERT INTO promotions (${cols.join(', ')}, created_at) VALUES (${cols.map(() => '?').join(', ')}, ?)`).run(...vals, ctx.now()).lastInsertRowid);
   };
   const everyone = () => db.prepare('SELECT id FROM staff WHERE active = 1').all().map((x) => x.id);
+  // Chủ quán 23/10: không gửi thông báo khuyến mãi (trang Hôm nay + màn gọi món đã hiện chương trình đang chạy)
   function announce(p, kind) {
+    if (ctx.setting('promo_notify') !== '1') return 0;
     const s = describe(p, names());
     const title = kind === 'start' ? `Hôm nay bắt đầu khuyến mãi: ${p.name}` : kind === 'update' ? `Khuyến mãi thay đổi: ${p.name}` : `Khuyến mãi mới: ${p.name}`;
     const ids = everyone();

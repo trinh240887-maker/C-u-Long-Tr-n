@@ -83,7 +83,7 @@ const promos = (await o('GET', '/api/promotions')).items;
 P('## 1. Chủ quán tạo khuyến mãi (Khuyến mãi → + Thêm chương trình)');
 for (const p of promos) P(`- 🎁 **${p.name}** · ${p.summary} · ${p.status === 'running' ? 'Đang chạy' : p.status}`);
 const notes = db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE title LIKE 'Khuyến mãi mới%'").get().n;
-P(`- App báo cho nhân viên: ${notes} thông báo`);
+P(`- Không gửi thông báo riêng (${notes}): chương trình hiện ở thẻ 🎁 trang Hôm nay và thanh hồng màn gọi món`);
 
 // ---------- 2. Phục vụ gọi món bàn 12 ----------
 now = clock.toEpoch(DAY, 18 * 60 + 45);

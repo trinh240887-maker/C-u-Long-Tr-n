@@ -1,0 +1,3817 @@
+{
+"version": "14/10/2026",
+"items": [
+{
+"code": "LAU-S1",
+"file_name": "Set 1 — Thảo mộc Triều Châu",
+"group": "Set lẩu",
+"unit": "Set",
+"price": 150000,
+"note": "Set 2 khách: ngăn lẩu + 150 g bò (50 thăn, 50 gù, 50 gầu) + rau + 2 vắt mì + 2 chén chấm"
+},
+{
+"code": "LAU-S2",
+"file_name": "Set 2 — Mala Tứ Xuyên",
+"group": "Set lẩu",
+"unit": "Set",
+"price": 150000,
+"note": ""
+},
+{
+"code": "LAU-S3",
+"file_name": "Set 3 — Lẩu Nấm Vân Nam",
+"group": "Set lẩu",
+"unit": "Set",
+"price": 150000,
+"note": ""
+},
+{
+"code": "LAU-S4",
+"file_name": "Set 4 — Cà chua Quý Châu",
+"group": "Set lẩu",
+"unit": "Set",
+"price": 150000,
+"note": ""
+},
+{
+"code": "LAU-S5",
+"file_name": "Set 5 — Mala Trứng Muối",
+"group": "Set lẩu",
+"unit": "Set",
+"price": 169000,
+"note": ""
+},
+{
+"code": "LAU-N1",
+"file_name": "Ngăn nước lẩu thêm — Thảo mộc Triều Châu",
+"group": "Ngăn nước lẩu thêm",
+"unit": "Ngăn",
+"price": 29000,
+"note": ""
+},
+{
+"code": "LAU-N2",
+"file_name": "Ngăn nước lẩu thêm — Mala Tứ Xuyên",
+"group": "Ngăn nước lẩu thêm",
+"unit": "Ngăn",
+"price": 29000,
+"note": ""
+},
+{
+"code": "LAU-N3",
+"file_name": "Ngăn nước lẩu thêm — Lẩu Nấm Vân Nam",
+"group": "Ngăn nước lẩu thêm",
+"unit": "Ngăn",
+"price": 29000,
+"note": ""
+},
+{
+"code": "LAU-N4",
+"file_name": "Ngăn nước lẩu thêm — Cà chua Quý Châu",
+"group": "Ngăn nước lẩu thêm",
+"unit": "Ngăn",
+"price": 29000,
+"note": ""
+},
+{
+"code": "LAU-N5",
+"file_name": "Ngăn nước lẩu thêm — Mala Trứng Muối",
+"group": "Ngăn nước lẩu thêm",
+"unit": "Ngăn",
+"price": 48000,
+"note": ""
+},
+{
+"code": "BO-01",
+"file_name": "Xách bò trắng 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 55000,
+"note": ""
+},
+{
+"code": "BO-02",
+"file_name": "Xách bò đen 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 55000,
+"note": ""
+},
+{
+"code": "BO-03",
+"file_name": "Thăn bò tươi 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 69000,
+"note": ""
+},
+{
+"code": "BO-04",
+"file_name": "Gầu giòn 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 69000,
+"note": ""
+},
+{
+"code": "BO-05",
+"file_name": "Bò tắm trứng 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 69000,
+"note": ""
+},
+{
+"code": "BO-06",
+"file_name": "Aukobe bông tuyết 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 79000,
+"note": ""
+},
+{
+"code": "BO-07",
+"file_name": "Bắp hoa tươi 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 69000,
+"note": ""
+},
+{
+"code": "BO-08",
+"file_name": "Gù bò tươi 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 69000,
+"note": ""
+},
+{
+"code": "BO-09",
+"file_name": "Bò ướp mala 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 69000,
+"note": ""
+},
+{
+"code": "BO-10",
+"file_name": "Ba chỉ bò Mỹ 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 59000,
+"note": "Phiếu ghi Ba chỉ bò MỸ — menu ghi bò Úc"
+},
+{
+"code": "BO-11",
+"file_name": "Lõi vai bò Úc 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 79000,
+"note": ""
+},
+{
+"code": "BO-12",
+"file_name": "Gù hoa bò Úc 100 g",
+"group": "Bò tươi gọi thêm",
+"unit": "Phần",
+"price": 79000,
+"note": ""
+},
+{
+"code": "TOP-01",
+"file_name": "Đậu hủ phô mai (4 viên)",
+"group": "Topping nhúng lẩu",
+"unit": "4 viên",
+"price": 39000,
+"note": ""
+},
+{
+"code": "TOP-02",
+"file_name": "Bò viên (100 g)",
+"group": "Topping nhúng lẩu",
+"unit": "4 viên",
+"price": 39000,
+"note": ""
+},
+{
+"code": "TOP-03",
+"file_name": "Túi tiền (2 túi)",
+"group": "Topping nhúng lẩu",
+"unit": "2 túi",
+"price": 49000,
+"note": ""
+},
+{
+"code": "TOP-04",
+"file_name": "Thanh cua (3 thanh)",
+"group": "Topping nhúng lẩu",
+"unit": "3 thanh",
+"price": 25000,
+"note": ""
+},
+{
+"code": "TOP-05",
+"file_name": "Bánh bao ngũ sắc (6 viên)",
+"group": "Topping nhúng lẩu",
+"unit": "6 viên",
+"price": 39000,
+"note": ""
+},
+{
+"code": "TOP-06",
+"file_name": "Chả tôm phi thúy",
+"group": "Topping nhúng lẩu",
+"unit": "Phần",
+"price": 69000,
+"note": ""
+},
+{
+"code": "RNM-01",
+"file_name": "Rau tổng hợp",
+"group": "Rau – nấm – mì",
+"unit": "Rổ",
+"price": 15000,
+"note": ""
+},
+{
+"code": "RNM-02",
+"file_name": "Nấm thập cẩm",
+"group": "Rau – nấm – mì",
+"unit": "Đĩa",
+"price": 35000,
+"note": ""
+},
+{
+"code": "RNM-03",
+"file_name": "Nấm kim châm",
+"group": "Rau – nấm – mì",
+"unit": "Đĩa",
+"price": 15000,
+"note": ""
+},
+{
+"code": "RNM-04",
+"file_name": "Mì trứng (2 vắt)",
+"group": "Rau – nấm – mì",
+"unit": "2 vắt",
+"price": 10000,
+"note": "Giá mì trứng em ước tính"
+},
+{
+"code": "RNM-05",
+"file_name": "Tàu hủ ki (1 đĩa)",
+"group": "Rau – nấm – mì",
+"unit": "Đĩa",
+"price": 15000,
+"note": ""
+},
+{
+"code": "XN-01",
+"file_name": "Xiên Bò Cửu Long",
+"group": "Xiên nướng",
+"unit": "Xiên",
+"price": 29000,
+"note": ""
+},
+{
+"code": "XN-02",
+"file_name": "Heo Nướng HongKong",
+"group": "Xiên nướng",
+"unit": "Xiên",
+"price": 15000,
+"note": ""
+},
+{
+"code": "XN-03",
+"file_name": "Mề Gà Tân Cương",
+"group": "Xiên nướng",
+"unit": "Xiên",
+"price": 15000,
+"note": ""
+},
+{
+"code": "XN-04",
+"file_name": "Xách Bò Tứ Xuyên",
+"group": "Xiên nướng",
+"unit": "Xiên",
+"price": 15000,
+"note": "Xách trắng 196.000đ/kg — xiên 50 g xách nên cost cao; phiếu xiên anh ghi 181.000đ (giá xách đen?)"
+},
+{
+"code": "XN-05",
+"file_name": "Cánh Gà Triều Châu",
+"group": "Xiên nướng",
+"unit": "Xiên",
+"price": 15000,
+"note": "Cánh gà 100 g/xiên"
+},
+{
+"code": "XN-06",
+"file_name": "Ức Gà Trùng Khánh",
+"group": "Xiên nướng",
+"unit": "Xiên",
+"price": 15000,
+"note": ""
+},
+{
+"code": "XN-07",
+"file_name": "Phèo non rắc ớt HongKong",
+"group": "Xiên nướng",
+"unit": "Xiên",
+"price": 15000,
+"note": ""
+},
+{
+"code": "XN-08",
+"file_name": "Chẳng Dừng rắc ớt HongKong",
+"group": "Xiên nướng",
+"unit": "Xiên",
+"price": 19000,
+"note": ""
+},
+{
+"code": "STK-01",
+"file_name": "Steak Âu",
+"group": "Steak",
+"unit": "Dĩa",
+"price": 79000,
+"note": "Sốt 100 g/dĩa + bò 120 g → cost cao"
+},
+{
+"code": "STK-02",
+"file_name": "Combo 1 (Triều Châu)",
+"group": "Steak",
+"unit": "Dĩa",
+"price": 79000,
+"note": ""
+},
+{
+"code": "STK-03",
+"file_name": "Combo 2 (Hong Kong)",
+"group": "Steak",
+"unit": "Dĩa",
+"price": 99000,
+"note": ""
+},
+{
+"code": "STK-04",
+"file_name": "Combo 3 (Kowloon)",
+"group": "Steak",
+"unit": "Dĩa",
+"price": 139000,
+"note": ""
+},
+{
+"code": "XAO-01",
+"file_name": "Nui xào Triều Châu",
+"group": "Món xào",
+"unit": "Dĩa",
+"price": 85000,
+"note": ""
+},
+{
+"code": "XAO-02",
+"file_name": "Mì Ý xào HongKong",
+"group": "Món xào",
+"unit": "Dĩa",
+"price": 85000,
+"note": ""
+},
+{
+"code": "THEM-01",
+"file_name": "Món thêm — Bánh mì",
+"group": "Món thêm steak",
+"unit": "Ổ",
+"price": 5000,
+"note": ""
+},
+{
+"code": "THEM-02",
+"file_name": "Món thêm — Nui",
+"group": "Món thêm steak",
+"unit": "Phần",
+"price": 10000,
+"note": ""
+},
+{
+"code": "THEM-03",
+"file_name": "Món thêm — Mì Ý",
+"group": "Món thêm steak",
+"unit": "Phần",
+"price": 15000,
+"note": ""
+},
+{
+"code": "THEM-04",
+"file_name": "Món thêm — Trứng",
+"group": "Món thêm steak",
+"unit": "Quả",
+"price": 8000,
+"note": ""
+},
+{
+"code": "THEM-05",
+"file_name": "Món thêm — Salad",
+"group": "Món thêm steak",
+"unit": "Phần",
+"price": 10000,
+"note": ""
+},
+{
+"code": "THEM-06",
+"file_name": "Món thêm — Khoai tây chiên (MỚI)",
+"group": "Món thêm steak",
+"unit": "Phần",
+"price": 15000,
+"note": "MÓN MỚI theo phiếu: khoai tây chiên bán riêng 15K"
+},
+{
+"code": "CF-01",
+"file_name": "Cafe Đen Đá (phin)",
+"group": "Cà phê",
+"unit": "Ly",
+"price": 20000,
+"note": ""
+},
+{
+"code": "CF-02",
+"file_name": "Cafe Sữa Đá (phin)",
+"group": "Cà phê",
+"unit": "Ly",
+"price": 25000,
+"note": ""
+},
+{
+"code": "CF-03",
+"file_name": "Bạc Xỉu Đá (phin)",
+"group": "Cà phê",
+"unit": "Ly",
+"price": 25000,
+"note": ""
+},
+{
+"code": "CF-04",
+"file_name": "Cafe Muối phô mai",
+"group": "Cà phê",
+"unit": "Ly",
+"price": 35000,
+"note": ""
+},
+{
+"code": "CF-05",
+"file_name": "Espresso (nóng/đá)",
+"group": "Cà phê",
+"unit": "Ly",
+"price": 30000,
+"note": ""
+},
+{
+"code": "CF-06",
+"file_name": "Latte (nóng/đá)",
+"group": "Cà phê",
+"unit": "Ly",
+"price": 35000,
+"note": ""
+},
+{
+"code": "CF-07",
+"file_name": "Cappuccino (nóng/đá)",
+"group": "Cà phê",
+"unit": "Ly",
+"price": 35000,
+"note": ""
+},
+{
+"code": "TRA-01",
+"file_name": "Trà Tắc Xí Muội",
+"group": "Trà trái cây",
+"unit": "Ly",
+"price": 20000,
+"note": ""
+},
+{
+"code": "TRA-02",
+"file_name": "Cam Vắt",
+"group": "Trà trái cây",
+"unit": "Ly",
+"price": 25000,
+"note": ""
+},
+{
+"code": "TRA-03",
+"file_name": "Trà Vải",
+"group": "Trà trái cây",
+"unit": "Ly",
+"price": 25000,
+"note": ""
+},
+{
+"code": "TRA-04",
+"file_name": "Trà Dâu",
+"group": "Trà trái cây",
+"unit": "Ly",
+"price": 25000,
+"note": ""
+},
+{
+"code": "TRA-05",
+"file_name": "Trà Ổi Hồng",
+"group": "Trà trái cây",
+"unit": "Ly",
+"price": 25000,
+"note": "Tạm dùng công thức \"Trà dâu ổi đỏ\""
+},
+{
+"code": "TRA-06",
+"file_name": "Trà Đào",
+"group": "Trà trái cây",
+"unit": "Ly",
+"price": 25000,
+"note": ""
+},
+{
+"code": "TRA-07",
+"file_name": "Trà Đào Cam Xả",
+"group": "Trà trái cây",
+"unit": "Ly",
+"price": 29000,
+"note": ""
+},
+{
+"code": "TRA-08",
+"file_name": "Trà Dâu Cam Xả",
+"group": "Trà trái cây",
+"unit": "Ly",
+"price": 29000,
+"note": ""
+},
+{
+"code": "TRA-09",
+"file_name": "Trà Trái Cây Nhiệt Đới",
+"group": "Trà trái cây",
+"unit": "Ly",
+"price": 29000,
+"note": ""
+},
+{
+"code": "NK-01",
+"file_name": "Nước Suối",
+"group": "Nước ngọt – nước suối",
+"unit": "Chai",
+"price": 10000,
+"note": ""
+},
+{
+"code": "NK-02",
+"file_name": "Coca",
+"group": "Nước ngọt – nước suối",
+"unit": "Lon",
+"price": 15000,
+"note": ""
+},
+{
+"code": "NK-03",
+"file_name": "Coca Không Đường",
+"group": "Nước ngọt – nước suối",
+"unit": "Lon",
+"price": 15000,
+"note": ""
+},
+{
+"code": "NK-04",
+"file_name": "Sprite",
+"group": "Nước ngọt – nước suối",
+"unit": "Lon",
+"price": 15000,
+"note": ""
+},
+{
+"code": "NK-05",
+"file_name": "Sting Dâu",
+"group": "Nước ngọt – nước suối",
+"unit": "Chai",
+"price": 15000,
+"note": ""
+},
+{
+"code": "NK-06",
+"file_name": "Fanta cam",
+"group": "Nước ngọt – nước suối",
+"unit": "Lon",
+"price": 15000,
+"note": ""
+},
+{
+"code": "BR-01",
+"file_name": "Heineken lùn",
+"group": "Bia & rượu",
+"unit": "Chai",
+"price": 25000,
+"note": ""
+},
+{
+"code": "BR-02",
+"file_name": "Tiger bạc",
+"group": "Bia & rượu",
+"unit": "Lon",
+"price": 25000,
+"note": ""
+},
+{
+"code": "BR-03",
+"file_name": "Rượu nóng Cửu Long (500 ml)",
+"group": "Bia & rượu",
+"unit": "Chai",
+"price": 85000,
+"note": "Chưa có giá nhập"
+},
+{
+"code": "BR-04",
+"file_name": "Soju Trà Chanh HongKong",
+"group": "Bia & rượu",
+"unit": "Bình",
+"price": 145000,
+"note": ""
+},
+{
+"code": "BR-05",
+"file_name": "Soju Trái Cây Nhiệt Đới",
+"group": "Bia & rượu",
+"unit": "Bình",
+"price": 165000,
+"note": "Công thức EM ĐỀ XUẤT — chờ anh duyệt"
+}
+],
+"lines": [
+{
+"code": "LAU-S1",
+"ing": "Ngăn nước lẩu Thảo mộc Triều Châu",
+"qty": 1.0,
+"unit": "ngăn",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-S1",
+"ing": "Thăn bò tươi",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S1",
+"ing": "Gù bò tươi",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S1",
+"ing": "Gầu giòn",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S1",
+"ing": "Rau tổng hợp (1 rổ)",
+"qty": 1.0,
+"unit": "rổ",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "LAU-S1",
+"ing": "Mì trứng (vắt)",
+"qty": 2.0,
+"unit": "vắt",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "LAU-S1",
+"ing": "Chén nước chấm (bình quân)",
+"qty": 2.0,
+"unit": "chén",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-S2",
+"ing": "Ngăn nước lẩu Mala Tứ Xuyên",
+"qty": 1.0,
+"unit": "ngăn",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-S2",
+"ing": "Thăn bò tươi",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S2",
+"ing": "Gù bò tươi",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S2",
+"ing": "Gầu giòn",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S2",
+"ing": "Rau tổng hợp (1 rổ)",
+"qty": 1.0,
+"unit": "rổ",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "LAU-S2",
+"ing": "Mì trứng (vắt)",
+"qty": 2.0,
+"unit": "vắt",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "LAU-S2",
+"ing": "Chén nước chấm (bình quân)",
+"qty": 2.0,
+"unit": "chén",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-S3",
+"ing": "Ngăn nước lẩu Nấm Vân Nam",
+"qty": 1.0,
+"unit": "ngăn",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-S3",
+"ing": "Thăn bò tươi",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S3",
+"ing": "Gù bò tươi",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S3",
+"ing": "Gầu giòn",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S3",
+"ing": "Rau tổng hợp (1 rổ)",
+"qty": 1.0,
+"unit": "rổ",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "LAU-S3",
+"ing": "Mì trứng (vắt)",
+"qty": 2.0,
+"unit": "vắt",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "LAU-S3",
+"ing": "Chén nước chấm (bình quân)",
+"qty": 2.0,
+"unit": "chén",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-S4",
+"ing": "Ngăn nước lẩu Cà chua Quý Châu",
+"qty": 1.0,
+"unit": "ngăn",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-S4",
+"ing": "Thăn bò tươi",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S4",
+"ing": "Gù bò tươi",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S4",
+"ing": "Gầu giòn",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S4",
+"ing": "Rau tổng hợp (1 rổ)",
+"qty": 1.0,
+"unit": "rổ",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "LAU-S4",
+"ing": "Mì trứng (vắt)",
+"qty": 2.0,
+"unit": "vắt",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "LAU-S4",
+"ing": "Chén nước chấm (bình quân)",
+"qty": 2.0,
+"unit": "chén",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-S5",
+"ing": "Ngăn nước lẩu Mala Trứng Muối",
+"qty": 1.0,
+"unit": "ngăn",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-S5",
+"ing": "Thăn bò tươi",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S5",
+"ing": "Gù bò tươi",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S5",
+"ing": "Gầu giòn",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "LAU-S5",
+"ing": "Rau tổng hợp (1 rổ)",
+"qty": 1.0,
+"unit": "rổ",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "LAU-S5",
+"ing": "Mì trứng (vắt)",
+"qty": 2.0,
+"unit": "vắt",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "LAU-S5",
+"ing": "Chén nước chấm (bình quân)",
+"qty": 2.0,
+"unit": "chén",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-N1",
+"ing": "Ngăn nước lẩu Thảo mộc Triều Châu",
+"qty": 1.0,
+"unit": "ngăn",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-N2",
+"ing": "Ngăn nước lẩu Mala Tứ Xuyên",
+"qty": 1.0,
+"unit": "ngăn",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-N3",
+"ing": "Ngăn nước lẩu Nấm Vân Nam",
+"qty": 1.0,
+"unit": "ngăn",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-N4",
+"ing": "Ngăn nước lẩu Cà chua Quý Châu",
+"qty": 1.0,
+"unit": "ngăn",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "LAU-N5",
+"ing": "Ngăn nước lẩu Mala Trứng Muối",
+"qty": 1.0,
+"unit": "ngăn",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "BO-01",
+"ing": "Xách bò trắng",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-02",
+"ing": "Xách bò đen",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-03",
+"ing": "Thăn bò tươi",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-04",
+"ing": "Gầu giòn",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-05",
+"ing": "Thăn bò tươi",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-05",
+"ing": "Trứng gà",
+"qty": 1.0,
+"unit": "quả",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-06",
+"ing": "Aukobe bông tuyết",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-07",
+"ing": "Bắp hoa tươi",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-08",
+"ing": "Gù bò tươi",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-09",
+"ing": "Thăn bò tươi",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-09",
+"ing": "Cốt lẩu Tứ Xuyên",
+"qty": 10.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "BO-10",
+"ing": "Ba chỉ bò Mỹ",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-11",
+"ing": "Lõi vai bò Úc",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "BO-12",
+"ing": "Gù hoa bò Úc",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "TOP-01",
+"ing": "Đậu hủ phô mai",
+"qty": 75.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "TOP-02",
+"ing": "Bò viên",
+"qty": 108.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "TOP-03",
+"ing": "Túi tiền",
+"qty": 2.0,
+"unit": "túi",
+"kind": "Anh cung cấp"
+},
+{
+"code": "TOP-04",
+"ing": "Thanh cua",
+"qty": 63.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "TOP-05",
+"ing": "Bánh bao ngũ sắc",
+"qty": 75.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "TOP-06",
+"ing": "Chả tôm phi thúy",
+"qty": 80.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "RNM-01",
+"ing": "Rau tổng hợp (1 rổ)",
+"qty": 1.0,
+"unit": "rổ",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "RNM-02",
+"ing": "Nấm kim châm",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "RNM-02",
+"ing": "Nấm đùi gà",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "RNM-02",
+"ing": "Nấm bào ngư",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "RNM-03",
+"ing": "Nấm kim châm",
+"qty": 150.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "RNM-04",
+"ing": "Mì trứng (vắt)",
+"qty": 2.0,
+"unit": "vắt",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "RNM-05",
+"ing": "Tàu hủ ki",
+"qty": 40.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XN-01",
+"ing": "Aukobe bông tuyết",
+"qty": 30.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XN-01",
+"ing": "Ớt chuông",
+"qty": 20.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-01",
+"ing": "Sốt ướp S2 Tứ Xuyên",
+"qty": 3.9,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-01",
+"ing": "Bột bắp",
+"qty": 0.45,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-01",
+"ing": "Dầu đậu nành",
+"qty": 0.45,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-01",
+"ing": "Bột rắc B Tứ Xuyên",
+"qty": 1.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-01",
+"ing": "Dầu quét nướng",
+"qty": 3.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-01",
+"ing": "Que xiên tre 25 cm",
+"qty": 1.0,
+"unit": "que",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-02",
+"ing": "Nạc dăm heo",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XN-02",
+"ing": "Sốt ướp S3 Mật ong",
+"qty": 6.5,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-02",
+"ing": "Bột chấm C đậu phộng mè",
+"qty": 0.5,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-02",
+"ing": "Dầu quét nướng",
+"qty": 2.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-02",
+"ing": "Que xiên tre 25 cm",
+"qty": 1.0,
+"unit": "que",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-03",
+"ing": "Mề gà",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XN-03",
+"ing": "Sốt ướp S1 Tân Cương",
+"qty": 5.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-03",
+"ing": "Trứng gà",
+"qty": 0.05,
+"unit": "quả",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XN-03",
+"ing": "Bột bắp",
+"qty": 1.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-03",
+"ing": "Dầu đậu nành",
+"qty": 1.5,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-03",
+"ing": "Bột rắc A Tân Cương",
+"qty": 1.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-03",
+"ing": "Dầu quét nướng",
+"qty": 3.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-03",
+"ing": "Que xiên tre 25 cm",
+"qty": 1.0,
+"unit": "que",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-04",
+"ing": "Xách bò trắng",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XN-04",
+"ing": "Sốt ướp S2 Tứ Xuyên",
+"qty": 6.5,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-04",
+"ing": "Bột bắp",
+"qty": 0.75,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-04",
+"ing": "Dầu đậu nành",
+"qty": 0.75,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-04",
+"ing": "Bột rắc B Tứ Xuyên",
+"qty": 1.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-04",
+"ing": "Dầu quét nướng",
+"qty": 3.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-04",
+"ing": "Que xiên tre 25 cm",
+"qty": 1.0,
+"unit": "que",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-05",
+"ing": "Cánh gà",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XN-05",
+"ing": "Sốt ướp S4 Tỏi xì dầu",
+"qty": 10.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-05",
+"ing": "Bột bắp",
+"qty": 1.5,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-05",
+"ing": "Bột chấm C đậu phộng mè",
+"qty": 0.5,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-05",
+"ing": "Dầu quét nướng",
+"qty": 3.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-05",
+"ing": "Que xiên tre 25 cm",
+"qty": 1.0,
+"unit": "que",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-06",
+"ing": "Ức gà",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XN-06",
+"ing": "Sốt ướp S4 Tỏi xì dầu",
+"qty": 5.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-06",
+"ing": "Bột bắp",
+"qty": 0.75,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-06",
+"ing": "Bột chấm C đậu phộng mè",
+"qty": 0.5,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-06",
+"ing": "Dầu quét nướng",
+"qty": 3.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-06",
+"ing": "Que xiên tre 25 cm",
+"qty": 1.0,
+"unit": "que",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-07",
+"ing": "Phèo non",
+"qty": 40.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XN-07",
+"ing": "Sốt ướp S3 Mật ong",
+"qty": 5.2,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-07",
+"ing": "Bột rắc A Tân Cương",
+"qty": 1.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-07",
+"ing": "Dầu quét nướng",
+"qty": 2.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-07",
+"ing": "Que xiên tre 25 cm",
+"qty": 1.0,
+"unit": "que",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-08",
+"ing": "Chẳng dừng heo",
+"qty": 50.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XN-08",
+"ing": "Sốt ướp S2 Tứ Xuyên",
+"qty": 6.5,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-08",
+"ing": "Bột bắp",
+"qty": 0.75,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-08",
+"ing": "Dầu đậu nành",
+"qty": 0.75,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-08",
+"ing": "Bột rắc B Tứ Xuyên",
+"qty": 1.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-08",
+"ing": "Dầu quét nướng",
+"qty": 3.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XN-08",
+"ing": "Que xiên tre 25 cm",
+"qty": 1.0,
+"unit": "que",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "STK-01",
+"ing": "Aukobe bông tuyết",
+"qty": 120.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-01",
+"ing": "Salad dầu giấm (1 phần)",
+"qty": 1.0,
+"unit": "phần",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "STK-01",
+"ing": "Bánh mì (ổ)",
+"qty": 1.0,
+"unit": "ổ",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-01",
+"ing": "Sốt steak bình quân 4 sốt",
+"qty": 100.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "STK-01",
+"ing": "Dầu ăn",
+"qty": 10.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-02",
+"ing": "Aukobe bông tuyết",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-02",
+"ing": "Trứng gà",
+"qty": 1.0,
+"unit": "quả",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-02",
+"ing": "Salad dầu giấm (1 phần)",
+"qty": 1.0,
+"unit": "phần",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "STK-02",
+"ing": "Bánh mì (ổ)",
+"qty": 1.0,
+"unit": "ổ",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-02",
+"ing": "Sốt steak bình quân 4 sốt",
+"qty": 100.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "STK-02",
+"ing": "Dầu ăn",
+"qty": 10.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-03",
+"ing": "Aukobe bông tuyết",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-03",
+"ing": "Trứng gà",
+"qty": 1.0,
+"unit": "quả",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-03",
+"ing": "Pate",
+"qty": 30.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-03",
+"ing": "Salad dầu giấm (1 phần)",
+"qty": 1.0,
+"unit": "phần",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "STK-03",
+"ing": "Bánh mì (ổ)",
+"qty": 1.0,
+"unit": "ổ",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-03",
+"ing": "Sốt steak bình quân 4 sốt",
+"qty": 100.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "STK-03",
+"ing": "Dầu ăn",
+"qty": 10.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-04",
+"ing": "Aukobe bông tuyết",
+"qty": 150.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-04",
+"ing": "Trứng gà",
+"qty": 2.0,
+"unit": "quả",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-04",
+"ing": "Pate",
+"qty": 30.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-04",
+"ing": "Xúc xích",
+"qty": 1.0,
+"unit": "cây",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-04",
+"ing": "Trà Tắc Xí Muội (1 ly)",
+"qty": 1.0,
+"unit": "ly",
+"kind": "Món (tự tính)"
+},
+{
+"code": "STK-04",
+"ing": "Salad dầu giấm (1 phần)",
+"qty": 1.0,
+"unit": "phần",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "STK-04",
+"ing": "Bánh mì (ổ)",
+"qty": 1.0,
+"unit": "ổ",
+"kind": "Anh cung cấp"
+},
+{
+"code": "STK-04",
+"ing": "Sốt steak bình quân 4 sốt",
+"qty": 100.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "STK-04",
+"ing": "Dầu ăn",
+"qty": 10.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XAO-01",
+"ing": "Nui khô",
+"qty": 160.0,
+"unit": "g chín",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XAO-01",
+"ing": "Aukobe bông tuyết",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XAO-01",
+"ing": "Sốt steak bình quân 4 sốt",
+"qty": 100.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XAO-01",
+"ing": "Hành tây",
+"qty": 20.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XAO-01",
+"ing": "Dầu ăn",
+"qty": 10.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XAO-02",
+"ing": "Mì Ý khô",
+"qty": 160.0,
+"unit": "g chín",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XAO-02",
+"ing": "Aukobe bông tuyết",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "XAO-02",
+"ing": "Sốt steak bình quân 4 sốt",
+"qty": 100.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XAO-02",
+"ing": "Hành tây",
+"qty": 20.0,
+"unit": "g",
+"kind": "Từ sổ công thức"
+},
+{
+"code": "XAO-02",
+"ing": "Dầu ăn",
+"qty": 10.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "THEM-01",
+"ing": "Bánh mì (ổ)",
+"qty": 1.0,
+"unit": "ổ",
+"kind": "Anh cung cấp"
+},
+{
+"code": "THEM-02",
+"ing": "Nui khô",
+"qty": 80.0,
+"unit": "g chín",
+"kind": "Anh cung cấp"
+},
+{
+"code": "THEM-03",
+"ing": "Mì Ý khô",
+"qty": 80.0,
+"unit": "g chín",
+"kind": "Anh cung cấp"
+},
+{
+"code": "THEM-04",
+"ing": "Trứng gà",
+"qty": 1.0,
+"unit": "quả",
+"kind": "Anh cung cấp"
+},
+{
+"code": "THEM-04",
+"ing": "Dầu ăn",
+"qty": 5.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "THEM-05",
+"ing": "Salad dầu giấm (1 phần)",
+"qty": 1.0,
+"unit": "phần",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "THEM-06",
+"ing": "Khoai tây chiên (đông lạnh)",
+"qty": 100.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "THEM-06",
+"ing": "Dầu ăn",
+"qty": 10.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "CF-01",
+"ing": "Cà phê ủ",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "CF-01",
+"ing": "Đường cát",
+"qty": 5.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "CF-01",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "CF-01",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "CF-02",
+"ing": "Sữa đặc",
+"qty": 20.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "CF-02",
+"ing": "Cà phê ủ",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "CF-02",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "CF-02",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "CF-03",
+"ing": "Sữa đặc",
+"qty": 35.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "CF-03",
+"ing": "Cà phê ủ",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "CF-03",
+"ing": "Sữa tươi thanh trùng",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Anh cung cấp"
+},
+{
+"code": "CF-03",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "CF-03",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "CF-04",
+"ing": "Sữa đặc",
+"qty": 30.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "CF-04",
+"ing": "Cà phê ủ",
+"qty": 40.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "CF-04",
+"ing": "Kem muối phô mai",
+"qty": 30.0,
+"unit": "g",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "CF-04",
+"ing": "Bột phô mai",
+"qty": 0.5,
+"unit": "g",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "CF-04",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "CF-04",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "CF-05",
+"ing": "Cà phê gu vừa (espresso, latte)",
+"qty": 19.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "CF-05",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "CF-06",
+"ing": "Cà phê gu vừa (espresso, latte)",
+"qty": 20.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "CF-06",
+"ing": "Sữa tươi thanh trùng",
+"qty": 200.0,
+"unit": "ml",
+"kind": "Anh cung cấp"
+},
+{
+"code": "CF-06",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "CF-07",
+"ing": "Cà phê gu vừa (espresso, latte)",
+"qty": 20.0,
+"unit": "g",
+"kind": "Anh cung cấp"
+},
+{
+"code": "CF-07",
+"ing": "Sữa tươi thanh trùng",
+"qty": 200.0,
+"unit": "ml",
+"kind": "Anh cung cấp"
+},
+{
+"code": "CF-07",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-01",
+"ing": "Hồng trà (HT) pha sẵn",
+"qty": 100.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-01",
+"ing": "Lục trà (LT) pha sẵn",
+"qty": 25.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-01",
+"ing": "Ô long (OL) pha sẵn",
+"qty": 25.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-01",
+"ing": "Tắc",
+"qty": 4.0,
+"unit": "trái",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-01",
+"ing": "Mật ong",
+"qty": 15.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-01",
+"ing": "Sirup đường",
+"qty": 35.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-01",
+"ing": "Xí muội",
+"qty": 1.0,
+"unit": "muỗng",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-01",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-01",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-02",
+"ing": "Cam tươi (nước vắt)",
+"qty": 150.0,
+"unit": "ml",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-02",
+"ing": "Siro pha chế (cam, vải, dâu, đào, sả, chanh dây, ổi)",
+"qty": 5.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-02",
+"ing": "Sirup đường",
+"qty": 30.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-02",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-02",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-03",
+"ing": "Hồng trà (HT) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-03",
+"ing": "Lục trà (LT) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-03",
+"ing": "Ô long (OL) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-03",
+"ing": "Sirup đường",
+"qty": 25.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-03",
+"ing": "Siro pha chế (cam, vải, dâu, đào, sả, chanh dây, ổi)",
+"qty": 25.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-03",
+"ing": "Tắc",
+"qty": 2.0,
+"unit": "trái",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-03",
+"ing": "Trái vải ngâm (hộp)",
+"qty": 2.0,
+"unit": "trái",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-03",
+"ing": "Lá húng lủi",
+"qty": 1.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-03",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-03",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-04",
+"ing": "Hồng trà (HT) pha sẵn",
+"qty": 25.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-04",
+"ing": "Lục trà (LT) pha sẵn",
+"qty": 25.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-04",
+"ing": "Ô long (OL) pha sẵn",
+"qty": 100.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-04",
+"ing": "Sirup đường",
+"qty": 25.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-04",
+"ing": "Siro pha chế (cam, vải, dâu, đào, sả, chanh dây, ổi)",
+"qty": 25.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-04",
+"ing": "Mứt dâu",
+"qty": 5.0,
+"unit": "g",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-04",
+"ing": "Tắc",
+"qty": 1.0,
+"unit": "trái",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-04",
+"ing": "Dâu tây tươi",
+"qty": 1.0,
+"unit": "trái",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-04",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-04",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-05",
+"ing": "Hồng trà (HT) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-05",
+"ing": "Lục trà (LT) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-05",
+"ing": "Ô long (OL) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-05",
+"ing": "Sirup đường",
+"qty": 15.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-05",
+"ing": "Mứt dâu",
+"qty": 5.0,
+"unit": "g",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-05",
+"ing": "Siro pha chế (cam, vải, dâu, đào, sả, chanh dây, ổi)",
+"qty": 15.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-05",
+"ing": "Siro pha chế (cam, vải, dâu, đào, sả, chanh dây, ổi)",
+"qty": 10.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-05",
+"ing": "Tắc",
+"qty": 2.0,
+"unit": "trái",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-05",
+"ing": "Lá húng lủi",
+"qty": 1.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-05",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-05",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-06",
+"ing": "Hồng trà (HT) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-06",
+"ing": "Lục trà (LT) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-06",
+"ing": "Siro đào đặc biệt",
+"qty": 25.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-06",
+"ing": "Đào ngâm (miếng)",
+"qty": 2.0,
+"unit": "miếng",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-06",
+"ing": "Siro pha chế (cam, vải, dâu, đào, sả, chanh dây, ổi)",
+"qty": 5.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-06",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-06",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-07",
+"ing": "Hồng trà (HT) pha sẵn",
+"qty": 100.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-07",
+"ing": "Lục trà (LT) pha sẵn",
+"qty": 25.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-07",
+"ing": "Ô long (OL) pha sẵn",
+"qty": 25.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-07",
+"ing": "Sirup đường",
+"qty": 20.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-07",
+"ing": "Siro pha chế (cam, vải, dâu, đào, sả, chanh dây, ổi)",
+"qty": 15.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-07",
+"ing": "Tắc",
+"qty": 2.0,
+"unit": "trái",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-07",
+"ing": "Siro đào đặc biệt",
+"qty": 25.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-07",
+"ing": "Sả cây",
+"qty": 1.0,
+"unit": "cây",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-07",
+"ing": "Đào ngâm (miếng)",
+"qty": 2.0,
+"unit": "miếng",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-07",
+"ing": "Trái cây decor",
+"qty": 10.0,
+"unit": "g",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-07",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-07",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-08",
+"ing": "Hồng trà (HT) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-08",
+"ing": "Lục trà (LT) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-08",
+"ing": "Ô long (OL) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-08",
+"ing": "Sirup đường",
+"qty": 15.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-08",
+"ing": "Siro pha chế (cam, vải, dâu, đào, sả, chanh dây, ổi)",
+"qty": 25.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-08",
+"ing": "Mứt dâu",
+"qty": 5.0,
+"unit": "g",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-08",
+"ing": "Tắc",
+"qty": 2.0,
+"unit": "trái",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-08",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-08",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-09",
+"ing": "Hồng trà (HT) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-09",
+"ing": "Lục trà (LT) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-09",
+"ing": "Ô long (OL) pha sẵn",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-09",
+"ing": "Sirup đường",
+"qty": 15.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "TRA-09",
+"ing": "Siro pha chế (cam, vải, dâu, đào, sả, chanh dây, ổi)",
+"qty": 60.0,
+"unit": "ml",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-09",
+"ing": "Tắc",
+"qty": 2.0,
+"unit": "trái",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-09",
+"ing": "Trái cây decor",
+"qty": 30.0,
+"unit": "g",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "TRA-09",
+"ing": "Lá húng lủi",
+"qty": 1.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-09",
+"ing": "Đá viên",
+"qty": 200.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "TRA-09",
+"ing": "Ly nhựa + nắp + ống hút",
+"qty": 1.0,
+"unit": "bộ",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "NK-01",
+"ing": "Nước suối 500 ml",
+"qty": 1.0,
+"unit": "chai",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "NK-02",
+"ing": "Coca lon 320 ml",
+"qty": 1.0,
+"unit": "lon",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "NK-02",
+"ing": "Đá viên",
+"qty": 150.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "NK-03",
+"ing": "Coca không đường lon 320 ml",
+"qty": 1.0,
+"unit": "lon",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "NK-03",
+"ing": "Đá viên",
+"qty": 150.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "NK-04",
+"ing": "Sprite lon 320 ml",
+"qty": 1.0,
+"unit": "lon",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "NK-04",
+"ing": "Đá viên",
+"qty": 150.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "NK-05",
+"ing": "Sting dâu chai 330 ml",
+"qty": 1.0,
+"unit": "chai",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "NK-05",
+"ing": "Đá viên",
+"qty": 150.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "NK-06",
+"ing": "Fanta cam lon 320 ml",
+"qty": 1.0,
+"unit": "lon",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "NK-06",
+"ing": "Đá viên",
+"qty": 150.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-01",
+"ing": "Heineken chai lùn 250 ml",
+"qty": 1.0,
+"unit": "chai",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "BR-01",
+"ing": "Đá viên",
+"qty": 150.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-02",
+"ing": "Tiger bạc lon 330 ml",
+"qty": 1.0,
+"unit": "lon",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "BR-02",
+"ing": "Đá viên",
+"qty": 150.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-03",
+"ing": "Rượu nóng Cửu Long 500 ml",
+"qty": 1.0,
+"unit": "chai",
+"kind": "ƯỚC TÍNH"
+},
+{
+"code": "BR-04",
+"ing": "Soju Jinro Chamisul 360 ml",
+"qty": 360.0,
+"unit": "ml",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-04",
+"ing": "Hồng trà (trà đen)",
+"qty": 5.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-04",
+"ing": "Sirup đường",
+"qty": 50.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "BR-04",
+"ing": "Chanh không hạt",
+"qty": 60.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-04",
+"ing": "Đá viên",
+"qty": 450.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-04",
+"ing": "Vật tư bình soju",
+"qty": 1.0,
+"unit": "bình",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-04",
+"ing": "Soju Jinro Chamisul 360 ml",
+"qty": 18.0,
+"unit": "ml",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-05",
+"ing": "Soju Jinro Chamisul 360 ml",
+"qty": 360.0,
+"unit": "ml",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-05",
+"ing": "Thơm (thịt)",
+"qty": 100.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-05",
+"ing": "Dưa hấu (thịt)",
+"qty": 100.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-05",
+"ing": "Chanh dây (ruột)",
+"qty": 40.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-05",
+"ing": "Sirup đường",
+"qty": 20.0,
+"unit": "ml",
+"kind": "Bán thành phẩm (tự tính)"
+},
+{
+"code": "BR-05",
+"ing": "Sprite chai 1,95 L",
+"qty": 200.0,
+"unit": "ml",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-05",
+"ing": "Đá viên",
+"qty": 400.0,
+"unit": "g",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-05",
+"ing": "Vật tư bình soju",
+"qty": 1.0,
+"unit": "bình",
+"kind": "File soju của anh"
+},
+{
+"code": "BR-05",
+"ing": "Soju Jinro Chamisul 360 ml",
+"qty": 18.0,
+"unit": "ml",
+"kind": "File soju của anh"
+}
+],
+"ingredients": [
+{
+"name": "Thăn bò tươi",
+"group": "Bò",
+"price": 275000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Bắp hoa tươi",
+"group": "Bò",
+"price": 245000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Gù bò tươi",
+"group": "Bò",
+"price": 230000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Gầu giòn",
+"group": "Bò",
+"price": 190000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Aukobe bông tuyết",
+"group": "Bò",
+"price": 300000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Lõi vai bò Úc",
+"group": "Bò",
+"price": 300000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Ba chỉ bò Mỹ",
+"group": "Bò",
+"price": 204000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Gù hoa bò Úc",
+"group": "Bò",
+"price": 216000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Xách bò trắng",
+"group": "Bò",
+"price": 196000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Xách bò đen",
+"group": "Bò",
+"price": 181000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Nạc dăm heo",
+"group": "Thịt xiên",
+"price": 120000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Mề gà",
+"group": "Thịt xiên",
+"price": 90000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Cánh gà",
+"group": "Thịt xiên",
+"price": 70000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Ức gà",
+"group": "Thịt xiên",
+"price": 90000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Phèo non",
+"group": "Thịt xiên",
+"price": 150000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Chẳng dừng heo",
+"group": "Thịt xiên",
+"price": 150000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Bánh mì (ổ)",
+"group": "Steak",
+"price": 2300,
+"pack": 1.0,
+"unit": "ổ",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Nui khô",
+"group": "Steak",
+"price": 25000,
+"pack": 2200.0,
+"unit": "g chín",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Mì Ý khô",
+"group": "Steak",
+"price": 53000,
+"pack": 2100.0,
+"unit": "g chín",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Trứng gà",
+"group": "Steak",
+"price": 2300,
+"pack": 1.0,
+"unit": "quả",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Pate",
+"group": "Steak",
+"price": 67000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Xúc xích",
+"group": "Steak",
+"price": 3300,
+"pack": 1.0,
+"unit": "cây",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Khoai tây chiên (đông lạnh)",
+"group": "Steak",
+"price": 54000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Dầu ăn",
+"group": "Steak",
+"price": 90000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Giấm gạo Lisa",
+"group": "Steak",
+"price": 31000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Đường cát",
+"group": "Steak",
+"price": 21000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Sữa tươi thanh trùng",
+"group": "Steak",
+"price": 65000,
+"pack": 1000.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Muối",
+"group": "Steak",
+"price": 5000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Tiêu",
+"group": "Steak",
+"price": 150000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Xà lách Carôn",
+"group": "Steak",
+"price": 30000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Hành tây",
+"group": "Steak",
+"price": 35000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Cải thảo",
+"group": "Rau nấm mì",
+"price": 18000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Cải thìa",
+"group": "Rau nấm mì",
+"price": 28000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Bắp Mỹ (trái)",
+"group": "Rau nấm mì",
+"price": 15000,
+"pack": 1.0,
+"unit": "trái",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Mì trứng (vắt)",
+"group": "Rau nấm mì",
+"price": 35000,
+"pack": 12.5,
+"unit": "vắt",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Nấm kim châm",
+"group": "Rau nấm mì",
+"price": 40000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Nấm đùi gà",
+"group": "Rau nấm mì",
+"price": 24000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Nấm bào ngư",
+"group": "Rau nấm mì",
+"price": 80000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Tàu hủ ki",
+"group": "Rau nấm mì",
+"price": 135000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Đậu hủ phô mai",
+"group": "Topping",
+"price": 162000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Bò viên",
+"group": "Topping",
+"price": 180000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Túi tiền",
+"group": "Topping",
+"price": 88000,
+"pack": 6.0,
+"unit": "túi",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Thanh cua",
+"group": "Topping",
+"price": 132000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Bánh bao ngũ sắc",
+"group": "Topping",
+"price": 92000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Chả tôm phi thúy",
+"group": "Topping",
+"price": 250000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Ớt chuông",
+"group": "Xiên",
+"price": 60000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Bột bắp",
+"group": "Xiên",
+"price": 90000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Dầu đậu nành",
+"group": "Xiên",
+"price": 58600,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Que xiên tre 25 cm",
+"group": "Xiên",
+"price": 150,
+"pack": 1.0,
+"unit": "que",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Sốt ướp S1 Tân Cương",
+"group": "BTP sổ",
+"price": 63.508,
+"pack": 1.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Sốt ướp S2 Tứ Xuyên",
+"group": "BTP sổ",
+"price": 71.253,
+"pack": 1.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Sốt ướp S3 Mật ong",
+"group": "BTP sổ",
+"price": 86.067,
+"pack": 1.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Sốt ướp S4 Tỏi xì dầu",
+"group": "BTP sổ",
+"price": 62.984,
+"pack": 1.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Dầu quét nướng",
+"group": "BTP sổ",
+"price": 81.8,
+"pack": 1.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Bột rắc A Tân Cương",
+"group": "BTP sổ",
+"price": 192.31,
+"pack": 1.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Bột rắc B Tứ Xuyên",
+"group": "BTP sổ",
+"price": 166.014,
+"pack": 1.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Bột chấm C đậu phộng mè",
+"group": "BTP sổ",
+"price": 123.976,
+"pack": 1.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Sốt steak bình quân 4 sốt",
+"group": "BTP sổ",
+"price": 44.38,
+"pack": 1.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Cốt lẩu Tứ Xuyên",
+"group": "BTP sổ",
+"price": 57.974,
+"pack": 1.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Chén nước chấm (bình quân)",
+"group": "BTP sổ",
+"price": 1904,
+"pack": 1.0,
+"unit": "chén",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Ngăn nước lẩu Thảo mộc Triều Châu",
+"group": "BTP sổ",
+"price": 9493,
+"pack": 1.0,
+"unit": "ngăn",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Ngăn nước lẩu Mala Tứ Xuyên",
+"group": "BTP sổ",
+"price": 13945,
+"pack": 1.0,
+"unit": "ngăn",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Ngăn nước lẩu Nấm Vân Nam",
+"group": "BTP sổ",
+"price": 13842,
+"pack": 1.0,
+"unit": "ngăn",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Ngăn nước lẩu Cà chua Quý Châu",
+"group": "BTP sổ",
+"price": 15366,
+"pack": 1.0,
+"unit": "ngăn",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Ngăn nước lẩu Mala Trứng Muối",
+"group": "BTP sổ",
+"price": 18791,
+"pack": 1.0,
+"unit": "ngăn",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Cà phê Robusta rang xay",
+"group": "Pha chế",
+"price": 220000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Cà phê Arabica rang xay",
+"group": "Pha chế",
+"price": 350000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Cà phê gu vừa (espresso, latte)",
+"group": "Pha chế",
+"price": 270000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Sữa đặc",
+"group": "Pha chế",
+"price": 62000,
+"pack": 1000.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Kem Rich (whipping)",
+"group": "Pha chế",
+"price": 85000,
+"pack": 907.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Bột phô mai",
+"group": "Pha chế",
+"price": 250000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Hồng trà (trà đen)",
+"group": "Pha chế",
+"price": 150000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Lục trà",
+"group": "Pha chế",
+"price": 150000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Trà ô long",
+"group": "Pha chế",
+"price": 220000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Mật ong",
+"group": "Pha chế",
+"price": 200000,
+"pack": 1000.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Xí muội",
+"group": "Pha chế",
+"price": 90000,
+"pack": 50.0,
+"unit": "muỗng",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Tắc",
+"group": "Pha chế",
+"price": 25000,
+"pack": 80.0,
+"unit": "trái",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Cam tươi (nước vắt)",
+"group": "Pha chế",
+"price": 20000,
+"pack": 400.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Siro pha chế (cam, vải, dâu, đào, sả, chanh dây, ổi)",
+"group": "Pha chế",
+"price": 70000,
+"pack": 520.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Trái vải ngâm (hộp)",
+"group": "Pha chế",
+"price": 45000,
+"pack": 20.0,
+"unit": "trái",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Mứt dâu",
+"group": "Pha chế",
+"price": 110000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Dâu tây tươi",
+"group": "Pha chế",
+"price": 180000,
+"pack": 50.0,
+"unit": "trái",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Đào ngâm (miếng)",
+"group": "Pha chế",
+"price": 55000,
+"pack": 16.0,
+"unit": "miếng",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Sả cây",
+"group": "Pha chế",
+"price": 20000,
+"pack": 25.0,
+"unit": "cây",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Trái cây decor",
+"group": "Pha chế",
+"price": 30000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Lá húng lủi",
+"group": "Pha chế",
+"price": 60000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 0.7,
+"estimated": false
+},
+{
+"name": "Đá viên",
+"group": "Pha chế",
+"price": 25000,
+"pack": 25000.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Ly nhựa + nắp + ống hút",
+"group": "Pha chế",
+"price": 1200,
+"pack": 1.0,
+"unit": "bộ",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Soju Jinro Chamisul 360 ml",
+"group": "Soju",
+"price": 1150000,
+"pack": 7200.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Sprite chai 1,95 L",
+"group": "Soju",
+"price": 21000,
+"pack": 1950.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Chanh không hạt",
+"group": "Soju",
+"price": 20000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 0.95,
+"estimated": false
+},
+{
+"name": "Thơm (thịt)",
+"group": "Soju",
+"price": 15000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 0.55,
+"estimated": false
+},
+{
+"name": "Dưa hấu (thịt)",
+"group": "Soju",
+"price": 12000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 0.6,
+"estimated": false
+},
+{
+"name": "Chanh dây (ruột)",
+"group": "Soju",
+"price": 30000,
+"pack": 1000.0,
+"unit": "g",
+"yield": 0.4,
+"estimated": false
+},
+{
+"name": "Vật tư bình soju",
+"group": "Soju",
+"price": 1500,
+"pack": 1.0,
+"unit": "bình",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Nước suối 500 ml",
+"group": "Hàng mua sẵn",
+"price": 110000,
+"pack": 24.0,
+"unit": "chai",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Coca lon 320 ml",
+"group": "Hàng mua sẵn",
+"price": 205000,
+"pack": 24.0,
+"unit": "lon",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Coca không đường lon 320 ml",
+"group": "Hàng mua sẵn",
+"price": 205000,
+"pack": 24.0,
+"unit": "lon",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Sprite lon 320 ml",
+"group": "Hàng mua sẵn",
+"price": 205000,
+"pack": 24.0,
+"unit": "lon",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Sting dâu chai 330 ml",
+"group": "Hàng mua sẵn",
+"price": 205000,
+"pack": 24.0,
+"unit": "chai",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Fanta cam lon 320 ml",
+"group": "Hàng mua sẵn",
+"price": 205000,
+"pack": 24.0,
+"unit": "lon",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Heineken chai lùn 250 ml",
+"group": "Hàng mua sẵn",
+"price": 390000,
+"pack": 24.0,
+"unit": "chai",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Tiger bạc lon 330 ml",
+"group": "Hàng mua sẵn",
+"price": 408000,
+"pack": 24.0,
+"unit": "lon",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Rượu nóng Cửu Long 500 ml",
+"group": "Hàng mua sẵn",
+"price": null,
+"pack": 1.0,
+"unit": "chai",
+"yield": 1.0,
+"estimated": true
+},
+{
+"name": "Cà phê ủ",
+"group": "Bán thành phẩm",
+"price": 58255,
+"pack": 650.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Hồng trà (HT) pha sẵn",
+"group": "Bán thành phẩm",
+"price": 17000,
+"pack": 4700.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Lục trà (LT) pha sẵn",
+"group": "Bán thành phẩm",
+"price": 17000,
+"pack": 4700.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Ô long (OL) pha sẵn",
+"group": "Bán thành phẩm",
+"price": 24000,
+"pack": 4700.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Sirup đường",
+"group": "Bán thành phẩm",
+"price": 21000,
+"pack": 1230.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Kem muối phô mai",
+"group": "Bán thành phẩm",
+"price": 5190.777287761853,
+"pack": 53.0,
+"unit": "g",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Siro đào đặc biệt",
+"group": "Bán thành phẩm",
+"price": 20336.53846153846,
+"pack": 160.0,
+"unit": "ml",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Salad dầu giấm (1 phần)",
+"group": "Bán thành phẩm",
+"price": 1705.15,
+"pack": 1.0,
+"unit": "phần",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Rau tổng hợp (1 rổ)",
+"group": "Bán thành phẩm",
+"price": 7000,
+"pack": 1.0,
+"unit": "rổ",
+"yield": 1.0,
+"estimated": false
+},
+{
+"name": "Trà Tắc Xí Muội (1 ly)",
+"group": "Món",
+"price": 8627.34820965231,
+"pack": 1.0,
+"unit": "ly",
+"yield": 1.0,
+"estimated": false
+}
+]
+}
