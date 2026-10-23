@@ -206,6 +206,10 @@ test('luồng nhân sự: tạo người, xếp ca, chấm công qua đêm, xin 
   const b = await owner.post('/api/backup');
   assert.equal(b.status, 200);
   assert.equal(b.data.backups.length, 1);
+  // Tải toàn bộ dữ liệu về máy (để chuyển sang máy chủ ở quán): chỉ chủ quán, ra file SQLite
+  const dl = await owner.get('/api/backup/download');
+  assert.equal(dl.status, 200);
+  assert.equal((await tuC.get('/api/backup/download')).status, 403);
 });
 
 test('bảo mật: khoá sau 5 lần sai PIN, chặn chấm công ngoài wifi quán, ẩn khoá bí mật', async (t) => {

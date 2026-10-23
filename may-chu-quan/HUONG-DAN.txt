@@ -1,0 +1,16 @@
+MAY CHU O QUAN - HUONG DAN NGAN
+
+1) Cai Node.js (nodejs.org, ban LTS).
+2) Giai nen app-quan.zip vao C:\QuanLyQuan\app
+3) Mo C:\QuanLyQuan\app\may-chu-quan, bam chuot PHAI "cai-dat.bat" -> Run as administrator.
+   -> App tu chay ngam moi khi bat may, tu in bep/bar, tu sao luu moi gio.
+4) Chuyen du lieu tu Railway (neu dang dung):
+   App Railway -> Cai dat -> Sao luu -> "Tai toan bo du lieu ve may" -> chep file .db vao
+   thu muc may-chu-quan -> chuot phai "khoi-phuc.bat" -> Run as administrator.
+5) Router: dat IP co dinh cho may chu (DHCP reservation) de dien thoai luon vao 1 dia chi.
+6) Google Drive tren may: them thu muc C:\QuanLyQuan\sao-luu-ngoai de co ban sao ngoai quan.
+
+Cap nhat ban moi: giai nen de len C:\QuanLyQuan\app (du lieu nam rieng o C:\QuanLyQuan\du-lieu, khong mat),
+roi khoi dong lai may.
+Nhat ky loi: C:\QuanLyQuan\nhat-ky.txt
+Ngung tu chay: go-cai-dat.bat

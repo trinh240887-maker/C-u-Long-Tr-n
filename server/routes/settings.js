@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { fail, v } from '../http.js';
 import { parseOffset, parseHM } from '../lib/time.js';
 import { runBackup, listBackups } from '../backup.js';
@@ -131,6 +134,13 @@ export default function (r, ctx) {
     const file = runBackup(db, ctx.backupDir, { now: ctx.now() });
     ctx.audit(me, 'backup', file);
     return { ok: true, backups: listBackups(ctx.backupDir).slice(0, 10) };
+  });
+
+  // Tải toàn bộ dữ liệu về 1 file (chủ quán): dùng để chuyển sang máy chủ ở quán / cất giữ
+  r.get('/api/backup/download', 'owner', ({ me }) => {
+    const file = runBackup(db, ctx.backupDir || path.join(os.tmpdir(), 'clt-backup'));
+    ctx.audit(me, 'backup.download', path.basename(file));
+    return { __binary: fs.readFileSync(file), type: 'application/octet-stream', filename: `cuu-long-tran-${ctx.today()}.db` };
   });
 
   r.get('/api/audit', 'manager', () => db.prepare(`SELECT a.*, s.name AS staff_name FROM audit_log a LEFT JOIN staff s ON s.id = a.staff_id ORDER BY a.id DESC LIMIT 300`).all());

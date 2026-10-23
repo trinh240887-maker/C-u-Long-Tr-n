@@ -367,7 +367,9 @@ function Backups({ s }) {
   return html`<section class="card stack">
     <p>App tự sao lưu <b>mỗi giờ</b> vào thư mục <code>data/backups</code> trên máy chủ của quán và giữ <b>7 ngày</b>.
       Nên chép thư mục này sang ổ cứng/USB khác hoặc lên Google Drive định kỳ (xem README phần Sao lưu).</p>
-    <div><button class="primary" onClick=${async () => { const r = await act(() => api('POST', '/api/backup'), 'Đã sao lưu'); if (r) setList(r.backups); }}>Sao lưu ngay</button></div>
+    <div class="row wrap"><button class="primary" onClick=${async () => { const r = await act(() => api('POST', '/api/backup'), 'Đã sao lưu'); if (r) setList(r.backups); }}>Sao lưu ngay</button>
+      <a class="btn" href="/api/backup/download" download>⬇ Tải toàn bộ dữ liệu về máy (chủ quán)</a></div>
+    <p class="muted small">File tải về dùng để chuyển dữ liệu sang máy chủ ở quán (đặt vào thư mục <code>may-chu-quan</code> rồi chạy <b>khoi-phuc.bat</b>) hoặc cất giữ.</p>
     <div class="table-wrap"><table class="list"><thead><tr><th>File</th><th>Lúc</th><th class="r">Dung lượng</th></tr></thead>
       <tbody>${list.map((b) => html`<tr><td><code>${b.file}</code></td><td>${dt(b.at)}</td><td class="r">${Math.round(b.size / 1024)} KB</td></tr>`)}</tbody></table></div>
   </section>`;
