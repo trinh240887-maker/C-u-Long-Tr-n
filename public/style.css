@@ -625,3 +625,15 @@ details.cart { padding: 8px 12px; }
 .order-head h2 { margin: 0; }
 .gift-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; }
 .gift-inline .chips { margin: 0; }
+.order-find { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 6px 0; display: grid; gap: 6px; }
+@media (max-width: 860px) { .order-find { top: calc(47px + env(safe-area-inset-top, 0px)); } }
+.cat-jump { flex-wrap: wrap; gap: 6px; }
+.cat-jump .chip { white-space: nowrap; padding: 6px 12px; min-height: 40px; }
+.cat-head { scroll-margin-top: 215px; margin-top: 6px; }
+/* Món: 3 cột trên điện thoại cho thấy được nhiều món */
+@media (max-width: 860px) {
+  .order .menu-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .order .menu-btn { min-height: 60px; padding: 8px; gap: 2px; font-size: .92rem; }
+  .order .menu-btn b { line-height: 1.2; }
+}
+.cat-sub { font-weight: 700; color: #15803d; margin: 4px 2px -2px; }

@@ -126,7 +126,6 @@ export function OrderView({ me, query }) {
   const st = useData(id ? `/api/pos/sessions/${id}` : null);
   const menuD = useData('/api/menu');
   const tablesD = useData('/api/pos/tables');
-  const [cat, setCat] = useState('');
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(null);
   const [reason, setReason] = useState(null);
@@ -140,8 +139,26 @@ export function OrderView({ me, query }) {
   const closed = !['open', 'paying'].includes(s.status);
   const catOrder = (cid) => { const k = m.categories.findIndex((c) => c.id === cid); return k < 0 ? 999 : k; };
   const plain = (x) => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase();
-  const items = m.items.filter((i) => (q ? plain(i.name).includes(plain(q)) : !cat || i.category_id === Number(cat)))
+  const catName = (id) => m.categories.find((c) => c.id === id)?.name || '';
+  // Tìm rộng: mọi chữ gõ vào phải có trong tên / nhóm / mô tả món (không dấu cũng được)
+  const words = plain(q).split(/\s+/).filter(Boolean);
+  const items = m.items.filter((i) => { if (!words.length) return true; const hay = plain(`${i.name} ${catName(i.category_id)} ${i.description || ''}`); return words.every((w) => hay.includes(w)); })
     .sort((a, b) => catOrder(a.category_id) - catOrder(b.category_id) || a.sort - b.sort || a.id - b.id);
+  // Nhóm hiển thị trên màn gọi món (chủ quán 24/10): Steak = steak + món thêm; Lẩu = set lẩu, ngăn thêm, bò, topping, rau…; Nướng riêng.
+  // Chỉ gom để hiển thị; nhóm món trong dữ liệu giữ nguyên (khuyến mãi theo nhóm không đổi).
+  const BIG = [['Steak', /^(steak|món thêm steak)$/i], ['Lẩu', /^(combo lẩu|ngăn nước lẩu thêm|bò tươi|bò nhập|topping|rau|thịt)/i], ['Nướng', /nướng/i]];
+  const bigOf = (c) => BIG.find(([, re]) => re.test(c.name))?.[0] || null;
+  const groups = [];
+  for (const c of m.categories) {
+    const list = items.filter((i) => i.category_id === c.id);
+    if (!list.length) continue;
+    const big = bigOf(c);
+    let g = groups.find((x) => x.key === (big || `c${c.id}`));
+    if (!g) groups.push(g = { key: big || `c${c.id}`, c: { id: big ? `g-${big}` : c.id, name: big || c.name }, list: [], subs: [] });
+    g.subs.push({ name: c.name, list });
+    g.list.push(...list);
+  }
+  groups.sort((x, y) => (BIG.findIndex(([n]) => n === x.key) + 1 || 99) - (BIG.findIndex(([n]) => n === y.key) + 1 || 99));
   const drafts = s.items.filter((i) => i.status === 'new');
   const sent = s.items.filter((i) => i.status !== 'new');
   const add = async (bodies) => {
@@ -193,13 +210,14 @@ export function OrderView({ me, query }) {
       ${mi && !mi.sold_out ? html`<div class="chips"><button class="chip big" onClick=${() => quick(mi, true)}>+ ${mi.name} (phần tặng)</button></div>` : null}
     </div>`; }) : null}
     ${tab === 'menu' && !closed ? html`
-      <input id="om-q" type="search" placeholder="🔍 Tìm món (gõ vài chữ, vd steak, mala)" value=${q} onInput=${(e) => setQ(e.target.value)} />
-      ${!q && !cat ? html`<div class="cat-head">Chọn nhóm món</div>
-        <div class="cat-grid">${m.categories.filter((c) => m.items.some((i) => i.category_id === c.id)).map((c) => html`<button class="cat-btn" onClick=${() => setCat(String(c.id))}>${c.name}<small>${m.items.filter((i) => i.category_id === c.id).length} món</small></button>`)}</div>`
-      : html`${cat && !q ? html`<div class="row between cat-bar"><button class="primary" onClick=${() => setCat('')}>← Nhóm món</button><b>${m.categories.find((c) => String(c.id) === cat)?.name}</b></div>` : null}
-      <div class="menu-grid">${items.map((i) => html`<button class=${`menu-btn ${i.sold_out ? 'soldout' : ''}`} disabled=${i.sold_out} onClick=${() => quick(i)}>
-        <b>${i.name}</b><small>${i.sold_out ? (i.auto_sold_out ? 'Hết nguyên liệu' : 'Hết món') : money(i.price)}</small>${!i.sold_out && i.left != null && i.left <= 5 ? html`<span class="left-tag">còn ${i.left} phần</span>` : null}${!i.sold_out && m.promo?.tags?.[i.id] ? html`<span class="promo-tag">🎁 ${m.promo.tags[i.id]}</span>` : null}</button>`)}</div>
-      ${!items.length ? html`<div class="empty">Không thấy món "${q}".</div>` : null}`}` : null}
+      <div class="order-find">
+        <input id="om-q" type="search" placeholder="🔍 Tìm món: tên, nhóm, mô tả (vd bò, mala, nướng)" value=${q} onInput=${(e) => setQ(e.target.value)} />
+        ${!q ? html`<div class="chips cat-jump">${groups.filter((g) => g.list.length).map(({ c }) => html`<button class="chip" onClick=${() => document.getElementById(`cat-${c.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>${c.name}</button>`)}</div>` : html`<button class="small" onClick=${() => setQ('')}>✕ Xoá tìm</button>`}
+      </div>
+      ${(q ? [{ c: { id: 0, name: `Kết quả tìm "${q}"` }, list: items, subs: [{ name: '', list: items }] }] : groups).map(({ c, subs }) => html`<div class="cat-head" id=${`cat-${c.id}`}>${c.name}</div>
+      ${subs.map((sub) => html`${subs.length > 1 ? html`<div class="cat-sub">${sub.name}</div>` : null}<div class="menu-grid">${sub.list.map((i) => html`<button class=${`menu-btn ${i.sold_out ? 'soldout' : ''}`} disabled=${i.sold_out} onClick=${() => quick(i)}>
+        <b>${i.name}</b><small>${i.sold_out ? (i.auto_sold_out ? 'Hết nguyên liệu' : 'Hết món') : money(i.price)}</small>${!i.sold_out && i.left != null && i.left <= 5 ? html`<span class="left-tag">còn ${i.left} phần</span>` : null}${!i.sold_out && m.promo?.tags?.[i.id] ? html`<span class="promo-tag" title=${m.promo.tags[i.id]}>🎁 KM</span>` : null}</button>`)}</div>`)}`)}
+      ${q && !items.length ? html`<div class="empty">Không thấy món "${q}".</div>` : null}` : null}
 
     ${tab === 'bill' || s.status === 'cancelled' ? html`<section class="card">
       ${sent.length ? html`<ul class="plain order-lines">${sent.map((i) => html`<li class=${`ol ${i.status}`}>
