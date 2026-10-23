@@ -205,7 +205,7 @@ export function seedDinhLuong(db) {
 export const THIT_TUOI = ['Thăn bò tươi', 'Đùi bò tươi', 'Bắp hoa tươi', 'Gù bò tươi', 'Bắp sau bò', 'Gầu giòn'];
 export const BO_NHAP = ['Aukobe bông tuyết', 'Lõi vai bò Úc', 'Gù hoa bò Úc', 'Ba chỉ bò Mỹ'];
 export function seedThitTuoi(db) {
-  if (db.prepare("SELECT 1 FROM settings WHERE key = 'thit_tuoi_v1'").get()) return;
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'thit_tuoi_v1'").get()) { convertThaiTay(db); return; }
   const than = db.prepare("SELECT * FROM ingredients WHERE name = 'Thăn bò tươi'").get();
   if (!than) return; // chưa nạp định lượng
   for (const [c, d] of [['ingredient_id', 'INTEGER'], ['store_id', 'INTEGER'], ['extra_ingredient_ids', "TEXT NOT NULL DEFAULT '[]'"]]) {
@@ -229,20 +229,6 @@ export function seedThitTuoi(db) {
         }
       }
     }
-    // Checklist đóng ca Thái tay: dòng ghi chữ "Bò còn cuối ca" → cân chung thịt tươi + cân riêng từng loại bò nhập
-    const tpl = db.prepare("SELECT id FROM checklist_templates WHERE title = 'Đóng ca Thái tay'").get();
-    const old = tpl && db.prepare("SELECT * FROM checklist_items WHERE template_id = ? AND text LIKE 'Bò còn cuối ca%'").get(tpl.id);
-    if (old) {
-      const idOf = (n) => db.prepare('SELECT id, home_store_id FROM ingredients WHERE name = ?').get(n);
-      const group = THIT_TUOI.map(idOf).filter(Boolean);
-      db.prepare("UPDATE checklist_items SET text = 'Thịt tươi còn (cân chung thăn, đùi, bắp hoa, gù, bắp sau, gầu)', kind = 'number', unit = 'kg', photo_required = 1, ingredient_id = ?, store_id = ?, extra_ingredient_ids = ? WHERE id = ?")
-        .run(group[0].id, group[0].home_store_id, JSON.stringify(group.slice(1).map((x) => x.id)), old.id);
-      db.prepare('UPDATE checklist_items SET sort = sort + ? WHERE template_id = ? AND sort > ?').run(BO_NHAP.length, tpl.id, old.sort);
-      BO_NHAP.forEach((n, k) => {
-        const g = idOf(n);
-        if (g) db.prepare("INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, sort) VALUES (?, ?, 'number', 'kg', 1, 0, ?, ?, ?)").run(tpl.id, `${n} còn (cân riêng)`, g.id, g.home_store_id, old.sort + 1 + k);
-      });
-    }
     if (!db.prepare('PRAGMA table_info(ingredients)').all().some((x) => x.name === 'cost_group')) {
       db.exec("ALTER TABLE ingredients ADD COLUMN cost_group TEXT NOT NULL DEFAULT ''");
       db.exec('ALTER TABLE ingredients ADD COLUMN avg_cost REAL NOT NULL DEFAULT 0');
@@ -250,5 +236,29 @@ export function seedThitTuoi(db) {
     for (const n of THIT_TUOI) db.prepare("UPDATE ingredients SET cost_group = 'Thịt tươi' WHERE name = ?").run(n);
     db.prepare("INSERT INTO settings (key, value) VALUES ('thit_tuoi_v1', '1')").run();
     db.exec('COMMIT');
+    convertThaiTay(db);
   } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+
+// Checklist đóng ca Thái tay: dòng ghi chữ "Bò còn cuối ca" → cân chung thịt tươi + cân riêng từng loại bò nhập.
+// Chạy mỗi lần mở app (checklist được làm lại theo bản mới thì đổi lại ngay); không có dòng đó thì không làm gì.
+function convertThaiTay(db) {
+  if (!db.prepare("SELECT 1 FROM ingredients WHERE name = 'Thăn bò tươi'").get()) return;
+  for (const [c, d] of [['ingredient_id', 'INTEGER'], ['store_id', 'INTEGER'], ['extra_ingredient_ids', "TEXT NOT NULL DEFAULT '[]'"]]) {
+    if (!db.prepare('PRAGMA table_info(checklist_items)').all().some((x) => x.name === c)) db.exec(`ALTER TABLE checklist_items ADD COLUMN ${c} ${d}`);
+  }
+    // Checklist đóng ca Thái tay: dòng ghi chữ "Bò còn cuối ca" → cân chung thịt tươi + cân riêng từng loại bò nhập
+  const tpl = db.prepare("SELECT id FROM checklist_templates WHERE title = 'Đóng ca Thái tay'").get();
+  const old = tpl && db.prepare("SELECT * FROM checklist_items WHERE template_id = ? AND text LIKE 'Bò còn cuối ca%'").get(tpl.id);
+  if (old) {
+    const idOf = (n) => db.prepare('SELECT id, home_store_id FROM ingredients WHERE name = ?').get(n);
+    const group = THIT_TUOI.map(idOf).filter(Boolean);
+    db.prepare("UPDATE checklist_items SET text = 'Thịt tươi còn (cân chung thăn, đùi, bắp hoa, gù, bắp sau, gầu)', kind = 'number', unit = 'kg', photo_required = 0, ingredient_id = ?, store_id = ?, extra_ingredient_ids = ? WHERE id = ?")
+      .run(group[0].id, group[0].home_store_id, JSON.stringify(group.slice(1).map((x) => x.id)), old.id);
+    db.prepare('UPDATE checklist_items SET sort = sort + ? WHERE template_id = ? AND sort > ?').run(BO_NHAP.length, tpl.id, old.sort);
+    BO_NHAP.forEach((n, k) => {
+      const g = idOf(n);
+      if (g) db.prepare("INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, sort) VALUES (?, ?, 'number', 'kg', 1, 0, ?, ?, ?)").run(tpl.id, `${n} còn (cân riêng)`, g.id, g.home_store_id, old.sort + 1 + k);
+    });
+  }
 }

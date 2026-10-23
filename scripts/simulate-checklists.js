@@ -105,7 +105,7 @@ const THIT = ['Thăn bò tươi', 'Đùi bò tươi', 'Bắp hoa tươi', 'Gù b
 const SEC = { check: 5, number: 8, text: 10, photo: 25 }; // giây thao tác ước tính / việc
 const stats = new Map(); // tiêu đề → {area, items, photos, sec, done, missed, who}
 const stat = (run, who) => {
-  if (!stats.has(run.title)) stats.set(run.title, { title: run.title, phase: run.phase, area: who.area, items: 0, photos: 0, sec: 0, done: 0, missed: [], who: who.name, at: '' });
+  if (!stats.has(run.title)) stats.set(run.title, { title: run.title, phase: run.phase, area: who.area, items: 0, photos: 0, spots: [], sec: 0, done: 0, missed: [], who: who.name, at: '' });
   return stats.get(run.title);
 };
 const valueFor = (p, it) => {
@@ -144,6 +144,7 @@ async function doPhase(p, phase, hm, { skip = [] } = {}) {
         const ph = await p.c('POST', '/api/checklists/photo', { run_id: run.run_id, item_id: it.id, data: IMG });
         if (ph.status !== 200) issues.push(`${p.name} chụp "${it.text}": ${ph.data?.error}`);
         s.photos++; s.sec += SEC.photo;
+        if (it.spot) s.spots.push(it.text);
       }
       const v = it.kind === 'check' ? '' : valueFor(p, it);
       if (it.kind === 'text' && !v && !it.required) { s.sec += 2; continue; }
@@ -169,7 +170,7 @@ const list = (rv.items || rv.rows || rv || []).filter?.((x) => !x.review_status)
 let ok = 0;
 let redo = null;
 for (const x of list) {
-  if (!redo && /máy thái/i.test(x.item_text)) { redo = x; await quan.c('POST', '/api/checklists/review', { run_id: x.run_id, item_id: x.item_id, status: 'redo', note: 'Lưỡi máy thái còn dính thịt, lau lại' }); continue; }
+  if (!redo && /máy thái|toàn quầy/i.test(x.item_text) && /Thái tay/.test(x.title)) { redo = x; await quan.c('POST', '/api/checklists/review', { run_id: x.run_id, item_id: x.item_id, status: 'redo', note: 'Lưỡi máy thái còn dính thịt, lau lại' }); continue; }
   await quan.c('POST', '/api/checklists/review', { run_id: x.run_id, item_id: x.item_id, status: 'ok' }); ok++;
 }
 // Tài làm lại việc bị chấm
@@ -185,22 +186,17 @@ const mmss = (sec) => `${Math.floor(sec / 60)}′${String(Math.round(sec % 60)).
 P(`# Giả lập checklist toàn bộ khu · ${DAY.slice(8)}/${DAY.slice(5, 7)} · ${people.length - 1} nhân viên`);
 P(`Kết quả: **${issues.length ? `${issues.length} lỗi` : 'không lỗi'}**`);
 for (const x of issues.slice(0, 10)) P(`- ✗ ${x}`);
-P('\n| Khu | Checklist | Người | Việc | Ảnh | Thao tác | Xong |');
-P('|---|---|---|---|---|---|---|');
+P('\n| Khu | Checklist | Người | Việc | Ảnh | 🎲 Kiểm ngẫu nhiên | Thao tác | Xong |');
+P('|---|---|---|---|---|---|---|---|');
 const order = { open: 0, during: 1, close: 2 };
 const rows = [...stats.values()].sort((a, b) => a.area.localeCompare(b.area, 'vi') || order[a.phase] - order[b.phase]);
 for (const s of rows) {
   const r = runsDb.find((x) => x.title === s.title);
-  P(`| ${s.area} | ${s.title} | ${s.who} | ${s.items} | ${s.photos} | ${mmss(s.sec)} | ${r?.completed_at ? `✓ ${clock.fmt(r.completed_at).slice(0, 5)}` : `✗ thiếu: ${s.missed.join(', ') || '…'}`} |`);
+  P(`| ${s.area} | ${s.title} | ${s.who} | ${s.items} | ${s.photos} | ${s.spots.map((x) => x.slice(0, 40)).join('; ') || '—'} | ${mmss(s.sec)} | ${r?.completed_at ? `✓ ${clock.fmt(r.completed_at).slice(0, 5)}` : `✗ thiếu: ${s.missed.join(', ') || '…'}`} |`);
 }
 const tot = rows.reduce((a, s) => ({ items: a.items + s.items, photos: a.photos + s.photos, sec: a.sec + s.sec }), { items: 0, photos: 0, sec: 0 });
 P(`\n**Tổng:** ${tot.items} việc, ${tot.photos} ảnh, ${mmss(tot.sec)} thao tác cả quán (trung bình ${mmss(tot.sec / (people.length - 1))}/người/ngày)`);
 P(`**Chủ quán duyệt ảnh:** ${list.length} ảnh (Đạt ${ok}, Làm lại ${redo ? 1 : 0}) ≈ ${mmss(list.length * 4)}`);
-// Nếu gọn mọi khu còn 2 ảnh / ca như Bếp steak
-const areas = new Map();
-for (const s of rows) { const a = areas.get(s.area) || { photos: 0, shifts: 0 }; a.photos += s.photos; if (s.phase !== 'during') a.shifts++; areas.set(s.area, a); }
-const after = [...areas.values()].reduce((n, a) => n + Math.min(a.photos, a.shifts), 0);
-P(`**Nếu mọi khu gọn còn 1 ảnh mỗi lần mở / đóng ca (như Bếp steak):** ${tot.photos} → ${after} ảnh/ngày, bớt ≈ ${mmss((tot.photos - after) * (SEC.photo - SEC.check))} thao tác nhân viên và ${mmss((tot.photos - after) * 4)} duyệt của chủ quán`);
 P('\n**App tự báo trong ngày:**');
 for (const t of [...notes(/^Lệch|^Làm lại|^Chưa đạt|^Tủ |thiếu đồ/)].slice(0, 10)) P(`- ${t}`);
 P(`- Lan quên "21:00 đi 1 vòng" → checklist "Trong ca Lối đi" chưa xong, quản lý thấy ở mục Checklist (đỏ)`);

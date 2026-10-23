@@ -114,7 +114,7 @@ function Item({ run, item, disabled, me }) {
       <${PhotoThumbs} photos=${photos} onOpen=${setView} onDelete=${!disabled && (!item.entry || redo) ? (p) => (p.staff_id === me.id || atLeast(me, 'shift_lead')) && del(p) : null} />
       ${!disabled && (!done || item.photo_required === false) && (item.photo_required || item.kind === 'check') && !done ? html`<label class=${`btn-photo ${needPhoto ? 'need' : ''}`}>
         <input type="file" accept="image/*" capture="environment" hidden onChange=${upload} />
-        ${busy ? 'Đang gửi ảnh…' : fresh.length ? '📷 Chụp thêm' : item.photo_required ? '📷 Chụp ảnh (bắt buộc)' : '📷 Chụp ảnh'}</label>` : null}
+        ${busy ? 'Đang gửi ảnh…' : fresh.length ? '📷 Chụp thêm' : item.spot ? '🎲 Kiểm tra ngẫu nhiên: chụp ảnh việc này' : item.photo_required ? '📷 Chụp ảnh (bắt buộc)' : '📷 Chụp ảnh'}</label>` : null}
       ${item.entry ? html`<small class="muted">${item.entry.done_by_name} · ${hm(item.entry.done_at)}</small>` : null}
     </div>
     <${PhotoViewer} photo=${view} onClose=${() => setView(null)} />

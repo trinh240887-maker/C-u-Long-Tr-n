@@ -10,100 +10,73 @@ const N = (text, unit) => [text, 'number', unit, 1, 0];
 const X = (text, required = 0) => [text, 'text', '', required, 0];
 
 export const KHU_CHECKLISTS = [
-  { title: 'Mở ca Thái tay', phase: 'open', position: ['thái tay', 'bò'], team: ['lẩu', 'bếp'], items: [
-    T('Rửa tay, đeo găng mới, đội nón', false),
+  { title: 'Mở ca Thái tay', rev: 2, phase: 'open', position: ['thái tay', 'bò'], team: ['lẩu', 'bếp'], items: [
     N('Nhiệt độ tủ mát (đọc trên màn tủ)', '°C'),
     X('Bò tồn đầu ca: ghi từng loại (vd Thăn 3,2kg; Bắp hoa 2kg…)', 1),
-    T('Cân điện tử: bật, về 0', false),
-    T('Lau máy thái trước khi dùng'),
-    T('Lắp lưỡi máy thái, chạy thử'),
-    T('Thớt, dao, khay sạch'),
-    T('Giấy thấm dầu đủ dùng, bổ sung', false),
-    T('Bồn rửa tay có xà phòng + giấy lau tay', false),
-    T('Kiểm bình gas, van, dây'),
-    T('Lau kính chắn quầy'),
-    T('Lau mặt quầy'),
+    T('Rửa tay, găng mới, nón · cân điện tử về 0 · giấy thấm dầu, xà phòng, giấy lau tay đủ', false),
+    T('Lau + lắp lưỡi máy thái, chạy thử · thớt, dao, khay sạch', false),
+    T('Kiểm bình gas, van, dây', false),
+    T('📷 MỞ CA: chụp 1 ảnh toàn quầy (máy thái, thớt, kính, mặt quầy)'),
   ] },
-  { title: 'Đóng ca Thái tay', phase: 'close', position: ['thái tay', 'bò'], team: ['lẩu', 'bếp'], items: [
+  { title: 'Đóng ca Thái tay', rev: 2, phase: 'close', position: ['thái tay', 'bò'], team: ['lẩu', 'bếp'], items: [
     X('Bò còn cuối ca: cân từng loại, ghi kg (vd Thăn 1,4kg; Gù 0,8kg…)', 1),
-    T('Bò thừa bọc màng, ghi ngày, cất tủ'),
-    T('Tháo, rửa lưỡi và khay máy thái'),
-    T('Lau máy thái, lau khô'),
-    T('Lau kính chắn quầy trong + ngoài'),
-    T('Lau mặt quầy, thớt, khay'),
-    T('Thớt dựng giá cho khô (không để thau dưới sàn)'),
+    T('📷 Lưỡi + khay máy thái đã tháo rửa, lau khô (chụp cận)'),
+    T('Bò thừa bọc màng, ghi ngày, cất tủ', false),
+    T('Lau kính chắn, mặt quầy, thớt, khay · thớt dựng giá', false),
     N('Nhiệt độ tủ mát lúc đóng', '°C'),
-    T('Khoá van gas'),
     T('Tắt máy lạnh, đèn quầy', false),
+    T('📷 KHOÁ GAS + chụp 1 ảnh toàn quầy sạch'),
     X('Hàng thiếu cần báo (giấy thấm dầu, găng…)'),
   ] },
-  { title: 'Mở ca Topping', phase: 'open', position: ['topping'], team: ['lẩu', 'bếp'], items: [
-    T('Rửa tay, đeo găng, đội nón', false),
+  { title: 'Mở ca Topping', rev: 2, phase: 'open', position: ['topping'], team: ['lẩu', 'bếp'], items: [
     N('Nhiệt độ tủ trưng bày', '°C'),
-    T('Kiểm rau, nấm, topping còn tươi, bỏ đồ hư'),
-    T('Rửa, để ráo rau lẩu + salad'),
-    T('Bày topping vào hộp đúng ngăn có nhãn'),
-    T('Kiểm dầu chiên, dầu đen thì thay'),
-    T('Bật bếp chiên, lò hâm, chạy thử'),
-    T('Châm đá thùng đá', false),
+    T('Rửa tay, găng, nón · kiểm rau, nấm, topping còn tươi, bỏ đồ hư', false),
+    T('Rau lẩu + salad rửa ráo · topping vào hộp đúng ngăn có nhãn', false),
+    T('Dầu chiên còn tốt (đen thì thay) · bật bếp chiên, lò hâm · châm đá', false),
+    T('📷 MỞ CA: chụp 1 ảnh tủ trưng bày đã bày xong'),
   ] },
-  { title: 'Đóng ca Topping', phase: 'close', position: ['topping'], team: ['lẩu', 'bếp'], items: [
+  { title: 'Đóng ca Topping', rev: 2, phase: 'close', position: ['topping'], team: ['lẩu', 'bếp'], items: [
     X('Topping + bánh mì còn: từng loại, ghi số bịch + số viên/ổ lẻ', 1),
-    T('Topping thừa vào hộp có nắp, ghi ngày'),
-    T('Lọc / đổ dầu, vệ sinh bếp chiên'),
-    T('Lau kính + khay tủ trưng bày trong ngoài'),
-    T('Rau, cà chua kê lên kệ, không để sát sàn'),
-    T('Rửa rổ, bồn rửa, đổ rác'),
-    T('Lau mặt quầy'),
-    T('Tắt bếp chiên, lò hâm'),
-    T('Đóng kín cửa tủ trưng bày'),
+    T('📷 Bên trong tủ: topping thừa trong hộp có nắp, ghi ngày (chụp cận)'),
+    T('Lọc / đổ dầu, vệ sinh bếp chiên · tắt bếp chiên, lò hâm', false),
+    T('Lau kính, khay tủ · rửa rổ, bồn rửa, đổ rác · rau kê lên kệ', false),
+    T('Đóng kín cửa tủ trưng bày', false),
     N('Nhiệt độ tủ lúc đóng', '°C'),
+    T('📷 ĐÓNG CA: chụp 1 ảnh toàn quầy sạch'),
     X('Hàng thiếu cần báo'),
   ] },
-  { title: 'Mở ca Nước lẩu', phase: 'open', position: ['nước lẩu', 'lẩu'], team: ['lẩu', 'bếp'], items: [
-    T('Van xả nồi điện đóng, bật CB, chỉnh nhiệt'),
+  { title: 'Mở ca Nước lẩu', rev: 2, phase: 'open', position: ['nước lẩu', 'lẩu'], team: ['lẩu', 'bếp'], items: [
     X('Nước lẩu từng vị: ghi số lít (Mala, Cà chua, Nấm, Thảo mộc…)', 1),
-    T('Nếm đạt vị theo công thức', false),
-    T('Kiểm dây, van, mùi gas'),
     N('Bình gas đầy dự phòng', 'bình'),
-    T('Thử lửa bếp 6 họng + bếp khè'),
-    T('Sốt, nước chấm làm theo công thức'),
-    T('Máy in phiếu có giấy', false),
+    T('Van xả nồi điện đóng, bật CB, chỉnh nhiệt', false),
+    T('Kiểm dây, van, mùi gas · thử lửa bếp 6 họng + bếp khè', false),
+    T('Nếm đạt vị · sốt, nước chấm theo công thức · máy in có giấy', false),
+    T('📷 MỞ CA: chụp 1 ảnh toàn quầy nước lẩu'),
   ] },
-  { title: 'Đóng ca Nước lẩu', phase: 'close', position: ['nước lẩu', 'lẩu'], team: ['lẩu', 'bếp'], items: [
+  { title: 'Đóng ca Nước lẩu', rev: 2, phase: 'close', position: ['nước lẩu', 'lẩu'], team: ['lẩu', 'bếp'], items: [
     X('Nước lẩu còn từng vị: ghi số lít', 1),
-    T('Xả, rửa nồi điện + van xả'),
-    T('Tắt CB nồi điện'),
-    T('Rửa nồi inox, lau bếp khè'),
-    T('Lau bếp 6 họng, mặt quầy, kính'),
-    T('Khoá van tất cả bình gas'),
-    T('Sốt, gia vị đậy kín / bọc màng, ghi ngày'),
-    T('Xếp gọn kệ dưới (ớt khô cho vào hũ kín)'),
-    T('Lau sàn khu nấu'),
+    T('📷 Nồi điện đã xả, rửa + CB đã tắt (chụp cận)'),
+    T('Rửa nồi inox, lau bếp khè, bếp 6 họng, mặt quầy, kính', false),
+    T('Sốt, gia vị đậy kín / bọc màng, ghi ngày · kệ dưới gọn', false),
+    T('Lau sàn khu nấu', false),
+    T('📷 KHOÁ VAN TẤT CẢ BÌNH GAS + chụp 1 ảnh toàn quầy sạch'),
     X('Hàng thiếu cần báo'),
   ] },
-  { title: 'Mở ca Pha chế', phase: 'open', team: ['bar', 'pha chế'], items: [
+  { title: 'Mở ca Pha chế', rev: 2, phase: 'open', team: ['bar', 'pha chế'], items: [
     T('Lấy ly từ tủ ra', false),
-    T('Đá đủ dùng'),
-    T('Siro, mứt, sữa còn hạn, đủ dùng', false),
-    T('Ly nhựa, ống hút, khay xách đủ', false),
-    T('Lau quầy + xe'),
-    T('Bình nước uống còn', false),
-    T('Máy in mini có giấy', false),
-    T('Kiểm van, dây gas'),
+    T('Siro, mứt, sữa còn hạn · ly nhựa, ống hút, khay xách · bình nước uống đủ', false),
+    T('Máy in mini có giấy · kiểm van, dây gas', false),
+    T('Đá đủ dùng', false),
+    T('📷 MỞ CA: chụp 1 ảnh toàn quầy pha chế đã sẵn sàng'),
   ] },
-  { title: 'Đóng ca Pha chế', phase: 'close', team: ['bar', 'pha chế'], items: [
-    T('Rửa ly, bình đong, thau, úp ráo'),
+  { title: 'Đóng ca Pha chế', rev: 2, phase: 'close', team: ['bar', 'pha chế'], items: [
     N('Đếm ly thuỷ tinh', 'ly'),
     X('Ly bể / thiếu: ghi số và lý do'),
-    T('Cất ly vào tủ inox dưới quầy, khoá'),
-    T('Lau vòi bơm siro, đậy nắp, cất'),
-    T('Xả nước đá thừa, lau thùng đá, mở nắp cho khô'),
-    T('Cọ hố rửa, đổ rác'),
-    T('Lau quầy, lau sàn chỗ đá chảy'),
-    T('Khoá van gas'),
-    T('Tắt quạt, đèn, rút điện máy in', false),
-    T('Che xe / kéo bạt'),
+    T('📷 Ly đã rửa, úp ráo, cất tủ inox dưới quầy, khoá (chụp tủ)'),
+    T('Lau vòi bơm siro, đậy, cất · xả đá thừa, lau thùng đá, mở nắp', false),
+    T('Cọ hố rửa, đổ rác · lau quầy, lau sàn chỗ đá chảy', false),
+    T('Tắt quạt, đèn, rút điện máy in · che xe / kéo bạt', false),
+    T('📷 KHOÁ GAS + chụp 1 ảnh toàn quầy sạch'),
     X('Hàng thiếu cần báo'),
   ] },
   { title: 'Mở ca Tiếp thực', rev: 2, phase: 'open', team: ['tiếp thực'], items: [
@@ -126,59 +99,48 @@ export const KHU_CHECKLISTS = [
     N('Số khăn bẩn gom vào giỏ giặt', 'cái'),
     T('Khăn đem giặt / phơi, cất khăn sạch cho ca sau', false),
   ] },
-  { title: 'Đóng ca Tiếp thực', phase: 'close', team: ['tiếp thực'], items: [
+  { title: 'Đóng ca Tiếp thực', rev: 2, phase: 'close', team: ['tiếp thực'], items: [
     N('Đếm xe cân bằng', 'xe'),
-    T('Cắm sạc đủ xe'),
-    T('Lau bánh xe trước khi cất', false),
-    T('Đậu xe đúng chỗ quy định (không dưới quầy thực phẩm)'),
+    T('Lau bánh xe · rửa mâm, úp ráo, cất', false),
+    T('📷 Xe đậu đúng chỗ, cắm sạc đủ (chụp chỗ sạc)'),
   ] },
-  { title: 'Đóng ca khu bán hàng', phase: 'close', team: ['tạp vụ'], items: [
-    T('Lau sàn khu khách ngồi'),
-    T('Gom rác, đổ thùng', false),
-    T('Thu bạt, cụp dù', false),
-    T('Tắt đèn bảng hiệu, đèn dây', false),
-    T('Xếp gọn bàn ghế'),
+  { title: 'Đóng ca khu bán hàng', rev: 2, phase: 'close', team: ['tạp vụ'], items: [
+    T('Gom rác, đổ thùng · thu bạt, cụp dù · tắt đèn bảng hiệu, đèn dây', false),
+    T('Lau sàn khu khách ngồi, xếp gọn bàn ghế', false),
+    T('📷 ĐÓNG CA: chụp 1 ảnh toàn khu khách ngồi'),
   ] },
   // Lối đi chính giữa 2 dãy quầy + cổng vào từ đường (ảnh 23/10): nước đọng, vết dầu, rác + lá ở cổng và miệng cống, xe đẩy / thang để giữa lối
-  { title: 'Mở ca Lối đi & cổng vào', phase: 'open', team: ['tạp vụ'], items: [
-    T('Quét cổng vào + vỉa hè trước quán, nhặt rác, lá'),
-    T('Vớt rác miệng cống trước cổng'),
-    T('Xịt rửa vết dầu, vết đen ở cổng vào'),
-    T('Lối đi chính khô ráo, không đọng nước (đọng thì gạt khô)'),
-    T('Dọn đồ chắn lối: xe đẩy, thang, thùng, ghế'),
-    T('Mở dù, bảng hiệu, đèn lối đi sáng đủ', false),
+  { title: 'Mở ca Lối đi & cổng vào', rev: 2, phase: 'open', team: ['tạp vụ'], items: [
+    T('Quét cổng vào + vỉa hè, vớt rác miệng cống, xịt vết dầu', false),
+    T('Lối đi khô ráo (đọng nước thì gạt khô) · dọn xe đẩy, thang, thùng chắn lối', false),
+    T('Mở dù, bảng hiệu, đèn lối đi', false),
+    T('📷 MỞ CA: chụp 1 ảnh lối đi từ cổng nhìn vào'),
   ] },
-  { title: 'Trong ca Lối đi', phase: 'during', team: ['tạp vụ'], items: [
-    T('19:00 đi 1 vòng: lau chỗ đổ, nhặt rác, gạt nước đọng'),
-    T('21:00 đi 1 vòng: lau chỗ đổ, nhặt rác, gạt nước đọng'),
+  { title: 'Trong ca Lối đi', rev: 2, phase: 'during', team: ['tạp vụ'], items: [
+    T('19:00 đi 1 vòng: lau chỗ đổ, nhặt rác, gạt nước đọng', false),
+    T('21:00 đi 1 vòng: lau chỗ đổ, nhặt rác, gạt nước đọng', false),
   ] },
-  { title: 'Đóng ca Lối đi & cổng vào', phase: 'close', team: ['tạp vụ'], items: [
-    T('Quét + lau lối đi chính, gạt khô nước'),
-    T('Xịt rửa vết dầu, vết bẩn trên lối đi'),
-    T('Quét cổng vào, vớt rác miệng cống'),
-    T('Cất xe đẩy, thang, thùng vào đúng chỗ'),
-    T('Thu dù, kéo bạt', false),
+  { title: 'Đóng ca Lối đi & cổng vào', rev: 2, phase: 'close', team: ['tạp vụ'], items: [
+    T('Quét + lau lối đi, gạt khô · xịt vết dầu · quét cổng, vớt cống', false),
+    T('Cất xe đẩy, thang, thùng đúng chỗ · thu dù, kéo bạt', false),
+    T('📷 ĐÓNG CA: chụp 1 ảnh lối đi từ cổng nhìn vào'),
     X('Chỗ hư cần sửa (sơn viền bong, gạch vỡ…)'),
   ] },
   // Mặt tiền ra đường (ảnh 23/10): sân gạch đỏ có tàn thuốc, giấy, túi nilon, lá, gạch vỡ; cổng lưới đỏ có bánh xe;
   // xe khách đậu trên sân gạch / sát lối vào; chậu cau lớn; rác nhà bên đặt sát cột điện
-  { title: 'Mở ca Mặt tiền & giữ xe', phase: 'open', team: ['bảo vệ', 'giữ xe', 'tạp vụ'], items: [
-    T('Kéo mở cổng lưới, chặn bánh xe cho đứng yên'),
-    T('Quét + lau sân gạch đỏ mặt tiền: tàn thuốc, giấy, túi nilon, lá'),
-    T('Dọn gạch vỡ, vật cản trước cổng'),
-    T('Tưới cây, nhặt lá úa chậu cau', false),
-    T('Khu để xe xếp gọn, chừa lối đi bộ cho khách vào'),
-    T('Đèn lồng, bảng hiệu mặt tiền sáng / ngay ngắn', false),
+  { title: 'Mở ca Mặt tiền & giữ xe', rev: 2, phase: 'open', team: ['bảo vệ', 'giữ xe', 'tạp vụ'], items: [
+    T('Mở cổng lưới, chặn bánh · dọn gạch vỡ, vật cản trước cổng', false),
+    T('Quét + lau sân gạch đỏ: tàn thuốc, giấy, túi nilon, lá · tưới cây', false),
+    T('Đèn lồng, bảng hiệu sáng, ngay ngắn · khu để xe chừa lối đi bộ', false),
+    T('📷 MỞ CA: chụp 1 ảnh mặt tiền từ ngoài đường'),
   ] },
-  { title: 'Trong ca Mặt tiền & giữ xe', phase: 'during', team: ['bảo vệ', 'giữ xe', 'tạp vụ'], items: [
+  { title: 'Trong ca Mặt tiền & giữ xe', rev: 2, phase: 'during', team: ['bảo vệ', 'giữ xe', 'tạp vụ'], items: [
     T('19:00 xếp lại xe gọn, không chắn cổng; nhặt tàn thuốc, rác', false),
     T('21:00 xếp lại xe gọn, không chắn cổng; nhặt tàn thuốc, rác', false),
   ] },
-  { title: 'Đóng ca Mặt tiền & giữ xe', phase: 'close', team: ['bảo vệ', 'giữ xe', 'tạp vụ'], items: [
-    T('Quét sân gạch mặt tiền'),
-    T('Đem rác ra điểm tập kết đúng chỗ (không để trước nhà bên cạnh)'),
-    T('Kéo đóng cổng lưới, khoá'),
-    T('Tắt đèn bảng hiệu, đèn lồng', false),
+  { title: 'Đóng ca Mặt tiền & giữ xe', rev: 2, phase: 'close', team: ['bảo vệ', 'giữ xe', 'tạp vụ'], items: [
+    T('Quét sân · đem rác ra điểm tập kết đúng chỗ · tắt đèn bảng hiệu', false),
+    T('📷 Kéo đóng cổng lưới, khoá (chụp ổ khoá)'),
     X('Xe khách còn gửi qua đêm / sự cố (ghi biển số nếu có)'),
   ] },
   // Bếp steak (8 ảnh 23/10) + định lượng Sổ 5: bò Aukobe 120g Steak Âu · 100g Combo 1, 2, món xào · 150g Combo 3; sốt 100g/dĩa;
@@ -214,6 +176,11 @@ const V1_TITLES = ['Mở ca Thái tay', 'Đóng ca Thái tay', 'Mở ca Topping'
 
 export function seedKhuChecklists(db) {
   const getSet = db.prepare('SELECT value FROM settings WHERE key = ?');
+  // Checklist chung cũ của Phục vụ: bỏ chụp từng việc (kiểm tra ngẫu nhiên thay), 1 lần
+  if (!getSet.get('phuc_vu_gon_v1')) {
+    db.prepare("UPDATE checklist_items SET photo_required = 0 WHERE template_id IN (SELECT id FROM checklist_templates WHERE title IN ('Mở ca phục vụ', 'Đóng ca phục vụ'))").run();
+    db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('phuc_vu_gon_v1', '1')").run();
+  }
   let done;
   try { done = new Set(JSON.parse(getSet.get('checklist_khu_done')?.value || '[]')); } catch { done = new Set(); }
   // Bản đầu (23/10, checklist_khu_v1) đã tạo 11 checklist đầu: coi như xong, không tạo lại cái chủ quán đã xoá

@@ -22,7 +22,7 @@ function General({ s, staff }) {
   const save = () => act(() => api('PUT', '/api/settings', {
     shop_name: f.shop_name, public_url: f.public_url, day_cutoff_hour: f.day_cutoff_hour, late_grace_minutes: f.late_grace_minutes,
     clock_early_minutes: f.clock_early_minutes, auto_close_after_minutes: f.auto_close_after_minutes, clock_ip_prefixes: f.clock_ip_prefixes,
-    labor_target_pct: f.labor_target_pct, idle_alert_minutes: f.idle_alert_minutes, count_tolerance_pct: f.count_tolerance_pct,
+    labor_target_pct: f.labor_target_pct, idle_alert_minutes: f.idle_alert_minutes, count_tolerance_pct: f.count_tolerance_pct, spot_photos_per_run: f.spot_photos_per_run,
     night_bonus_pct: f.night_bonus_pct, month_standard_days: f.month_standard_days, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
     avail_deadline_dow: f.avail_deadline_dow, avail_deadline_time: f.avail_deadline_time, avail_slots: JSON.stringify(slots),
   }), 'Đã lưu cài đặt');
@@ -35,6 +35,7 @@ function General({ s, staff }) {
       <${Field} label="Người giữ kho tổng" hint="Dùng ở giai đoạn Kho. Đổi lúc nào cũng được.">
         <select id="set-kho" value=${f.kho_tong_staff_id} onChange=${(e) => set('kho_tong_staff_id', e.target.value)}>
           <option value="">(chưa chọn, tạm giao quản lý)</option>${staff.map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>
+      ${inp('spot_photos_per_run', 'Kiểm tra ngẫu nhiên: số việc bắt chụp thêm mỗi checklist', { type: 'number', min: 0, max: 5 }, 'App tự chọn ngẫu nhiên việc (nhân viên không biết trước) bắt chụp ảnh. 0 = tắt.')}
       ${inp('count_tolerance_pct', 'Lệch kiểm kho cho phép (%)', { type: 'number', min: 0, max: 50 }, 'Cân tồn cuối ca lệch so với sổ (đã trừ theo định lượng) quá mức này thì báo chủ quán + quản lý.')}
     </div></section>
     <section class="card"><h3>Chấm công</h3><div class="form-grid">

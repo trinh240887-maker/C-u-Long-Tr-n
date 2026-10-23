@@ -167,6 +167,20 @@ export default function (r, ctx) {
   ctx.checklistScope = myScope;
   ctx.checklistInScope = inScope;
 
+  // Kiểm tra ngẫu nhiên: mỗi lượt checklist (mở / đóng ca, ≥ 4 việc tick không ảnh) app chọn N việc bắt chụp thêm.
+  // Chọn theo mã bí mật của quán + ngày + lượt → cả ngày cố định, nhân viên không biết trước việc nào.
+  const spotN = () => Math.max(0, Number(ctx.setting('spot_photos_per_run') ?? 1));
+  function spotIds(runId, templateId, phase) {
+    const n = spotN();
+    if (!n || phase === 'during') return new Set();
+    const pool = db.prepare("SELECT id FROM checklist_items WHERE template_id = ? AND kind = 'check' AND photo_required = 0 ORDER BY id").all(templateId).map((x) => x.id);
+    if (pool.length < 3) return new Set();
+    const key = String(ctx.setting('pin_secret') || 'clt');
+    const score = (id) => crypto.createHash('sha256').update(`${key}:${runId}:${id}`).digest().readUInt32BE(0);
+    return new Set(pool.sort((a, b) => score(a) - score(b)).slice(0, n));
+  }
+  ctx.checklistSpot = spotIds;
+
   function dayView(date, scope) {
     const tpls = templates().filter((t) => inScope(scope, t));
     const ensure = db.prepare('INSERT OR IGNORE INTO checklist_runs (template_id, date) VALUES (?, ?)');
@@ -178,7 +192,8 @@ export default function (r, ctx) {
       const run = getRun.get(t.id, date);
       const byItem = new Map(entries.all(run.id).map((e) => [e.item_id, e]));
       const ph = photos.all(run.id);
-      const items = t.items.map((i) => ({ ...i, entry: byItem.get(i.id) || null, photos: ph.filter((p) => p.item_id === i.id) }));
+      const spot = spotIds(run.id, t.id, t.phase);
+      const items = t.items.map((i) => ({ ...i, spot: spot.has(i.id), photo_required: i.photo_required || spot.has(i.id), entry: byItem.get(i.id) || null, photos: ph.filter((p) => p.item_id === i.id) }));
       const required = items.filter((i) => i.required);
       return {
         run_id: run.id, template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán',
@@ -405,7 +420,8 @@ export default function (r, ctx) {
         // Bị chấm "Làm lại" thì phải có ảnh MỚI chụp sau lúc chấm
         const prev = db.prepare('SELECT review_status, reviewed_at FROM checklist_entries WHERE run_id = ? AND item_id = ?').get(runId, itemId);
         const since = prev?.review_status === 'redo' ? prev.reviewed_at : 0;
-        if (item.photo_required && !db.prepare('SELECT 1 FROM checklist_photos WHERE run_id = ? AND item_id = ? AND deleted_at IS NULL AND created_at > ?').get(runId, itemId, since)) {
+        const tplPhase = db.prepare('SELECT phase FROM checklist_templates WHERE id = ?').get(run.template_id)?.phase;
+        if ((item.photo_required || spotIds(run.id, run.template_id, tplPhase).has(item.id)) && !db.prepare('SELECT 1 FROM checklist_photos WHERE run_id = ? AND item_id = ? AND deleted_at IS NULL AND created_at > ?').get(runId, itemId, since)) {
           fail(400, since ? `Chụp ảnh mới cho "${item.text}" sau khi sửa rồi bấm xong lại` : `Chụp ảnh cho "${item.text}" trước khi bấm xong`);
         }
         // Làm lại sau khi bị chấm "Làm lại": về trạng thái chờ duyệt

@@ -14,7 +14,7 @@ test('checklist theo khu: tạo 1 lần, gán đúng vị trí theo tên, không
   assert.equal(get('Mở ca Pha chế').team, 'Bar');
   assert.equal(get('Mở ca Tiếp thực (chọn tổ)').active, 0, 'chưa có tổ Tiếp thực → để tắt');
   // Việc tick máy móc / vệ sinh bắt ảnh, việc nhập số không
-  const it = db.prepare("SELECT kind, photo_required FROM checklist_items WHERE text = 'Lau máy thái trước khi dùng'").get();
+  const it = db.prepare("SELECT kind, photo_required FROM checklist_items WHERE text LIKE '📷 Lưỡi + khay máy thái%'").get();
   assert.equal(it.photo_required, 1);
   assert.equal(db.prepare("SELECT kind FROM checklist_items WHERE text = 'Lấy ly từ tủ ra'").get().kind, 'check');
   const n = db.prepare('SELECT COUNT(*) AS n FROM checklist_templates').get().n;
