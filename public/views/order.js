@@ -145,9 +145,9 @@ export function OrderView({ me, query }) {
   // Món chỉ dùng để tặng (vd "Thịt tươi tặng 100g") không hiện ở thực đơn: thêm bằng nút xanh "Còn tặng N phần"
   const items = m.items.filter((i) => { if (/tặng/i.test(i.name)) return false; if (!words.length) return true; const hay = plain(`${i.name} ${catName(i.category_id)} ${i.description || ''}`); return words.every((w) => hay.includes(w)); })
     .sort((a, b) => catOrder(a.category_id) - catOrder(b.category_id) || a.sort - b.sort || a.id - b.id);
-  // Nhóm hiển thị trên màn gọi món (chủ quán 24/10): Steak = steak + món thêm; Lẩu = set lẩu, ngăn thêm, bò, topping, rau…; Nướng riêng.
+  // Nhóm hiển thị trên màn gọi món (chủ quán 24/10): Steak = steak + món thêm; Lẩu = set lẩu, ngăn thêm, bò, topping, rau…; Nướng riêng; Đồ uống = cà phê + trà + nước khác.
   // Chỉ gom để hiển thị; nhóm món trong dữ liệu giữ nguyên (khuyến mãi theo nhóm không đổi).
-  const BIG = [['Steak', /^(steak|món thêm steak)$/i], ['Lẩu', /^(combo lẩu|ngăn nước lẩu thêm|bò tươi|bò nhập|topping|rau|thịt)/i], ['Nướng', /nướng/i]];
+  const BIG = [['Steak', /^(steak|món thêm steak)$/i], ['Lẩu', /^(combo lẩu|ngăn nước lẩu thêm|bò tươi|bò nhập|topping|rau|thịt)/i], ['Nướng', /nướng/i], ['Đồ uống', /cà phê|cafe|trà|nước khác|nước uống|bia|soju|rượu|sinh tố|nước ép/i]];
   const bigOf = (c) => BIG.find(([, re]) => re.test(c.name))?.[0] || null;
   const groups = [];
   for (const c of m.categories) {
