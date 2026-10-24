@@ -717,3 +717,4 @@ table.wk .wk-name { white-space: normal; overflow: hidden; }
 .total-big { font-size: 22px; } .total-big b { font-size: 28px; color: var(--accent); }
 .zone-badge { font-size: 11px; color: #b45309; }
 .zone-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 52px; border-bottom: 1px solid var(--line); } .zone-row .chip { min-width: 44px; justify-content: center; }
+.role-tag { color: #b45309; font-weight: 600; }

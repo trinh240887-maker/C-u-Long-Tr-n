@@ -133,7 +133,10 @@ function WeekZones({ ws, staff, teams, map, onClose }) {
   const pv = teams.find((t) => /phục vụ/i.test(t.name));
   const [team, setTeam] = useState(pv ? String(pv.id) : '');
   const [cur, setCur] = useState(map || {});
-  const people = staff.filter((p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team)));
+  const RANK = ['manager', 'shift_lead', 'team_lead', 'staff'];
+  // Trưởng ca, tổ trưởng lên đầu danh sách
+  const people = staff.filter((p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team)))
+    .sort((a, b) => RANK.indexOf(a.role) - RANK.indexOf(b.role));
   const pick = (p, zid) => act(() => api('POST', '/api/schedule/week-zones', { week: ws, staff_id: p.id, zone_id: zid || undefined })).then((r) => r && setCur(r.week_zones));
   const count = (zid) => people.filter((p) => Number(cur[p.id]) === zid).length;
   return html`<${Modal} title=${`📍 Phân khu tuần ${fmtDate(ws)} – ${fmtDate(addDays(ws, 6))}`} onClose=${onClose}><div class="stack">
@@ -141,7 +144,7 @@ function WeekZones({ ws, staff, teams, map, onClose }) {
     <div class="chips"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Tất cả</button>
       ${teams.map((t) => html`<button class=${`chip ${team === String(t.id) ? 'on' : ''}`} onClick=${() => setTeam(String(t.id))}>${t.name}</button>`)}</div>
     <div class="chips">${zones.map((z) => html`<span class="pill">${z.name}: ${count(z.id)} người</span>`)}</div>
-    ${people.map((p) => html`<div class="zone-row"><b class="grow">${p.name}</b>
+    ${people.map((p) => html`<div class="zone-row"><span class="grow"><b>${p.name}</b>${p.role !== 'staff' || p.position_name ? html`<br /><small class=${p.role !== 'staff' ? 'role-tag' : 'muted'}>${p.role !== 'staff' ? `⭐ ${p.role_label}` : ''}${p.role !== 'staff' && p.position_name ? ' · ' : ''}${p.position_name || ''}</small>` : null}</span>
       <div class="chips">${zones.map((z) => html`<button class=${`chip ${Number(cur[p.id]) === z.id ? 'on' : ''}`} onClick=${() => pick(p, z.id)}>${z.name.replace(/^Khu\s*/i, '')}</button>`)}
         <button class=${`chip ${!cur[p.id] ? 'on' : ''}`} onClick=${() => pick(p, null)}>—</button></div></div>`)}
     <button class="primary" onClick=${onClose}>Xong</button>
