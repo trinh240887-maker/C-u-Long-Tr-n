@@ -87,8 +87,8 @@ export default function (r, ctx) {
     const start = weekStart(anchor);
     const end = addDays(start, 6);
     const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
-    const rows = db.prepare(`SELECT a.*, s.name AS staff_name, t.name AS team_name, st.color, z.name AS zone_name, p.name AS position_name
-      FROM assignments a JOIN staff s ON s.id = a.staff_id LEFT JOIN positions p ON p.id = a.position_id
+    const rows = db.prepare(`SELECT a.*, s.name AS staff_name, t.name AS team_name, st.color, z.name AS zone_name, p.name AS position_name, cb.name AS created_by_name
+      FROM assignments a JOIN staff s ON s.id = a.staff_id LEFT JOIN positions p ON p.id = a.position_id LEFT JOIN staff cb ON cb.id = a.created_by
       LEFT JOIN teams t ON t.id = a.team_id LEFT JOIN shift_templates st ON st.id = a.template_id LEFT JOIN zones z ON z.id = a.zone_id
       WHERE a.date BETWEEN ? AND ? ORDER BY a.date, a.start_min`).all(start, end);
     const leaves = db.prepare(`SELECT l.id, l.group_id, l.staff_id, l.status, l.replacement_id, l.date FROM leave_requests l
@@ -102,6 +102,7 @@ export default function (r, ctx) {
         date: a.date, label: a.label, note: a.note, template_id: a.template_id, color: a.color || '#64748b', segments: [],
         zone_id: a.zone_id, zone_name: a.zone_name || '', tables_text: a.tables_text || '',
         position_id: a.position_id ?? null, position_name: a.position_name || '',
+        created_by_name: a.created_by_name || (a.note === 'Theo lịch rảnh' ? 'tự tạo từ lịch rảnh' : ''), created_at: a.created_at,
         leave: leaveByGroup.get(a.group_id) || null,
       };
       g.segments.push({ start_min: a.start_min, end_min: a.end_min, start: fmtHM(a.start_min), end: fmtHM(a.end_min) });

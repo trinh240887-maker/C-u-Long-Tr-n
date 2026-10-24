@@ -117,7 +117,8 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
       </table></div>
     </section>`)}
     ${cell ? html`<${Modal} title=${`${cell.p.name} · ${dayLabel(cell.x)}`} onClose=${() => setCell(null)}><div class="stack">
-      ${cell.sh.map((x) => html`<div class="stack"><b>${x.text}</b>
+      ${cell.sh.map((x) => html`<div class="stack"><b>${x.text}${x.zone_name ? ` · 📍 ${x.zone_name}` : ''}</b>
+        ${x.created_by_name ? html`<small class="muted">Xếp bởi ${x.created_by_name}${x.created_at ? ` · ${dt(x.created_at)}` : ''}</small>` : null}
         <div class="row wrap">
         ${x.segments.length === 1 ? html`<button class="primary" onClick=${() => { setEdit({ p: cell.p, date: cell.x, range: `${x.segments[0].start}-${x.segments[0].end === '00:00' ? '24:00' : x.segments[0].end}`, id: x.group_id }); setCell(null); }}>✎ Sửa giờ</button>` : null}
         <button onClick=${() => act(() => api('POST', '/api/shifts/delete', { group_id: x.group_id }), `Đã bỏ ca ${cell.p.name}`).then((r) => r && setCell(null))}>✕ Bỏ ca</button></div></div>`)}
