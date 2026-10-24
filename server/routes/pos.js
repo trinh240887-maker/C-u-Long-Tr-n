@@ -373,6 +373,9 @@ export default function (r, ctx) {
         if (!left) continue; // đã ghép hết vào set
         targets = targets.map((t) => ({ ...t, label: 'Thêm ngăn nước lẩu', pre: [brothOf(i.name)], qty: left }));
       }
+      // Món tặng (chương trình "mua A tặng B", vd lẩu tặng thăn bò): in dòng riêng "… (TẶNG)" trước dòng khách gọi thêm (chủ quán chốt 24/10)
+      const giftQty = Math.min(i.qty, (i.promos || []).filter((p) => p.gift).reduce((n, p) => n + (p.free_qty || 0), 0));
+      if (giftQty && !parts.length) targets = targets.flatMap((t) => [{ ...t, qty: giftQty, gift: true }, { ...t, qty: i.qty - giftQty }]).filter((t) => t.qty > 0);
       for (const t of targets) {
         if (!t.station_id) continue;
         let sid = t.station_id;
@@ -382,8 +385,8 @@ export default function (r, ctx) {
         const key = `${sid}:${urgent ? 1 : 0}`;
         if (!byStation.has(key)) byStation.set(key, { station_id: sid, priority: urgent ? 1 : 0, lines: [] });
         // Món có nhiều phần (set lẩu): mỗi điểm in tên PHẦN (vd "Rau tổng hợp"), cộng dồn cả bàn → "2 x Rau tổng hợp"
-        const line = { item_id: i.id, name: t.label || i.name, qty: t.qty, options: [...(t.pre || []), ...JSON.parse(i.options || '[]').map((o) => o.name)], note: i.note, label: '', rush: !!i.rush };
-        // Khuyến mãi chỉ đổi tiền: phiếu bếp KHÔNG ghi tặng, chỉ tổng số phần phải làm (chủ quán chốt)
+        const line = { item_id: i.id, name: `${t.label || i.name}${t.gift ? ' (TẶNG)' : ''}`, qty: t.qty, options: [...(t.pre || []), ...JSON.parse(i.options || '[]').map((o) => o.name)], note: i.note, label: '', rush: !!i.rush };
+        // Mua 1 tặng 1 cùng món (steak): phiếu bếp chỉ ghi tổng số phần phải làm. Món tặng kèm (gift) in dòng riêng ở trên
         // Dòng giống hệt (cùng món, tuỳ chọn, ghi chú) thì cộng số lượng: bếp đọc 1 dòng "2 x" thay vì 2 dòng
         const same = byStation.get(key).lines.find((l) => l.name === line.name && l.label === line.label && l.note === line.note && l.rush === line.rush && l.options.join('|') === line.options.join('|'));
         if (same) same.qty += line.qty; else byStation.get(key).lines.push(line);
@@ -482,10 +485,10 @@ export default function (r, ctx) {
     const [n] = readTables([v.int(body.table, { min: 1, name: 'Bàn' })]);
     const list = Array.isArray(body.items) ? body.items : [];
     if (!list.length) fail(400, 'Chọn món cần tách');
+    // Tách bàn: chỉ sang 1 bàn TRỐNG → 1 bàn thành 2 bàn, món khách chọn sang bàn mới
+    if (busyTable(n)) fail(409, `Bàn ${n} đang có khách; tách bàn chỉ chọn bàn trống`);
     const out = tx(db, () => {
-      const cur = busyTable(n);
-      const target = cur ? cur.id : ctx.openTableSession(me, { tables: [n] });
-      if (target === s.id) fail(400, 'Chọn bàn khác để tách');
+      const target = ctx.openTableSession(me, { tables: [n] });
       let moved = 0;
       for (const x of list) {
         const it = db.prepare("SELECT * FROM order_items WHERE id = ? AND session_id = ? AND status != 'cancelled'").get(v.int(x.id, { min: 1, name: 'Món' }), s.id);
@@ -525,7 +528,9 @@ export default function (r, ctx) {
   // ---------- Chuyển, gộp, huỷ bàn ----------
   r.post('/api/pos/sessions/:id/move', 'staff', ({ me, params, body }) => {
     const s = openSession(params.id);
+    // Chuyển bàn: chọn đúng 1 bàn trống; cả bill sang bàn mới, bàn cũ thành bàn trống (chủ quán chốt 24/10)
     const to = readTables(body.tables);
+    if (to.length !== 1) fail(400, 'Chuyển bàn: chọn 1 bàn trống');
     for (const n of to) if (busyTable(n, s.id)) fail(409, `Bàn ${n} đang có khách; muốn gộp thì dùng Gộp bàn`);
     tx(db, () => {
       db.prepare('DELETE FROM session_tables WHERE session_id = ?').run(s.id);
@@ -564,7 +569,7 @@ export default function (r, ctx) {
     tx(db, () => {
       db.prepare('UPDATE order_items SET session_id = ? WHERE session_id = ?').run(s.id, other.id);
       db.prepare('UPDATE kitchen_tickets SET session_id = ? WHERE session_id = ?').run(s.id, other.id);
-      for (const n of other.tables) db.prepare('INSERT OR IGNORE INTO session_tables (session_id, table_number) VALUES (?, ?)').run(s.id, n);
+      // Gộp bàn 1 → bàn 2: cả bill bàn 1 sang bàn 2, bàn 1 thành bàn trống (gọi mới là bill riêng). Chủ quán chốt 24/10
       db.prepare('DELETE FROM session_tables WHERE session_id = ?').run(other.id);
       db.prepare('UPDATE table_sessions SET guests = guests + ?, priority = MAX(priority, ?) WHERE id = ?').run(other.guests, other.priority ? 1 : 0, s.id);
       db.prepare("UPDATE table_sessions SET status = 'cancelled', closed_at = ?, closed_by = ?, note = ? WHERE id = ?").run(ctx.now(), me.id, `Gộp vào bàn ${s.header}`, other.id);

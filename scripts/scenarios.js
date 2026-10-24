@@ -294,8 +294,9 @@ export async function run({ quiet = false } = {}) {
     const b0 = (await sess(S2)).subtotal;
     const r = await pv1('POST', `/api/pos/sessions/${A}/merge`, { from_session_id: S2 });
     const a = await sess(A);
-    expect(r.status === 200 && a.subtotal === a0 + b0 && a.tables.join(',') === '30,32', `${a.subtotal} ${a.tables}`);
-    return `bàn 30+32: ${a.subtotal.toLocaleString('vi-VN')}đ`;
+    const t32 = (await pv1('GET', '/api/pos/tables')).data.zones.flatMap((z) => z.tables).find((t) => t.number === 32);
+    expect(r.status === 200 && a.subtotal === a0 + b0 && a.tables.join(',') === '30' && !t32.session, `${a.subtotal} ${a.tables} ${t32.session?.id}`);
+    return `bàn 30: ${a.subtotal.toLocaleString('vi-VN')}đ (cả 2 bill) · bàn 32 trống`;
   });
   await step('Tách hết món sang bàn khác → bàn cũ tự trống', async () => {
     const H = await open(pv2, 40);

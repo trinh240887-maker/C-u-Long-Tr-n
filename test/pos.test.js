@@ -114,7 +114,8 @@ test('gọi món: mở bàn, bắt chọn sốt, gửi bếp tách phiếu theo 
   assert.equal((await H('POST', `/api/pos/sessions/${sid}/move`, { tables: [22] })).status, 409);
   assert.equal((await H('POST', `/api/pos/sessions/${sid}/merge`, { from_session_id: sid2 })).status, 200);
   s = (await H('GET', `/api/pos/sessions/${sid}`)).data;
-  assert.deepEqual(s.tables, [21, 22]);
+  assert.deepEqual(s.tables, [21]); // bàn 22 gộp vào 21 → bàn 22 trống
+  assert.ok(!(await H('GET', '/api/pos/tables')).data.zones.flatMap((z) => z.tables).find((x) => x.number === 22).session);
   assert.equal(s.guests, 6);
   assert.equal(s.unsent, 1);
   assert.equal((await H('POST', `/api/pos/sessions/${sid}/request-bill`)).status, 400); // còn món chưa gửi
@@ -183,4 +184,23 @@ test('phiếu lẩu: 2 lẩu + 1 ngăn thêm → Nước lẩu "Lẩu 2 ngăn: N
   assert.deepEqual(by['Nước lẩu'], ['1 x Lẩu 2 ngăn (Ngăn 1: Mala Tứ Xuyên / Ngăn 2: Cà chua Quý Châu)', '1 x Lẩu 1 ngăn (Thảo mộc Triều Châu)']);
   assert.deepEqual(by['Bò'], ['2 x Set bò']);
   assert.deepEqual(by['Topping – Nướng – Rau'], ['2 x Rau tổng hợp']);
+});
+
+test('phiếu bếp: món tặng kèm (lẩu tặng thăn bò) in dòng riêng "(TẶNG)", khách gọi thêm in dòng thường bên dưới', async (t) => {
+  const { db, mk } = await setup(t, at('2026-10-24', '18:00'));
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  const menu = (await o('GET', '/api/menu')).data;
+  const M = (n) => menu.items.find((x) => x.name === n).id;
+  const catId = menu.categories.find((c) => c.name === 'Combo lẩu').id;
+  const pr = await o('POST', '/api/promotions', { name: 'Lẩu tặng thăn bò', type: 'gift', buy_qty: 1, get_qty: 1, scope: 'categories', category_ids: [catId], gift_item_ids: [M('Thăn bò tươi 100g')], start_date: '2026-10-20', end_date: '2026-10-31' });
+  assert.equal(pr.status, 200, JSON.stringify(pr.data));
+  const sid = (await o('POST', '/api/pos/sessions', { tables: [6], guests: 2 })).data.id;
+  for (const n of ['Set 1 Thảo mộc Triều Châu', 'Thăn bò tươi 100g', 'Thăn bò tươi 100g']) {
+    assert.equal((await o('POST', `/api/pos/sessions/${sid}/items`, { menu_item_id: M(n), qty: 1 })).status, 200);
+  }
+  assert.equal((await o('POST', `/api/pos/sessions/${sid}/send`)).status, 200);
+  const k = db.prepare("SELECT k.lines FROM kitchen_tickets k JOIN kitchen_stations st ON st.id = k.station_id WHERE k.session_id = ? AND st.name = 'Bò'").get(sid);
+  assert.deepEqual(JSON.parse(k.lines).map((l) => `${l.qty} x ${l.name}`), ['1 x Set bò', '1 x Thăn bò tươi 100g (TẶNG)', '1 x Thăn bò tươi 100g']);
 });
