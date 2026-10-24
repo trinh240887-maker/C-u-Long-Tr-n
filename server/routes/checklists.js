@@ -34,6 +34,8 @@ export default function (r, ctx) {
   addCol('checklist_items', 'extra_ingredient_ids', "TEXT NOT NULL DEFAULT '[]'"); // cân chung nhiều loại (vd thịt tươi: thăn, bắp hoa, gù, gầu)
   addCol('checklist_items', 'store_id', 'INTEGER');
   addCol('checklist_entries', 'count_id', 'INTEGER');
+  // Ai làm (chủ quán 24/10): '' = theo tổ / vị trí / khu · 'lead' = trưởng ca · 'manager' = quản lý · 'staff:<id>' = 1 người cụ thể
+  addCol('checklist_templates', 'doer', "TEXT NOT NULL DEFAULT ''");
 
   function templates({ activeOnly = true } = {}) {
     const tpls = db.prepare(`SELECT c.*, t.name AS team_name, st.name AS shift_name, p.name AS position_name, z.name AS zone_name FROM checklist_templates c LEFT JOIN teams t ON t.id = c.team_id
@@ -42,8 +44,9 @@ export default function (r, ctx) {
     const items = db.prepare(`SELECT i.*, g.name AS ingredient_name, g.unit AS ingredient_unit, g.purchase_unit AS ingredient_pack, g.purchase_factor AS ingredient_factor, st.name AS store_name FROM checklist_items i
       LEFT JOIN ingredients g ON g.id = i.ingredient_id LEFT JOIN stores st ON st.id = i.store_id ORDER BY i.sort, i.id`).all();
     const samples = db.prepare('SELECT id, template_id, item_id, note FROM checklist_samples ORDER BY id').all();
+    const doerName = (d) => (d === 'lead' ? 'Trưởng ca' : d === 'manager' ? 'Quản lý' : /^staff:\d+$/.test(d || '') ? db.prepare('SELECT name FROM staff WHERE id = ?').get(Number(d.slice(6)))?.name || '?' : '');
     return tpls.map((c) => ({
-      ...c, active: !!c.active,
+      ...c, active: !!c.active, doer_name: doerName(c.doer),
       samples: samples.filter((x) => x.template_id === c.id && !x.item_id),
       items: items.filter((i) => i.template_id === c.id).map((i) => ({ ...i, extra_ingredient_ids: JSON.parse(i.extra_ingredient_ids || '[]'),
         group_names: JSON.parse(i.extra_ingredient_ids || '[]').length ? [i.ingredient_id, ...JSON.parse(i.extra_ingredient_ids)].map((id) => db.prepare('SELECT name FROM ingredients WHERE id = ?').get(id)?.name).filter(Boolean) : [], pack_mode: !!i.ingredient_id && packMode(i.unit, { unit: i.ingredient_unit, purchase_unit: i.ingredient_pack, purchase_factor: i.ingredient_factor }), required: !!i.required, photo_required: !!i.photo_required, samples: samples.filter((x) => x.item_id === i.id) })),
@@ -101,7 +104,12 @@ export default function (r, ctx) {
       : ctx.readPosition(body.position_id === undefined ? cur.position_id : body.position_id, teamId);
     const zoneId = body.zone_id === undefined ? cur.zone_id ?? null : v.optInt(body.zone_id, { min: 1, name: 'Khu' });
     if (zoneId && !db.prepare('SELECT 1 FROM zones WHERE id = ?').get(zoneId)) fail(400, 'Khu không tồn tại');
-    return { title, teamId, phase, shiftId, positionId, zoneId };
+    let doer = body.doer === undefined ? cur.doer ?? '' : String(body.doer || '');
+    if (!['', 'lead', 'manager'].includes(doer)) {
+      const m = /^staff:(\d+)$/.exec(doer);
+      if (!m || !db.prepare('SELECT 1 FROM staff WHERE id = ? AND active = 1').get(Number(m[1]))) fail(400, 'Người làm không hợp lệ');
+    }
+    return { title, teamId, phase, shiftId, positionId, zoneId, doer };
   }
 
   // Tổ trưởng chỉ tạo/sửa checklist của tổ mình; trưởng ca trở lên sửa mọi tổ và checklist "Cả quán"
@@ -115,7 +123,7 @@ export default function (r, ctx) {
     const f = tplFields(body);
     canEditTpl(me, f.teamId);
     const id = tx(db, () => {
-      const id = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, shift_template_id, position_id, zone_id) VALUES (?, ?, ?, ?, ?, ?)').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId).lastInsertRowid);
+      const id = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, shift_template_id, position_id, zone_id, doer) VALUES (?, ?, ?, ?, ?, ?, ?)').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer).lastInsertRowid);
       saveItems(id, body.items);
       return id;
     });
@@ -132,7 +140,7 @@ export default function (r, ctx) {
     canEditTpl(me, f.teamId);
     const active = body.active === undefined ? cur.active : v.bool(body.active);
     tx(db, () => {
-      db.prepare('UPDATE checklist_templates SET team_id = ?, phase = ?, title = ?, shift_template_id = ?, position_id = ?, zone_id = ?, active = ? WHERE id = ?').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, active, cur.id);
+      db.prepare('UPDATE checklist_templates SET team_id = ?, phase = ?, title = ?, shift_template_id = ?, position_id = ?, zone_id = ?, doer = ?, active = ? WHERE id = ?').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, active, cur.id);
       if (body.items !== undefined) saveItems(cur.id, body.items);
     });
     ctx.audit(me, 'checklist.update', { id: cur.id, title: f.title });
@@ -160,12 +168,12 @@ export default function (r, ctx) {
     }
     // Không có ca hôm nay và chưa chấm công → không có checklist (chủ quán 24/10: chỉ người đi làm mới thấy việc)
     const off = !rows.length && !db.prepare('SELECT 1 FROM attendance WHERE staff_id = ? AND date = ?').get(me.id, date);
-    return { teams, shifts, positions, zones, off };
+    return { teams, shifts, positions, zones, off, me: me.id };
   }
-  const inScope = (scope, t) => !scope || (!scope.off && (t.team_id === null || scope.teams.has(t.team_id))
+  const inScope = (scope, t) => !scope || (!scope.off && (t.doer || '') === '' && (t.team_id === null || scope.teams.has(t.team_id))
     && (t.shift_template_id === null || scope.shifts.has(t.shift_template_id))
     && (!t.position_id || scope.positions.has(t.position_id))
-    && (!t.zone_id || scope.zones.has(t.zone_id)));
+    && (!t.zone_id || scope.zones.has(t.zone_id))) || (!!scope && !scope.off && (t.doer || '') === `staff:${scope.me}`);
   ctx.checklistScope = myScope;
   ctx.checklistInScope = inScope;
 
@@ -224,7 +232,7 @@ export default function (r, ctx) {
   }
 
   function loadRunItem(me, runId, itemId) {
-    const run = db.prepare('SELECT r.*, t.team_id, t.shift_template_id, t.position_id, t.zone_id, t.title FROM checklist_runs r JOIN checklist_templates t ON t.id = r.template_id WHERE r.id = ?').get(runId);
+    const run = db.prepare('SELECT r.*, t.team_id, t.shift_template_id, t.position_id, t.zone_id, t.doer, t.title FROM checklist_runs r JOIN checklist_templates t ON t.id = r.template_id WHERE r.id = ?').get(runId);
     if (!run) fail(404, 'Không tìm thấy checklist');
     const item = db.prepare('SELECT * FROM checklist_items WHERE id = ? AND template_id = ?').get(itemId, run.template_id);
     if (!item) fail(404, 'Không tìm thấy việc');
@@ -268,7 +276,7 @@ export default function (r, ctx) {
   });
 
   r.get('/api/photos/:id', 'staff', ({ me, params }) => {
-    const p = db.prepare(`SELECT p.*, r.date, t.team_id, t.shift_template_id, t.position_id, t.zone_id FROM checklist_photos p
+    const p = db.prepare(`SELECT p.*, r.date, t.team_id, t.shift_template_id, t.position_id, t.zone_id, t.doer FROM checklist_photos p
       JOIN checklist_runs r ON r.id = p.run_id JOIN checklist_templates t ON t.id = r.template_id WHERE p.id = ?`).get(params.id);
     if (!p) fail(404, 'Không tìm thấy ảnh');
     if (p.deleted_at) fail(410, `Ảnh đã tự xoá sau ${KEEP_DAYS} ngày`);

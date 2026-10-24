@@ -189,3 +189,31 @@ test('phân khu theo tuần: 1 lần cho cả tuần, ca có sẵn + ca mới tr
   await o('POST', '/api/shifts', { staff_id: a, date: '2026-11-10', label: 'Ca', segments: [{ start: '06:00', end: '14:00' }] });
   assert.equal((await o('GET', '/api/schedule?week=2026-11-09')).data.shifts[0].zone_id, null);
 });
+
+test('checklist "Ai làm": giao 1 người cụ thể / trưởng ca → chỉ đúng người thấy', async (t) => {
+  const db = openDb(':memory:');
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  const team = (await o('GET', '/api/teams')).data.find((x) => x.name === 'Tạp vụ').id;
+  const a = (await o('POST', '/api/staff', { name: 'An', role: 'staff', team_id: team, pin: '7365' })).data.id;
+  const b = (await o('POST', '/api/staff', { name: 'Bình', role: 'staff', team_id: team, pin: '7366' })).data.id;
+  const today = (await o('GET', '/api/me')).data.today;
+  for (const id of [a, b]) await o('POST', '/api/shifts', { staff_id: id, date: today, label: 'Ca', segments: [{ start: '08:00', end: '20:00' }] });
+  await o('POST', '/api/checklist-templates', { title: 'Lối đi (giao An)', team_id: team, phase: 'close', doer: `staff:${a}`, items: [{ text: 'Quét lối đi', kind: 'check' }] });
+  await o('POST', '/api/checklist-templates', { title: 'Trưởng ca kiểm khu', team_id: null, phase: 'close', doer: 'lead', items: [{ text: 'Đi 1 vòng', kind: 'check' }] });
+  const login = async (pin, np) => { const x = mk(); await x('POST', '/api/login', { pin }); await x('POST', '/api/me/pin', { current_pin: pin, new_pin: np }); return x; };
+  const titles = async (cl) => (await cl('GET', '/api/checklists')).data.runs.map((r) => r.title);
+  const ta = await titles(await login('7365', '8365'));
+  const tb = await titles(await login('7366', '8366'));
+  assert.ok(ta.includes('Lối đi (giao An)') && !ta.includes('Trưởng ca kiểm khu'));
+  assert.ok(!tb.includes('Lối đi (giao An)') && !tb.includes('Trưởng ca kiểm khu'));
+  const tpl = (await o('GET', '/api/checklist-templates')).data.find((x) => x.title === 'Lối đi (giao An)');
+  assert.equal(tpl.doer_name, 'An');
+});
