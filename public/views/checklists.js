@@ -121,6 +121,19 @@ function Item({ run, item, disabled, me }) {
   </li>`;
 }
 
+// Thêm nhanh 1 việc vào checklist ngay trên màn hằng ngày
+function AddItemInline({ templateId }) {
+  const [text, setText] = useState('');
+  const [photo, setPhoto] = useState(true);
+  const add = () => act(() => api('POST', `/api/checklist-templates/${templateId}/items`, { text, photo_required: photo }), 'Đã thêm việc').then((r) => r && setText(''));
+  return html`<div class="add-inline">
+    <input value=${text} placeholder="+ Thêm việc mới vào checklist này…" onInput=${(e) => setText(e.target.value)} onKeyDown=${(e) => e.key === 'Enter' && text.trim() && add()} />
+    ${text.trim() ? html`<div class="row wrap tight">
+      <button class=${`chip ${photo ? 'on' : ''}`} onClick=${() => setPhoto(!photo)}>📷 ${photo ? 'Phải chụp ảnh' : 'Không cần ảnh'}</button>
+      <button class="primary" onClick=${add}>Thêm</button></div>` : null}
+  </div>`;
+}
+
 export function ChecklistView({ me }) {
   const [date, setDate] = useState(me.today);
   const st = useData(`/api/checklists?date=${date}`);
@@ -155,6 +168,7 @@ export function ChecklistView({ me }) {
       <div class="meter wide"><span style=${`width:${r.total ? Math.round((r.done / r.total) * 100) : 0}%`} class=${r.done === r.total ? 'full' : ''}></span></div>
       <${Samples} samples=${r.samples || []} templateId=${r.template_id} canEdit=${!old && canEditTpl(me, r.team_id)} label="Ảnh mẫu khu" />
       <ul class="cklist">${r.items.map((i) => html`<${Item} key=${`${r.run_id}-${i.id}-${i.entry?.done_at || 0}`} run=${r} item=${i} disabled=${old} me=${me} />`)}</ul>
+      ${!old && canEditTpl(me, r.team_id) ? html`<${AddItemInline} templateId=${r.template_id} />` : null}
     </section>`) : html`<div class="empty">${sections.length ? `Mục ${curSec} không có checklist ${phase === 'open' ? 'mở ca' : 'đóng ca'}.` : `Hôm nay bạn không có checklist.${atLeast(me, 'manager') ? ' Tạo checklist ở nút Tạo / sửa checklist.' : ''}`}</div>`}
   </div>`;
 }

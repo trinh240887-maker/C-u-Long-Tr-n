@@ -730,3 +730,4 @@ table.wk .wk-name { white-space: normal; overflow: hidden; }
 .item-more summary { cursor: pointer; }
 .cl-more { border-top: 1px solid var(--line); padding-top: 8px; }
 .cl-more summary { cursor: pointer; padding: 6px 0; }
+.add-inline { display: grid; gap: 6px; border-top: 1px dashed var(--line); padding-top: 10px; margin-top: 6px; } .add-inline input { min-height: 44px; font-size: 16px; }

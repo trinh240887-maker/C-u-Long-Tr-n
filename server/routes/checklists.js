@@ -145,6 +145,20 @@ export default function (r, ctx) {
     return { id };
   });
 
+  // Thêm nhanh 1 việc ngay trên màn checklist hằng ngày (chủ quán 24/10)
+  r.post('/api/checklist-templates/:id/items', 'team_lead', ({ me, params, body }) => {
+    const cur = db.prepare('SELECT * FROM checklist_templates WHERE id = ?').get(params.id);
+    if (!cur) fail(404, 'Không tìm thấy checklist');
+    canEditTpl(me, cur.team_id);
+    const text = v.text(body.text, { name: 'Tên việc', required: true, max: 120 });
+    const n = db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(sort), -1) AS m FROM checklist_items WHERE template_id = ?').get(cur.id);
+    if (n.n >= 60) fail(400, 'Tối đa 60 việc trong một checklist');
+    const id = Number(db.prepare("INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, extra_ingredient_ids, sort) VALUES (?, ?, 'check', '', 1, ?, '[]', ?)").run(cur.id, text, body.photo_required === false ? 0 : 1, n.m + 1).lastInsertRowid);
+    ctx.audit(me, 'checklist.item_add', { template: cur.id, text });
+    ctx.broadcast('checklists');
+    return { id };
+  });
+
   r.patch('/api/checklist-templates/:id', 'team_lead', ({ me, params, body }) => {
     const cur = db.prepare('SELECT * FROM checklist_templates WHERE id = ?').get(params.id);
     if (!cur) fail(404, 'Không tìm thấy checklist');
