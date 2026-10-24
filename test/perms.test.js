@@ -113,8 +113,34 @@ test('xếp ca: người được cấp quyền "Xếp ca" xem lịch rảnh c�
   const r = await a('POST', '/api/shifts', shift);
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal((await a('POST', '/api/schedule/publish', { week: '2026-11-02' })).status, 200);
+  assert.ok(db.prepare("SELECT n.title FROM notifications n JOIN staff s ON s.id = n.staff_id WHERE s.role = 'owner'").all().some((n) => /Hậu đã duyệt lịch tuần 02\/11/.test(n.title))); // duyệt → chủ nhận
   const x = await fetch(`${base}/api/schedule.xlsx?week=2026-11-02`, { headers: { cookie: (await (async () => { const res = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: '582914' }) }); return res.headers.get('set-cookie').split(';')[0]; })()) } });
   assert.equal(x.status, 200);
   assert.ok((await x.arrayBuffer()).byteLength > 500); // bảng Excel lịch ca tuần
   assert.equal((await b('POST', '/api/shifts', { ...shift, staff_id: aId })).status, 403);
+});
+
+test('lịch ca: nhân viên chỉ thấy ca của mình, tổ trưởng thấy tổ mình, quản lý thấy hết', async (t) => {
+  const db = openDb(':memory:');
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  const [t1, t2] = (await o('GET', '/api/teams')).data;
+  const mkS = async (name, role, team, pin) => (await o('POST', '/api/staff', { name, role, team_id: team, pin })).data.id;
+  const a = await mkS('An', 'staff', t1.id, '7365');
+  const b = await mkS('Bình', 'staff', t1.id, '7366');
+  const c = await mkS('Cúc', 'staff', t2.id, '7367');
+  await mkS('Lead', 'team_lead', t1.id, '7368');
+  for (const id of [a, b, c]) await o('POST', '/api/shifts', { staff_id: id, date: '2026-11-02', label: 'Ca', segments: [{ start: '06:00', end: '14:00' }] });
+  const login = async (pin, np) => { const x = mk(); await x('POST', '/api/login', { pin }); await x('POST', '/api/me/pin', { current_pin: pin, new_pin: np }); return x; };
+  const names = async (cl) => (await cl('GET', '/api/schedule?week=2026-11-02')).data.shifts.map((s) => s.staff_name).sort();
+  assert.deepEqual(await names(await login('7365', '8365')), ['An']);
+  assert.deepEqual(await names(await login('7368', '8368')), ['An', 'Bình']);
+  assert.deepEqual(await names(o), ['An', 'Bình', 'Cúc']);
 });

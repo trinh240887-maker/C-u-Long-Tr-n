@@ -1,7 +1,8 @@
 import { makeXlsx } from '../lib/xlsx.js';
 import crypto from 'node:crypto';
 import { fail, v } from '../http.js';
-import { tx } from '../db.js';
+import { tx, rank } from '../db.js';
+import { allowedPages } from '../lib/perms.js';
 import { isDate, addDays, weekStart, segmentMinutes, fmtHM, overlaps, isoWeekday } from '../lib/time.js';
 import { busyAround, rangeOf, groupSegments } from '../lib/schedule.js';
 
@@ -66,7 +67,21 @@ export default function (r, ctx) {
   });
 
   // ---------- Lịch ca tuần ----------
-  r.get('/api/schedule', 'staff', ({ query }) => {
+  // Ai xem được ca của ai (chủ quán 24/10): nhân viên chỉ thấy ca mình; tổ trưởng / trưởng ca thấy người tổ mình quản;
+  // quản lý, chủ, người có quyền Xếp ca thấy hết. Trả null = thấy hết
+  function viewFilter(me) {
+    if (rank(me.role) >= rank('manager') || allowedPages(ctx, me).includes('/lich#xep')) return null;
+    if ((me.role === 'shift_lead' || me.role === 'team_lead') && me.team_id) {
+      const mine = new Set(db.prepare('SELECT id FROM staff WHERE team_id = ?').all(me.team_id).map((x) => x.id));
+      return (staffId, teamId) => staffId === me.id || teamId === me.team_id || mine.has(staffId);
+    }
+    if (me.role === 'shift_lead') return null; // trưởng ca chung cả quán (không thuộc tổ nào)
+    return (staffId) => staffId === me.id;
+  }
+  ctx.scheduleViewFilter = viewFilter;
+
+  r.get('/api/schedule', 'staff', ({ me, query }) => {
+    const see = viewFilter(me);
     const anchor = query.get('week') || ctx.today();
     if (!isDate(anchor)) fail(400, 'Ngày không hợp lệ');
     const start = weekStart(anchor);
@@ -92,7 +107,7 @@ export default function (r, ctx) {
       g.segments.push({ start_min: a.start_min, end_min: a.end_min, start: fmtHM(a.start_min), end: fmtHM(a.end_min) });
       groups.set(a.group_id, g);
     }
-    const shifts = [...groups.values()].map((g) => ({ ...g, text: describeGroup(g.segments) }));
+    const shifts = [...groups.values()].filter((g) => !see || see(g.staff_id, g.team_id)).map((g) => ({ ...g, text: describeGroup(g.segments) }));
 
     // Cảnh báo thiếu người theo số tối thiểu của từng tổ
     const teams = db.prepare('SELECT id, name, min_staff FROM teams WHERE active = 1 ORDER BY sort, id').all();
@@ -120,7 +135,7 @@ export default function (r, ctx) {
     ctx.fillFixedAvailability?.(start);
     for (const a of db.prepare('SELECT staff_id, date, slot FROM availability WHERE date BETWEEN ? AND ?').all(start, end)) {
       const r = ctx.availRange?.(a.slot);
-      if (r) ((availability[a.staff_id] ||= {})[a.date] ||= []).push(`${String(Math.floor(r.start / 60)).padStart(2, '0')}:${String(r.start % 60).padStart(2, '0')}-${String(Math.floor(r.end / 60)).padStart(2, '0')}:${String(r.end % 60).padStart(2, '0')}`);
+      if (r && (!see || see(a.staff_id, null))) ((availability[a.staff_id] ||= {})[a.date] ||= []).push(`${String(Math.floor(r.start / 60)).padStart(2, '0')}:${String(r.start % 60).padStart(2, '0')}-${String(Math.floor(r.end / 60)).padStart(2, '0')}:${String(r.end % 60).padStart(2, '0')}`);
     }
     const submitted = db.prepare('SELECT staff_id FROM availability_weeks WHERE week_start = ?').all(start).map((x) => x.staff_id);
     return { week_start: start, days, shifts, coverage, availability, avail_submitted: submitted, slots: ctx.availSlots(), warnings, published_at: Number(ctx.setting(`published:${start}`) || 0) };
@@ -231,18 +246,19 @@ export default function (r, ctx) {
   });
 
   // Tải lịch tuần ra Excel theo kiểu bảng "Lịch trực ca": bộ phận | tên | vị trí | T2 … CN
-  r.get('/api/schedule.xlsx', 'staff', ({ query }) => {
+  r.get('/api/schedule.xlsx', 'staff', ({ me, query }) => {
+    const see = viewFilter(me);
     const anchor = query.get('week') || ctx.today();
     if (!isDate(anchor)) fail(400, 'Ngày không hợp lệ');
     const start = weekStart(anchor);
     const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
-    const staff = db.prepare(`SELECT s.id, s.name, t.name AS team_name, p.name AS position_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN positions p ON p.id = s.position_id
+    const staff = db.prepare(`SELECT s.id, s.name, s.team_id, t.name AS team_name, p.name AS position_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN positions p ON p.id = s.position_id
       WHERE s.active = 1 AND s.role != 'owner' ORDER BY t.sort, t.id, s.name`).all();
     const rows = db.prepare(`SELECT a.staff_id, a.date, a.group_id, a.start_min, a.end_min FROM assignments a WHERE a.date BETWEEN ? AND ?
       AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') ORDER BY a.start_min`).all(start, addDays(start, 6));
     const cell = (sid, d) => rows.filter((a) => a.staff_id === sid && a.date === d).map((a) => `${fmtHM(a.start_min)}-${fmtHM(a.end_min % 1440)}`).join(', ');
     const head = ['Bộ phận', 'Tên', 'Vị trí', ...days.map((d) => `${WEEKDAY[isoWeekday(d)]} ${d.slice(8)}/${d.slice(5, 7)}`)];
-    const body = staff.map((p) => [p.team_name || '', p.name, p.position_name || '', ...days.map((d) => cell(p.id, d))]);
+    const body = staff.filter((p) => !see || see(p.id, p.team_id)).map((p) => [p.team_name || '', p.name, p.position_name || '', ...days.map((d) => cell(p.id, d))]);
     return { __binary: makeXlsx([{ name: 'Lịch ca', rows: [head, ...body] }]), type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename: `lich-ca_${start}.xlsx` };
   });
 
@@ -262,6 +278,12 @@ export default function (r, ctx) {
       ctx.notify(staffId, { title: `Lịch làm tuần ${start.slice(8)}/${start.slice(5, 7)}`, body: lines.join('\n'), link: '/lich' });
     }
     ctx.setSetting(`published:${start}`, ctx.now());
+    // Duyệt lịch tuần: gửi chủ quán xem (người duyệt không phải chủ)
+    const owners = db.prepare("SELECT id FROM staff WHERE active = 1 AND role = 'owner'").all().map((x) => x.id).filter((id) => id !== me.id);
+    if (owners.length) {
+      const nGroups = [...byStaff.values()].reduce((n, g) => n + g.size, 0);
+      ctx.notify(owners, { title: `${me.name} đã duyệt lịch tuần ${start.slice(8)}/${start.slice(5, 7)}`, body: `${byStaff.size} người · ${nGroups} ca. Bấm để xem bảng lịch.`, link: `/ranh?tab=all&week=${start}` });
+    }
     ctx.audit(me, 'schedule.publish', start);
     ctx.broadcast('schedule');
     return { sent: byStaff.size };

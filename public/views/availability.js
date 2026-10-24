@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { html, api, act, useData, Loading, Modal, dayLabel, addDays, atLeast, navigate } from '../ui.js';
+import { html, api, act, useData, Loading, Modal, dt, dayLabel, addDays, atLeast, navigate } from '../ui.js';
 
 const fmtDate = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
 const TIMES = Array.from({ length: 37 }, (_, i) => { const m = 360 + i * 30; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${m % 60 ? '30' : '00'}`; }); // 06:00 … 24:00
@@ -12,15 +12,24 @@ function Mine({ week, onWeek, staffId = null, onDone = null }) {
   const [picks, setPicks] = useState(null);
   const [note, setNote] = useState('');
   const [fixed, setFixed] = useState(false);
+  const tplD = useData('/api/shift-templates');
+  const [editDay, setEditDay] = useState(null);
   useEffect(() => { if (st.data) { setPicks(st.data.picks); setNote(st.data.auto ? '' : st.data.note); setFixed(Object.keys(st.data.fixed || {}).length > 0); } }, [st.data]);
   if (!st.data || !picks) return html`<${Loading} state=${st} />`;
   const d = st.data;
-  // Mỗi ngày 1 khung giờ "HH:MM-HH:MM"; không chọn = bận
-  const rangeOf = (day) => (picks[day] || [])[0] || null;
-  const lastRange = () => d.days.map(rangeOf).filter(Boolean).at(-1) || '16:00-23:00';
-  const setRange = (day, r) => setPicks({ ...picks, [day]: r ? [r] : [] });
-  const toAll = (r) => setPicks(Object.fromEntries(d.days.map((x) => [x, [r]])));
-  const count = d.days.filter((x) => rangeOf(x)).length;
+  // Mỗi ngày bấm chọn KHUNG GIỜ LÀM CỦA QUÁN (loại ca: 06h–14h, 14h–22h…), chọn được nhiều; "Giờ khác" để tự nhập. Không chọn = bận
+  const tpls = (tplD.data || []).filter((t) => t.active);
+  const fix = (e) => (e === '00:00' ? '24:00' : e);
+  const tplR = (t) => t.segments.map((sg) => `${sg.start}-${sg.end <= sg.start ? '24:00' : fix(sg.end)}`);
+  const ranges = (day) => picks[day] || [];
+  const tplOn = (day, t) => tplR(t).every((r) => ranges(day).includes(r));
+  const isTpl = (r) => tpls.some((t) => tplR(t).includes(r));
+  const toggleTpl = (day, t) => { const rs = tplR(t); setPicks({ ...picks, [day]: tplOn(day, t) ? ranges(day).filter((r) => !rs.includes(r)) : [...new Set([...ranges(day), ...rs])] }); };
+  const setCustom = (day, old, r) => setPicks({ ...picks, [day]: ranges(day).map((x) => (x === old ? r : x)).filter(Boolean) });
+  const addCustom = (day) => setPicks({ ...picks, [day]: [...ranges(day), '16:00-23:00'] });
+  const firstDay = d.days.find((x) => ranges(x).length);
+  const count = d.days.filter((x) => ranges(x).length).length;
+  const short2 = (r) => r.replace(/:00/g, 'h').replace(/:30/g, 'h30').replace('-', '–');
   const submit = () => act(() => api('POST', '/api/availability/me', { week: d.week_start, picks, note, fixed, staff_id: staffId || undefined }), staffId ? `Đã báo hộ ${d.staff_name}` : 'Đã gửi lịch rảnh').then((r) => r && onDone?.());
   const hasPrev = Object.values(d.prev_picks || {}).some((x) => x.length);
   return html`<div class="stack">
@@ -34,21 +43,32 @@ function Mine({ week, onWeek, staffId = null, onDone = null }) {
     </div>
     ${d.staff_name ? html`<section class="card attn"><b>Báo hộ: ${d.staff_name}</b></section>` : null}
     ${d.auto ? html`<section class="card hint"><span>✅ Tuần này đã tự điền theo <b>lịch cố định</b>. Không cần làm gì; muốn đổi thì bấm lại các buổi rồi Gửi lại.</span></section>`
-      : html`<section class="card hint"><span>Chọn <b>giờ rảnh</b> từng ngày → <b>Gửi</b>. Tick "Tuần nào cũng vậy" thì <b>chỉ báo 1 lần</b>, các tuần sau app tự dùng. Hạn: <b>${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} lúc ${d.deadline.time}</b>.</span></section>`}
+      : html`<section class="card hint"><span>Bấm vào bảng: <b>ca nào, ngày nào bạn làm được</b> → <b>Gửi</b> cho quản lý. Tick "Tuần nào cũng vậy" thì <b>chỉ báo 1 lần</b>, các tuần sau app tự dùng. Hạn: <b>${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} lúc ${d.deadline.time}</b>.</span></section>`}
     ${d.locked ? html`<p class="warn-text">Tuần này đã bắt đầu. Muốn đổi, báo quản lý.</p>` : null}
     <section class="card avail stack">
-      ${d.days.map((day) => { const r = rangeOf(day); const [f, t] = r ? r.split('-') : []; return html`<div class=${`av-row ${r ? 'on' : ''}`} key=${day}>
-        <b class="av-dname">${dayLabel(day)}</b>
-        ${r ? html`<div class="row tight av-time">
-            <select aria-label="Từ" disabled=${d.locked} value=${f} onChange=${(e) => setRange(day, `${e.target.value}-${t > e.target.value ? t : '24:00'}`)}>${TIMES.slice(0, -1).map((x) => html`<option value=${x}>${x}</option>`)}</select>
-            <span>→</span>
-            <select aria-label="Đến" disabled=${d.locked} value=${t} onChange=${(e) => setRange(day, `${f}-${e.target.value}`)}>${TIMES.filter((x) => x > f).map((x) => html`<option value=${x}>${x}</option>`)}</select>
-            <button class="small" disabled=${d.locked} title="Bận" onClick=${() => setRange(day, null)}>✕</button></div>`
-          : html`<button class="av-off" disabled=${d.locked} onClick=${() => setRange(day, lastRange())}>Bận · bấm nếu rảnh</button>`}
-      </div>`; })}
+      ${!tpls.length ? html`<p class="warn-text small">Quán chưa tạo ca (Cài đặt → Loại ca). Tạm dùng dòng "Giờ khác" để ghi giờ.</p>` : null}
+      <div class="wk-wrap"><table class="wk av-grid">
+        <thead><tr><th class="wk-name">Ca</th>${d.days.map((x) => html`<th>${dayLabel(x).split(' ')[0]}<br /><small>${x.slice(8)}/${x.slice(5, 7)}</small></th>`)}</tr></thead>
+        <tbody>
+          ${tpls.map((t) => html`<tr><td class="wk-name"><b>${t.name}</b><br /><small class="muted">${tplR(t).map(short2).join(' + ')}</small></td>
+            ${d.days.map((x) => html`<td class=${tplOn(x, t) ? 'has' : 'off'} onClick=${() => !d.locked && toggleTpl(x, t)}>${tplOn(x, t) ? '✓' : ''}</td>`)}</tr>`)}
+          <tr><td class="wk-name"><b>Giờ khác</b><br /><small class="muted">tự ghi giờ</small></td>
+            ${d.days.map((x) => { const cs = ranges(x).filter((r) => !isTpl(r)); return html`<td class=${cs.length ? 'has' : 'off'} onClick=${() => !d.locked && setEditDay(x)}>${cs.length ? cs.map(short2).join(' ') : '+'}</td>`; })}</tr>
+        </tbody>
+      </table></div>
+      <p class="small muted">Bấm ô để chọn / bỏ. Ô ✓ = ngày đó bạn làm được ca đó. Cột trống = bận.</p>
+      ${editDay ? html`<${Modal} title=${`Giờ khác · ${dayLabel(editDay)}`} onClose=${() => setEditDay(null)}><div class="stack">
+        ${ranges(editDay).filter((r) => !isTpl(r)).map((r) => { const [f, t] = r.split('-'); return html`<div class="row tight av-time">
+          <select aria-label="Từ" value=${f} onChange=${(e) => setCustom(editDay, r, `${e.target.value}-${t > e.target.value ? t : '24:00'}`)}>${TIMES.slice(0, -1).map((x) => html`<option value=${x}>${x}</option>`)}</select>
+          <span>→</span>
+          <select aria-label="Đến" value=${t} onChange=${(e) => setCustom(editDay, r, `${f}-${e.target.value}`)}>${TIMES.filter((x) => x > f).map((x) => html`<option value=${x}>${x}</option>`)}</select>
+          <button class="small" onClick=${() => setCustom(editDay, r, null)}>✕</button></div>`; })}
+        <button onClick=${() => addCustom(editDay)}>+ Thêm khung giờ</button>
+        <button class="primary" onClick=${() => setEditDay(null)}>Xong</button>
+      </div><//>` : null}
       <div class="row wrap">
         ${hasPrev ? html`<button disabled=${d.locked} onClick=${() => setPicks(d.prev_picks)}>↺ Giống tuần trước</button>` : null}
-        <button disabled=${d.locked} onClick=${() => toAll(lastRange())}>Cả tuần giờ ${lastRange().replace('-', '–')}</button>
+        ${firstDay ? html`<button disabled=${d.locked} onClick=${() => setPicks(Object.fromEntries(d.days.map((x) => [x, [...ranges(firstDay)]])))}>Cả tuần giống ${dayLabel(firstDay).split(' ')[0]}</button>` : null}
         <button disabled=${d.locked} onClick=${() => setPicks({})}>Xoá hết</button>
       </div>
       <input id="av-note" placeholder="Ghi chú cho quản lý (vd T7 chỉ rảnh sau 19h)" value=${note} disabled=${d.locked} onInput=${(e) => setNote(e.target.value)} />
@@ -108,70 +128,39 @@ function Overview({ me, week, onWeek }) {
   const st = useData(`/api/availability${week ? `?week=${week}` : ''}`);
   const ws = st.data?.week_start;
   const sc = useData(ws ? `/api/schedule?week=${ws}` : null);
-  const [team, setTeam] = useState('');
-  const [day, setDay] = useState(null);
-  const [add, setAdd] = useState(null);
-  const [mode, setMode] = useState(() => { try { return localStorage.getItem('plan-mode') || 'bang'; } catch { return 'bang'; } });
   const staffD = useData('/api/staff');
-  const pickMode = (m) => { setMode(m); try { localStorage.setItem('plan-mode', m); } catch {} };
+  const [team, setTeam] = useState('');
+  const [add, setAdd] = useState(null);
   if (!st.data || !sc.data || !staffD.data) return html`<${Loading} state=${!st.data ? st : !sc.data ? sc : staffD} />`;
   const d = st.data;
-  const cur = day && d.days.includes(day) ? day : d.days[0];
-  const teams = d.teams.filter((t) => d.people.some((p) => p.team_id === t.id));
+  const teams = d.teams.filter((t) => staffD.data.some((p) => p.team_id === t.id));
   const inTeam = (x) => !team || x.team_id === Number(team);
   const shifts = sc.data.shifts.filter((x) => x.leave?.status !== 'approved');
-  const shiftsOf = (date) => shifts.filter((x) => x.date === date && inTeam(x));
-  const freeOf = (date) => {
-    const has = new Set(shifts.filter((x) => x.date === date).map((x) => x.staff_id));
-    return d.people.filter((p) => inTeam(p) && !has.has(p.id) && (d.hours?.[`${p.id}:${date}`] || []).length);
-  };
   const missing = d.people.filter((p) => inTeam(p) && !p.submitted_at);
-  const done = shiftsOf(cur);
-  const free = freeOf(cur);
   const published = sc.data.published_at;
   const canManage = atLeast(me, 'manager') || (me.pages || []).includes('/lich#xep');
   return html`<div class="stack">
     <div class="row between wrap">
       <div class="row">
-        <button class="icon" aria-label="Tuần trước" onClick=${() => { setDay(null); onWeek(addDays(d.week_start, -7)); }}>‹</button>
+        <button class="icon" aria-label="Tuần trước" onClick=${() => onWeek(addDays(d.week_start, -7))}>‹</button>
         <b>Tuần ${fmtDate(d.week_start)} – ${fmtDate(addDays(d.week_start, 6))}</b>
-        <button class="icon" aria-label="Tuần sau" onClick=${() => { setDay(null); onWeek(addDays(d.week_start, 7)); }}>›</button>
+        <button class="icon" aria-label="Tuần sau" onClick=${() => onWeek(addDays(d.week_start, 7))}>›</button>
       </div>
-      ${published ? html`<span class="pill ok">Đã công bố</span>` : html`<span class="pill warn">Chưa công bố</span>`}
+      ${published ? html`<span class="pill ok">Đã duyệt ${dt(published)}</span>` : html`<span class="pill warn">Chưa duyệt</span>`}
     </div>
-    <div class="row wrap"><div class="chips"><button class=${`chip ${mode === 'bang' ? 'on' : ''}`} onClick=${() => pickMode('bang')}>📋 Bảng tuần</button>
-      <button class=${`chip ${mode === 'ngay' ? 'on' : ''}`} onClick=${() => pickMode('ngay')}>📅 Theo ngày</button></div>
-      <a class="btn small" href=${`/api/schedule.xlsx?week=${d.week_start}`} download>⬇ Tải Excel</a></div>
-    ${mode === 'bang' ? html`<section class="card hint small"><span>Bấm <b>ô xanh</b> (người rảnh) để xếp ca · bấm <b>ô đã xếp</b> để bỏ · xong cả tuần bấm <b>Công bố</b>.</span></section>`
-      : html`<section class="card hint small"><span><b>1.</b> Bấm ngày · <b>2.</b> Bấm <b>+ Xếp</b> cạnh người rảnh · <b>3.</b> Xếp xong cả tuần bấm <b>Công bố</b> để gửi lịch cho nhân viên.</span></section>`}
-    ${mode === 'ngay' ? html`<div class="chips scroll-x day-chips">${d.days.map((x) => { const n = shiftsOf(x).length; const fr = freeOf(x).length; return html`<button class=${`chip big ${x === cur ? 'on' : ''}`} onClick=${() => setDay(x)}>
-      <b>${dayLabel(x).split(' ')[0]}</b> ${fmtDate(x)}<small>${n} ca${fr ? ` · ${fr} rảnh` : ''}</small></button>`; })}</div>` : null}
-    <div class="chips"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Cả quán</button>
+    <section class="card hint small"><span>Lịch rảnh nhân viên báo hiện sẵn trong bảng. Bấm <b>ô xanh</b> để xếp ca · bấm <b>ô đã xếp</b> để bỏ / sửa · xong bấm <b>✅ Duyệt lịch tuần</b>.</span></section>
+    <div class="row between wrap"><div class="chips"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Cả quán</button>
       ${teams.map((t) => html`<button class=${`chip ${team === String(t.id) ? 'on' : ''}`} onClick=${() => setTeam(String(t.id))}>${t.name}</button>`)}</div>
-    ${mode === 'bang' ? html`<${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />` : html`
-    <section class="card stack"><h3>🙋 Rảnh, chưa xếp (${free.length})</h3>
-      ${free.length ? free.map((p) => { const rg = d.hours[`${p.id}:${cur}`]; return html`<div class="plan-row">
-        <span class="grow"><b>${p.name}</b> <small class="muted">${p.team_name || ''}</small><br /><span class="ok-text">rảnh ${rg.join(', ').replace(/-/g, '–')}</span></span>
-        ${canManage ? html`<button class="primary" onClick=${() => setAdd({ p, range: rg[0] })}>+ Xếp</button>` : null}</div>`; })
-        : html`<p class="muted small">Không còn ai rảnh mà chưa xếp ngày này.</p>`}
-    </section>
-
-    <section class="card stack"><h3>✅ Đã xếp ca (${done.length})</h3>
-      ${done.length ? done.map((x) => html`<div class="plan-row">
-        <span class="grow"><b>${x.staff_name}</b> <small class="muted">${x.team_name || ''}</small><br /><span>${x.text}</span></span>
-        ${canManage ? html`<button class="small" aria-label="Bỏ ca" onClick=${() => act(() => api('POST', '/api/shifts/delete', { group_id: x.group_id }), `Đã bỏ ca ${x.staff_name}`)}>✕ Bỏ</button>` : null}</div>`)
-        : html`<p class="muted small">Chưa xếp ai ngày này.</p>`}
-    </section>`}
-
+      <a class="btn small" href=${`/api/schedule.xlsx?week=${d.week_start}`} download>⬇ Tải Excel</a></div>
+    <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />
     <details class="card"><summary><b>Chưa báo lịch rảnh (${missing.length})</b> <small class="muted">hạn ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} ${d.deadline.time}</small></summary>
       <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}
       ${missing.length && canManage ? html`<button onClick=${() => act(() => api('POST', '/api/availability/remind', { week: d.week_start }), 'Đã nhắc')}>🔔 Nhắc tất cả</button>` : null}</div>
     </details>
-
     ${canManage ? html`<div class="sum-bar row between">
       <small class="muted">${shifts.length} ca cả tuần</small>
-      <button class="primary big" disabled=${!shifts.length} onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã gửi lịch cho nhân viên')}>📣 ${published ? 'Công bố lại' : 'Công bố lịch tuần'}</button></div>` : null}
-    ${add ? html`<${AddShift} p=${add.p} date=${add.date || cur} range=${add.range} onClose=${() => setAdd(null)} />` : null}
+      <button class="primary big" disabled=${!shifts.length} onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã duyệt: gửi chủ xem + gửi lịch cho nhân viên')}>✅ ${published ? 'Duyệt lại' : 'Duyệt lịch tuần'}</button></div>` : null}
+    ${add ? html`<${AddShift} p=${add.p} date=${add.date} range=${add.range} onClose=${() => setAdd(null)} />` : null}
   </div>`;
 }
 

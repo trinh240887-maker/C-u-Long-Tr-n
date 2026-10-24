@@ -696,3 +696,11 @@ table.wk td.off { cursor: pointer; }
 .lg { display: inline-block; padding: 0 6px; border-radius: 4px; font-weight: 700; }
 .lg.has { background: var(--accent-soft); color: var(--accent); }
 .lg.free { background: #e8f5e9; color: #2e7d32; }
+.av-day2 { display: grid; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.av-day2.on .av-dname { color: var(--accent); }
+.av-day2 .chip { min-height: 40px; }
+.av-day2 .chip small { font-size: 11px; }
+table.av-grid td.has { font-size: 15px; } table.av-grid td { height: 48px; }
+table.av-grid { min-width: 0; table-layout: fixed; }
+table.av-grid th, table.av-grid td { min-width: 0; padding: 2px; }
+table.av-grid .wk-name { width: 92px; min-width: 92px; }
