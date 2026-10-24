@@ -69,15 +69,15 @@ function Mine({ week, onWeek, staffId = null, onDone = null }) {
 
 // Xếp ca dễ: chọn ngày → thấy ai rảnh mấy giờ → "+ Xếp" → xong tuần bấm Công bố. Ai có quyền "Xếp ca" cũng làm được
 const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-function AddShift({ p, date, range, onClose }) {
+function AddShift({ p, date, range, onClose, replaceId = null }) {
   const [from, to] = (range || '17:00-23:00').split('-');
   const [f, setF] = useState({ from, to });
-  const save = () => act(() => api('POST', '/api/shifts', { staff_id: p.id, date, team_id: p.team_id || undefined, label: 'Ca', segments: [{ start: f.from, end: f.to === '24:00' ? '00:00' : f.to }] }), `Đã xếp ${p.name}`).then((r) => r && onClose());
-  return html`<${Modal} title=${`Xếp ca: ${p.name}`} onClose=${onClose}><div class="stack">
-    <p class="small muted">${dayLabel(date)}${range ? ` · rảnh ${range.replace('-', '–')}` : ''}. Sửa giờ nếu cần rồi bấm Xếp.</p>
+  const save = () => act(() => api('POST', '/api/shifts', { staff_id: p.id, date, team_id: p.team_id || undefined, label: 'Ca', segments: [{ start: f.from, end: f.to === '24:00' ? '00:00' : f.to }], replace_group_id: replaceId || undefined }), replaceId ? `Đã sửa ca ${p.name}` : `Đã xếp ${p.name}`).then((r) => r && onClose());
+  return html`<${Modal} title=${`${replaceId ? 'Sửa ca' : 'Xếp ca'}: ${p.name}`} onClose=${onClose}><div class="stack">
+    <p class="small muted">${dayLabel(date)}${range ? ` · ${replaceId ? 'đang' : 'rảnh'} ${range.replace('-', '–')}` : ''}. ${replaceId ? 'Chọn giờ mới rồi bấm Lưu.' : 'Sửa giờ nếu cần rồi bấm Xếp.'}</p>
     <div class="row tight av-time"><select value=${f.from} onChange=${(e) => setF({ ...f, from: e.target.value })}>${TIMES.slice(0, -1).map((x) => html`<option value=${x}>${x}</option>`)}</select>
       <span>→</span><select value=${f.to} onChange=${(e) => setF({ ...f, to: e.target.value })}>${TIMES.filter((x) => x > f.from).map((x) => html`<option value=${x}>${x}</option>`)}</select></div>
-    <button class="primary big" onClick=${save}>✓ Xếp ca ${f.from}–${f.to}</button>
+    <button class="primary big" onClick=${save}>✓ ${replaceId ? 'Lưu' : 'Xếp'} ca ${f.from}–${f.to}</button>
   </div><//>`;
 }
 
@@ -86,13 +86,14 @@ function AddShift({ p, date, range, onClose }) {
 const short = (t) => t.replace(/:00/g, '').replace(/^0/, '').replace(/–0/, '–');
 function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
   const [cell, setCell] = useState(null);
+  const [edit, setEdit] = useState(null);
   const people = staff.filter((p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team)));
   const groups = [...d.teams.map((t) => ({ id: t.id, name: t.name })), { id: null, name: 'Chưa có bộ phận' }]
     .map((g) => ({ ...g, people: people.filter((p) => (g.id ? p.team_id === g.id : !d.teams.some((t) => t.id === p.team_id))) })).filter((g) => g.people.length);
   const shiftOf = (pid, date) => shifts.filter((x) => x.staff_id === pid && x.date === date);
   const text = (x) => x.segments.map((sg) => short(`${sg.start}–${sg.end === '00:00' ? '24' : sg.end}`)).join(', ');
   return html`<div class="stack">
-    <p class="small muted"><span class="lg has">6–14</span> đã xếp (bấm để bỏ) · <span class="lg free">16–23</span> rảnh (bấm để xếp) · ô trống: bận / chưa báo</p>
+    <p class="small muted"><span class="lg has">6–14</span> đã xếp (bấm để sửa / bỏ) · <span class="lg free">16–23</span> rảnh (bấm để xếp) · ô trống: bận / chưa báo</p>
     ${groups.map((g) => html`<section class="card wk-card">
       <div class="wk-head">${g.name.toUpperCase()} <small>${g.people.length} người</small></div>
       <div class="wk-wrap"><table class="wk">
@@ -109,8 +110,11 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
       </table></div>
     </section>`)}
     ${cell ? html`<${Modal} title=${`${cell.p.name} · ${dayLabel(cell.x)}`} onClose=${() => setCell(null)}><div class="stack">
-      ${cell.sh.map((x) => html`<div class="row between"><b>${x.text}</b><button onClick=${() => act(() => api('POST', '/api/shifts/delete', { group_id: x.group_id }), `Đã bỏ ca ${cell.p.name}`).then((r) => r && setCell(null))}>✕ Bỏ ca</button></div>`)}
+      ${cell.sh.map((x) => html`<div class="stack"><b>${x.text}</b><div class="row wrap">
+        ${x.segments.length === 1 ? html`<button class="primary" onClick=${() => { setEdit({ p: cell.p, date: cell.x, range: `${x.segments[0].start}-${x.segments[0].end === '00:00' ? '24:00' : x.segments[0].end}`, id: x.group_id }); setCell(null); }}>✎ Sửa giờ</button>` : null}
+        <button onClick=${() => act(() => api('POST', '/api/shifts/delete', { group_id: x.group_id }), `Đã bỏ ca ${cell.p.name}`).then((r) => r && setCell(null))}>✕ Bỏ ca</button></div></div>`)}
     </div><//>` : null}
+    ${edit ? html`<${AddShift} p=${edit.p} date=${edit.date} range=${edit.range} replaceId=${edit.id} onClose=${() => setEdit(null)} />` : null}
   </div>`;
 }
 
@@ -143,7 +147,7 @@ function Overview({ me, week, onWeek }) {
       ${published ? html`<span class="pill ok">Đã duyệt ${dt(published)}</span>` : html`<span class="pill warn">Chưa duyệt</span>`}
     </div>
     ${canManage ? html`<section class="card stack plan-actions">
-      <small>Ô xanh = lịch rảnh nhân viên báo · ô đậm = đã thành ca. Bấm ô để xếp / bỏ từng ô.</small>
+      <small>Ô xanh = lịch rảnh nhân viên báo · ô đậm = đã thành ca. Bấm ô xanh để xếp, bấm ô đậm để sửa giờ / bỏ.</small>
       <div class="row wrap">
         <button disabled=${!freeCells} onClick=${() => act(() => api('POST', '/api/schedule/from-availability', { week: d.week_start }), 'Đã nhận lịch rảnh thành ca')}>⚡ Xếp hết theo lịch rảnh (${freeCells} ô)</button>
         <button class="primary" disabled=${!shifts.length} onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã duyệt: gửi chủ xem + gửi lịch cho nhân viên')}>✅ ${published ? 'Duyệt lại' : 'Duyệt lịch tuần'} (${shifts.length} ca)</button>
