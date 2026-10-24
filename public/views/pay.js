@@ -86,14 +86,11 @@ export function PayModal({ me, id, onClose, onDone, defaultMethod = 'transfer' }
         ${!b.sepay ? html`<${Field} label="Khách CK thêm tip (nếu có)" hint="Thu ngân lấy đúng số này tiền mặt trong két bỏ thùng tip. App tự trừ khỏi két phải có.">
           <input inputmode="numeric" placeholder="0" value=${tipCk} onInput=${(e) => setTipCk(e.target.value)} /><//>` : null}
         ${cashier ? html`<button class=${`${b.sepay ? '' : 'primary'} big`} disabled=${b.unsent} onClick=${() => pay()}>${b.sepay ? 'Khách đã CK, chờ tiền về · mở bàn' : '✓ Đã nhận CK · đóng bill'}</button>`
-          : b.ck_claimed ? html`<p class="warn-text">⏳ Đã báo thu ngân, chờ xác nhận tiền về. Bàn mở lại khi thu ngân xác nhận.</p>`
-          : html`<button class="primary big" disabled=${b.unsent} onClick=${() => pay()}>✓ Khách đã CK · báo thu ngân</button>
-            <p class="muted small">Bill chờ thu ngân xác nhận tiền về, xác nhận xong bàn mới trống.</p>`}
+          : html`<p class="hint card small">Khách CK xong: <b>chụp màn hình chuyển khoản gửi nhóm thu ngân</b>. Thu ngân duyệt là bill đóng, bàn trống.</p>`}
       </div>` : null}
       ${method === 'cash' && !cashier ? html`<div class="stack center">
         <div class="total-big">Báo khách: <b>${money(b.total)}</b></div>
-        <p class="muted small">Phục vụ không thu tiền mặt. Bấm nút dưới, thu ngân nhận thông báo ra thu tiền và đóng bill.</p>
-        <button class="primary big" disabled=${b.unsent} onClick=${() => act(() => api('POST', `/api/pos/sessions/${id}/request-cash`), 'Đã báo thu ngân').then((r) => r && onClose())}>📣 Báo thu ngân: khách trả tiền mặt</button>
+        <p class="hint card small">Nhận tiền của khách, <b>đem lại quầy cho thu ngân</b>. Thu ngân xác nhận là in bill đưa khách, bàn trống.</p>
       </div>` : null}
       ${method === 'cash' && cashier ? html`<div class="stack">
         <${Field} label="Khách đưa"><input inputmode="numeric" placeholder=${money(b.total)} value=${given} onInput=${(e) => setGiven(e.target.value)} /><//>
@@ -480,9 +477,10 @@ function WaitingTables({ me }) {
   const [open, setOpen] = useState(null);
   if (!st.data?.length) return null;
   return html`<section class="card stack warn-card">
-    <b>💵 Bàn chờ thu tiền (${st.data.length})</b>
+    <b>💵 Bàn đang mở · bấm để thu tiền (${st.data.length})</b>
+    <small class="muted">Khách CK: đối chiếu ảnh chụp màn hình phục vụ gửi nhóm thu ngân rồi bấm "Đã nhận CK". Tiền mặt: phục vụ đem tiền lại, nhập số khách đưa.</small>
     ${st.data.map((x) => html`<div class="row between wrap">
-      <span><b>${x.header}</b> · bill ${x.bill_no || '—'}${x.cash ? ' · 💵 tiền mặt' : x.ck ? ' · 🏦 khách báo đã CK: kiểm tra tiền về' : ''}<br /><small class="muted">${x.opened_by || ''}${x.unserved ? ` · còn ${x.unserved} món chưa ra` : ''}</small></span>
+      <span><b>${x.header}</b> · bill ${x.bill_no || '—'}${x.cash ? ' · 💵 tiền mặt' : x.ck ? ' · 🏦 khách báo đã CK' : x.asking ? ' · xin tính tiền' : ''}<br /><small class="muted">${x.opened_by || ''}${x.unserved ? ` · còn ${x.unserved} món chưa ra` : ''}</small></span>
       <button class="primary" onClick=${() => setOpen(x)}>Thu ${money(x.total)}</button></div>`)}
     ${open ? html`<${PayModal} me=${me} id=${open.id} defaultMethod=${open.cash ? 'cash' : 'transfer'} onClose=${() => setOpen(null)} onDone=${(r) => { setOpen(null); toast(r.change ? `Đã thu. Thối khách ${money(r.change)}` : 'Đã thu, bàn trống'); bump(); }} />` : null}
   </section>`;

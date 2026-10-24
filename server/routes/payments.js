@@ -225,9 +225,10 @@ export default function (r, ctx) {
   // Bàn đang chờ thu ngân thu tiền
   r.get('/api/payments/waiting', 'staff', ({ me }) => {
     needCashier(me);
-    return db.prepare("SELECT id FROM table_sessions WHERE status = 'paying' ORDER BY id").all().map((x) => {
+    // Mọi bàn đang mở có món (phục vụ không báo nữa, chủ quán 24/10): bàn xin tính tiền / đã báo lên trước
+    return db.prepare("SELECT id FROM table_sessions WHERE status IN ('open','paying') AND EXISTS (SELECT 1 FROM order_items i WHERE i.session_id = table_sessions.id AND i.status != 'cancelled') ORDER BY status = 'paying' DESC, id").all().map((x) => {
       const s = ctx.posSession(x.id);
-      return { id: s.id, header: s.header, total: s.total, bill_no: s.bill_no, cash: s.note.includes('[TM]'), ck: s.note.includes('[CK]'), opened_by: s.opened_by_name, unserved: s.items.filter((i) => i.status === 'sent').length };
+      return { id: s.id, header: s.header, total: s.total, bill_no: s.bill_no, cash: s.note.includes('[TM]'), ck: s.note.includes('[CK]'), asking: s.status === 'paying', opened_by: s.opened_by_name, unserved: s.items.filter((i) => i.status === 'sent').length };
     });
   });
 
