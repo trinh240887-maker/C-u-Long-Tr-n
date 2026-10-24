@@ -143,7 +143,8 @@ function Receive({ me, meta, advances, onDone }) {
         <${Field} label="Ghi chú"><input value=${f.note} onInput=${(e) => set('note', e.target.value)} /><//>` : null}
     </section>
     <div class="sum-bar stack">
-      ${!ready ? html`<small class="muted">${!photos.length ? 'Thiếu ảnh bill' : !goods.length ? 'Thiếu ảnh hàng' : !lines.length ? 'Chưa có dòng hàng' : needConv ? `Còn ${needConv} dòng chưa nhập quy đổi` : 'Chọn nhà cung cấp'}</small>` : null}
+      ${!ready ? html`<b class="danger-text">⚠ ${!photos.length ? 'Thiếu ảnh bill' : !goods.length ? 'Thiếu ảnh hàng thực nhận' : !lines.length ? 'Chưa có dòng hàng' : needConv ? `Còn ${needConv} dòng chưa nhập quy đổi` : 'Chọn nhà cung cấp'}</b>` : null}
+      ${photos.length && !goods.length ? html`<${PhotoPicker} photos=${goods} setPhotos=${setGoods} first="📷 Chụp ảnh HÀNG ngay" more="📷 Thêm ảnh hàng" />` : null}
       <button class="primary big" disabled=${!ready || reading} onClick=${save}>✓ Xác nhận nhập kho${lines.length ? ` · ${money(f.total === '' ? sum : num(f.total))}` : ''}</button>
     </div>
   </div>`;
