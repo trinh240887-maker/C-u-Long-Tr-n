@@ -257,14 +257,16 @@ export function PurchasesView({ me, query }) {
   const meta = { ...meta0.data, is_cashier: isCashier, bill_reader: !!L.bill_reader };
   const waiting = L.bills.filter((b) => b.status === 'received');
   const mineReturned = L.bills.filter((b) => b.status === 'returned' && b.received_by === me.id);
-  const tabs = [['nhan', '📥 Nhập kho'], ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ['lichsu', 'Bill đã nhận'], ...(isCashier ? [['congno', 'Công nợ NCC']] : []), ['tamung', 'Tạm ứng']];
+  // Công nợ NCC / Tạm ứng: theo Phân quyền (chủ quán tick từng người)
+  const can = (k) => (Array.isArray(me.pages) ? me.pages.includes(`/mua-hang#${k}`) : k === 'congno' ? isCashier : true);
+  const tabs = [['nhan', '📥 Nhập kho'], ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ['lichsu', 'Bill đã nhận'], ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : [])];
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/mua-hang?tab=${k}`)}>${l}</button>`)}</div>
     ${mineReturned.length && tab !== 'lichsu' ? html`<section class="card warn-card small">${mineReturned.length} bill bạn nhận bị thu ngân trả lại. <button class="small" onClick=${() => navigate('/mua-hang?tab=lichsu')}>Xem & sửa</button></section>` : null}
     ${tab === 'nhan' ? html`<${Receive} me=${me} meta=${meta} advances=${advances} onDone=${() => navigate('/mua-hang?tab=lichsu')} />` : null}
     ${tab === 'duyet' ? (waiting.length ? html`<p class="small muted">So ảnh bill với số khu nhập: số lượng, đơn giá, tổng, chữ ký người nhận. Dòng đỏ = app thấy lệch.</p>${waiting.map((b) => html`<${BillCard} key=${b.id} b=${b} canApprove=${isCashier} me=${me} />`)}` : html`<div class="empty">Không có bill chờ duyệt.</div>`) : null}
     ${tab === 'lichsu' ? (L.bills.length ? L.bills.map((b) => html`<${BillCard} key=${b.id} b=${b} canApprove=${isCashier} me=${me} />`) : html`<div class="empty">Chưa có bill trong 30 ngày.</div>`) : null}
-    ${tab === 'congno' ? html`<${Debts} me=${me} />` : null}
-    ${tab === 'tamung' ? html`<${Advances} me=${me} isCashier=${isCashier} advances=${advances} />` : null}
+    ${tab === 'congno' && can('congno') ? html`<${Debts} me=${me} />` : null}
+    ${tab === 'tamung' && can('tamung') ? html`<${Advances} me=${me} isCashier=${isCashier} advances=${advances} />` : null}
   </div>`;
 }

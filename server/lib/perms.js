@@ -20,7 +20,10 @@ export const PAGES = [
   { path: '/duyet-anh', label: 'Duyệt ảnh', role: 'team_lead', api: [['/api/checklists/review', 'all']] },
   { path: '/thu-ngan', label: 'Thu ngân & doanh thu', role: 'shift_lead', team: 'Thu ngân', api: [['/api/payments/close-day', 'all'], ['/api/payments/drawer', 'all'], ['/api/payments/reconcile', 'all'], ['/api/payments/bank-balance', 'all']] },
   { path: '/duyet-so', label: 'Duyệt sổ', role: 'manager', api: [['/api/daybook', 'all']] },
-  { path: '/mua-hang', label: 'Mua hàng & công nợ NCC', role: 'staff', api: [['/api/purchases', 'all'], ['/api/supplier-payments', 'all'], ['/api/suppliers', 'all']] },
+  // Mục con của Mua hàng (chủ quán 24/10): nhân viên chỉ nhập kho; công nợ NCC / tạm ứng chỉ người được cấp. Đặt TRƯỚC /mua-hang để khớp API trước
+  { path: '/mua-hang#congno', label: 'Mua hàng › Công nợ NCC (xem nợ, trả NCC)', role: 'shift_lead', team: 'Thu ngân', sub: true, api: [['/api/suppliers', 'all'], ['/api/supplier-payments', 'all']] },
+  { path: '/mua-hang#tamung', label: 'Mua hàng › Tạm ứng tiền đi chợ', role: 'shift_lead', team: 'Thu ngân', sub: true, api: [['/api/advances', 'w']] }, // xem: ai cũng chỉ thấy khoản của mình (để gắn bill đi chợ)
+  { path: '/mua-hang', label: 'Mua hàng › Nhập kho, bill đã nhận', role: 'staff', api: [['/api/purchases', 'all']] },
   { path: '/bao-cao', label: 'Báo cáo doanh thu & nhân sự', role: 'manager', api: [['/api/reports', 'all']] },
   { path: '/khuyen-mai', label: 'Khuyến mãi', role: 'staff', api: [['/api/promotions', 'w']] },
   { path: '/may-in', label: 'Máy in', role: 'shift_lead', api: [['/api/print/settings', 'all'], ['/api/print/test', 'all'], ['/api/print/retry', 'all'], ['/api/print/status', 'all'], ['/api/kitchen-stations', 'w']] },

@@ -54,3 +54,33 @@ test('phân quyền: chủ quán bỏ tick → ẩn menu + máy chủ chặn; c�
   // Chủ quán luôn dùng được
   assert.equal((await o('GET', '/api/reports/sales?from=2026-10-01&to=2026-10-02')).status, 200);
 });
+
+test('phân quyền mục con Mua hàng: nhân viên không có Công nợ NCC / Tạm ứng; cấp riêng thì có', async (t) => {
+  const db = openDb(':memory:');
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  const team = (await o('GET', '/api/teams')).data.find((x) => x.name !== 'Thu ngân').id;
+  const nvId = (await o('POST', '/api/staff', { name: 'Tài', role: 'staff', team_id: team, pin: '7365' })).data.id;
+  const nv = mk();
+  await nv('POST', '/api/login', { pin: '7365' });
+  await nv('POST', '/api/me/pin', { current_pin: '7365', new_pin: '8365' });
+  let pages = (await nv('GET', '/api/me')).data.pages;
+  assert.ok(pages.includes('/mua-hang') && !pages.includes('/mua-hang#congno') && !pages.includes('/mua-hang#tamung'));
+  assert.equal((await nv('GET', '/api/suppliers/debts')).status, 403);
+  assert.equal((await nv('POST', '/api/advances', { staff_id: nvId, amount: 100000 })).status, 403);
+  assert.equal((await nv('GET', '/api/advances')).status, 200); // khoản của mình vẫn xem được để gắn bill
+  const perm = (await o('GET', '/api/permissions')).data;
+  const cfg = Object.fromEntries(perm.pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny }]));
+  cfg['/mua-hang#congno'].allow = [nvId];
+  await o('PUT', '/api/permissions', { pages: cfg });
+  pages = (await nv('GET', '/api/me')).data.pages;
+  assert.ok(pages.includes('/mua-hang#congno'));
+  assert.equal((await nv('GET', '/api/suppliers/debts')).status, 200);
+});
