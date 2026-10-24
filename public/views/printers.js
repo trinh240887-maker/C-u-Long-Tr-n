@@ -14,7 +14,7 @@ function StationRow({ s, canEdit }) {
     </div>
     ${canEdit ? html`<div class="row wrap">
       <input inputmode="decimal" placeholder=${s.fallback ? `Trống = in sang ${s.fallback}` : 'vd 192.168.1.234'} value=${ip} onInput=${(e) => setIp(e.target.value.trim())} style="flex:1;min-width:10em" />
-      ${ip !== (s.ip || '') ? html`<button class="primary" onClick=${() => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { printer_ip: ip }), 'Đã lưu IP')}>Lưu</button>` : ''}
+      <button class=${ip !== (s.ip || '') ? 'primary' : ''} disabled=${ip === (s.ip || '')} onClick=${() => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { printer_ip: ip }), 'Đã lưu IP')}>${ip === (s.ip || '') ? '✓ Đã lưu' : 'Lưu'}</button>
       <button disabled=${!s.ip} onClick=${() => act(() => api('POST', '/api/print/test', { station_id: s.id }), 'Đã gửi in thử')}>In thử</button>
     </div>` : html`<div class="muted">${s.ip ? `${s.ip}:${s.port}` : 'Chưa có IP'}</div>`}
     <div class="muted small">
