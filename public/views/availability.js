@@ -152,7 +152,6 @@ function Overview({ me, week, onWeek }) {
     ${canManage ? html`<section class="card stack plan-actions">
       <small>Ô xanh = lịch rảnh nhân viên báo · ô đậm = đã thành ca. Bấm ô xanh để xếp, bấm ô đậm để sửa giờ / bỏ.</small>
       <div class="row wrap">
-        <button disabled=${!freeCells} onClick=${() => act(() => api('POST', '/api/schedule/from-availability', { week: d.week_start }), 'Đã nhận lịch rảnh thành ca')}>⚡ Xếp hết theo lịch rảnh (${freeCells} ô)</button>
         <button class="primary" disabled=${!shifts.length} onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã duyệt: gửi chủ xem + gửi lịch cho nhân viên')}>✅ ${published ? 'Duyệt lại' : 'Duyệt lịch tuần'} (${shifts.length} ca)</button>
       </div>
     </section>` : null}
