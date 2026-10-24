@@ -32,7 +32,7 @@ export function PhotoViewer({ photo, onClose }) {
 }
 
 // Ảnh mẫu: nhân viên bấm xem để làm đúng chuẩn; tổ trưởng / quản lý chụp thêm hoặc xoá
-function Samples({ samples, templateId, itemId, canEdit, label = 'Ảnh mẫu' }) {
+export function Samples({ samples, templateId, itemId, canEdit, label = 'Ảnh mẫu' }) {
   const [view, setView] = useState(null);
   const [busy, setBusy] = useState(false);
   if (!samples.length && !canEdit) return null;

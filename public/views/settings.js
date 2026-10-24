@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
+import { Samples } from './checklists.js';
 import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast, hm, dayLabel } from '../ui.js';
 
 const TABS = [['chung', 'Chung'], ['quyen', '🔐 Phân quyền'], ['bot', '🤖 Zalo Bot'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['ketnoi', 'Kết nối (mã)'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
@@ -262,31 +263,28 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
     <div class="stack">
       <div class="form-grid">
         <${Field} label="Tên checklist"><input id="cl-title" value=${f.title} onInput=${(e) => setF({ ...f, title: e.target.value })} /><//>
-        <${Field} label="Tổ"><select id="cl-team" value=${f.team_id} onChange=${(e) => setF({ ...f, team_id: e.target.value, position_id: '' })}>
-          ${allowAll ? html`<option value="">Cả quán</option>` : null}${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
-        ${(() => { const ps = (posD.data || []).filter((p) => p.team_id === Number(f.team_id)); return ps.length ? html`<${Field} label="Vị trí" hint="Chỉ người đứng vị trí này trong ca thấy">
-          <select id="cl-pos" value=${f.position_id} onChange=${(e) => setF({ ...f, position_id: e.target.value })}><option value="">Cả bộ phận</option>${ps.map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>` : null; })()}
-        ${(zonesD.data || []).length ? html`<${Field} label="Khu" hint="Chỉ người phụ trách khu này trong ca thấy">
-          <select id="cl-zone" value=${f.zone_id} onChange=${(e) => setF({ ...f, zone_id: e.target.value })}><option value="">Mọi khu</option>${zonesD.data.map((z) => html`<option value=${z.id}>${z.name}</option>`)}</select><//>` : null}
-        <${Field} label="Ai làm" hint="Người được giao làm + chụp. Người khác không thấy checklist này">
-          <select id="cl-doer" value=${f.doer.startsWith('staff:') ? 'staff' : f.doer} onChange=${(e) => setF({ ...f, doer: e.target.value === 'staff' ? `staff:${(staffD.data || []).find((x) => x.role !== 'owner')?.id || ''}` : e.target.value })}>
-            <option value="">Theo tổ / vị trí / khu ở trên</option><option value="lead">Trưởng ca</option><option value="manager">Quản lý</option><option value="staff">1 người cụ thể…</option></select><//>
-        ${f.doer.startsWith('staff:') ? html`<${Field} label="Người làm"><select id="cl-doer-staff" value=${f.doer.slice(6)} onChange=${(e) => setF({ ...f, doer: `staff:${e.target.value}` })}>
-          ${(staffD.data || []).filter((x) => x.active !== false && x.role !== 'owner').map((x) => html`<option value=${x.id}>${x.name}${x.team_name ? ` · ${x.team_name}` : ''}</option>`)}</select><//>` : null}
-        <${Field} label="Mục (tab trên trang Checklist)" hint="vd Bếp, Phục vụ, Thu ngân, Tổng khu A, Khu vực vệ sinh, Khu vực rửa chén. Để trống = tự theo tổ / khu">
-          <input id="cl-section" list="cl-sections" value=${f.section} placeholder=${init.section_label || 'tự theo tổ / khu'} onInput=${(e) => setF({ ...f, section: e.target.value })} />
-          <datalist id="cl-sections">${['Bếp', 'Bar', 'Phục vụ', 'Thu ngân', 'Tiếp thực', 'Tổng khu A', 'Tổng khu B', 'Tổng khu C', 'Khu vực vệ sinh', 'Khu vực rửa chén'].map((x) => html`<option value=${x} />`)}</datalist><//>
-        <${Field} label="Thời điểm"><select id="cl-phase" value=${f.phase} onChange=${(e) => setF({ ...f, phase: e.target.value })}>
-          ${Object.entries(PHASE_LABEL).filter(([k]) => k !== 'during' || f.phase === 'during').map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select><//>
-        <${Field} label="Áp dụng cho ca" hint="Người làm ca nào chỉ thấy checklist của ca đó">
-          <select id="cl-shift" value=${f.shift_template_id} onChange=${(e) => setF({ ...f, shift_template_id: e.target.value })}>
-            <option value="">Mọi ca</option>${shifts.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
+        <div class="field"><span>Ai làm</span>
+          <div class="row wrap tight">
+            <button class=${`chip ${!f.doer ? 'on' : ''}`} onClick=${() => setF({ ...f, doer: '' })}>Mọi người trong mục (mặc định)</button>
+            <button class=${`chip ${f.doer ? 'on' : ''}`} onClick=${() => setF({ ...f, doer: f.doer || 'lead' })}>👤 Giao riêng</button>
+          </div>
+          ${f.doer ? html`<div class="row wrap tight">
+            <select id="cl-doer" value=${f.doer.startsWith('staff:') ? 'staff' : f.doer} onChange=${(e) => setF({ ...f, doer: e.target.value === 'staff' ? `staff:${(staffD.data || []).find((x) => x.role !== 'owner')?.id || ''}` : e.target.value })}>
+              <option value="lead">Trưởng ca</option><option value="manager">Quản lý</option><option value="staff">1 người cụ thể…</option></select>
+            ${f.doer.startsWith('staff:') ? html`<select id="cl-doer-staff" value=${f.doer.slice(6)} onChange=${(e) => setF({ ...f, doer: `staff:${e.target.value}` })}>
+              ${(staffD.data || []).filter((x) => x.active !== false && x.role !== 'owner').map((x) => html`<option value=${x.id}>${x.name}${x.team_name ? ` · ${x.team_name}` : ''}</option>`)}</select>` : null}
+          </div><small class="muted">Chỉ người được giao thấy và làm checklist này.</small>` : null}
+        </div>
       </div>
-      <${Field} label="⚠ Chế tài nếu không làm / làm sai" hint="Nhân viên thấy ngay trên đầu checklist. vd: Không chụp ảnh đóng ca: nhắc nhở lần 1, trừ 20.000đ từ lần 2">
-        <textarea id="cl-rules" rows="2" value=${f.rules} onInput=${(e) => setF({ ...f, rules: e.target.value })}></textarea><//>
       <div class="field"><span>Các việc</span>
-        ${f.items.map((x, i) => html`<div class="item-row">
-          <input class="grow" value=${x.text} placeholder="Tên việc" onInput=${(e) => item(i, 'text', e.target.value)} aria-label="Tên việc" />
+        ${f.items.map((x, i) => html`<div class="item-card">
+          <div class="row tight"><b class="item-no">${i + 1}.</b><input class="grow" value=${x.text} placeholder="Tên công việc (vd Lau bàn ghế khu A)" onInput=${(e) => item(i, 'text', e.target.value)} aria-label="Tên việc" />
+            <button class="icon" aria-label="Bỏ" onClick=${() => setF({ ...f, items: f.items.filter((_, j) => j !== i) })}>✕</button></div>
+          <div class="row wrap tight">
+            <button class=${`chip ${(x.photo_required ?? x.kind === 'check') ? 'on' : ''}`} onClick=${() => item(i, 'photo_required', !(x.photo_required ?? x.kind === 'check'))}>📷 ${(x.photo_required ?? x.kind === 'check') ? 'Phải chụp ảnh' : 'Không cần ảnh'}</button>
+            ${init.id && x.id ? html`<${Samples} samples=${x.samples || []} templateId=${init.id} itemId=${x.id} canEdit=${true} label="Ảnh mẫu" />` : html`<small class="muted">Ảnh mẫu: lưu xong mở lại để thêm</small>`}
+          </div>
+          <details class="item-more"><summary class="muted small">Tuỳ chọn (kiểu nhập số / chữ, nối kho, thứ tự)</summary><div class="row wrap tight">
           <select value=${x.kind} onChange=${(e) => setF({ ...f, items: f.items.map((y, j) => (j === i ? { ...y, kind: e.target.value, photo_required: e.target.value === 'check' } : y)) })} aria-label="Kiểu">
             <option value="check">Tick</option><option value="number">Nhập số</option><option value="text">Ghi chữ</option></select>
           ${x.kind === 'number' ? html`<input class="unit" value=${x.unit} placeholder="đơn vị" onInput=${(e) => item(i, 'unit', e.target.value)} aria-label="Đơn vị" />` : null}
@@ -303,15 +301,33 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
               onClick=${() => item(i, 'extra_ingredient_ids', ex.includes(y.id) ? ex.filter((z) => z !== y.id) : [...ex, y.id])}>${y.name}</button>`)}</div></div>` : null;
           })() : null}
           <label class="check-row small"><input type="checkbox" checked=${x.required} onChange=${(e) => item(i, 'required', e.target.checked)} />Bắt buộc</label>
-          <label class="check-row small"><input type="checkbox" checked=${x.photo_required ?? x.kind === 'check'} onChange=${(e) => item(i, 'photo_required', e.target.checked)} />📷 Phải có ảnh</label>
           <span class="row tight">
             <button class="icon" aria-label="Lên" disabled=${i === 0} onClick=${() => move(i, -1)}>↑</button>
             <button class="icon" aria-label="Xuống" disabled=${i === f.items.length - 1} onClick=${() => move(i, 1)}>↓</button>
-            <button class="icon" aria-label="Bỏ" onClick=${() => setF({ ...f, items: f.items.filter((_, j) => j !== i) })}>✕</button></span>
+</span>
+          </div></details>
         </div>`)}
         <button class="link" onClick=${() => setF({ ...f, items: [...f.items, { text: '', kind: 'check', unit: '', required: true, photo_required: true }] })}>+ Thêm việc</button>
         <p class="muted small">Việc "Nhập số" chọn <b>📦 Cân tồn</b>: số nhân viên cân = tồn thực tế trong kho. App tự kiểm kho, so với số đã bán theo định lượng và báo nếu lệch. Đồ đếm theo cái (viên, cái…) mà đơn vị ghi là <b>bịch / gói</b> → nhân viên nhập số bịch nguyên + số lẻ.</p>
       </div>
+      <${Field} label="⚠ Chế tài nếu không làm / làm sai" hint="Nhân viên thấy ngay trên đầu checklist. vd: Không chụp ảnh đóng ca: nhắc nhở lần 1, trừ 20.000đ từ lần 2">
+        <textarea id="cl-rules" rows="2" value=${f.rules} onInput=${(e) => setF({ ...f, rules: e.target.value })}></textarea><//>
+      <details class="cl-more"><summary class="muted">⚙ Thiết lập khác (tổ, khu, mục, mở / đóng ca, ca)</summary><div class="form-grid">
+        <${Field} label="Tổ"><select id="cl-team" value=${f.team_id} onChange=${(e) => setF({ ...f, team_id: e.target.value, position_id: '' })}>
+          ${allowAll ? html`<option value="">Cả quán</option>` : null}${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
+        ${(() => { const ps = (posD.data || []).filter((p) => p.team_id === Number(f.team_id)); return ps.length ? html`<${Field} label="Vị trí" hint="Chỉ người đứng vị trí này trong ca thấy">
+          <select id="cl-pos" value=${f.position_id} onChange=${(e) => setF({ ...f, position_id: e.target.value })}><option value="">Cả bộ phận</option>${ps.map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>` : null; })()}
+        ${(zonesD.data || []).length ? html`<${Field} label="Khu" hint="Chỉ người phụ trách khu này trong ca thấy">
+          <select id="cl-zone" value=${f.zone_id} onChange=${(e) => setF({ ...f, zone_id: e.target.value })}><option value="">Mọi khu</option>${zonesD.data.map((z) => html`<option value=${z.id}>${z.name}</option>`)}</select><//>` : null}
+        <${Field} label="Mục (tab trên trang Checklist)" hint="vd Bếp, Phục vụ, Thu ngân, Tổng khu A, Khu vực vệ sinh, Khu vực rửa chén. Để trống = tự theo tổ / khu">
+          <input id="cl-section" list="cl-sections" value=${f.section} placeholder=${init.section_label || 'tự theo tổ / khu'} onInput=${(e) => setF({ ...f, section: e.target.value })} />
+          <datalist id="cl-sections">${['Bếp', 'Bar', 'Phục vụ', 'Thu ngân', 'Tiếp thực', 'Tổng khu A', 'Tổng khu B', 'Tổng khu C', 'Khu vực vệ sinh', 'Khu vực rửa chén'].map((x) => html`<option value=${x} />`)}</datalist><//>
+        <${Field} label="Thời điểm"><select id="cl-phase" value=${f.phase} onChange=${(e) => setF({ ...f, phase: e.target.value })}>
+          ${Object.entries(PHASE_LABEL).filter(([k]) => k !== 'during' || f.phase === 'during').map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select><//>
+        <${Field} label="Áp dụng cho ca" hint="Người làm ca nào chỉ thấy checklist của ca đó">
+          <select id="cl-shift" value=${f.shift_template_id} onChange=${(e) => setF({ ...f, shift_template_id: e.target.value })}>
+            <option value="">Mọi ca</option>${shifts.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
+      </div></details>
       ${init.id ? html`<label class="check-row"><input type="checkbox" checked=${f.active} onChange=${(e) => setF({ ...f, active: e.target.checked })} /> Đang dùng (bỏ chọn để ẩn, vẫn giữ lịch sử)</label>` : null}
       <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" onClick=${save}>Lưu</button></div>
     </div>

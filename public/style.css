@@ -724,3 +724,9 @@ table.wk .wk-name { white-space: normal; overflow: hidden; }
 .tpl-row2 b { font-size: 16px; }
 .tpl-row2.off { opacity: .55; }
 .tables-in { margin-top: 4px; min-height: 38px; font-size: 14px; width: 100%; max-width: 220px; }
+.item-card { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); margin-bottom: 8px; }
+.item-card input.grow { min-height: 44px; font-size: 16px; }
+.item-no { min-width: 22px; }
+.item-more summary { cursor: pointer; }
+.cl-more { border-top: 1px solid var(--line); padding-top: 8px; }
+.cl-more summary { cursor: pointer; padding: 6px 0; }
