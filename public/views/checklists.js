@@ -124,13 +124,19 @@ function Item({ run, item, disabled, me }) {
 export function ChecklistView({ me }) {
   const [date, setDate] = useState(me.today);
   const st = useData(`/api/checklists?date=${date}`);
-  const [phase, setPhase] = useState('');
+  const [phase, setPhase] = useState(() => (new Date().getHours() >= 17 ? 'close' : 'open'));
+  const [sec, setSec] = useState('');
   const [manage, setManage] = useState(false);
   const old = date < me.today && !atLeast(me, 'shift_lead');
   if (!st.data) return html`<${Loading} state=${st} />`;
   if (manage) return html`<div class="stack"><div class="row between"><h2>Tạo & sửa checklist</h2><button onClick=${() => setManage(false)}>← Về checklist hôm nay</button></div>
     <${Checklists} me=${me} teams=${me.teams} /></div>`;
-  const runs = st.data.runs.filter((r) => !phase || r.phase === phase);
+  // Mục ngang (Bếp, Phục vụ, Thu ngân, Tổng khu A…) × Mở ca / Đóng ca ("Trong ca" gộp vào Mở ca) — chủ quán 24/10
+  const sections = [...new Set(st.data.runs.map((r) => r.section))];
+  const curSec = sections.includes(sec) ? sec : sections[0] || '';
+  const ph = (r) => (r.phase === 'close' ? 'close' : 'open');
+  const runs = st.data.runs.filter((r) => r.section === curSec && ph(r) === phase);
+  const left = (s0, p0) => st.data.runs.filter((r) => r.section === s0 && (!p0 || ph(r) === p0) && r.done < r.total).length;
   return html`<div class="stack">
     <div class="row between wrap">
       <div class="row">
@@ -139,14 +145,15 @@ export function ChecklistView({ me }) {
         <button class="icon" aria-label="Hôm sau" disabled=${date >= me.today} onClick=${() => setDate(addDays(date, 1))}>›</button>
       </div>
       ${atLeast(me, 'team_lead') ? html`<div class="row"><${Link} href="/duyet-anh" class="btn-link">Duyệt ảnh<//><button class="primary" onClick=${() => setManage(true)}>Tạo / sửa checklist</button></div>` : null}
-      <div class="tabs">${[['', 'Tất cả'], ['open', 'Mở ca'], ['during', 'Trong ca'], ['close', 'Đóng ca']].map(([k, l]) => html`<button class=${phase === k ? 'on' : ''} onClick=${() => setPhase(k)}>${l}</button>`)}</div>
     </div>
+    ${sections.length ? html`<div class="chips scroll-x sec-tabs">${sections.map((x) => html`<button class=${`chip big ${x === curSec ? 'on' : ''}`} onClick=${() => setSec(x)}>${x}${left(x) ? html` <b class="dotn">${left(x)}</b>` : ''}</button>`)}</div>` : null}
+    <div class="tabs">${[['open', 'Mở ca'], ['close', 'Đóng ca']].map(([k, l]) => html`<button class=${phase === k ? 'on' : ''} onClick=${() => setPhase(k)}>${l}${left(curSec, k) ? ` (${left(curSec, k)})` : ''}</button>`)}</div>
     ${runs.length ? runs.map((r) => html`<section class="card" id=${`run-${r.run_id}`}>
       <div class="row between"><div><h3>${r.title}</h3><small class="muted">${r.team_name}${r.position_name ? ` · ${r.position_name}` : ''}${r.zone_name ? ` · 📍 ${r.zone_name}` : ''} · ${r.shift_name || 'Mọi ca'} · ${PHASE_LABEL[r.phase]}</small></div>
         <span class=${`pill ${r.redo ? 'bad' : r.done === r.total ? 'ok' : r.done ? 'warn' : ''}`}>${r.redo ? `${r.redo} việc làm lại` : r.done === r.total ? 'Xong' : `${r.done}/${r.total}`}</span></div>
       <div class="meter wide"><span style=${`width:${r.total ? Math.round((r.done / r.total) * 100) : 0}%`} class=${r.done === r.total ? 'full' : ''}></span></div>
       <${Samples} samples=${r.samples || []} templateId=${r.template_id} canEdit=${!old && canEditTpl(me, r.team_id)} label="Ảnh mẫu khu" />
       <ul class="cklist">${r.items.map((i) => html`<${Item} key=${`${r.run_id}-${i.id}-${i.entry?.done_at || 0}`} run=${r} item=${i} disabled=${old} me=${me} />`)}</ul>
-    </section>`) : html`<div class="empty">Không có checklist nào cho tổ của bạn.${atLeast(me, 'manager') ? ' Tạo checklist trong Cài đặt → Checklist.' : ''}</div>`}
+    </section>`) : html`<div class="empty">${sections.length ? `Mục ${curSec} không có checklist ${phase === 'open' ? 'mở ca' : 'đóng ca'}.` : `Hôm nay bạn không có checklist.${atLeast(me, 'manager') ? ' Tạo checklist ở nút Tạo / sửa checklist.' : ''}`}</div>`}
   </div>`;
 }

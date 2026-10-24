@@ -249,7 +249,7 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
   const zonesD = useData('/api/zones');
   const staffD = useData('/api/staff');
   const [f, setF] = useState({ title: init.title || '', team_id: init.team_id ?? '', phase: init.phase || 'open', active: init.active ?? true,
-    shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '', zone_id: init.zone_id ?? '', doer: init.doer || '',
+    shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '', zone_id: init.zone_id ?? '', doer: init.doer || '', section: init.section || '',
     items: init.items?.map((i) => ({ ...i })) || [{ text: '', kind: 'check', unit: '', required: true, photo_required: true }] });
   const item = (i, k, v) => setF({ ...f, items: f.items.map((x, j) => (j === i ? { ...x, [k]: v } : x)) });
   const move = (i, d) => { const items = [...f.items]; const [x] = items.splice(i, 1); items.splice(i + d, 0, x); setF({ ...f, items }); };
@@ -273,8 +273,11 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
             <option value="">Theo tổ / vị trí / khu ở trên</option><option value="lead">Trưởng ca</option><option value="manager">Quản lý</option><option value="staff">1 người cụ thể…</option></select><//>
         ${f.doer.startsWith('staff:') ? html`<${Field} label="Người làm"><select id="cl-doer-staff" value=${f.doer.slice(6)} onChange=${(e) => setF({ ...f, doer: `staff:${e.target.value}` })}>
           ${(staffD.data || []).filter((x) => x.active !== false && x.role !== 'owner').map((x) => html`<option value=${x.id}>${x.name}${x.team_name ? ` · ${x.team_name}` : ''}</option>`)}</select><//>` : null}
+        <${Field} label="Mục (tab trên trang Checklist)" hint="vd Bếp, Phục vụ, Thu ngân, Tổng khu A, Khu vực vệ sinh, Khu vực rửa chén. Để trống = tự theo tổ / khu">
+          <input id="cl-section" list="cl-sections" value=${f.section} placeholder=${init.section_label || 'tự theo tổ / khu'} onInput=${(e) => setF({ ...f, section: e.target.value })} />
+          <datalist id="cl-sections">${['Bếp', 'Bar', 'Phục vụ', 'Thu ngân', 'Tiếp thực', 'Tổng khu A', 'Tổng khu B', 'Tổng khu C', 'Khu vực vệ sinh', 'Khu vực rửa chén'].map((x) => html`<option value=${x} />`)}</datalist><//>
         <${Field} label="Thời điểm"><select id="cl-phase" value=${f.phase} onChange=${(e) => setF({ ...f, phase: e.target.value })}>
-          ${Object.entries(PHASE_LABEL).map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select><//>
+          ${Object.entries(PHASE_LABEL).filter(([k]) => k !== 'during' || f.phase === 'during').map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select><//>
         <${Field} label="Áp dụng cho ca" hint="Người làm ca nào chỉ thấy checklist của ca đó">
           <select id="cl-shift" value=${f.shift_template_id} onChange=${(e) => setF({ ...f, shift_template_id: e.target.value })}>
             <option value="">Mọi ca</option>${shifts.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
@@ -326,7 +329,7 @@ export function Checklists({ me, teams }) {
     <p class="muted small">Sửa, thêm việc dần theo cách làm của quán. Ảnh mẫu (khu / từng việc) thêm ngay trên màn Checklist hằng ngày: bấm "+ Thêm ảnh mẫu". Mỗi ngày mỗi checklist có một lượt mới.
       Muốn ca sáng và ca chiều có việc riêng: tạo 2 checklist, chọn "Áp dụng cho ca" tương ứng (loại ca tạo ở tab Loại ca).</p>
     ${list.map((c) => html`<button class=${`tpl-row ${c.active ? '' : 'off'}`} onClick=${() => setEdit(c)}>
-      <b class="grow">${c.title}</b><span class="muted">${c.team_name || 'Cả quán'}${c.position_name ? ` · ${c.position_name}` : ''}${c.zone_name ? ` · ${c.zone_name}` : ''} · ${c.shift_name || 'Mọi ca'} · ${PHASE_LABEL[c.phase]} · ${c.items.length} việc${c.doer_name ? ` · 👤 ${c.doer_name}` : ''}</span></button>`)}
+      <b class="grow">${c.title}</b><span class="muted">${c.team_name || 'Cả quán'}${c.position_name ? ` · ${c.position_name}` : ''}${c.zone_name ? ` · ${c.zone_name}` : ''} · ${c.shift_name || 'Mọi ca'} · ${PHASE_LABEL[c.phase]} · ${c.items.length} việc${c.doer_name ? ` · 👤 ${c.doer_name}` : ''} · 🗂 ${c.section_label}</span></button>`)}
     <div><button class="primary" onClick=${() => setEdit({})}>+ Thêm checklist</button></div>
     ${edit ? html`<${ChecklistForm} init=${own && !edit.id ? { team_id: me.team?.id, ...edit } : edit} teams=${myTeams} allowAll=${!own} shifts=${(shifts.data || []).filter((t) => t.active)} onClose=${() => setEdit(null)} />` : null}
   </section>`;

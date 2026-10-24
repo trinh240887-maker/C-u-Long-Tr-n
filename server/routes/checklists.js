@@ -36,6 +36,15 @@ export default function (r, ctx) {
   addCol('checklist_entries', 'count_id', 'INTEGER');
   // Ai làm (chủ quán 24/10): '' = theo tổ / vị trí / khu · 'lead' = trưởng ca · 'manager' = quản lý · 'staff:<id>' = 1 người cụ thể
   addCol('checklist_templates', 'doer', "TEXT NOT NULL DEFAULT ''");
+  // Mục (tab ngang trên trang Checklist): Bếp, Phục vụ, Thu ngân, Tổng khu A, Khu vực vệ sinh… Trống = tự suy
+  addCol('checklist_templates', 'section', "TEXT NOT NULL DEFAULT ''");
+  const sectionOf = (t) => {
+    if (t.section) return t.section;
+    if (t.zone_name) return `Tổng ${t.zone_name.toLowerCase().startsWith('khu') ? t.zone_name.replace(/^Khu/i, 'khu') : `khu ${t.zone_name}`}`;
+    if (/vệ sinh|wc|toilet/i.test(t.title)) return 'Khu vực vệ sinh';
+    if (/rửa chén|rửa bát/i.test(t.title)) return 'Khu vực rửa chén';
+    return t.team_name || 'Cả quán';
+  };
 
   function templates({ activeOnly = true } = {}) {
     const tpls = db.prepare(`SELECT c.*, t.name AS team_name, st.name AS shift_name, p.name AS position_name, z.name AS zone_name FROM checklist_templates c LEFT JOIN teams t ON t.id = c.team_id
@@ -46,7 +55,7 @@ export default function (r, ctx) {
     const samples = db.prepare('SELECT id, template_id, item_id, note FROM checklist_samples ORDER BY id').all();
     const doerName = (d) => (d === 'lead' ? 'Trưởng ca' : d === 'manager' ? 'Quản lý' : /^staff:\d+$/.test(d || '') ? db.prepare('SELECT name FROM staff WHERE id = ?').get(Number(d.slice(6)))?.name || '?' : '');
     return tpls.map((c) => ({
-      ...c, active: !!c.active, doer_name: doerName(c.doer),
+      ...c, active: !!c.active, doer_name: doerName(c.doer), section_label: sectionOf(c),
       samples: samples.filter((x) => x.template_id === c.id && !x.item_id),
       items: items.filter((i) => i.template_id === c.id).map((i) => ({ ...i, extra_ingredient_ids: JSON.parse(i.extra_ingredient_ids || '[]'),
         group_names: JSON.parse(i.extra_ingredient_ids || '[]').length ? [i.ingredient_id, ...JSON.parse(i.extra_ingredient_ids)].map((id) => db.prepare('SELECT name FROM ingredients WHERE id = ?').get(id)?.name).filter(Boolean) : [], pack_mode: !!i.ingredient_id && packMode(i.unit, { unit: i.ingredient_unit, purchase_unit: i.ingredient_pack, purchase_factor: i.ingredient_factor }), required: !!i.required, photo_required: !!i.photo_required, samples: samples.filter((x) => x.item_id === i.id) })),
@@ -109,7 +118,8 @@ export default function (r, ctx) {
       const m = /^staff:(\d+)$/.exec(doer);
       if (!m || !db.prepare('SELECT 1 FROM staff WHERE id = ? AND active = 1').get(Number(m[1]))) fail(400, 'Người làm không hợp lệ');
     }
-    return { title, teamId, phase, shiftId, positionId, zoneId, doer };
+    const section = body.section === undefined ? cur.section ?? '' : v.text(body.section, { name: 'Mục', max: 40 });
+    return { title, teamId, phase, shiftId, positionId, zoneId, doer, section };
   }
 
   // Tổ trưởng chỉ tạo/sửa checklist của tổ mình; trưởng ca trở lên sửa mọi tổ và checklist "Cả quán"
@@ -123,7 +133,7 @@ export default function (r, ctx) {
     const f = tplFields(body);
     canEditTpl(me, f.teamId);
     const id = tx(db, () => {
-      const id = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, shift_template_id, position_id, zone_id, doer) VALUES (?, ?, ?, ?, ?, ?, ?)').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer).lastInsertRowid);
+      const id = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, shift_template_id, position_id, zone_id, doer, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section).lastInsertRowid);
       saveItems(id, body.items);
       return id;
     });
@@ -140,7 +150,7 @@ export default function (r, ctx) {
     canEditTpl(me, f.teamId);
     const active = body.active === undefined ? cur.active : v.bool(body.active);
     tx(db, () => {
-      db.prepare('UPDATE checklist_templates SET team_id = ?, phase = ?, title = ?, shift_template_id = ?, position_id = ?, zone_id = ?, doer = ?, active = ? WHERE id = ?').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, active, cur.id);
+      db.prepare('UPDATE checklist_templates SET team_id = ?, phase = ?, title = ?, shift_template_id = ?, position_id = ?, zone_id = ?, doer = ?, section = ?, active = ? WHERE id = ?').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, active, cur.id);
       if (body.items !== undefined) saveItems(cur.id, body.items);
     });
     ctx.audit(me, 'checklist.update', { id: cur.id, title: f.title });
@@ -206,7 +216,7 @@ export default function (r, ctx) {
       const items = t.items.map((i) => ({ ...i, spot: spot.has(i.id), photo_required: i.photo_required || spot.has(i.id), entry: byItem.get(i.id) || null, photos: ph.filter((p) => p.item_id === i.id) }));
       const required = items.filter((i) => i.required);
       return {
-        run_id: run.id, template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán',
+        run_id: run.id, template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t),
         shift_template_id: t.shift_template_id, shift_name: t.shift_name || '', position_id: t.position_id ?? null, position_name: t.position_name || '', zone_id: t.zone_id ?? null, zone_name: t.zone_name || '',
         completed_at: run.completed_at, items, samples: t.samples,
         done: required.filter((i) => i.entry && i.entry.review_status !== 'redo').length, total: required.length,
