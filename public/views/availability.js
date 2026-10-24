@@ -87,6 +87,12 @@ function AddShift({ p, date, range, onClose, replaceId = null }) {
 const short = (t) => t.replace(/:00/g, '').replace(/^0/, '').replace(/–0/, '–');
 function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
   const [cell, setCell] = useState(null);
+  const zonesD = useData('/api/zones');
+  const zones = (zonesD.data || []).filter((z) => z.active !== false && z.active !== 0);
+  const zShort = (n) => (n || '').replace(/^Khu\s*/i, '');
+  // Giao khu cho ca: lưu lại ca với khu mới (giữ giờ)
+  const setZone = (x, zoneId) => act(() => api('POST', '/api/shifts', { staff_id: x.staff_id, date: x.date, team_id: x.team_id || undefined, label: x.label || 'Ca', template_id: x.template_id || undefined,
+    segments: x.segments.map((sg) => ({ start: sg.start, end: sg.end })), zone_id: zoneId || undefined, replace_group_id: x.group_id }), zoneId ? 'Đã giao khu' : 'Đã bỏ khu').then((r) => r && setCell(null));
   const [edit, setEdit] = useState(null);
   const people = staff.filter((p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team)));
   const groups = [...d.teams.map((t) => ({ id: t.id, name: t.name })), { id: null, name: 'Chưa có bộ phận' }]
@@ -104,14 +110,18 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
           ${d.days.map((x) => {
             const sh = shiftOf(p.id, x);
             const fr = d.hours?.[`${p.id}:${x}`] || [];
-            if (sh.length) return html`<td class="has" onClick=${() => canManage && setCell({ p, x, sh })}>${sh.map(text).join(' ')}</td>`;
+            if (sh.length) return html`<td class="has" onClick=${() => canManage && setCell({ p, x, sh })}>${sh.map(text).join(' ')}${sh.some((m) => m.zone_name) ? html`<br /><b class="zone-badge">📍${sh.map((m) => zShort(m.zone_name)).filter(Boolean).join(',')}</b>` : null}</td>`;
             if (fr.length) return html`<td class="free" onClick=${() => canManage && onAdd(p, x, fr[0])}>${fr.map((r) => short(r.replace('-', '–').replace('24:00', '24'))).join(' ')}</td>`;
             return html`<td class="off" onClick=${() => canManage && onAdd(p, x, null)}></td>`;
           })}</tr>`; })}</tbody>
       </table></div>
     </section>`)}
     ${cell ? html`<${Modal} title=${`${cell.p.name} · ${dayLabel(cell.x)}`} onClose=${() => setCell(null)}><div class="stack">
-      ${cell.sh.map((x) => html`<div class="stack"><b>${x.text}</b><div class="row wrap">
+      ${cell.sh.map((x) => html`<div class="stack"><b>${x.text}</b>
+        ${zones.length ? html`<div><small class="muted">Giao khu (người quản khu chụp checklist khu đó):</small><div class="chips">
+          ${zones.map((z) => html`<button class=${`chip ${x.zone_id === z.id ? 'on' : ''}`} onClick=${() => setZone(x, z.id)}>📍 ${z.name}</button>`)}
+          ${x.zone_id ? html`<button class="chip" onClick=${() => setZone(x, null)}>Bỏ khu</button>` : null}</div></div>` : null}
+        <div class="row wrap">
         ${x.segments.length === 1 ? html`<button class="primary" onClick=${() => { setEdit({ p: cell.p, date: cell.x, range: `${x.segments[0].start}-${x.segments[0].end === '00:00' ? '24:00' : x.segments[0].end}`, id: x.group_id }); setCell(null); }}>✎ Sửa giờ</button>` : null}
         <button onClick=${() => act(() => api('POST', '/api/shifts/delete', { group_id: x.group_id }), `Đã bỏ ca ${cell.p.name}`).then((r) => r && setCell(null))}>✕ Bỏ ca</button></div></div>`)}
     </div><//>` : null}
