@@ -8,7 +8,7 @@ import { readStatic } from '../lib/vietqr.js';
 import { loadPerms, ROLES_EDITABLE, PAGES } from '../lib/perms.js';
 
 const SECRET_KEYS = ['zalo_secret_key', 'zalo_access_token', 'zalo_refresh_token', 'anthropic_api_key', 'zalo_bot_token'];
-const OWNER_ONLY = ['anthropic_api_key', 'zalo_bot_token', 'zalo_bot_group_id', 'zalo_bot_group_name', 'zalo_bot_staff_group_id', 'zalo_bot_staff_group_name', 'avail_bot_on']; // mã tốn tiền / điều khiển bot: chỉ chủ quán dán
+const OWNER_ONLY = ['anthropic_api_key', 'zalo_bot_token', 'zalo_bot_group_id', 'zalo_bot_group_name', 'zalo_bot_staff_group_id', 'zalo_bot_staff_group_name', 'avail_bot_on', 'avail_bot_teams']; // mã tốn tiền / điều khiển bot: chỉ chủ quán dán
 const FIELDS = {
   shop_name: (x) => v.text(x, { name: 'Tên quán', required: true, max: 80 }),
   shop_address: (x) => v.text(x, { name: 'Địa chỉ quán', max: 160 }),
@@ -76,6 +76,7 @@ const FIELDS = {
   zalo_bot_group_name: (x) => v.text(x, { name: 'Tên nhóm', max: 120 }),
   zalo_bot_staff_group_id: (x) => v.text(x, { name: 'Nhóm Zalo nhân viên', max: 100 }).trim(),
   zalo_bot_staff_group_name: (x) => v.text(x, { name: 'Tên nhóm', max: 120 }),
+  avail_bot_teams: (x) => JSON.stringify((Array.isArray(x) ? x : []).map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 30)),
   avail_bot_on: (x) => (x === false || x === '0' || x === 0 ? '0' : '1'),
   zalo_access_token: (x) => v.text(x, { name: 'Access token', max: 2000 }),
   zalo_refresh_token: (x) => v.text(x, { name: 'Refresh token', max: 2000 }),
@@ -108,6 +109,7 @@ export default function (r, ctx) {
       const val = ctx.setting(k);
       out[k] = SECRET_KEYS.includes(k) ? (val ? `••••${val.slice(-4)}` : '') : val;
     }
+    out.avail_bot_teams = ctx.availBotTeams?.() || [];
     out.zalo_webhook_path = `/webhooks/zalo/${ctx.setting('zalo_webhook_key')}`;
     out.backups = listBackups(ctx.backupDir).slice(0, 10);
     return out;

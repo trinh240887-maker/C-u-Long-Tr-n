@@ -216,7 +216,16 @@ export default function (r, ctx) {
 
   // Tin nhắc vào nhóm Zalo nhân viên: liệt kê người chưa báo lịch rảnh tuần ws (chủ quán 24/10: tối thứ 7)
   const ddmm = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
-  function groupText(ws, people) {
+  // Bộ phận được bot nhắc (Cài đặt → Zalo Bot). Chưa chọn = mặc định Phục vụ + Tiếp thực (chủ quán 25/10)
+  const BOT_DEFAULT = /^(phục vụ|phuc vu|tiếp thực|tiep thuc)$/i;
+  function botTeams() {
+    try { const x = JSON.parse(ctx.setting('avail_bot_teams') || 'null'); if (Array.isArray(x)) return x.map(Number); } catch { /* mặc định */ }
+    return db.prepare('SELECT id, name FROM teams').all().filter((t) => BOT_DEFAULT.test(t.name.trim())).map((t) => t.id);
+  }
+  ctx.availBotTeams = botTeams;
+  function groupText(ws, all) {
+    const teams = botTeams();
+    const people = teams.length ? all.filter((p) => teams.includes(p.team_id)) : all;
     const missing = people.filter((p) => !p.submitted_at);
     const head = `📅 Lịch rảnh tuần ${ddmm(ws)}–${ddmm(addDays(ws, 6))}`;
     const base = (ctx.setting('public_url') || '').replace(/\/$/, '');

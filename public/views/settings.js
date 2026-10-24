@@ -402,8 +402,22 @@ function Keys({ s, me, only }) {
 // kind 'order': nhóm đặt hàng (gửi đơn duyệt) · 'staff': nhóm nhân viên (nhắc lịch rảnh tối thứ 7)
 const BOT_KINDS = {
   order: { id: 'zalo_bot_group_id', name: 'zalo_bot_group_name', test: '/api/zalo-bot/test', title: '🛒 Nhóm nhận đơn đặt hàng', none: 'chưa chọn (duyệt đơn chỉ hiện nút sao chép)', note: 'Mỗi lần anh bấm Duyệt đơn đặt hàng, app tự gửi nội dung đơn vào nhóm. Gửi lỗi thì app báo và vẫn còn nút "Chép nội dung gửi Zalo".' },
-  staff: { id: 'zalo_bot_staff_group_id', name: 'zalo_bot_staff_group_name', test: '/api/zalo-bot/test-staff', title: '👥 Nhóm nhân viên (nhắc lịch rảnh)', none: 'chưa chọn', note: 'Nhân viên nhắn trong nhóm "@tên bot Tên mình 14h-23h" (cả tuần) hoặc "@bot Tên T2 14-23, T3 nghỉ" → bot tự điền lịch rảnh + tạo ca và trả lời ✅. Tin không có @bot thì bot không đọc được. Tối thứ 7 lúc 20:00, bot tự nhắn vào nhóm tên các bạn CHƯA báo lịch rảnh tuần tới (chia theo bộ phận) kèm link vào app. Nút "Nhắc người chưa báo" ở Lịch ca cũng gửi vào nhóm này.' },
+  staff: { id: 'zalo_bot_staff_group_id', name: 'zalo_bot_staff_group_name', test: '/api/zalo-bot/test-staff', title: '👥 Nhóm nhân viên (nhắc lịch rảnh)', none: 'chưa chọn', note: 'Nhân viên nhắn trong nhóm "@tên bot Tên mình 14h-23h" (cả tuần) hoặc "@bot Tên T2 14-23, T3 nghỉ" → bot tự điền lịch rảnh + tạo ca và trả lời ✅. Tin không có @bot thì bot không đọc được. Tối thứ 7 lúc 20:00, bot tự nhắn vào nhóm tên các bạn CHƯA báo lịch rảnh tuần tới (chỉ các bộ phận đã chọn ở trên) kèm link vào app. Nút "Nhắc người chưa báo" ở Lịch ca cũng gửi vào nhóm này.' },
 };
+// Bộ phận bot nhắc tên trong nhóm (mặc định Phục vụ + Tiếp thực)
+function BotTeams({ s }) {
+  const st = useData('/api/teams');
+  const [sel, setSel] = useState(s.avail_bot_teams || []);
+  const teams = (st.data?.teams || st.data || []).filter((t) => t.active !== 0);
+  const flip = (id) => {
+    const next = sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id];
+    act(() => api('PUT', '/api/settings', { avail_bot_teams: next }), 'Đã lưu').then((r) => r && setSel(next));
+  };
+  return html`<div class="stack tight"><b class="small">Bot nhắc tên các bộ phận:</b>
+    <div class="row wrap tight">${teams.map((t) => html`<button class=${`chip ${sel.includes(t.id) ? 'on' : ''}`} onClick=${() => flip(t.id)}>${sel.includes(t.id) ? '✓ ' : ''}${t.name}</button>`)}</div>
+    ${!sel.length ? html`<p class="small warn-text">Chưa chọn bộ phận nào → bot nhắc cả quán.</p>` : null}</div>`;
+}
+
 function BotGroup({ s, kind = 'order' }) {
   const K = BOT_KINDS[kind];
   const [bot, setBot] = useState(null);
@@ -428,6 +442,7 @@ function BotGroup({ s, kind = 'order' }) {
     <div class="row wrap"><button onClick=${find}>Tìm nhóm</button>${grp.id ? html`<button class="primary" onClick=${() => act(() => api('POST', K.test), 'Đã gửi, mở nhóm Zalo xem')}>Gửi thử vào nhóm</button>` : null}</div>
     ${chats ? (chats.length ? chats.map((c) => html`<button class="tpl-row" onClick=${() => pick(c)}><b class="grow">${c.name || '(không tên)'}</b><span class="muted">${c.type}${c.text ? ` · "${c.text.slice(0, 30)}"` : ''}</span></button>`)
       : html`<p class="warn-text small">Chưa thấy tin nào. Nhắn @bot trong nhóm rồi bấm lại.</p>`) : null}
+    ${kind === 'staff' ? html`<${BotTeams} s=${s} />` : null}
     ${kind === 'staff' && grp.id ? html`<button class=${`chip ${on ? 'on' : ''}`} onClick=${toggle}>${on ? '🔔 Tự nhắc tối thứ 7: BẬT' : '🔕 Tự nhắc tối thứ 7: TẮT'}</button>` : null}
     <p class="small muted">${K.note}</p>
   </section>`;

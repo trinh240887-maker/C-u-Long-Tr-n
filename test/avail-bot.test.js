@@ -18,7 +18,8 @@ test('bot nhắc lịch rảnh: tối thứ 7 20h gửi 1 lần vào nhóm nhân
   t.after(() => app.close());
   const pv = Number(db.prepare("INSERT INTO teams (name, sort, min_staff) VALUES ('Phục vụ', 9, 1)").run().lastInsertRowid);
   const rc = Number(db.prepare("INSERT INTO teams (name, sort, min_staff) VALUES ('Rửa chén', 10, 1)").run().lastInsertRowid);
-  db.prepare("INSERT INTO staff (name, role, team_id, created_at) VALUES ('Lan', 'staff', ?, 0), ('Hùng', 'staff', ?, 0)").run(pv, rc);
+  const tn = Number(db.prepare("INSERT INTO teams (name, sort, min_staff) VALUES ('Thu ngân', 11, 1)").run().lastInsertRowid);
+  db.prepare("INSERT INTO staff (name, role, team_id, created_at) VALUES ('Lan', 'staff', ?, 0), ('Hùng', 'staff', ?, 0), ('Kim', 'staff', ?, 0)").run(pv, rc, tn);
   const { ctx } = app;
 
   await ctx.availBotTick(); // chưa chọn nhóm → không gửi
@@ -33,6 +34,10 @@ test('bot nhắc lịch rảnh: tối thứ 7 20h gửi 1 lần vào nhóm nhân
   assert.match(sent[0].text, /tuần 02\/11–08\/11/);
   assert.match(sent[0].text, /Phục vụ: .*Lan/);
   assert.doesNotMatch(sent[0].text, /Hùng/); // rửa chén không phải báo
+  assert.doesNotMatch(sent[0].text, /Kim/); // mặc định chỉ nhắc Phục vụ + Tiếp thực
+  ctx.setSetting('avail_bot_teams', JSON.stringify([tn]));
+  assert.match(ctx.availGroupText('2026-11-02'), /Thu ngân: Kim/);
+  ctx.setSetting('avail_bot_teams', '');
   now += 60_000;
   await ctx.availBotTick(); // đã gửi tuần này → không gửi lại
   assert.equal(sent.length, 1);
