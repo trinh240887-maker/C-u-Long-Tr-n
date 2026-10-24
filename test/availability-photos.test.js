@@ -224,3 +224,40 @@ test('thực đơn: có sẵn menu quán, sửa giá/công thức, tổ trưởn
   assert.equal((await o('PATCH', `/api/kitchen-stations/${st['Ưu tiên'].id}`, { printer_ip: '192.168.1.9x' })).status, 400);
   assert.equal((await o('PATCH', `/api/kitchen-stations/${st['Ưu tiên'].id}`, { printer_ip: '192.168.1.236' })).status, 200);
 });
+
+test('lịch rảnh cố định: báo 1 lần "tuần nào cũng vậy" → tuần sau tự điền, coi như đã gửi; "giống tuần trước" có sẵn', async (t) => {
+  const { openDb, DEFAULT_OWNER_PIN } = await import('../server/db.js');
+  const { createApp } = await import('../server/app.js');
+  const http = await import('node:http');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const now = Date.parse('2026-10-24T03:00:00Z');
+  const db = openDb(':memory:', { now });
+  const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  const team = (await o('GET', '/api/teams')).data[0].id;
+  await o('POST', '/api/staff', { name: 'Nga', role: 'staff', team_id: team, pin: '7365' });
+  const nv = mk();
+  await nv('POST', '/api/login', { pin: '7365' });
+  await nv('POST', '/api/me/pin', { current_pin: '7365', new_pin: '8365' });
+  const w1 = (await nv('GET', '/api/availability/me')).data; // tuần 26/10
+  assert.equal(w1.week_start, '2026-10-26');
+  assert.equal((await nv('POST', '/api/availability/me', { week: w1.week_start, picks: { '2026-10-26': ['toi'], '2026-10-31': ['chieu', 'toi'] }, fixed: true })).status, 200);
+  const w2 = (await nv('GET', '/api/availability/me?week=2026-11-02')).data;
+  assert.ok(w2.submitted_at && w2.auto);
+  assert.deepEqual(w2.picks, { '2026-11-02': ['toi'], '2026-11-07': ['chieu', 'toi'] });
+  assert.deepEqual(w2.prev_picks['2026-11-07'], ['chieu', 'toi']);
+  const sum = (await o('GET', '/api/availability?week=2026-11-09')).data;
+  assert.ok(sum.people.find((p) => p.name === 'Nga').fixed);
+  // Bỏ lịch cố định → tuần sau không tự điền nữa
+  await nv('POST', '/api/availability/me', { week: '2026-11-02', picks: { '2026-11-03': ['sang'] }, fixed: false });
+  assert.equal((await nv('GET', '/api/availability/me?week=2026-11-16')).data.submitted_at, null);
+});

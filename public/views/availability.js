@@ -5,18 +5,21 @@ const fmtDate = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
 const WEEKDAY = ['', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ nhật'];
 const dowOf = (d) => { const n = new Date(`${d}T00:00:00Z`).getUTCDay(); return n === 0 ? 7 : n; };
 
-function Mine({ week, onWeek }) {
-  const st = useData(`/api/availability/me${week ? `?week=${week}` : ''}`);
+function Mine({ week, onWeek, staffId = null, onDone = null }) {
+  const qs = [week ? `week=${week}` : '', staffId ? `staff=${staffId}` : ''].filter(Boolean).join('&');
+  const st = useData(`/api/availability/me${qs ? `?${qs}` : ''}`);
   const [picks, setPicks] = useState(null);
   const [note, setNote] = useState('');
-  useEffect(() => { if (st.data) { setPicks(st.data.picks); setNote(st.data.note); } }, [st.data]);
+  const [fixed, setFixed] = useState(false);
+  useEffect(() => { if (st.data) { setPicks(st.data.picks); setNote(st.data.auto ? '' : st.data.note); setFixed(Object.keys(st.data.fixed || {}).length > 0); } }, [st.data]);
   if (!st.data || !picks) return html`<${Loading} state=${st} />`;
   const d = st.data;
   const has = (day, k) => (picks[day] || []).includes(k);
   const toggle = (day, k) => setPicks({ ...picks, [day]: has(day, k) ? picks[day].filter((x) => x !== k) : [...(picks[day] || []), k] });
   const allDay = (day) => setPicks({ ...picks, [day]: d.slots.every((s) => has(day, s.key)) ? [] : d.slots.map((s) => s.key) });
   const count = Object.values(picks).reduce((n, x) => n + x.length, 0);
-  const submit = () => act(() => api('POST', '/api/availability/me', { week: d.week_start, picks, note }), 'Đã gửi lịch rảnh');
+  const submit = () => act(() => api('POST', '/api/availability/me', { week: d.week_start, picks, note, fixed, staff_id: staffId || undefined }), staffId ? `Đã báo hộ ${d.staff_name}` : 'Đã gửi lịch rảnh').then((r) => r && onDone?.());
+  const hasPrev = Object.values(d.prev_picks || {}).some((x) => x.length);
   return html`<div class="stack">
     <div class="row between wrap">
       <div class="row">
@@ -26,7 +29,9 @@ function Mine({ week, onWeek }) {
       </div>
       ${d.submitted_at ? html`<span class="pill ok">Đã gửi</span>` : d.late ? html`<span class="pill bad">Quá hạn, gửi ngay</span>` : html`<span class="pill warn">Chưa gửi</span>`}
     </div>
-    <section class="card hint"><span>Bấm vào <b>buổi bạn rảnh</b> rồi bấm <b>Gửi lịch rảnh</b>. Hạn: <b>${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} lúc ${d.deadline.time}</b>. Quản lý xem rồi xếp ca; gửi lại được để sửa trước khi tuần bắt đầu.</span></section>
+    ${d.staff_name ? html`<section class="card attn"><b>Báo hộ: ${d.staff_name}</b></section>` : null}
+    ${d.auto ? html`<section class="card hint"><span>✅ Tuần này đã tự điền theo <b>lịch cố định</b>. Không cần làm gì; muốn đổi thì bấm lại các buổi rồi Gửi lại.</span></section>`
+      : html`<section class="card hint"><span>Bấm <b>buổi rảnh</b> → <b>Gửi</b>. Tick "Tuần nào cũng vậy" thì <b>chỉ báo 1 lần</b>, các tuần sau app tự dùng. Hạn: <b>${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} lúc ${d.deadline.time}</b>.</span></section>`}
     ${d.locked ? html`<p class="warn-text">Tuần này đã bắt đầu. Muốn đổi, báo quản lý.</p>` : null}
     <section class="card avail">
       ${d.days.map((day) => html`<div class="av-day" key=${day}>
@@ -35,10 +40,12 @@ function Mine({ week, onWeek }) {
           <b>${s.label}</b><small>${s.start}–${s.end}</small></button>`)}</div>
       </div>`)}
       <div class="row wrap">
+        ${hasPrev ? html`<button disabled=${d.locked} onClick=${() => setPicks(d.prev_picks)}>↺ Giống tuần trước</button>` : null}
         <button disabled=${d.locked} onClick=${() => setPicks(Object.fromEntries(d.days.map((x) => [x, d.slots.map((s) => s.key)])))}>Rảnh cả tuần</button>
         <button disabled=${d.locked} onClick=${() => setPicks({})}>Xoá hết</button>
       </div>
       <input id="av-note" placeholder="Ghi chú cho quản lý (vd T7 chỉ rảnh sau 19h)" value=${note} disabled=${d.locked} onInput=${(e) => setNote(e.target.value)} />
+      <label class="check-row big-check"><input type="checkbox" checked=${fixed} disabled=${d.locked} onChange=${(e) => setFixed(e.target.checked)} /> <span><b>Tuần nào cũng vậy</b> (lịch cố định, khỏi báo lại)</span></label>
       <button class="primary big" disabled=${d.locked} onClick=${submit}>${d.submitted_at ? 'Gửi lại' : 'Gửi lịch rảnh'} (${count} buổi)</button>
     </section>
   </div>`;
@@ -100,6 +107,7 @@ function Overview({ me, week, onWeek }) {
         ${missing.length && atLeast(me, 'manager') ? html`<button onClick=${() => act(() => api('POST', '/api/availability/remind', { week: d.week_start }), 'Đã nhắc')}>Nhắc tất cả</button>` : null}</div>
       <p class="muted small">Hạn: ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} lúc ${d.deadline.time}.</p>
       ${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã gửi.</p>`}
+      ${people.some((p) => p.fixed) ? html`<p class="small muted">${people.filter((p) => p.fixed).length} bạn dùng lịch cố định (tự điền mỗi tuần).</p>` : null}
       ${people.some((p) => p.note) ? html`<details><summary class="muted small">Ghi chú của nhân viên</summary><ul class="plain small">
         ${people.filter((p) => p.note).map((p) => html`<li><b>${p.name}:</b> ${p.note}</li>`)}</ul></details>` : null}
     </section>

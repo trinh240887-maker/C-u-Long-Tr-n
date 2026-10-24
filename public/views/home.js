@@ -86,7 +86,7 @@ export function Home({ me }) {
     ${(() => { const ps = (promos.data?.items || []).filter((p) => p.status === 'running' || p.status === 'upcoming');
       return ps.length ? html`<${Link} href="/khuyen-mai" class="card promo-card stack"><b>🎁 Khuyến mãi</b>${ps.map((p) => html`<span><b>${p.name}</b>${p.status === 'upcoming' ? ' (sắp tới)' : ''}: ${p.summary}${p.note ? ` · ${p.note}` : ''}</span>`)}<//>` : null; })()}
     <${Link} href="/ban" class="card order-cta"><b>🍽 Order bàn</b><span>Bấm bàn trống để gọi món · đặt bàn ở Thêm → Đặt bàn →</span><//>
-    ${avail.data && !avail.data.submitted_at ? html`<${Link} href="/ranh" class=${`card hint ${avail.data.late ? 'bad' : ''}`}><span>
+    ${avail.data && avail.data.must && !avail.data.submitted_at ? html`<${Link} href="/ranh" class=${`card hint ${avail.data.late ? 'bad' : ''}`}><span>
       ◷ ${avail.data.late ? 'Đã quá hạn, bạn' : 'Bạn'} chưa báo <b>lịch rảnh tuần sau</b> (${avail.data.week_start.slice(8)}/${avail.data.week_start.slice(5, 7)}).
       Hạn ${avail.data.deadline.time} ngày ${avail.data.deadline.date.slice(8)}/${avail.data.deadline.date.slice(5, 7)}. Bấm để báo →</span><//>` : null}
     ${(() => { const ps = (shifts.data || []).find((s) => s.date === me.today && s.position_name && !s.zone_name);

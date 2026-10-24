@@ -665,3 +665,4 @@ table.perm .perm-more td { text-align: left; padding: 10px 12px; background: var
 .perm-row:last-child { border-bottom: 0; }
 .perm-row input { width: 26px; height: 26px; margin: 0; }
 .perm-row:not(.on) span { color: var(--muted); }
+.big-check { min-height: 48px; font-size: 16px; } .big-check input { width: 24px; height: 24px; }

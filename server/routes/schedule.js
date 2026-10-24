@@ -116,6 +116,7 @@ export default function (r, ctx) {
       }
     }
     const availability = {};
+    ctx.fillFixedAvailability?.(start);
     for (const a of db.prepare('SELECT staff_id, date, slot FROM availability WHERE date BETWEEN ? AND ?').all(start, end)) {
       ((availability[a.staff_id] ||= {})[a.date] ||= []).push(a.slot);
     }

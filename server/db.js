@@ -60,6 +60,13 @@ CREATE TABLE IF NOT EXISTS availability (
   slot TEXT NOT NULL,
   PRIMARY KEY (staff_id, date, slot)
 );
+-- Lịch rảnh cố định: báo 1 lần, tuần nào chưa báo thì app tự dùng (dow 1 = Thứ Hai … 7 = Chủ nhật)
+CREATE TABLE IF NOT EXISTS availability_fixed (
+  staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  dow INTEGER NOT NULL,
+  slot TEXT NOT NULL,
+  PRIMARY KEY (staff_id, dow, slot)
+);
 CREATE TABLE IF NOT EXISTS availability_weeks (
   staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
   week_start TEXT NOT NULL,
