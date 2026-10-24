@@ -51,27 +51,30 @@ export function doc({ mode = 'khong_dau' } = {}) {
 
 export const KIND_LABEL = { new: '', add: 'GỌI THÊM', cancel: '*** HUỶ MÓN ***', redo: 'LÀM LẠI', remind: 'NHẮC MÓN - KHÁCH CHỜ' };
 
-// Phiếu bếp / bar
+// Phiếu bếp / bar: chữ to, đậm cho bếp đọc từ xa (giống phiếu Sapo). Món in cỡ 2x2 (24 ký tự/dòng).
 export function ticketBytes(t, { mode, time = '', by = '', lateMin = 0 } = {}) {
   const d = doc({ mode });
+  const W2 = WIDTH / 2;
   d.align('center').size(2, 2).bold(true).line(t.station_name || 'BẾP');
   const label = KIND_LABEL[t.kind] || '';
   if (label || t.priority) {
     d.invert(true).line(` ${[label, t.priority && t.kind !== 'remind' ? 'ƯU TIÊN' : ''].filter(Boolean).join(' · ')} `).invert(false);
   }
   if (t.kind === 'cancel' || t.kind === 'remind' || t.priority) d.beep();
-  d.line(t.header || '').bold(false).size(1, 1);
+  d.align('left');
+  if (t.header) d.wrap(t.header, { width: W2 });
+  d.size(1, 1);
   if (t.reprint) d.bold(true).line(`BẢN IN LẠI lần ${t.reprint} (phiếu gốc ${String(t.time0 || '')}) - KIỂM TRA ĐÃ LÀM CHƯA`).bold(false);
-  d.line([time, by ? `NV: ${by}` : '', `#${t.id}`].filter(Boolean).join('  ·  '));
-  d.align('left').rule();
+  d.size(1, 2).bold(true).line([time, by ? `NV: ${by}` : '', `#${t.id}`].filter(Boolean).join('  ')).bold(false).size(1, 1);
+  d.rule('=');
   for (const l of t.lines || []) {
-    d.size(1, 2).bold(true).wrap(`${l.qty} x ${l.name}${l.rush ? ' (GẤP)' : ''}`, { width: WIDTH }).bold(false).size(1, 1);
+    d.size(2, 2).bold(true).wrap(`${l.qty} x ${l.name}${l.rush ? ' (GẤP)' : ''}`, { width: W2 }).size(1, 2);
     if (l.label && l.label !== l.name) d.wrap(`> ${l.label}`, { indent: '   ' });
     for (const o of l.options || []) d.wrap(`- ${o}`, { indent: '   ' });
-    if (l.note) d.bold(true).wrap(`* ${l.note}`, { indent: '   ' }).bold(false);
+    if (l.note) d.wrap(`* ${l.note}`, { indent: '   ' });
+    d.bold(false).size(1, 1).rule();
   }
-  d.rule();
-  if (lateMin >= 2) d.align('center').bold(true).line(`IN TRỄ ${lateMin} PHÚT (mất mạng / máy in lỗi)`).bold(false);
+  if (lateMin >= 2) d.align('center').size(1, 2).bold(true).line(`IN TRỄ ${lateMin} PHÚT (mất mạng / máy in lỗi)`).bold(false).size(1, 1);
   return d.cut().bytes();
 }
 
