@@ -113,5 +113,8 @@ test('xếp ca: người được cấp quyền "Xếp ca" xem lịch rảnh c�
   const r = await a('POST', '/api/shifts', shift);
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal((await a('POST', '/api/schedule/publish', { week: '2026-11-02' })).status, 200);
+  const x = await fetch(`${base}/api/schedule.xlsx?week=2026-11-02`, { headers: { cookie: (await (async () => { const res = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: '582914' }) }); return res.headers.get('set-cookie').split(';')[0]; })()) } });
+  assert.equal(x.status, 200);
+  assert.ok((await x.arrayBuffer()).byteLength > 500); // bảng Excel lịch ca tuần
   assert.equal((await b('POST', '/api/shifts', { ...shift, staff_id: aId })).status, 403);
 });

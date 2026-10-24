@@ -1,3 +1,4 @@
+import { makeXlsx } from '../lib/xlsx.js';
 import crypto from 'node:crypto';
 import { fail, v } from '../http.js';
 import { tx } from '../db.js';
@@ -227,6 +228,22 @@ export default function (r, ctx) {
     ctx.audit(me, 'schedule.copy', { from, to, copied, skipped });
     ctx.broadcast('schedule');
     return { copied, skipped };
+  });
+
+  // Tải lịch tuần ra Excel theo kiểu bảng "Lịch trực ca": bộ phận | tên | vị trí | T2 … CN
+  r.get('/api/schedule.xlsx', 'staff', ({ query }) => {
+    const anchor = query.get('week') || ctx.today();
+    if (!isDate(anchor)) fail(400, 'Ngày không hợp lệ');
+    const start = weekStart(anchor);
+    const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    const staff = db.prepare(`SELECT s.id, s.name, t.name AS team_name, p.name AS position_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN positions p ON p.id = s.position_id
+      WHERE s.active = 1 AND s.role != 'owner' ORDER BY t.sort, t.id, s.name`).all();
+    const rows = db.prepare(`SELECT a.staff_id, a.date, a.group_id, a.start_min, a.end_min FROM assignments a WHERE a.date BETWEEN ? AND ?
+      AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') ORDER BY a.start_min`).all(start, addDays(start, 6));
+    const cell = (sid, d) => rows.filter((a) => a.staff_id === sid && a.date === d).map((a) => `${fmtHM(a.start_min)}-${fmtHM(a.end_min % 1440)}`).join(', ');
+    const head = ['Bộ phận', 'Tên', 'Vị trí', ...days.map((d) => `${WEEKDAY[isoWeekday(d)]} ${d.slice(8)}/${d.slice(5, 7)}`)];
+    const body = staff.map((p) => [p.team_name || '', p.name, p.position_name || '', ...days.map((d) => cell(p.id, d))]);
+    return { __binary: makeXlsx([{ name: 'Lịch ca', rows: [head, ...body] }]), type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename: `lich-ca_${start}.xlsx` };
   });
 
   // Gửi lịch tuần cho từng nhân viên qua thông báo (Zalo nếu đã bật)
