@@ -95,7 +95,7 @@ function AddShift({ p, date, range, onClose }) {
 // Bảng tuần giống bảng Excel "Lịch trực ca": theo bộ phận, mỗi người 1 dòng, cột T2 → CN.
 // Ô đậm = đã xếp ca (bấm để bỏ) · ô xanh = rảnh (bấm để xếp) · ô trống = bận / chưa báo (vẫn bấm xếp được)
 const short = (t) => t.replace(/:00/g, '').replace(/^0/, '').replace(/–0/, '–');
-function WeekTable({ d, shifts, staff, team, canManage, onAdd }) {
+function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
   const [cell, setCell] = useState(null);
   const people = staff.filter((p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team)));
   const groups = [...d.teams.map((t) => ({ id: t.id, name: t.name })), { id: null, name: 'Chưa có bộ phận' }]
@@ -108,14 +108,15 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd }) {
       <div class="wk-head">${g.name.toUpperCase()} <small>${g.people.length} người</small></div>
       <div class="wk-wrap"><table class="wk">
         <thead><tr><th class="wk-name">Tên</th>${d.days.map((x) => html`<th>${dayLabel(x).split(' ')[0]}<br /><small>${x.slice(8)}/${x.slice(5, 7)}</small><br /><b class="wk-n">${g.people.filter((p) => shiftOf(p.id, x).length).length}</b></th>`)}</tr></thead>
-        <tbody>${g.people.map((p) => html`<tr><td class="wk-name"><b>${p.name}</b>${p.position_name ? html`<br /><small class="muted">${p.position_name}</small>` : null}</td>
+        <tbody>${g.people.map((p) => { const freeLeft = d.days.some((x) => !shiftOf(p.id, x).length && (d.hours?.[`${p.id}:${x}`] || []).length); return html`<tr><td class="wk-name"><b>${p.name}</b>${p.position_name ? html`<br /><small class="muted">${p.position_name}</small>` : null}
+            ${canManage && freeLeft ? html`<br /><button class="small take" onClick=${() => onTake(p)}>✓ Nhận lịch</button>` : null}</td>
           ${d.days.map((x) => {
             const sh = shiftOf(p.id, x);
             const fr = d.hours?.[`${p.id}:${x}`] || [];
             if (sh.length) return html`<td class="has" onClick=${() => canManage && setCell({ p, x, sh })}>${sh.map(text).join(' ')}</td>`;
             if (fr.length) return html`<td class="free" onClick=${() => canManage && onAdd(p, x, fr[0])}>${fr.map((r) => short(r.replace('-', '–').replace('24:00', '24'))).join(' ')}</td>`;
             return html`<td class="off" onClick=${() => canManage && onAdd(p, x, null)}></td>`;
-          })}</tr>`)}</tbody>
+          })}</tr>`; })}</tbody>
       </table></div>
     </section>`)}
     ${cell ? html`<${Modal} title=${`${cell.p.name} · ${dayLabel(cell.x)}`} onClose=${() => setCell(null)}><div class="stack">
@@ -139,6 +140,8 @@ function Overview({ me, week, onWeek }) {
   const missing = d.people.filter((p) => inTeam(p) && !p.submitted_at);
   const published = sc.data.published_at;
   const canManage = atLeast(me, 'manager') || (me.pages || []).includes('/lich#xep');
+  const has = new Set(shifts.map((x) => `${x.staff_id}:${x.date}`));
+  const freeCells = Object.entries(d.hours || {}).filter(([k, v]) => v.length && !has.has(k)).length;
   return html`<div class="stack">
     <div class="row between wrap">
       <div class="row">
@@ -148,18 +151,22 @@ function Overview({ me, week, onWeek }) {
       </div>
       ${published ? html`<span class="pill ok">Đã duyệt ${dt(published)}</span>` : html`<span class="pill warn">Chưa duyệt</span>`}
     </div>
-    <section class="card hint small"><span>Lịch rảnh nhân viên báo hiện sẵn trong bảng. Bấm <b>ô xanh</b> để xếp ca · bấm <b>ô đã xếp</b> để bỏ / sửa · xong bấm <b>✅ Duyệt lịch tuần</b>.</span></section>
+    ${canManage ? html`<section class="card stack plan-actions">
+      <small>Ô xanh = lịch rảnh nhân viên báo · ô đậm = đã thành ca. Bấm ô để xếp / bỏ từng ô.</small>
+      <div class="row wrap">
+        <button disabled=${!freeCells} onClick=${() => act(() => api('POST', '/api/schedule/from-availability', { week: d.week_start }), 'Đã nhận lịch rảnh thành ca')}>⚡ Xếp hết theo lịch rảnh (${freeCells} ô)</button>
+        <button class="primary" disabled=${!shifts.length} onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã duyệt: gửi chủ xem + gửi lịch cho nhân viên')}>✅ ${published ? 'Duyệt lại' : 'Duyệt lịch tuần'} (${shifts.length} ca)</button>
+      </div>
+    </section>` : null}
     <div class="row between wrap"><div class="chips"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Cả quán</button>
       ${teams.map((t) => html`<button class=${`chip ${team === String(t.id) ? 'on' : ''}`} onClick=${() => setTeam(String(t.id))}>${t.name}</button>`)}</div>
       <a class="btn small" href=${`/api/schedule.xlsx?week=${d.week_start}`} download>⬇ Tải Excel</a></div>
-    <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />
+    <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })}
+      onTake=${(p) => act(() => api('POST', '/api/schedule/from-availability', { week: d.week_start, staff_id: p.id }), `Đã nhận lịch rảnh của ${p.name}`)} />
     <details class="card"><summary><b>Chưa báo lịch rảnh (${missing.length})</b> <small class="muted">hạn ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} ${d.deadline.time}</small></summary>
       <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}
       ${missing.length && canManage ? html`<button onClick=${() => act(() => api('POST', '/api/availability/remind', { week: d.week_start }), 'Đã nhắc')}>🔔 Nhắc tất cả</button>` : null}</div>
     </details>
-    ${canManage ? html`<div class="sum-bar row between">
-      <small class="muted">${shifts.length} ca cả tuần</small>
-      <button class="primary big" disabled=${!shifts.length} onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã duyệt: gửi chủ xem + gửi lịch cho nhân viên')}>✅ ${published ? 'Duyệt lại' : 'Duyệt lịch tuần'}</button></div>` : null}
     ${add ? html`<${AddShift} p=${add.p} date=${add.date} range=${add.range} onClose=${() => setAdd(null)} />` : null}
   </div>`;
 }

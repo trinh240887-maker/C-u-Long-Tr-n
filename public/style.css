@@ -704,3 +704,7 @@ table.av-grid td.has { font-size: 15px; } table.av-grid td { height: 48px; }
 table.av-grid { min-width: 0; table-layout: fixed; }
 table.av-grid th, table.av-grid td { min-width: 0; padding: 2px; }
 table.av-grid .wk-name { width: 92px; min-width: 92px; }
+.plan-actions { position: sticky; top: 0; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.plan-actions button { min-height: 48px; }
+table.wk .take { margin-top: 4px; min-height: 32px; padding: 0 8px; font-size: 12px; }
+table.wk .wk-name { white-space: normal; overflow: hidden; }

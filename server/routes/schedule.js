@@ -245,6 +245,31 @@ export default function (r, ctx) {
     return { copied, skipped };
   });
 
+  // Nhận lịch rảnh thành ca: mỗi khung giờ rảnh → 1 ca (bỏ qua ngày người đó đã có ca). staff_id: chỉ 1 người
+  r.post('/api/schedule/from-availability', 'manager', ({ me, body }) => {
+    if (!isDate(body.week)) fail(400, 'Tuần không hợp lệ');
+    const start = weekStart(body.week);
+    const only = body.staff_id ? v.int(body.staff_id, { min: 1, name: 'Nhân viên' }) : null;
+    ctx.fillFixedAvailability?.(start);
+    const rows = db.prepare(`SELECT a.staff_id, a.date, a.slot FROM availability a JOIN staff s ON s.id = a.staff_id AND s.active = 1
+      WHERE a.date BETWEEN ? AND ? ${only ? 'AND a.staff_id = ?' : ''} ORDER BY a.staff_id, a.date, a.slot`).all(start, addDays(start, 6), ...(only ? [only] : []));
+    let made = 0, skipped = 0;
+    tx(db, () => {
+      for (const a of rows) {
+        const r = ctx.availRange?.(a.slot);
+        if (!r) continue;
+        if (db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ? AND start_min < ? AND end_min > ?').get(a.staff_id, a.date, r.end, r.start)) { skipped++; continue; }
+        try {
+          createGroup(me, { staffId: a.staff_id, date: a.date, teamId: null, segs: [{ start_min: r.start, end_min: r.end }], templateId: null, label: 'Ca', note: 'Theo lịch rảnh' });
+          made++;
+        } catch { skipped++; }
+      }
+    });
+    ctx.audit(me, 'schedule.from_availability', { week: start, staff: only, made, skipped });
+    ctx.broadcast('schedule');
+    return { made, skipped };
+  });
+
   // Tải lịch tuần ra Excel theo kiểu bảng "Lịch trực ca": bộ phận | tên | vị trí | T2 … CN
   r.get('/api/schedule.xlsx', 'staff', ({ me, query }) => {
     const see = viewFilter(me);

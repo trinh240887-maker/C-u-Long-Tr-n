@@ -259,6 +259,13 @@ test('lịch rảnh cố định: báo 1 lần "tuần nào cũng vậy" → tu�
   const nga = s2.people.find((p) => p.name === 'Nga').id;
   assert.ok(s2.cells['2026-11-02:toi'].free.includes(nga) && s2.cells['2026-11-02:chieu'].free.includes(nga) && !s2.cells['2026-11-02:sang'].free.includes(nga));
   assert.deepEqual(s2.hours[`${nga}:2026-11-02`], ['16:00-23:00']);
+  // Quản lý bấm "Xếp hết theo lịch rảnh": mỗi khung rảnh thành 1 ca; bấm lại không tạo trùng
+  let fa = (await o('POST', '/api/schedule/from-availability', { week: '2026-11-02' })).data;
+  assert.equal(fa.made, 2);
+  fa = (await o('POST', '/api/schedule/from-availability', { week: '2026-11-02', staff_id: nga })).data;
+  assert.deepEqual([fa.made, fa.skipped], [0, 2]);
+  const sh = (await o('GET', '/api/schedule?week=2026-11-02')).data.shifts.filter((x) => x.staff_id === nga).map((x) => `${x.date} ${x.text}`);
+  assert.equal(sh.length, 2);
   const sum = (await o('GET', '/api/availability?week=2026-11-09')).data;
   assert.ok(sum.people.find((p) => p.name === 'Nga').fixed);
   // Bỏ lịch cố định → tuần sau không tự điền nữa
