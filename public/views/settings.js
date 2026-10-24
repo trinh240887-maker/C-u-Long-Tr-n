@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast, hm, dayLabel } from '../ui.js';
 
-const TABS = [['chung', 'Chung'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['ketnoi', 'Kết nối (mã)'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
+const TABS = [['chung', 'Chung'], ['bot', '🤖 Zalo Bot'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['ketnoi', 'Kết nối (mã)'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
 
 const DEF_SLOTS = [{ key: 'sang', label: 'Sáng', start: '06:00', end: '12:00' }, { key: 'chieu', label: 'Chiều', start: '12:00', end: '17:00' }, { key: 'toi', label: 'Tối', start: '17:00', end: '24:00' }];
 
@@ -327,23 +327,23 @@ export function Checklists({ me, teams }) {
 }
 
 // Mã kết nối dịch vụ ngoài: chủ quán dán thẳng trong app (không cần vào Railway). Lưu xong chỉ hiện 4 ký tự cuối.
-function Keys({ s, me }) {
+function Keys({ s, me, only }) {
   const [f, setF] = useState({ anthropic_api_key: '', zalo_bot_token: '' });
   const owner = me.role === 'owner';
   const save = (k, msg) => act(() => api('PUT', '/api/settings', { [k]: f[k] }), msg).then((r) => r && setF({ ...f, [k]: '' }));
   return html`<div class="stack">
     ${!owner ? html`<p class="warn-text">Chỉ chủ quán dán / đổi mã ở đây.</p>` : null}
-    <section class="card stack"><h3>📖 Đọc bill tự động (Claude)</h3>
+    ${only !== 'bot' ? html`<section class="card stack"><h3>📖 Đọc bill tự động (Claude)</h3>
       <p class="small muted">Lấy mã ở console.anthropic.com → API Keys → Create Key (bắt đầu bằng sk-ant-). Nạp tiền ở mục Billing.</p>
       <${Field} label="Mã Claude" hint=${s.anthropic_api_key ? `Đã lưu (${s.anthropic_api_key}). Dán mã mới để đổi.` : 'Chưa có: nút Đọc bill sẽ báo chưa cài.'}><input id="k-claude" type="password" autocomplete="off" disabled=${!owner} value=${f.anthropic_api_key} placeholder="sk-ant-…" onInput=${(e) => setF({ ...f, anthropic_api_key: e.target.value })} /><//>
       <div class="row end"><button class="primary" disabled=${!owner || !f.anthropic_api_key} onClick=${() => save('anthropic_api_key', 'Đã lưu mã Claude')}>Lưu mã</button></div>
-    </section>
-    <section class="card stack"><h3>🤖 Zalo Bot (gửi đơn hàng vào nhóm)</h3>
+    </section>` : null}
+    ${only !== 'claude' ? html`<section class="card stack"><h3>🤖 Zalo Bot (gửi đơn hàng vào nhóm)</h3>
       <p class="small"><b>Bước 1:</b> dán Token bot (chuỗi dài dạng 123456789:AbCd…, không phải ID bot) rồi bấm Lưu token.</p>
       <${Field} label="Token Zalo Bot" hint=${s.zalo_bot_token ? `Đã lưu (${s.zalo_bot_token}). Dán token mới để đổi.` : 'Chưa có.'}><input id="k-zbot" type="password" autocomplete="off" disabled=${!owner} value=${f.zalo_bot_token} onInput=${(e) => setF({ ...f, zalo_bot_token: e.target.value })} /><//>
       <div class="row end"><button class="primary" disabled=${!owner || !f.zalo_bot_token} onClick=${() => save('zalo_bot_token', 'Đã lưu token Zalo Bot')}>Lưu token</button></div>
       ${owner ? html`<${BotGroup} s=${s} />` : html`<p class="warn-text small">Đăng nhập bằng tài khoản chủ quán để cài bot.</p>`}
-    </section>
+    </section>` : null}
   </div>`;
 }
 
@@ -378,6 +378,7 @@ function Zalo({ s }) {
   const set = (k, v) => setF({ ...f, [k]: v });
   const hook = `${(s.public_url || location.origin)}${s.zalo_webhook_path}`;
   return html`<div class="stack">
+    <section class="card row wrap"><b class="grow">Cài Zalo Bot (gửi đơn vào nhóm) không ở đây.</b><button class="primary" onClick=${() => navigate('/cai-dat?tab=bot')}>🤖 Sang tab Zalo Bot</button></section>
     <section class="card attn"><b>Chưa thử với OA thật.</b> Phần gửi Zalo viết theo API Zalo OA v3 (tin nhắn tư vấn). Trước khi bật cho cả quán, hãy bấm "Gửi thử" và báo lại kết quả.
       Zalo chỉ cho OA gửi tin tư vấn trong một thời gian sau lần cuối nhân viên nhắn cho OA (khoảng 7 ngày), nên nút trả lời trong tin nhắn sẽ giúp giữ kết nối.</section>
     <section class="card"><h3>Kết nối</h3>
@@ -443,7 +444,8 @@ export function SettingsView({ me, query }) {
       : tab === 'dung-cu' ? html`<${Utensils} s=${st.data} />`
       : tab === 'ca' ? html`<${Templates} />`
       : tab === 'checklist' ? html`<${Checklists} me=${me} teams=${me.teams} />`
-      : tab === 'ketnoi' ? html`<${Keys} s=${st.data} me=${me} />`
+      : tab === 'ketnoi' ? html`<${Keys} s=${st.data} me=${me} only="claude" />`
+      : tab === 'bot' ? html`<${Keys} s=${st.data} me=${me} only="bot" />`
       : tab === 'zalo' ? html`<${Zalo} s=${st.data} />`
       : tab === 'saoluu' ? html`<${Backups} s=${st.data} />`
       : html`<${Audit} />`}
