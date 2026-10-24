@@ -159,6 +159,7 @@ function Overview({ me, week, onWeek }) {
   const ws = st.data?.week_start;
   const sc = useData(ws ? `/api/schedule?week=${ws}` : null);
   const staffD = useData('/api/staff');
+  const zonesAll = useData('/api/zones');
   const [team, setTeam] = useState('');
   const [add, setAdd] = useState(null);
   const [covDay, setCovDay] = useState(null);
@@ -192,7 +193,7 @@ function Overview({ me, week, onWeek }) {
     </section>` : null}
     <section class="stack">
       <div class="chips scroll-x">${d.days.map((x) => html`<button class=${`chip ${x === cov ? 'on' : ''}`} onClick=${() => setCovDay(x)}>${dayLabel(x).split(' ')[0]} ${fmtDate(x)}</button>`)}</div>
-      <${HourCoverage} key=${cov} shifts=${shifts} day=${cov} prevDay=${addDays(cov, -1)} teams=${d.teams} />
+      <${HourCoverage} key=${cov} shifts=${shifts} day=${cov} prevDay=${addDays(cov, -1)} teams=${d.teams} zones=${(zonesAll.data || []).filter((z) => z.active !== false && z.active !== 0)} />
     </section>
     <div class="row between wrap"><div class="chips"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Cả quán</button>
       ${teams.map((t) => html`<button class=${`chip ${team === String(t.id) ? 'on' : ''}`} onClick=${() => setTeam(String(t.id))}>${t.name}</button>`)}</div>
