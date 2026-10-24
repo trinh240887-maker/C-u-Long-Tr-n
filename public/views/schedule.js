@@ -97,7 +97,7 @@ export function hourlyCoverage(shifts, day, prevDay, key = 'team_id') {
   return rows;
 }
 
-function HourCoverage({ shifts, day, prevDay, teams, zones = [], positions = [] }) {
+export function HourCoverage({ shifts, day, prevDay, teams, zones = [], positions = [] }) {
   // Bấm ô → hiện tên người đang làm giờ đó (hook đặt trên cùng, trước mọi return)
   const [pick, setPick] = useState(null);
   const rows = hourlyCoverage(shifts, day, prevDay);

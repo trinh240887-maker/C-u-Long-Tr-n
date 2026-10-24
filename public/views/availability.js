@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
+import { HourCoverage } from './schedule.js';
 import { html, api, act, useData, Loading, Modal, dt, dayLabel, addDays, atLeast, navigate } from '../ui.js';
 
 const fmtDate = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
@@ -127,6 +128,7 @@ function Overview({ me, week, onWeek }) {
   const staffD = useData('/api/staff');
   const [team, setTeam] = useState('');
   const [add, setAdd] = useState(null);
+  const [covDay, setCovDay] = useState(null);
   if (!st.data || !sc.data || !staffD.data) return html`<${Loading} state=${!st.data ? st : !sc.data ? sc : staffD} />`;
   const d = st.data;
   const teams = d.teams.filter((t) => staffD.data.some((p) => p.team_id === t.id));
@@ -136,6 +138,7 @@ function Overview({ me, week, onWeek }) {
   const published = sc.data.published_at;
   const canManage = atLeast(me, 'manager') || (me.pages || []).includes('/lich#xep');
   const has = new Set(shifts.map((x) => `${x.staff_id}:${x.date}`));
+  const cov = covDay && d.days.includes(covDay) ? covDay : d.days.includes(me.today) ? me.today : d.days[0];
   const freeCells = Object.entries(d.hours || {}).filter(([k, v]) => v.length && !has.has(k)).length;
   return html`<div class="stack">
     <div class="row between wrap">
@@ -153,6 +156,10 @@ function Overview({ me, week, onWeek }) {
         <button class="primary" disabled=${!shifts.length} onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã duyệt: gửi chủ xem + gửi lịch cho nhân viên')}>✅ ${published ? 'Duyệt lại' : 'Duyệt lịch tuần'} (${shifts.length} ca)</button>
       </div>
     </section>` : null}
+    <section class="stack">
+      <div class="chips scroll-x">${d.days.map((x) => html`<button class=${`chip ${x === cov ? 'on' : ''}`} onClick=${() => setCovDay(x)}>${dayLabel(x).split(' ')[0]} ${fmtDate(x)}</button>`)}</div>
+      <${HourCoverage} key=${cov} shifts=${shifts} day=${cov} prevDay=${addDays(cov, -1)} teams=${d.teams} />
+    </section>
     <div class="row between wrap"><div class="chips"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Cả quán</button>
       ${teams.map((t) => html`<button class=${`chip ${team === String(t.id) ? 'on' : ''}`} onClick=${() => setTeam(String(t.id))}>${t.name}</button>`)}</div>
       <a class="btn small" href=${`/api/schedule.xlsx?week=${d.week_start}`} download>⬇ Tải Excel</a></div>
