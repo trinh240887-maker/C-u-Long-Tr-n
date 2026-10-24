@@ -720,3 +720,6 @@ table.wk .wk-name { white-space: normal; overflow: hidden; }
 .role-tag { color: #b45309; font-weight: 600; }
 .sec-tabs .chip { flex: 0 0 auto; }
 .rules-box { background: #fef2f2; color: #991b1b; border-radius: 8px; padding: 8px 10px; font-size: 14px; margin: 6px 0; white-space: pre-line; }
+.tpl-row2 { display: grid; gap: 2px; text-align: left; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.tpl-row2 b { font-size: 16px; }
+.tpl-row2.off { opacity: .55; }

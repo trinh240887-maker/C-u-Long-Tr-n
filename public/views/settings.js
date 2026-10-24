@@ -318,23 +318,47 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
   <//>`;
 }
 
+// Tạo & sửa checklist theo mục (chủ quán 24/10): bấm tab Phục vụ → thấy checklist Phục vụ (Mở ca / Đóng ca) → "+ Thêm" tạo luôn trong mục đó
+const STD_SECTIONS = ['Bếp', 'Bar', 'Phục vụ', 'Thu ngân', 'Tiếp thực', 'Tổng khu A', 'Tổng khu B', 'Tổng khu C', 'Khu vực vệ sinh', 'Khu vực rửa chén'];
 export function Checklists({ me, teams }) {
   const st = useData('/api/checklist-templates?all=1');
   const shifts = useData('/api/shift-templates');
+  const zonesD = useData('/api/zones');
   const [edit, setEdit] = useState(null);
+  const [sec, setSec] = useState('');
   if (!st.data) return html`<${Loading} state=${st} />`;
   const own = me && !atLeast(me, 'shift_lead');
   const list = own ? st.data.filter((c) => c.team_id === me.team?.id) : st.data;
   const myTeams = own ? teams.filter((t) => t.id === me.team?.id) : teams;
-  return html`<section class="card stack">
+  const sections = own ? [...new Set(list.map((c) => c.section_label))] : [...new Set([...STD_SECTIONS, ...list.map((c) => c.section_label)])];
+  const cur = sections.includes(sec) ? sec : sections[0] || 'Phục vụ';
+  const inSec = list.filter((c) => c.section_label === cur);
+  const norm = (x) => (x || '').toLowerCase().normalize('NFC');
+  // Thêm mới trong mục: tự chọn tổ / khu theo tên mục
+  const blank = (phase) => {
+    const zone = (zonesD.data || []).find((z) => norm(cur) === norm(`tổng ${z.name}`) || norm(cur) === norm(`tổng khu ${z.name}`));
+    const team = myTeams.find((t) => norm(t.name) === norm(cur)) || (zone ? myTeams.find((t) => /phục vụ/i.test(t.name)) : null) || myTeams.find((t) => norm(t.name).startsWith(norm(cur)));
+    return { phase, section: STD_SECTIONS.includes(cur) || !team ? cur : '', team_id: team?.id ?? (own ? me.team?.id : ''), zone_id: zone?.id ?? '' };
+  };
+  const group = (phase, label) => {
+    const rows = inSec.filter((c) => (phase === 'close' ? c.phase === 'close' : c.phase !== 'close'));
+    return html`<section class="card stack">
+      <div class="row between"><h3>${label} <small class="muted">${rows.length} checklist</small></h3>
+        <button class="primary" onClick=${() => setEdit(blank(phase))}>+ Thêm</button></div>
+      ${rows.length ? rows.map((c) => html`<button class=${`tpl-row2 ${c.active ? '' : 'off'}`} onClick=${() => setEdit(c)}>
+        <b>${c.title}${c.active ? '' : ' (đang tắt)'}</b>
+        <small class="muted">${c.items.length} việc${c.doer_name ? ` · 👤 ${c.doer_name}` : ''}${c.zone_name ? ` · 📍 ${c.zone_name}` : ''}${c.position_name ? ` · ${c.position_name}` : ''}${c.shift_name ? ` · ${c.shift_name}` : ''}</small></button>`)
+        : html`<p class="muted small">Chưa có. Bấm + Thêm.</p>`}
+    </section>`;
+  };
+  return html`<div class="stack">
     ${own ? html`<p class="small"><b>Bạn là tổ trưởng ${me.team?.name || ''}:</b> tạo và sửa checklist của tổ mình.</p>` : null}
-    <p class="muted small">Sửa, thêm việc dần theo cách làm của quán. Ảnh mẫu (khu / từng việc) thêm ngay trên màn Checklist hằng ngày: bấm "+ Thêm ảnh mẫu". Mỗi ngày mỗi checklist có một lượt mới.
-      Muốn ca sáng và ca chiều có việc riêng: tạo 2 checklist, chọn "Áp dụng cho ca" tương ứng (loại ca tạo ở tab Loại ca).</p>
-    ${list.map((c) => html`<button class=${`tpl-row ${c.active ? '' : 'off'}`} onClick=${() => setEdit(c)}>
-      <b class="grow">${c.title}</b><span class="muted">${c.team_name || 'Cả quán'}${c.position_name ? ` · ${c.position_name}` : ''}${c.zone_name ? ` · ${c.zone_name}` : ''} · ${c.shift_name || 'Mọi ca'} · ${PHASE_LABEL[c.phase]} · ${c.items.length} việc${c.doer_name ? ` · 👤 ${c.doer_name}` : ''} · 🗂 ${c.section_label}</span></button>`)}
-    <div><button class="primary" onClick=${() => setEdit({})}>+ Thêm checklist</button></div>
+    <div class="chips scroll-x sec-tabs">${sections.map((x) => html`<button class=${`chip big ${x === cur ? 'on' : ''}`} onClick=${() => setSec(x)}>${x} <small>${list.filter((c) => c.section_label === x).length}</small></button>`)}</div>
+    ${group('open', 'Mở ca')}
+    ${group('close', 'Đóng ca')}
+    <p class="muted small">Ảnh mẫu (khu / từng việc) thêm ngay trên màn Checklist hằng ngày: bấm "+ Thêm ảnh mẫu".</p>
     ${edit ? html`<${ChecklistForm} init=${own && !edit.id ? { team_id: me.team?.id, ...edit } : edit} teams=${myTeams} allowAll=${!own} shifts=${(shifts.data || []).filter((t) => t.active)} onClose=${() => setEdit(null)} />` : null}
-  </section>`;
+  </div>`;
 }
 
 // Mã kết nối dịch vụ ngoài: chủ quán dán thẳng trong app (không cần vào Railway). Lưu xong chỉ hiện 4 ký tự cuối.
