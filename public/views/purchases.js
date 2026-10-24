@@ -12,25 +12,25 @@ function Photos({ ids }) {
     ${view ? html`<div class="viewer" onClick=${() => setView(null)}><img src=${`/api/purchases/photo/${view}`} alt="Ảnh bill" /></div>` : null}</div>`;
 }
 
-function PhotoPicker({ photos, setPhotos }) {
+function PhotoPicker({ photos, setPhotos, first = '📷 Chụp bill NCC (bắt buộc, thấy rõ chữ ký người nhận)', more = '📷 Chụp thêm trang bill', onAdded = null }) {
   const [busy, setBusy] = useState(false);
   const add = async (e) => {
     const files = [...(e.target.files || [])];
     e.target.value = '';
     setBusy(true);
-    try { const out = []; for (const f of files.slice(0, 4 - photos.length)) out.push(await compressImage(f, 1600)); setPhotos([...photos, ...out]); } catch (err) { act(() => Promise.reject(err)); } finally { setBusy(false); }
+    try { const out = []; for (const f of files.slice(0, 4 - photos.length)) out.push(await compressImage(f, 1600)); const next = [...photos, ...out]; setPhotos(next); onAdded?.(next); } catch (err) { act(() => Promise.reject(err)); } finally { setBusy(false); }
   };
   return html`<div class="stack">
-    <div class="thumbs">${photos.map((p, i) => html`<span class="thumb"><img src=${p} alt="Ảnh bill" /><button class="x" aria-label="Xoá ảnh" onClick=${() => setPhotos(photos.filter((_, k) => k !== i))}>✕</button></span>`)}</div>
+    ${photos.length ? html`<div class="thumbs">${photos.map((p, i) => html`<span class="thumb"><img src=${p} alt="Ảnh" /><button class="x" aria-label="Xoá ảnh" onClick=${() => setPhotos(photos.filter((_, k) => k !== i))}>✕</button></span>`)}</div>` : null}
     ${photos.length < 4 ? html`<label class=${`btn-photo ${photos.length ? '' : 'need'}`}><input type="file" accept="image/*" capture="environment" multiple hidden onChange=${add} />
-      ${busy ? 'Đang xử lý ảnh…' : photos.length ? '📷 Chụp thêm trang bill' : '📷 Chụp bill NCC (bắt buộc, thấy rõ chữ ký người nhận)'}</label>` : null}
+      ${busy ? 'Đang xử lý ảnh…' : photos.length ? more : first}</label>` : null}
   </div>`;
 }
 
 function Lines({ lines, setLines, ingredients }) {
   const set = (i, k, val) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: val } : l)));
   return html`<div class="stack">
-    ${lines.map((l, i) => html`<div class="pline">
+    ${lines.map((l, i) => html`<div class=${`pline ${l.warn ? "pline-warn" : ""}`}>
       ${l.ingredient_id ? html`<b>${l.name}</b>` : html`<input placeholder="Tên hàng (vd Cải thìa)" value=${l.name} onInput=${(e) => set(i, 'name', e.target.value)} />`}
       <div class="row">
         <label>SL <input inputmode="decimal" style="width:5em" value=${l.qty} onInput=${(e) => set(i, 'qty', e.target.value)} /> ${l.unit || ''}</label>
@@ -50,28 +50,31 @@ function Lines({ lines, setLines, ingredients }) {
   </div>`;
 }
 
+// Nhập kho 3 bước: 📷 bill + 📷 hàng → app đọc bill tự điền → ✓ Xác nhận (cộng kho ngay, thu ngân duyệt công nợ sau)
 function Receive({ me, meta, advances, onDone }) {
   const stores = meta.stores.filter((s) => s.can_count);
   const pos = useData('/api/stock/po?status=approved');
-  const [f, setF] = useState({ store_id: stores[0]?.id || '', po_id: '', supplier_id: '', supplier_name: '', signer_name: '', total: '', paid_method: '', advance_id: '', note: '' });
+  const [f, setF] = useState({ store_id: stores[0]?.id || '', po_id: '', supplier_id: '', supplier_name: '', signer_name: me.name, total: '', paid_method: '', advance_id: '', note: '' });
   const [lines, setLines] = useState([]);
   const [photos, setPhotos] = useState([]);
+  const [goods, setGoods] = useState([]);
+  const [more, setMore] = useState(false);
   const set = (k, val) => setF({ ...f, [k]: val });
-  // 📖 Đọc bill: AI đọc ảnh → điền nơi bán, dòng hàng, tổng, người ký; nhân viên kiểm lại rồi mới lưu
   const [reading, setReading] = useState(false);
   const [readNote, setReadNote] = useState('');
-  const readBill = async () => {
+  const readBill = async (pics = photos) => {
     setReading(true); setReadNote('');
     try {
-      const r = await api('POST', '/api/purchases/read-bill', { photos });
+      const r = await api('POST', '/api/purchases/read-bill', { photos: pics });
       const got = r.lines.map((l) => ({ ingredient_id: l.ingredient_id || undefined, name: l.name, unit: l.unit, qty: String(l.qty), price: String(l.price), ai: true, warn: !l.ingredient_id ? 'Không có trong kho: chọn hàng hoặc để là hàng khác' : l.unit_mismatch ? `Bill ghi "${l.bill_unit}", kho tính "${l.unit}": đổi số lượng cho đúng` : '' }));
-      // Theo đơn đặt: giữ dòng của đơn, cập nhật số đọc được; mua lẻ: thay bằng dòng đọc được
-      setLines(f.po_id ? lines.map((l) => { const g = got.find((x) => x.ingredient_id && x.ingredient_id === l.ingredient_id); return g ? { ...l, qty: g.qty, price: g.price, ai: true, warn: g.warn } : l; }).concat(got.filter((g) => !lines.some((l) => l.ingredient_id && l.ingredient_id === g.ingredient_id))) : got);
-      setF({ ...f, ...(f.po_id ? {} : { supplier_id: r.supplier_id ? String(r.supplier_id) : '', supplier_name: r.supplier_id ? '' : r.supplier_name }), total: r.total ? String(r.total) : f.total, signer_name: f.signer_name || r.signer_name });
+      setLines((cur) => (f.po_id ? cur.map((l) => { const g = got.find((x) => x.ingredient_id && x.ingredient_id === l.ingredient_id); return g ? { ...l, qty: g.qty, price: g.price, ai: true, warn: g.warn } : l; }).concat(got.filter((g) => !cur.some((l) => l.ingredient_id && l.ingredient_id === g.ingredient_id))) : got));
+      setF((x) => ({ ...x, ...(x.po_id ? {} : { supplier_id: r.supplier_id ? String(r.supplier_id) : '', supplier_name: r.supplier_id ? '' : r.supplier_name }), total: r.total ? String(r.total) : x.total }));
       setReadNote(r.note);
-      toast(`Đã đọc ${got.length} dòng: kiểm lại số lượng, đơn giá trước khi lưu`);
+      toast(`Đã đọc ${got.length} dòng: xem lại số lượng, giá rồi bấm Xác nhận`);
     } catch (e) { act(() => Promise.reject(e)); } finally { setReading(false); }
   };
+  // Chụp bill xong tự đọc luôn (khi đã cài mã Claude và chưa có dòng nào)
+  const onBill = (next) => { if (meta.bill_reader && !lines.length && !reading) readBill(next); };
   const myAdv = (advances.data || []).filter((a) => a.status === 'open' && a.staff_id === me.id);
   const usePo = (id) => {
     const po = (pos.data || []).find((p) => p.id === Number(id));
@@ -79,41 +82,54 @@ function Receive({ me, meta, advances, onDone }) {
     setLines(po ? po.lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.purchase_unit || l.unit, qty: String(l.qty), price: String(l.price), ordered: l.qty })) : []);
   };
   const sum = lines.reduce((n, l) => n + Math.round(num(l.qty) * num(l.price)), 0);
+  const warns = lines.filter((l) => l.warn).length;
+  const ready = photos.length && goods.length && lines.length && (f.supplier_id || f.supplier_name || f.po_id) && f.signer_name;
   const save = async () => {
     const r = await act(() => api('POST', '/api/purchases', {
       ...f, store_id: Number(f.store_id), po_id: f.po_id ? Number(f.po_id) : undefined, supplier_id: f.supplier_id ? Number(f.supplier_id) : undefined,
       advance_id: f.advance_id ? Number(f.advance_id) : undefined, paid_method: f.advance_id ? undefined : f.paid_method,
-      total: f.total === '' ? undefined : num(f.total), photos,
+      total: f.total === '' ? undefined : num(f.total), photos, goods_photos: goods,
       lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: num(l.qty), price: num(l.price) })),
-    }), 'Đã gửi bill cho thu ngân duyệt');
-    if (r) { setLines([]); setPhotos([]); setF({ ...f, po_id: '', total: '', signer_name: '', note: '', advance_id: '', paid_method: '' }); onDone(); }
+    }), 'Đã nhập kho. Thu ngân sẽ duyệt công nợ');
+    if (r) { setLines([]); setPhotos([]); setGoods([]); setF({ ...f, po_id: '', supplier_id: '', supplier_name: '', total: '', signer_name: me.name, note: '', advance_id: '', paid_method: '' }); onDone(); }
   };
   if (!stores.length) return html`<div class="empty">Bạn chưa phụ trách khu nào để nhận hàng.</div>`;
   const myPos = (pos.data || []).filter((p) => stores.some((s) => s.id === p.store_id));
-  return html`<section class="card stack">
-    <p class="small muted">Nhận hàng: cân / đếm thực tế, nhập số thực nhận, <b>chụp bill có chữ ký người nhận</b>. Hàng vào kho ngay; thu ngân duyệt xong mới tính công nợ.</p>
-    ${myPos.length ? html`<${Field} label="Theo đơn đặt hàng đã duyệt"><select value=${f.po_id} onChange=${(e) => usePo(e.target.value)}>
-      <option value="">Không theo đơn (mua lẻ)</option>${myPos.map((p) => html`<option value=${p.id}>#${p.id} · ${p.supplier_name || 'Chưa có NCC'} · ${p.store_name} · ${money(p.total)}</option>`)}</select><//>` : null}
-    ${!f.po_id ? html`
-      <${Field} label="Khu nhận"><select value=${f.store_id} onChange=${(e) => set('store_id', e.target.value)}>${stores.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
-      <${Field} label="Nhà cung cấp"><select value=${f.supplier_id} onChange=${(e) => set('supplier_id', e.target.value)}>
-        <option value="">Nơi khác (ghi tên) / đi chợ</option>${meta.suppliers.filter((s) => s.active).map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
-      ${!f.supplier_id ? html`<${Field} label="Tên nơi bán"><input value=${f.supplier_name} placeholder="vd Vựa rau Bé Thùy" onInput=${(e) => set('supplier_name', e.target.value)} /><//>` : null}` : null}
-    <b>Hàng nhận</b>
-    <${Lines} lines=${lines} setLines=${setLines} ingredients=${meta.ingredients} />
-    <${Field} label="Tổng tiền ghi trên bill" hint=${`Cộng các dòng: ${money(sum)}. Để trống = lấy số cộng.`}><input inputmode="numeric" value=${f.total} placeholder=${String(sum || '')} onInput=${(e) => set('total', e.target.value)} /><//>
-    <${Field} label="Tên người ký nhận trên bill"><input value=${f.signer_name} placeholder="Họ tên như chữ ký trên bill" onInput=${(e) => set('signer_name', e.target.value)} /><//>
-    <${PhotoPicker} photos=${photos} setPhotos=${setPhotos} />
-    ${photos.length ? (meta.bill_reader ? html`<button class="primary big" disabled=${reading} onClick=${readBill}>${reading ? '📖 Đang đọc bill… (10–40 giây)' : '📖 Đọc bill: tự điền hàng, số lượng, giá'}</button>`
-      : html`<p class="small muted">📖 Đọc bill tự động: chưa cài (chủ quán dán mã Claude ở Cài đặt → Kết nối).</p>`) : null}
-    ${readNote ? html`<p class="warn-text small">⚠ Máy đọc ghi chú: ${readNote}</p>` : null}
-    <${Field} label="Thanh toán"><div class="chips">
-      ${[['', 'Ghi nợ'], ['transfer', 'Đã CK tại chỗ'], ...(meta.is_cashier ? [['cash', 'Trả tiền mặt từ két']] : [])].map(([k, l]) => html`<button class=${`chip ${!f.advance_id && f.paid_method === k ? 'on' : ''}`} onClick=${() => setF({ ...f, paid_method: k, advance_id: '' })}>${l}</button>`)}
-      ${myAdv.map((a) => html`<button class=${`chip ${Number(f.advance_id) === a.id ? 'on' : ''}`} onClick=${() => setF({ ...f, advance_id: String(a.id), paid_method: '' })}>Tiền tạm ứng ${money(a.amount)} (còn ${money(a.should_return)})</button>`)}
-    </div><//>
-    <${Field} label="Ghi chú"><input value=${f.note} onInput=${(e) => set('note', e.target.value)} /><//>
-    <button class="primary" disabled=${!photos.length || !f.signer_name} onClick=${save}>Lưu & gửi thu ngân duyệt</button>
-  </section>`;
+  return html`<div class="stack">
+    <section class="card stack"><h3>1 · Chụp ảnh</h3>
+      <${PhotoPicker} photos=${photos} setPhotos=${setPhotos} onAdded=${onBill} first="📷 Chụp BILL (bắt buộc)" more="📷 Thêm trang bill" />
+      <${PhotoPicker} photos=${goods} setPhotos=${setGoods} first="📷 Chụp HÀNG thực nhận (bắt buộc)" more="📷 Thêm ảnh hàng" />
+    </section>
+    <section class="card stack"><h3>2 · Hàng nhận ${lines.length ? html`<small class="muted">${lines.length} dòng · ${money(sum)}</small>` : null}</h3>
+      ${reading ? html`<p class="hint card">📖 Đang đọc bill… (10–40 giây)</p>` : null}
+      ${!meta.bill_reader ? html`<p class="small muted">Đọc bill tự động chưa bật (chủ quán dán mã Claude ở Cài đặt → Kết nối). Thêm hàng bằng tay bên dưới.</p>`
+        : photos.length && !reading ? html`<button class="small" onClick=${() => readBill()}>📖 Đọc lại bill</button>` : null}
+      ${readNote ? html`<p class="warn-text small">⚠ ${readNote}</p>` : null}
+      ${warns ? html`<p class="warn-text small">⚠ ${warns} dòng cần xem lại (tô vàng)</p>` : null}
+      ${myPos.length ? html`<${Field} label="Theo đơn đặt hàng đã duyệt"><select value=${f.po_id} onChange=${(e) => usePo(e.target.value)}>
+        <option value="">Không theo đơn (mua lẻ)</option>${myPos.map((p) => html`<option value=${p.id}>#${p.id} · ${p.supplier_name || 'Chưa có NCC'} · ${money(p.total)}</option>`)}</select><//>` : null}
+      ${!f.po_id ? html`<${Field} label="Nhà cung cấp"><select value=${f.supplier_id} onChange=${(e) => set('supplier_id', e.target.value)}>
+          <option value="">Nơi khác (ghi tên) / đi chợ</option>${meta.suppliers.filter((s) => s.active).map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
+        ${!f.supplier_id ? html`<${Field} label="Tên nơi bán"><input value=${f.supplier_name} placeholder="vd Vựa rau Bé Thùy" onInput=${(e) => set('supplier_name', e.target.value)} /><//>` : null}` : null}
+      <${Lines} lines=${lines} setLines=${setLines} ingredients=${meta.ingredients} />
+    </section>
+    <section class="card stack">
+      <button class="link-btn" onClick=${() => setMore(!more)}><b>${more ? '▾' : '▸'} Thêm</b> <small class="muted">(khu nhận, tổng bill, người ký, thanh toán, ghi chú)</small></button>
+      ${more ? html`
+        ${stores.length > 1 && !f.po_id ? html`<${Field} label="Khu nhận"><select value=${f.store_id} onChange=${(e) => set('store_id', e.target.value)}>${stores.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>` : null}
+        <${Field} label="Tổng tiền ghi trên bill" hint=${`Cộng các dòng: ${money(sum)}. Để trống = lấy số cộng.`}><input inputmode="numeric" value=${f.total} placeholder=${String(sum || '')} onInput=${(e) => set('total', e.target.value)} /><//>
+        <${Field} label="Người ký nhận trên bill"><input value=${f.signer_name} onInput=${(e) => set('signer_name', e.target.value)} /><//>
+        <${Field} label="Thanh toán"><div class="chips">
+          ${[['', 'Ghi nợ'], ['transfer', 'Đã CK tại chỗ'], ...(meta.is_cashier ? [['cash', 'Trả tiền mặt từ két']] : [])].map(([k, l]) => html`<button class=${`chip ${!f.advance_id && f.paid_method === k ? 'on' : ''}`} onClick=${() => setF({ ...f, paid_method: k, advance_id: '' })}>${l}</button>`)}
+          ${myAdv.map((a) => html`<button class=${`chip ${Number(f.advance_id) === a.id ? 'on' : ''}`} onClick=${() => setF({ ...f, advance_id: String(a.id), paid_method: '' })}>Tiền tạm ứng ${money(a.amount)} (còn ${money(a.should_return)})</button>`)}
+        </div><//>
+        <${Field} label="Ghi chú"><input value=${f.note} onInput=${(e) => set('note', e.target.value)} /><//>` : null}
+    </section>
+    <div class="sum-bar stack">
+      ${!ready ? html`<small class="muted">${!photos.length ? 'Thiếu ảnh bill' : !goods.length ? 'Thiếu ảnh hàng' : !lines.length ? 'Chưa có dòng hàng' : 'Chọn nhà cung cấp'}</small>` : null}
+      <button class="primary big" disabled=${!ready || reading} onClick=${save}>✓ Xác nhận nhập kho${lines.length ? ` · ${money(f.total === '' ? sum : num(f.total))}` : ''}</button>
+    </div>
+  </div>`;
 }
 
 function BillCard({ b, canApprove, me }) {
@@ -125,6 +141,7 @@ function BillCard({ b, canApprove, me }) {
       · ${b.paid_method === 'cash' ? `trả TM ${money(b.paid_now)}` : b.paid_method === 'transfer' ? `đã CK ${money(b.paid_now)}` : b.paid_method === 'advance' ? 'tiền tạm ứng' : 'ghi nợ'}${b.po_id ? ` · đơn #${b.po_id}` : ''}</small>
     ${b.flags.length ? html`<ul class="small danger-text">${b.flags.map((x) => html`<li>${x}</li>`)}</ul>` : null}
     <${Photos} ids=${b.photos} />
+    ${b.goods_photos?.length ? html`<small class="muted">Ảnh hàng nhận:</small><${Photos} ids=${b.goods_photos} />` : null}
     <details><summary class="small">${b.lines.length} dòng hàng · cộng ${money(b.lines_total)}</summary>
       <table class="list small"><tbody>${b.lines.map((l) => html`<tr><td>${l.name}</td><td class="r">${l.qty} ${l.unit}</td><td class="r">${money(l.price)}</td><td class="r">${money(l.amount)}</td></tr>`)}</tbody></table></details>
     ${b.status === 'returned' ? html`<p class="small danger-text">Trả lại: ${b.return_reason} (${b.returned_by_name})</p>` : null}
@@ -240,7 +257,7 @@ export function PurchasesView({ me, query }) {
   const meta = { ...meta0.data, is_cashier: isCashier, bill_reader: !!L.bill_reader };
   const waiting = L.bills.filter((b) => b.status === 'received');
   const mineReturned = L.bills.filter((b) => b.status === 'returned' && b.received_by === me.id);
-  const tabs = [['nhan', 'Nhận hàng'], ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ['lichsu', 'Bill đã nhận'], ...(isCashier ? [['congno', 'Công nợ NCC']] : []), ['tamung', 'Tạm ứng']];
+  const tabs = [['nhan', '📥 Nhập kho'], ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ['lichsu', 'Bill đã nhận'], ...(isCashier ? [['congno', 'Công nợ NCC']] : []), ['tamung', 'Tạm ứng']];
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/mua-hang?tab=${k}`)}>${l}</button>`)}</div>
     ${mineReturned.length && tab !== 'lichsu' ? html`<section class="card warn-card small">${mineReturned.length} bill bạn nhận bị thu ngân trả lại. <button class="small" onClick=${() => navigate('/mua-hang?tab=lichsu')}>Xem & sửa</button></section>` : null}

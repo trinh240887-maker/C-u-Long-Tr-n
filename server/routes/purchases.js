@@ -48,6 +48,8 @@ export default function (r, ctx) {
   CREATE INDEX IF NOT EXISTS pb_supplier ON purchase_bills (supplier_id, status);
   `);
 
+  // Ảnh hàng thực nhận (chủ quán 24/10): cùng bảng ảnh, phân biệt bằng kind
+  try { db.exec("ALTER TABLE purchase_bill_photos ADD COLUMN kind TEXT NOT NULL DEFAULT 'bill'"); } catch { /* đã có */ }
   const photoDir = path.join(ctx.photoDir || path.join(os.tmpdir(), 'quanly-photos'), 'hoadon-mua');
   const vnd = (n) => `${Number(n || 0).toLocaleString('vi-VN')}đ`;
   const money = (x, name, { min = 0 } = {}) => v.int(Number(String(x ?? '').replace(/[.,\s]/g, '') || 0), { min, max: 2_000_000_000, name });
@@ -58,7 +60,7 @@ export default function (r, ctx) {
   const approveOver = () => Number(ctx.setting('supplier_pay_approve_over') || 5_000_000);
   const jumpPct = () => Number(ctx.setting('price_jump_pct') || 10);
 
-  function savePhoto(billId, data, me) {
+  function savePhoto(billId, data, me, kind = 'bill') {
     const m = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(data || ''));
     if (!m) fail(400, 'Ảnh bill không hợp lệ');
     const buf = Buffer.from(m[2], 'base64');
@@ -67,7 +69,7 @@ export default function (r, ctx) {
     const file = `${billId}-${crypto.randomBytes(6).toString('hex')}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
     fs.mkdirSync(photoDir, { recursive: true });
     fs.writeFileSync(path.join(photoDir, file), buf);
-    db.prepare('INSERT INTO purchase_bill_photos (bill_id, file, created_by, created_at) VALUES (?, ?, ?, ?)').run(billId, file, me.id, ctx.now());
+    db.prepare('INSERT INTO purchase_bill_photos (bill_id, file, created_by, created_at, kind) VALUES (?, ?, ?, ?, ?)').run(billId, file, me.id, ctx.now(), kind);
   }
 
   function readLines(list) {
@@ -91,7 +93,8 @@ export default function (r, ctx) {
     return {
       ...b, supplier_name: b.sup_name || b.supplier_name, flags: JSON.parse(b.flags || '[]'),
       lines: db.prepare('SELECT * FROM purchase_bill_lines WHERE bill_id = ? ORDER BY id').all(b.id),
-      photos: db.prepare('SELECT id, created_at FROM purchase_bill_photos WHERE bill_id = ? ORDER BY id').all(b.id).map((p) => p.id),
+      photos: db.prepare("SELECT id FROM purchase_bill_photos WHERE bill_id = ? AND kind = 'bill' ORDER BY id").all(b.id).map((p) => p.id),
+      goods_photos: db.prepare("SELECT id FROM purchase_bill_photos WHERE bill_id = ? AND kind = 'goods' ORDER BY id").all(b.id).map((p) => p.id),
     };
   }
 
@@ -135,6 +138,7 @@ export default function (r, ctx) {
     const signer = v.text(body.signer_name, { name: 'Tên người ký nhận trên bill', required: true, max: 60 });
     const photos = Array.isArray(body.photos) ? body.photos.slice(0, 4) : [];
     if (!photos.length) fail(400, 'Chụp ảnh bill NCC (có chữ ký người nhận) trước khi lưu');
+    const goodsPhotos = Array.isArray(body.goods_photos) ? body.goods_photos.slice(0, 4) : [];
     let lines = readLines(body.lines);
     if (po && !lines.length) lines = po.lines.map((pl) => ({ ingredient_id: pl.ingredient_id, name: pl.name, qty: pl.qty, unit: pl.purchase_unit || pl.unit, price: pl.price, amount: Math.round(pl.qty * pl.price), raw: {} }));
     if (po) {
@@ -164,6 +168,7 @@ export default function (r, ctx) {
       const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount) VALUES (?, ?, ?, ?, ?, ?, ?)');
       for (const l of lines) add.run(id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount);
       for (const ph of photos) savePhoto(id, ph, me);
+      for (const ph of goodsPhotos) savePhoto(id, ph, me, 'goods');
       return id;
     });
     const b = load(id);

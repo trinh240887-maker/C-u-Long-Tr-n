@@ -59,11 +59,12 @@ test('hoá đơn mua: khu nhận + chụp bill + ký nhận → thu ngân (khác
   assert.equal((await mai('POST', '/api/purchases', { ...body, photos: [IMG] })).status, 403);
   // Nhân viên khu không được trả tiền mặt tại chỗ
   assert.equal((await tai('POST', '/api/purchases', { ...body, photos: [IMG], paid_method: 'cash' })).status, 403);
-  const r1 = await tai('POST', '/api/purchases', { ...body, photos: [IMG] });
+  const r1 = await tai('POST', '/api/purchases', { ...body, photos: [IMG], goods_photos: [IMG, IMG] });
   assert.equal(r1.status, 200, JSON.stringify(r1.data));
   const b1 = r1.data;
   assert.equal(b1.status, 'received');
   assert.equal(b1.photos.length, 1);
+  assert.equal(b1.goods_photos.length, 2); // ảnh hàng thực nhận lưu riêng với ảnh bill
   // Hàng vào kho ngay; cảnh báo: giá bò tăng 7.7% (dưới 10% → không báo), tổng bill khác cộng dòng (4.000.000 vs 4.000.000 = khớp)
   assert.equal(stockOf(bo, lau.id), 10_000);
   assert.equal(b1.lines_total, 10 * 280000 + 5 * 240000);

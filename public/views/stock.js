@@ -391,6 +391,7 @@ export function StockView({ me, query }) {
   const tabs = TABS.filter(([, , role]) => !role || atLeast(me, role));
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/kho?tab=${k}`)}>${l}</button>`)}</div>
+    <button class="primary big" onClick=${() => navigate('/mua-hang?tab=nhan')}>📥 Nhập kho: chụp bill + hàng</button>
     ${!meta.data ? html`<${Loading} state=${meta} />`
       : tab === 'kiem' ? html`<${Count} meta=${meta.data} />`
       : tab === 'linh' ? html`<${Transfers} me=${me} meta=${meta.data} />`
