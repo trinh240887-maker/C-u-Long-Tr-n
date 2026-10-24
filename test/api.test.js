@@ -149,7 +149,9 @@ test('luồng nhân sự: tạo người, xếp ca, chấm công qua đêm, xin 
   const notes = (await lanC.get('/api/notifications')).data;
   assert.ok(notes.some((n) => /Đã duyệt nghỉ/.test(n.title)));
 
-  // Checklist: Lan (Bar) chỉ thấy checklist của Bar
+  // Checklist: Lan (Bar) chỉ thấy checklist của Bar — chỉ người có ca hôm nay mới thấy checklist
+  assert.equal((await lanC.get('/api/checklists')).data.runs.length, 0);
+  await owner.post('/api/shifts', { staff_id: lan, date: '2026-10-21', team_id: team['Bar'], label: 'Ca', segments: [{ start: '08:00', end: '12:00' }] });
   const cl = (await lanC.get('/api/checklists')).data;
   assert.ok(cl.runs.length > 0);
   assert.ok(cl.runs.every((x) => x.team_name === 'Bar'));

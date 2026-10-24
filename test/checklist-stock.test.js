@@ -63,6 +63,7 @@ test('checklist cân tồn: nối kho, tự kiểm kho theo định lượng, b�
   const w = client();
   await w('POST', '/api/login', { pin: '736501' });
   await w('POST', '/api/me/pin', { current_pin: '736501', new_pin: '836501' });
+  await o('POST', '/api/shifts', { staff_id: st, date: D, team_id: lauTeam.id, label: 'Ca', segments: [{ start: '16:00', end: '23:00' }] });
   now = clock.toEpoch(D, 22 * 60);
   const day = (await w('GET', `/api/checklists?date=${D}`)).data;
   const run = (day.runs || day).find((x) => x.template_id === tpl);

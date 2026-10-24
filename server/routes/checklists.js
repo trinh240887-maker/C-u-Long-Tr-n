@@ -158,9 +158,11 @@ export default function (r, ctx) {
       if (a.template_id) shifts.add(a.template_id);
       else if (byName.has(a.label)) shifts.add(byName.get(a.label));
     }
-    return { teams, shifts, positions, zones };
+    // Không có ca hôm nay và chưa chấm công → không có checklist (chủ quán 24/10: chỉ người đi làm mới thấy việc)
+    const off = !rows.length && !db.prepare('SELECT 1 FROM attendance WHERE staff_id = ? AND date = ?').get(me.id, date);
+    return { teams, shifts, positions, zones, off };
   }
-  const inScope = (scope, t) => !scope || ((t.team_id === null || scope.teams.has(t.team_id))
+  const inScope = (scope, t) => !scope || (!scope.off && (t.team_id === null || scope.teams.has(t.team_id))
     && (t.shift_template_id === null || scope.shifts.has(t.shift_template_id))
     && (!t.position_id || scope.positions.has(t.position_id))
     && (!t.zone_id || scope.zones.has(t.zone_id)));

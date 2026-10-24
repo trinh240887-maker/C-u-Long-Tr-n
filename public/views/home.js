@@ -119,10 +119,10 @@ export function Home({ me }) {
     </section>
 
     <section class="card">
-      <div class="row between"><h3>Ca của tôi 7 ngày tới</h3><${Link} href="/lich">Lịch cả quán<//></div>
+      <div class="row between"><h3>Ca của tôi 7 ngày tới</h3><${Link} href="/lich">${me.role === 'staff' ? 'Xem cả tuần' : 'Lịch cả quán'}<//></div>
       ${shifts.data?.length ? shifts.data.map((s) => html`<div class="shift-line">
           <span class="date">${dayLabel(s.date)}</span>
-          <span class="grow"><b>${s.text}</b>${s.label ? html` <small class="muted">${s.label}</small>` : null}${s.position_name ? html` <small class="pos-tag">▸ ${s.position_name}</small>` : null}${s.zone_name ? html`<br /><small class="zone-tag">📍 ${s.zone_name}${s.tables_text ? ` · bàn ${s.tables_text}` : ' · cả khu'}</small>` : null}${s.team_name ? html`<br /><small class="muted">${s.team_name}${s.note ? ` · ${s.note}` : ''}</small>` : null}</span>
+          <span class="grow"><b>${s.text}</b>${s.label ? html` <small class="muted">${s.label}</small>` : null}${s.position_name ? html` <small class="pos-tag">▸ ${s.position_name}</small>` : null}${s.zone_name ? html`<br /><small class="zone-tag">📍 ${s.zone_name}${s.tables_text ? ` · bàn ${s.tables_text}` : ' · cả khu'}</small>` : null}${s.team_name ? html`<br /><small class="muted">${s.team_name}${s.note && s.note !== 'Theo lịch rảnh' ? ` · ${s.note}` : ''}</small>` : null}</span>
           ${s.leave?.status === 'pending' ? html`<span class="pill warn">Chờ duyệt nghỉ</span>`
             : s.leave?.status === 'approved' ? html`<span class="pill">Đã nghỉ</span>`
             : null}
