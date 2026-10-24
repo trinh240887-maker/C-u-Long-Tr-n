@@ -17,7 +17,7 @@ function Mine({ week, onWeek, staffId = null, onDone = null }) {
   useEffect(() => { if (st.data) { setPicks(st.data.picks); setNote(st.data.auto ? '' : st.data.note); setFixed(Object.keys(st.data.fixed || {}).length > 0); } }, [st.data]);
   if (!st.data || !picks) return html`<${Loading} state=${st} />`;
   const d = st.data;
-  // Mỗi ngày bấm chọn KHUNG GIỜ LÀM CỦA QUÁN (loại ca: 06h–14h, 14h–22h…), chọn được nhiều; "Giờ khác" để tự nhập. Không chọn = bận
+  // Mỗi ngày bấm chọn KHUNG GIỜ LÀM CỦA QUÁN (loại ca: 06h–14h, 14h–22h…), chọn được nhiều (không cho tự ghi giờ, chủ quán chốt). Không chọn = bận
   const tpls = (tplD.data || []).filter((t) => t.active);
   const fix = (e) => (e === '00:00' ? '24:00' : e);
   const tplR = (t) => t.segments.map((sg) => `${sg.start}-${sg.end <= sg.start ? '24:00' : fix(sg.end)}`);
@@ -46,26 +46,15 @@ function Mine({ week, onWeek, staffId = null, onDone = null }) {
       : html`<section class="card hint"><span>Bấm vào bảng: <b>ca nào, ngày nào bạn làm được</b> → <b>Gửi</b> cho quản lý. Tick "Tuần nào cũng vậy" thì <b>chỉ báo 1 lần</b>, các tuần sau app tự dùng. Hạn: <b>${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} lúc ${d.deadline.time}</b>.</span></section>`}
     ${d.locked ? html`<p class="warn-text">Tuần này đã bắt đầu. Muốn đổi, báo quản lý.</p>` : null}
     <section class="card avail stack">
-      ${!tpls.length ? html`<p class="warn-text small">Quán chưa tạo ca (Cài đặt → Loại ca). Tạm dùng dòng "Giờ khác" để ghi giờ.</p>` : null}
+      ${!tpls.length ? html`<p class="warn-text">Quán chưa tạo ca (chủ quán / quản lý vào Cài đặt → Loại ca). Tạo xong ca sẽ hiện ở đây để bạn chọn.</p>` : null}
       <div class="wk-wrap"><table class="wk av-grid">
         <thead><tr><th class="wk-name">Ca</th>${d.days.map((x) => html`<th>${dayLabel(x).split(' ')[0]}<br /><small>${x.slice(8)}/${x.slice(5, 7)}</small></th>`)}</tr></thead>
         <tbody>
           ${tpls.map((t) => html`<tr><td class="wk-name"><b>${t.name}</b><br /><small class="muted">${tplR(t).map(short2).join(' + ')}</small></td>
             ${d.days.map((x) => html`<td class=${tplOn(x, t) ? 'has' : 'off'} onClick=${() => !d.locked && toggleTpl(x, t)}>${tplOn(x, t) ? '✓' : ''}</td>`)}</tr>`)}
-          <tr><td class="wk-name"><b>Giờ khác</b><br /><small class="muted">tự ghi giờ</small></td>
-            ${d.days.map((x) => { const cs = ranges(x).filter((r) => !isTpl(r)); return html`<td class=${cs.length ? 'has' : 'off'} onClick=${() => !d.locked && setEditDay(x)}>${cs.length ? cs.map(short2).join(' ') : '+'}</td>`; })}</tr>
         </tbody>
       </table></div>
       <p class="small muted">Bấm ô để chọn / bỏ. Ô ✓ = ngày đó bạn làm được ca đó. Cột trống = bận.</p>
-      ${editDay ? html`<${Modal} title=${`Giờ khác · ${dayLabel(editDay)}`} onClose=${() => setEditDay(null)}><div class="stack">
-        ${ranges(editDay).filter((r) => !isTpl(r)).map((r) => { const [f, t] = r.split('-'); return html`<div class="row tight av-time">
-          <select aria-label="Từ" value=${f} onChange=${(e) => setCustom(editDay, r, `${e.target.value}-${t > e.target.value ? t : '24:00'}`)}>${TIMES.slice(0, -1).map((x) => html`<option value=${x}>${x}</option>`)}</select>
-          <span>→</span>
-          <select aria-label="Đến" value=${t} onChange=${(e) => setCustom(editDay, r, `${f}-${e.target.value}`)}>${TIMES.filter((x) => x > f).map((x) => html`<option value=${x}>${x}</option>`)}</select>
-          <button class="small" onClick=${() => setCustom(editDay, r, null)}>✕</button></div>`; })}
-        <button onClick=${() => addCustom(editDay)}>+ Thêm khung giờ</button>
-        <button class="primary" onClick=${() => setEditDay(null)}>Xong</button>
-      </div><//>` : null}
       <div class="row wrap">
         ${hasPrev ? html`<button disabled=${d.locked} onClick=${() => setPicks(d.prev_picks)}>↺ Giống tuần trước</button>` : null}
         ${firstDay ? html`<button disabled=${d.locked} onClick=${() => setPicks(Object.fromEntries(d.days.map((x) => [x, [...ranges(firstDay)]])))}>Cả tuần giống ${dayLabel(firstDay).split(' ')[0]}</button>` : null}
