@@ -53,7 +53,7 @@ test('lịch rảnh: nhân viên báo buổi rảnh tuần sau, quản lý thấ
   assert.deepEqual(mine.slots.map((s) => s.key), ['sang', 'chieu', 'toi']);
   const res = await L('POST', '/api/availability/me', { week: '2026-10-26', picks: { '2026-10-26': ['toi'], '2026-10-27': ['sang', 'toi', 'xx'], '2026-11-30': ['toi'] }, note: 'T7 bận' });
   assert.equal(res.status, 200);
-  assert.deepEqual((await L('GET', '/api/availability/me?week=2026-10-26')).data.picks, { '2026-10-26': ['toi'], '2026-10-27': ['sang', 'toi'] });
+  assert.deepEqual((await L('GET', '/api/availability/me?week=2026-10-26')).data.picks, { '2026-10-26': ['17:00-24:00'], '2026-10-27': ['06:00-12:00', '17:00-24:00'] }); // mã buổi cũ đổi ra khung giờ
   // Không sửa được tuần đã bắt đầu
   assert.equal((await L('POST', '/api/availability/me', { week: '2026-10-19', picks: {} })).status, 400);
   // Nhân viên không xem được bảng tổng
@@ -74,7 +74,7 @@ test('lịch rảnh: nhân viên báo buổi rảnh tuần sau, quản lý thấ
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE title = 'Báo lịch rảnh tuần sau'").get().n, 1);
   // Lịch ca tuần đó có kèm lịch rảnh để quản lý xếp
   const wk = (await o('GET', '/api/schedule?week=2026-10-26')).data;
-  assert.deepEqual(wk.availability[lan]['2026-10-27'], ['sang', 'toi']);
+  assert.deepEqual(wk.availability[lan]['2026-10-27'], ['06:00-12:00', '17:00-24:00']);
   assert.deepEqual(wk.avail_submitted, [lan]);
   // Quá hạn mà chưa nộp thì báo trễ
   setNow(at('2026-10-23', '08:00'));
@@ -250,11 +250,15 @@ test('lịch rảnh cố định: báo 1 lần "tuần nào cũng vậy" → tu�
   await nv('POST', '/api/me/pin', { current_pin: '7365', new_pin: '8365' });
   const w1 = (await nv('GET', '/api/availability/me')).data; // tuần 26/10
   assert.equal(w1.week_start, '2026-10-26');
-  assert.equal((await nv('POST', '/api/availability/me', { week: w1.week_start, picks: { '2026-10-26': ['toi'], '2026-10-31': ['chieu', 'toi'] }, fixed: true })).status, 200);
+  assert.equal((await nv('POST', '/api/availability/me', { week: w1.week_start, picks: { '2026-10-26': ['16:00-23:00'], '2026-10-31': ['10:30-22:00'], '2026-10-27': ['23:00-20:00'] }, fixed: true })).status, 200);
   const w2 = (await nv('GET', '/api/availability/me?week=2026-11-02')).data;
   assert.ok(w2.submitted_at && w2.auto);
-  assert.deepEqual(w2.picks, { '2026-11-02': ['toi'], '2026-11-07': ['chieu', 'toi'] });
-  assert.deepEqual(w2.prev_picks['2026-11-07'], ['chieu', 'toi']);
+  assert.deepEqual(w2.picks, { '2026-11-02': ['16:00-23:00'], '2026-11-07': ['10:30-22:00'] }); // giờ sai (23→20) bị bỏ
+  assert.deepEqual(w2.prev_picks['2026-11-07'], ['10:30-22:00']);
+  const s2 = (await o('GET', '/api/availability?week=2026-11-02')).data;
+  const nga = s2.people.find((p) => p.name === 'Nga').id;
+  assert.ok(s2.cells['2026-11-02:toi'].free.includes(nga) && s2.cells['2026-11-02:chieu'].free.includes(nga) && !s2.cells['2026-11-02:sang'].free.includes(nga));
+  assert.deepEqual(s2.hours[`${nga}:2026-11-02`], ['16:00-23:00']);
   const sum = (await o('GET', '/api/availability?week=2026-11-09')).data;
   assert.ok(sum.people.find((p) => p.name === 'Nga').fixed);
   // Bỏ lịch cố định → tuần sau không tự điền nữa

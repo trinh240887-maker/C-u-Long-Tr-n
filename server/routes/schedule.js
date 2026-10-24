@@ -118,7 +118,8 @@ export default function (r, ctx) {
     const availability = {};
     ctx.fillFixedAvailability?.(start);
     for (const a of db.prepare('SELECT staff_id, date, slot FROM availability WHERE date BETWEEN ? AND ?').all(start, end)) {
-      ((availability[a.staff_id] ||= {})[a.date] ||= []).push(a.slot);
+      const r = ctx.availRange?.(a.slot);
+      if (r) ((availability[a.staff_id] ||= {})[a.date] ||= []).push(`${String(Math.floor(r.start / 60)).padStart(2, '0')}:${String(r.start % 60).padStart(2, '0')}-${String(Math.floor(r.end / 60)).padStart(2, '0')}:${String(r.end % 60).padStart(2, '0')}`);
     }
     const submitted = db.prepare('SELECT staff_id FROM availability_weeks WHERE week_start = ?').all(start).map((x) => x.staff_id);
     return { week_start: start, days, shifts, coverage, availability, avail_submitted: submitted, slots: ctx.availSlots(), warnings, published_at: Number(ctx.setting(`published:${start}`) || 0) };

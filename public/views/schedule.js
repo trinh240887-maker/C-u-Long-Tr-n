@@ -157,7 +157,7 @@ export function Schedule({ me, query }) {
     slotsOf: (id, date) => st.data.availability?.[id]?.[date] || [],
     label(id, date) {
       const ks = this.slotsOf(id, date);
-      if (ks.length) return ` · rảnh ${ks.map((k) => st.data.slots.find((s) => s.key === k)?.label || k).join(', ')}`;
+      if (ks.length) return ` · rảnh ${ks.join(', ')}`;
       return st.data.avail_submitted?.includes(id) ? ' · báo bận' : ' · chưa báo rảnh';
     },
   } : null;
@@ -258,7 +258,7 @@ export function Schedule({ me, query }) {
           ${canEdit ? html`<details open=${!g.people.length && !on.length}><summary class="muted small">Xếp thêm người (${free.length} người chưa có ca)</summary>
             <div class="chips">${[...free].sort((a, b) => Number(!!avail.slotsOf(b.p.id, activeDay).length) - Number(!!avail.slotsOf(a.p.id, activeDay).length)).map(({ p, helper }) => {
               const ks = avail.slotsOf(p.id, activeDay);
-              return html`<button class=${`chip ${ks.length ? 'free' : 'nofree'}`} onClick=${() => setEdit({ staff_id: p.id, date: activeDay, team_id: g.id ?? p.team_id })}>+ ${p.name}${helper ? ' (biết làm)' : ''}${ks.length ? html` <small>✓ ${ks.map((k) => d.slots.find((s) => s.key === k)?.label || k).join(', ')}</small>` : html` <small>${d.avail_submitted?.includes(p.id) ? 'bận' : 'chưa báo'}</small>`}</button>`;
+              return html`<button class=${`chip ${ks.length ? 'free' : 'nofree'}`} onClick=${() => setEdit({ staff_id: p.id, date: activeDay, team_id: g.id ?? p.team_id })}>+ ${p.name}${helper ? ' (biết làm)' : ''}${ks.length ? html` <small>✓ ${ks.join(', ')}</small>` : html` <small>${d.avail_submitted?.includes(p.id) ? 'bận' : 'chưa báo'}</small>`}</button>`;
             })}
               ${g.id ? html`<button class="chip" onClick=${() => setEdit({ staff_id: (free[0]?.p || staff.data.find((x) => x.active !== false && x.role !== 'owner'))?.id, date: activeDay, team_id: g.id, keepTeam: true })}>+ Người tổ khác…</button>` : null}</div></details>`
             : !on.length ? html`<p class="muted small">Chưa có ai.</p>` : null}

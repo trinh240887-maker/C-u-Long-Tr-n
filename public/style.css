@@ -666,3 +666,9 @@ table.perm .perm-more td { text-align: left; padding: 10px 12px; background: var
 .perm-row input { width: 26px; height: 26px; margin: 0; }
 .perm-row:not(.on) span { color: var(--muted); }
 .big-check { min-height: 48px; font-size: 16px; } .big-check input { width: 24px; height: 24px; }
+.av-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 52px; border-bottom: 1px solid var(--line); }
+.av-row:last-of-type { border-bottom: 0; }
+.av-dname { min-width: 72px; }
+.av-row.on .av-dname { color: var(--accent); }
+.av-time select { min-height: 44px; font-size: 16px; padding: 0 6px; }
+.av-off { color: var(--muted); min-height: 44px; }

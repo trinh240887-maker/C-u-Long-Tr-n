@@ -9,6 +9,8 @@ export const DEFAULT_SLOTS = [
   { key: 'toi', label: 'Tối', start: '17:00', end: '24:00' },
 ];
 const toMin = (hm) => { const [h, m] = String(hm).split(':').map(Number); return h * 60 + (m || 0); };
+// Lịch rảnh lưu theo KHUNG GIỜ "HH:MM-HH:MM" (nhân viên tự chọn giờ, chủ quán 24/10). Dữ liệu cũ theo buổi (sang/chieu/toi) đổi ra khung của buổi.
+const RANGE = /^([01]\d|2[0-4]):([0-5]\d)-([01]\d|2[0-4]):([0-5]\d)$/;
 // Ai phải báo lịch rảnh: mọi người trừ Chủ và Quản lý
 const MUST = ['staff', 'team_lead', 'shift_lead'];
 // Rửa chén không dùng điện thoại → không phải báo, quản lý xếp ca thẳng (chủ quán 24/10)
@@ -24,6 +26,19 @@ export default function (r, ctx) {
       if (Array.isArray(s) && s.length) return s;
     } catch { /* dùng mặc định */ }
     return DEFAULT_SLOTS;
+  };
+  ctx.availRange = (slot) => {
+    if (RANGE.test(slot)) { const [a, b] = slot.split('-'); return { start: toMin(a), end: toMin(b) }; }
+    const sl = ctx.availSlots().find((x) => x.key === slot);
+    return sl ? { start: toMin(sl.start), end: toMin(sl.end) } : null;
+  };
+  const rangeText = (slot) => { if (RANGE.test(slot)) return slot; const sl = ctx.availSlots().find((x) => x.key === slot); return sl ? `${sl.start}-${sl.end}` : null; };
+  // Nhận 1 lựa chọn của nhân viên: khung giờ hợp lệ (bắt đầu < kết thúc) hoặc mã buổi cũ → luôn trả khung giờ
+  const readPick = (x) => {
+    const t = rangeText(String(x));
+    if (!t) return null;
+    const { start, end } = ctx.availRange(t);
+    return end > start && end <= 1440 ? t : null;
   };
   // Khúc ca (phút trong ngày, có thể > 1440) chạm buổi nào
   ctx.slotsOfSegment = (startMin, endMin) => ctx.availSlots()
@@ -45,7 +60,8 @@ export default function (r, ctx) {
   function picksOf(staffId, ws) {
     const out = {};
     for (const row of db.prepare('SELECT date, slot FROM availability WHERE staff_id = ? AND date BETWEEN ? AND ?').all(staffId, ws, addDays(ws, 6))) {
-      (out[row.date] ||= []).push(row.slot);
+      const t = rangeText(row.slot);
+      if (t) (out[row.date] ||= []).push(t);
     }
     return out;
   }
@@ -66,7 +82,7 @@ export default function (r, ctx) {
   ctx.fillFixedAvailability = fillFixed;
   const fixedOf = (staffId) => {
     const out = {};
-    for (const x of db.prepare('SELECT dow, slot FROM availability_fixed WHERE staff_id = ?').all(staffId)) (out[x.dow] ||= []).push(x.slot);
+    for (const x of db.prepare('SELECT dow, slot FROM availability_fixed WHERE staff_id = ?').all(staffId)) { const t = rangeText(x.slot); if (t) (out[x.dow] ||= []).push(t); }
     return out;
   };
   // Quản lý / trưởng ca báo hộ cho nhân viên không dùng điện thoại
@@ -98,7 +114,6 @@ export default function (r, ctx) {
     const ws = readWeek(body.week);
     const me = targetOf(who, body.staff_id);
     if (ws <= ctx.today() && rank(who.role) < rank('manager')) fail(400, 'Tuần này đã bắt đầu, nhờ quản lý sửa giúp');
-    const keys = new Set(ctx.availSlots().map((s) => s.key));
     const days = new Set(Array.from({ length: 7 }, (_, i) => addDays(ws, i)));
     const picks = body.picks && typeof body.picks === 'object' ? body.picks : {};
     const note = v.text(body.note, { name: 'Ghi chú', max: 200 });
@@ -107,7 +122,7 @@ export default function (r, ctx) {
       const add = db.prepare('INSERT OR IGNORE INTO availability (staff_id, date, slot) VALUES (?, ?, ?)');
       for (const [date, slots] of Object.entries(picks)) {
         if (!days.has(date) || !Array.isArray(slots)) continue;
-        for (const s of slots) if (keys.has(s)) add.run(me.id, date, s);
+        for (const x of slots) { const t = readPick(x); if (t) add.run(me.id, date, t); }
       }
       db.prepare(`INSERT INTO availability_weeks (staff_id, week_start, submitted_at, note) VALUES (?, ?, ?, ?)
         ON CONFLICT (staff_id, week_start) DO UPDATE SET submitted_at = excluded.submitted_at, note = excluded.note`).run(me.id, ws, ctx.now(), note);
@@ -124,7 +139,7 @@ export default function (r, ctx) {
           for (const [date, slots] of Object.entries(picks)) {
             if (!days.has(date) || !Array.isArray(slots)) continue;
             const dow = Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${ws}T00:00:00Z`)) / 86400000) + 1;
-            for (const sl of slots) if (keys.has(sl)) addF.run(me.id, dow, sl);
+            for (const x of slots) { const t = readPick(x); if (t) addF.run(me.id, dow, t); }
           }
         }
       }
@@ -156,7 +171,16 @@ export default function (r, ctx) {
       }
     }
     const free = {};
-    for (const a of avail) (free[`${a.date}:${a.slot}`] ||= []).push(a.staff_id);
+    const hours = {}; // staff:date → ['16:00-23:00']
+    for (const a of avail) {
+      const r = ctx.availRange(a.slot);
+      if (!r) continue;
+      (hours[`${a.staff_id}:${a.date}`] ||= []).push(rangeText(a.slot));
+      for (const sl of slots) if (r.start < toMin(sl.end) && r.end > toMin(sl.start)) {
+        const k = `${a.date}:${sl.key}`;
+        if (!(free[k] ||= []).includes(a.staff_id)) free[k].push(a.staff_id);
+      }
+    }
     const teams = db.prepare('SELECT id, name, min_staff FROM teams WHERE active = 1 ORDER BY sort, id').all();
     const cells = {};
     for (const d of days) {
@@ -175,7 +199,7 @@ export default function (r, ctx) {
     return {
       week_start: ws, days, slots, teams, deadline: deadline(ws),
       people: people.filter((p) => !exempt(p)).map((p) => ({ ...p, submitted_at: subs.get(p.id)?.submitted_at || null, note: subs.get(p.id)?.note === FIXED_NOTE ? '' : subs.get(p.id)?.note || '', fixed: subs.get(p.id)?.note === FIXED_NOTE })),
-      cells, busy: [...busy],
+      cells, busy: [...busy], hours,
     };
   }
   ctx.availabilitySummary = summary;
