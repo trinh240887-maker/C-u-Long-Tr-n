@@ -127,7 +127,7 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
 }
 
 // Phân khu theo tuần: danh sách nhân viên, bấm khu 1 lần cho cả tuần (chủ quán 24/10)
-function WeekZones({ ws, staff, teams, map, onClose }) {
+function WeekZones({ ws, staff, teams, map, shifts = [], onClose }) {
   const zonesD = useData('/api/zones');
   const zones = (zonesD.data || []).filter((z) => z.active !== false && z.active !== 0);
   const pv = teams.find((t) => /phục vụ/i.test(t.name));
@@ -143,9 +143,10 @@ function WeekZones({ ws, staff, teams, map, onClose }) {
     <p class="small muted">Bấm khu cho từng bạn, áp cho <b>cả tuần</b>. Người quản khu chụp checklist khu đó.</p>
     <p class="small muted">Chỉ <b>Phục vụ</b> chia theo khu. Bếp, Bar, Thu ngân, Tiếp thực phân theo đầu mục công việc (checklist "Ai làm").</p>
     <div class="chips">${zones.map((z) => html`<span class="pill">${z.name}: ${count(z.id)} người</span>`)}</div>
-    ${people.map((p) => html`<div class="zone-row"><span class="grow"><b>${p.name}</b>${p.role !== 'staff' || p.position_name ? html`<br /><small class=${p.role !== 'staff' ? 'role-tag' : 'muted'}>${p.role !== 'staff' ? `⭐ ${p.role_label}` : ''}${p.role !== 'staff' && p.position_name ? ' · ' : ''}${p.position_name || ''}</small>` : null}</span>
+    ${people.map((p) => { const used = [...new Set(shifts.filter((x) => x.staff_id === p.id && x.zone_name).map((x) => x.zone_name.replace(/^Khu\s*/i, '')))]; return html`<div class="zone-row"><span class="grow"><b>${p.name}</b>
+      ${!cur[p.id] ? html`<br /><small class=${used.length ? 'muted' : 'warn-text'}>${used.length ? `đang: khu ${used.join(', ')} (theo ngày)` : 'chưa có khu'}</small>` : null}${p.role !== 'staff' || p.position_name ? html`<br /><small class=${p.role !== 'staff' ? 'role-tag' : 'muted'}>${p.role !== 'staff' ? `⭐ ${p.role_label}` : ''}${p.role !== 'staff' && p.position_name ? ' · ' : ''}${p.position_name || ''}</small>` : null}</span>
       <div class="chips">${zones.map((z) => html`<button class=${`chip ${Number(cur[p.id]) === z.id ? 'on' : ''}`} onClick=${() => pick(p, z.id)}>${z.name.replace(/^Khu\s*/i, '')}</button>`)}
-        <button class=${`chip ${!cur[p.id] ? 'on' : ''}`} onClick=${() => pick(p, null)}>—</button></div></div>`)}
+        <button class=${`chip ${!cur[p.id] ? 'on' : ''}`} onClick=${() => pick(p, null)}>—</button></div></div>`; })}
     <button class="primary" onClick=${onClose}>Xong</button>
   </div><//>`;
 }
@@ -200,7 +201,7 @@ function Overview({ me, week, onWeek }) {
       <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}
       ${missing.length && canManage ? html`<button onClick=${() => act(() => api('POST', '/api/availability/remind', { week: d.week_start }), 'Đã nhắc')}>🔔 Nhắc tất cả</button>` : null}</div>
     </details>
-    ${zoning ? html`<${WeekZones} ws=${d.week_start} staff=${staffD.data} teams=${d.teams} map=${sc.data.week_zones} onClose=${() => setZoning(false)} />` : null}
+    ${zoning ? html`<${WeekZones} ws=${d.week_start} staff=${staffD.data} teams=${d.teams} map=${sc.data.week_zones} shifts=${shifts} onClose=${() => setZoning(false)} />` : null}
     ${add ? html`<${AddShift} p=${add.p} date=${add.date} range=${add.range} onClose=${() => setAdd(null)} />` : null}
   </div>`;
 }
