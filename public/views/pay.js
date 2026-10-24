@@ -32,11 +32,13 @@ function BillLines({ b }) {
 
 // Tính tiền: phục vụ / thu ngân. CK: khách quét QR → bấm "Khách đã CK" → bill đóng, bàn trống.
 export const isCashier = (me) => atLeast(me, 'shift_lead') || me?.team?.name === 'Thu ngân';
+// Đóng bill / thu tiền: chỉ chủ quán + tổ Thu ngân (chủ quán 24/10)
+export const canCollect = (me) => me?.role === 'owner' || me?.team?.name === 'Thu ngân';
 
 export function PayModal({ me, id, onClose, onDone, defaultMethod = 'transfer' }) {
   const st = useData(`/api/pos/sessions/${id}/bill`);
   const [method, setMethod] = useState(defaultMethod);
-  const cashier = isCashier(me);
+  const cashier = canCollect(me);
   const [given, setGiven] = useState('');
   const [cashPart, setCashPart] = useState('');
   const [keep, setKeep] = useState(false);

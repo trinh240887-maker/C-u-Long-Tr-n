@@ -71,6 +71,8 @@ export default function (r, ctx) {
   db.exec(`CREATE TABLE IF NOT EXISTS bank_day (date TEXT PRIMARY KEY, opening INTEGER, closing INTEGER, other_in INTEGER NOT NULL DEFAULT 0, other_out INTEGER NOT NULL DEFAULT 0,
     note TEXT NOT NULL DEFAULT '', by_staff INTEGER, at INTEGER)`);
   const isCashier = (me) => rank(me.role) >= rank('shift_lead') || !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id);
+  // Đóng bill / thu tiền: chỉ chủ quán + người tổ Thu ngân (chủ quán 24/10). Quản lý, trưởng ca, phục vụ: chỉ xem bill, in bill
+  const canCollect = (me) => me.role === 'owner' || !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id);
   const needCashier = (me) => { if (!isCashier(me)) fail(403, 'Chỉ thu ngân / trưởng ca trở lên'); };
   const staffName = (id) => (id ? db.prepare('SELECT name FROM staff WHERE id = ?').get(id)?.name || '' : '');
   const billNo = (sid) => {
@@ -252,10 +254,10 @@ export default function (r, ctx) {
     }
     const method = v.oneOf(body.method, ['cash', 'transfer', 'mixed'], { name: 'Cách trả' });
     // Chỉ thu ngân / trưởng ca trở lên thu tiền mặt đóng bill; phục vụ bấm "Báo thu ngân" (chủ quán 24/10)
-    if (method !== 'transfer' && !isCashier(me)) fail(403, 'Phục vụ không thu tiền mặt: bấm "Báo thu ngân" để thu ngân ra thu');
+    if (method !== 'transfer' && !canCollect(me)) fail(403, 'Chỉ thu ngân / chủ quán thu tiền mặt, đóng bill');
     const total = s.total;
     // Phục vụ bấm "Khách đã CK": chưa đóng bill — chờ thu ngân xác nhận (hoặc ngân hàng báo tiền về thì tự đóng), bàn vẫn giữ
-    if (method === 'transfer' && !isCashier(me) && bankReceived(s.id) < total) {
+    if (method === 'transfer' && !canCollect(me) && bankReceived(s.id) < total) {
       db.prepare("UPDATE table_sessions SET status = 'paying', note = CASE WHEN note LIKE '%[CK]%' THEN note ELSE TRIM(note || ' [CK]') END WHERE id = ?").run(s.id);
       ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Bàn ${s.header} báo khách đã CK ${vnd(total)}`, body: `Bill ${billNo(s.id)} · ${me.name} báo. Kiểm tra tiền về rồi bấm xác nhận để mở bàn.`, link: `/goi-mon?s=${s.id}`, urgent: true });
       ctx.audit(me, 'pay.claim_transfer', { id: s.id, total });
