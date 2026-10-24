@@ -339,10 +339,10 @@ function Keys({ s, me }) {
       <div class="row end"><button class="primary" disabled=${!owner || !f.anthropic_api_key} onClick=${() => save('anthropic_api_key', 'Đã lưu mã Claude')}>Lưu mã</button></div>
     </section>
     <section class="card stack"><h3>🤖 Zalo Bot (gửi đơn hàng vào nhóm)</h3>
-      <p class="small muted">Tạo bot trong Zalo (Zalo Bot Manager), chép Token bot dán vào đây. Thêm bot vào nhóm đặt hàng rồi nhắn @bot một câu.</p>
+      <p class="small"><b>Bước 1:</b> dán Token bot (chuỗi dài dạng 123456789:AbCd…, không phải ID bot) rồi bấm Lưu token.</p>
       <${Field} label="Token Zalo Bot" hint=${s.zalo_bot_token ? `Đã lưu (${s.zalo_bot_token}). Dán token mới để đổi.` : 'Chưa có.'}><input id="k-zbot" type="password" autocomplete="off" disabled=${!owner} value=${f.zalo_bot_token} onInput=${(e) => setF({ ...f, zalo_bot_token: e.target.value })} /><//>
       <div class="row end"><button class="primary" disabled=${!owner || !f.zalo_bot_token} onClick=${() => save('zalo_bot_token', 'Đã lưu token Zalo Bot')}>Lưu token</button></div>
-      ${s.zalo_bot_token && owner ? html`<${BotGroup} s=${s} />` : null}
+      ${owner ? html`<${BotGroup} s=${s} />` : html`<p class="warn-text small">Đăng nhập bằng tài khoản chủ quán để cài bot.</p>`}
     </section>
   </div>`;
 }
