@@ -719,3 +719,4 @@ table.wk .wk-name { white-space: normal; overflow: hidden; }
 .zone-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 52px; border-bottom: 1px solid var(--line); } .zone-row .chip { min-width: 44px; justify-content: center; }
 .role-tag { color: #b45309; font-weight: 600; }
 .sec-tabs .chip { flex: 0 0 auto; }
+.rules-box { background: #fef2f2; color: #991b1b; border-radius: 8px; padding: 8px 10px; font-size: 14px; margin: 6px 0; white-space: pre-line; }

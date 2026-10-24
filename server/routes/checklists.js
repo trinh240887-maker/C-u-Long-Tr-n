@@ -38,6 +38,8 @@ export default function (r, ctx) {
   addCol('checklist_templates', 'doer', "TEXT NOT NULL DEFAULT ''");
   // Mục (tab ngang trên trang Checklist): Bếp, Phục vụ, Thu ngân, Tổng khu A, Khu vực vệ sinh… Trống = tự suy
   addCol('checklist_templates', 'section', "TEXT NOT NULL DEFAULT ''");
+  // Chế tài nếu không làm / làm sai (chủ quán tự ghi), hiện cho nhân viên trên đầu checklist
+  addCol('checklist_templates', 'rules', "TEXT NOT NULL DEFAULT ''");
   const sectionOf = (t) => {
     if (t.section) return t.section;
     if (t.zone_name) return `Tổng ${t.zone_name.toLowerCase().startsWith('khu') ? t.zone_name.replace(/^Khu/i, 'khu') : `khu ${t.zone_name}`}`;
@@ -119,7 +121,8 @@ export default function (r, ctx) {
       if (!m || !db.prepare('SELECT 1 FROM staff WHERE id = ? AND active = 1').get(Number(m[1]))) fail(400, 'Người làm không hợp lệ');
     }
     const section = body.section === undefined ? cur.section ?? '' : v.text(body.section, { name: 'Mục', max: 40 });
-    return { title, teamId, phase, shiftId, positionId, zoneId, doer, section };
+    const rules = body.rules === undefined ? cur.rules ?? '' : v.text(body.rules, { name: 'Chế tài', max: 500 });
+    return { title, teamId, phase, shiftId, positionId, zoneId, doer, section, rules };
   }
 
   // Tổ trưởng chỉ tạo/sửa checklist của tổ mình; trưởng ca trở lên sửa mọi tổ và checklist "Cả quán"
@@ -133,7 +136,7 @@ export default function (r, ctx) {
     const f = tplFields(body);
     canEditTpl(me, f.teamId);
     const id = tx(db, () => {
-      const id = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, shift_template_id, position_id, zone_id, doer, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section).lastInsertRowid);
+      const id = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, shift_template_id, position_id, zone_id, doer, section, rules) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, f.rules).lastInsertRowid);
       saveItems(id, body.items);
       return id;
     });
@@ -150,7 +153,7 @@ export default function (r, ctx) {
     canEditTpl(me, f.teamId);
     const active = body.active === undefined ? cur.active : v.bool(body.active);
     tx(db, () => {
-      db.prepare('UPDATE checklist_templates SET team_id = ?, phase = ?, title = ?, shift_template_id = ?, position_id = ?, zone_id = ?, doer = ?, section = ?, active = ? WHERE id = ?').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, active, cur.id);
+      db.prepare('UPDATE checklist_templates SET team_id = ?, phase = ?, title = ?, shift_template_id = ?, position_id = ?, zone_id = ?, doer = ?, section = ?, rules = ?, active = ? WHERE id = ?').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, f.rules, active, cur.id);
       if (body.items !== undefined) saveItems(cur.id, body.items);
     });
     ctx.audit(me, 'checklist.update', { id: cur.id, title: f.title });
@@ -216,7 +219,7 @@ export default function (r, ctx) {
       const items = t.items.map((i) => ({ ...i, spot: spot.has(i.id), photo_required: i.photo_required || spot.has(i.id), entry: byItem.get(i.id) || null, photos: ph.filter((p) => p.item_id === i.id) }));
       const required = items.filter((i) => i.required);
       return {
-        run_id: run.id, template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t),
+        run_id: run.id, template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t), rules: t.rules || '',
         shift_template_id: t.shift_template_id, shift_name: t.shift_name || '', position_id: t.position_id ?? null, position_name: t.position_name || '', zone_id: t.zone_id ?? null, zone_name: t.zone_name || '',
         completed_at: run.completed_at, items, samples: t.samples,
         done: required.filter((i) => i.entry && i.entry.review_status !== 'redo').length, total: required.length,

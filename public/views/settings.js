@@ -249,7 +249,7 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
   const zonesD = useData('/api/zones');
   const staffD = useData('/api/staff');
   const [f, setF] = useState({ title: init.title || '', team_id: init.team_id ?? '', phase: init.phase || 'open', active: init.active ?? true,
-    shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '', zone_id: init.zone_id ?? '', doer: init.doer || '', section: init.section || '',
+    shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '', zone_id: init.zone_id ?? '', doer: init.doer || '', section: init.section || '', rules: init.rules || '',
     items: init.items?.map((i) => ({ ...i })) || [{ text: '', kind: 'check', unit: '', required: true, photo_required: true }] });
   const item = (i, k, v) => setF({ ...f, items: f.items.map((x, j) => (j === i ? { ...x, [k]: v } : x)) });
   const move = (i, d) => { const items = [...f.items]; const [x] = items.splice(i, 1); items.splice(i + d, 0, x); setF({ ...f, items }); };
@@ -282,6 +282,8 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
           <select id="cl-shift" value=${f.shift_template_id} onChange=${(e) => setF({ ...f, shift_template_id: e.target.value })}>
             <option value="">Mọi ca</option>${shifts.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
       </div>
+      <${Field} label="⚠ Chế tài nếu không làm / làm sai" hint="Nhân viên thấy ngay trên đầu checklist. vd: Không chụp ảnh đóng ca: nhắc nhở lần 1, trừ 20.000đ từ lần 2">
+        <textarea id="cl-rules" rows="2" value=${f.rules} onInput=${(e) => setF({ ...f, rules: e.target.value })}></textarea><//>
       <div class="field"><span>Các việc</span>
         ${f.items.map((x, i) => html`<div class="item-row">
           <input class="grow" value=${x.text} placeholder="Tên việc" onInput=${(e) => item(i, 'text', e.target.value)} aria-label="Tên việc" />
