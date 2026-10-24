@@ -11,7 +11,9 @@ const args = process.argv.slice(2);
 const arg = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : undefined; };
 const POLL_MS = 2000;
 const TIMEOUT_MS = 5000;
-const log = (...m) => console.log(new Date().toLocaleTimeString('vi-VN'), ...m);
+// Cửa sổ lệnh Windows hay hiện sai chữ có dấu → bỏ dấu cho dễ đọc
+const plain = (x) => (process.platform === 'win32' ? String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').replace(/[–⚠✓✗🟢🔴]/g, (c) => ({ '–': '-', '⚠': '!', '✓': 'OK', '✗': 'X' }[c] || '')) : x);
+const log = (...m) => console.log(new Date().toLocaleTimeString('vi-VN'), ...m.map(plain));
 
 function send(ip, port, data) {
   return new Promise((resolve, reject) => {
