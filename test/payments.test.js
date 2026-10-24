@@ -57,7 +57,7 @@ async function setup(t) {
 const noti = (db, like) => db.prepare('SELECT n.title, n.body, s.name FROM notifications n JOIN staff s ON s.id = n.staff_id WHERE n.title LIKE ? ORDER BY n.id DESC').all(like);
 
 test('CK tự động: ngân hàng báo tiền về → bill tự đóng, bàn trống; CK thiếu thì chưa đóng; CK dư = tip; chống trùng; sai khoá bị chặn', async (t) => {
-  const { db, o, H, order, sepay, base } = await setup(t);
+  const { db, o, H, N, order, sepay, base } = await setup(t);
   const A = await order(10, [['Combo 2', 2], ['Trà đào', 1]]);
   const b = (await H('GET', `/api/pos/sessions/${A}/bill`)).data;
   assert.equal(b.total, 2 * 79000 + 25000);
@@ -91,7 +91,11 @@ test('CK tự động: ngân hàng báo tiền về → bill tự đóng, bàn t
   // Phục vụ bấm "chờ tiền về" trước, tiền về sau → tự khớp
   const B = await order(11, [['Combo 1', 1]]);
   const b2 = (await H('GET', `/api/pos/sessions/${B}/bill`)).data;
-  await H('POST', `/api/pos/sessions/${B}/pay`, { method: 'transfer' });
+  // Phục vụ bấm "khách đã CK" → chưa đóng, chờ thu ngân (bàn giữ); thu ngân xác nhận mới đóng
+  assert.equal((await H('POST', `/api/pos/sessions/${B}/pay`, { method: 'transfer' })).data.waiting, true);
+  assert.equal((await H('GET', `/api/pos/sessions/${B}/bill`)).data.status, 'paying');
+  assert.equal((await H('GET', `/api/pos/sessions/${B}/bill`)).data.ck_claimed, true);
+  await N('POST', `/api/pos/sessions/${B}/pay`, { method: 'transfer' });
   assert.equal((await H('GET', `/api/pos/sessions/${B}/bill`)).data.reconcile_status, 'pending');
   await sepay(b2.total, `CLT${b2.bill_no}`);
   assert.equal((await H('GET', `/api/pos/sessions/${B}/bill`)).data.reconcile_status, 'matched');
@@ -127,32 +131,26 @@ test('tiền mặt: phục vụ thu → bill chờ thu ngân xác nhận (bàn v
   await o('POST', '/api/bank/settings', { enabled: true });
   const A = await order(20, [['Combo 3', 2], ['Coca', 1]]);
   const tA = (await H('GET', `/api/pos/sessions/${A}/bill`)).data.total;
-  // Phục vụ thu tiền mặt: khách đưa 200k không lấy thối → tip; bill đóng, bàn mở bán, tiền "chờ thu ngân xác nhận"
-  let r = await H('POST', `/api/pos/sessions/${A}/pay`, { method: 'cash', cash_given: 200000, keep_change: true });
+  // Phục vụ KHÔNG thu tiền mặt (chủ quán 24/10): chỉ báo thu ngân
+  assert.equal((await H('POST', `/api/pos/sessions/${A}/pay`, { method: 'cash', cash_given: 200000 })).status, 403);
+  assert.equal((await H('POST', `/api/pos/sessions/${A}/request-cash`)).status, 200);
+  // Thu ngân thu: khách đưa 200k không lấy thối → tip; tiền vào thẳng két
+  let r = await N('POST', `/api/pos/sessions/${A}/pay`, { method: 'cash', cash_given: 200000, keep_change: true });
   assert.equal(r.data.tip, 200000 - tA);
-  assert.equal((await H('GET', `/api/pos/sessions/${A}/bill`)).data.cash_status, 'held');
+  assert.equal((await N('GET', `/api/pos/sessions/${A}/bill`)).data.cash_status, 'received');
   assert.equal((await H('POST', '/api/pos/sessions', { tables: [20] })).status, 200, 'bàn mở bán lại ngay');
-  assert.equal((await H('GET', '/api/payments/my-cash')).data.amount, 200000);
-  // Bill 2 phục vụ thu, bill 3 thu ngân tự thu (vào thẳng két)
   const B = await order(21, [['Combo 1', 1]]);
   const tB = (await H('GET', `/api/pos/sessions/${B}/bill`)).data.total;
-  r = await H('POST', `/api/pos/sessions/${B}/pay`, { method: 'cash', cash_given: 100000 });
+  r = await N('POST', `/api/pos/sessions/${B}/pay`, { method: 'cash', cash_given: 100000 });
   assert.equal(r.data.change, 100000 - tB);
   const D = await order(23, [['Coca', 2]]);
   await N('POST', `/api/pos/sessions/${D}/pay`, { method: 'cash', cash_given: 30000 });
   assert.equal((await N('GET', `/api/pos/sessions/${D}/bill`)).data.cash_status, 'received');
-  // Thu ngân xác nhận bill A đủ; bill B đếm thiếu 10k → ghi tên Hậu, báo chủ quán
-  assert.equal((await H('POST', '/api/payments/handover', { ids: [A] })).status, 403, 'phục vụ không tự xác nhận');
-  assert.equal((await N('POST', '/api/payments/handover', { ids: [A] })).data.diff, 0);
-  r = await N('POST', '/api/payments/handover', { ids: [B], counted: tB - 10000 });
-  assert.equal(r.data.diff, -10000);
-  assert.ok(noti(db, 'Nhận tiền THIẾU 10.000đ: Hậu%').some((x) => x.name === 'Chủ quán'));
-  assert.equal((await H('GET', '/api/payments/my-cash')).data.amount, 0);
   assert.equal(app.ctx.cashHeldBy((await H('GET', '/api/me')).data.id), 0);
 
   // Bill CK chưa thấy tiền + khách báo món lỗi → hoàn tiền mặt (quản lý duyệt)
   const C = await order(22, [['Combo 2', 2]]);
-  await H('POST', `/api/pos/sessions/${C}/pay`, { method: 'transfer' });
+  await N('POST', `/api/pos/sessions/${C}/pay`, { method: 'transfer' });
   const c2 = (await H('GET', `/api/pos/sessions/${C}`)).data.items[0];
   assert.equal((await H('POST', `/api/pos/sessions/${C}/refund`, { items: [{ id: c2.id, qty: 1 }], reason: 'Món lỗi' })).status, 403);
   r = await H('POST', `/api/pos/sessions/${C}/refund`, { items: [{ id: c2.id, qty: 1 }], reason: 'Món lỗi', approver_pin: '730194' });
@@ -178,7 +176,7 @@ test('tiền mặt: phục vụ thu → bill chờ thu ngân xác nhận (bàn v
   let d = (await N('GET', `/api/payments?date=${DAY}`)).data;
   // Két phải có = đầu ngày + tiền mặt thu (gồm tip) − hoàn − tip bỏ thùng tip (tip TM + tip CK lấy tiền mặt bỏ vào)
   assert.equal(d.summary.tip_to_box, d.summary.tip_box_cash + d.summary.tip_box_ck);
-  assert.equal(d.summary.drawer_expected, 2000000 + 200000 + tB - 10000 + 30000 - 79000 - d.summary.tip_to_box);
+  assert.equal(d.summary.drawer_expected, 2000000 + 200000 + tB + 30000 - 79000 - d.summary.tip_to_box);
   // Đếm theo mệnh giá (thiếu 5.000đ so với phải có), chụp ảnh, để lại 2.000.000đ cho ngày mai
   const want = d.summary.drawer_expected - 5000;
   const denoms = {}; let rest = want;
@@ -201,7 +199,7 @@ test('tiền mặt: phục vụ thu → bill chờ thu ngân xác nhận (bàn v
   assert.deepEqual(box.moves.map((m) => m.kind).sort(), ['in_cash', 'in_ck']);
   assert.equal(d.summary.net, tA + tB + 30000 + 158000 - 79000);
   const texts = d.anomalies.map((a) => a.text).join('\n');
-  for (const k of ['Nhận tiền thiếu 10.000đ: Hậu', 'Két thiếu 5.000đ', 'Hoàn tiền mặt: 1 lần', 'CK chưa thấy tiền 158.000đ']) assert.ok(texts.includes(k), `${k}\n${texts}`);
+  for (const k of ['Két thiếu 5.000đ', 'Hoàn tiền mặt: 1 lần', 'CK chưa thấy tiền 158.000đ']) assert.ok(texts.includes(k), `${k}\n${texts}`);
   const last = noti(db, 'Đã chốt doanh thu%')[0];
   assert.match(last.body, /Tip bỏ thùng/);
   assert.match(last.body, /Bất thường/);
@@ -256,8 +254,7 @@ test('bấm nhầm cách thanh toán: tiền mặt ↔ chuyển khoản, có ki�
   // 1. Khách CK nhưng phục vụ bấm nhầm "tiền mặt" → tiền CK về, app để "cần xem"
   const A = await order(30, [['Combo 2', 1]]);
   const bA = (await H('GET', `/api/pos/sessions/${A}/bill`)).data;
-  await H('POST', `/api/pos/sessions/${A}/pay`, { method: 'cash' });
-  assert.equal((await H('GET', '/api/payments/my-cash')).data.amount, bA.total);
+  await N('POST', `/api/pos/sessions/${A}/pay`, { method: 'cash' });
   const tx = await sepay(bA.total, `CLT${bA.bill_no}`);
   assert.equal(db.prepare('SELECT status FROM bank_txns WHERE id = ?').get(tx.data.id).status, 'review');
   assert.equal((await H('POST', `/api/pos/sessions/${A}/change-method`, { method: 'transfer', reason: 'Bấm nhầm' })).status, 403, 'phục vụ không tự đổi');
@@ -278,12 +275,12 @@ test('bấm nhầm cách thanh toán: tiền mặt ↔ chuyển khoản, có ki�
   // 2. Khách trả tiền mặt nhưng bấm nhầm "CK" → đổi sang tiền mặt → tiền chờ thu ngân xác nhận (của Hậu)
   const B = await order(31, [['Combo 3', 1]]);
   const bB = (await H('GET', `/api/pos/sessions/${B}/bill`)).data;
-  await H('POST', `/api/pos/sessions/${B}/pay`, { method: 'transfer' });
+  await N('POST', `/api/pos/sessions/${B}/pay`, { method: 'transfer' });
   r = await N('POST', `/api/pos/sessions/${B}/change-method`, { method: 'cash', reason: 'Khách trả tiền mặt, bấm nhầm CK' });
   assert.equal(r.data.cash_status, 'held');
   b = (await N('GET', `/api/pos/sessions/${B}/bill`)).data;
   assert.equal(b.reconcile_status, '');
-  assert.equal((await H('GET', '/api/payments/my-cash')).data.amount, bB.total);
+  assert.equal((await N('GET', '/api/payments/my-cash')).data.amount, bB.total);
   assert.equal((await N('POST', '/api/payments/handover', { ids: [B] })).data.diff, 0);
   // Đã xác nhận nhận tiền → thu ngân không đổi nữa, quản lý mới được
   assert.equal((await N('POST', `/api/pos/sessions/${B}/change-method`, { method: 'transfer', reason: 'x' })).status, 403);
