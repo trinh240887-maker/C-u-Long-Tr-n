@@ -138,8 +138,12 @@ export default function (r, ctx) {
       if (r && (!see || see(a.staff_id, null))) ((availability[a.staff_id] ||= {})[a.date] ||= []).push(`${String(Math.floor(r.start / 60)).padStart(2, '0')}:${String(r.start % 60).padStart(2, '0')}-${String(Math.floor(r.end / 60)).padStart(2, '0')}:${String(r.end % 60).padStart(2, '0')}`);
     }
     const submitted = db.prepare('SELECT staff_id FROM availability_weeks WHERE week_start = ?').all(start).map((x) => x.staff_id);
-    return { week_start: start, days, shifts, coverage, availability, avail_submitted: submitted, slots: ctx.availSlots(), warnings, published_at: Number(ctx.setting(`published:${start}`) || 0) };
+    return { week_start: start, week_zones: weekZones(start), days, shifts, coverage, availability, avail_submitted: submitted, slots: ctx.availSlots(), warnings, published_at: Number(ctx.setting(`published:${start}`) || 0) };
   });
+
+  // Phân khu theo tuần (chủ quán 24/10): mỗi người 1 khu cho cả tuần → mọi ca trong tuần nhận khu đó
+  const weekZones = (ws) => { try { return JSON.parse(ctx.setting(`zone_week:${ws}`) || '{}'); } catch { return {}; } };
+  ctx.weekZoneOf = (staffId, date) => Number(weekZones(weekStart(date))[staffId]) || null;
 
   function createGroup(me, { staffId, date, teamId, segs, templateId, label, note, replaceGroup, zoneId = null, tablesText = '', positionId = null }) {
     const st = ctx.staff(staffId);
@@ -152,6 +156,7 @@ export default function (r, ctx) {
       if (mine.some((b) => overlaps(range, b))) fail(409, `${st.name} đã có ca trùng giờ ${fmtHM(s.start_min)}–${fmtHM(s.end_min)}`);
     }
     const team = teamId ?? st.team_id;
+    if (!zoneId) zoneId = ctx.weekZoneOf(staffId, date);
     // Ca không chọn loại ca (xếp từ lịch rảnh / Bảng tuần) mà giờ trùng đúng 1 loại ca → gắn loại ca đó,
     // để checklist theo ca (Mở ca / Đóng ca…) hiện đúng cho người làm
     if (!templateId) {
@@ -299,6 +304,21 @@ export default function (r, ctx) {
     }
     ctx.setSetting('avail_to_shift_v1', '1');
   }
+
+  r.post('/api/schedule/week-zones', 'manager', ({ me, body }) => {
+    if (!isDate(body.week)) fail(400, 'Tuần không hợp lệ');
+    const ws = weekStart(body.week);
+    const staffId = v.int(body.staff_id, { min: 1, name: 'Nhân viên' });
+    const zoneId = v.optInt(body.zone_id, { min: 1, name: 'Khu' });
+    if (zoneId && !db.prepare('SELECT 1 FROM zones WHERE id = ? AND active = 1').get(zoneId)) fail(400, 'Khu không tồn tại');
+    const map = weekZones(ws);
+    if (zoneId) map[staffId] = zoneId; else delete map[staffId];
+    ctx.setSetting(`zone_week:${ws}`, JSON.stringify(map));
+    db.prepare("UPDATE assignments SET zone_id = ?, tables_text = '' WHERE staff_id = ? AND date BETWEEN ? AND ?").run(zoneId, staffId, ws, addDays(ws, 6));
+    ctx.audit(me, 'schedule.week_zone', { week: ws, staff: staffId, zone: zoneId });
+    ctx.broadcast('schedule');
+    return { ok: true, week_zones: map };
+  });
 
   // Tải lịch tuần ra Excel theo kiểu bảng "Lịch trực ca": bộ phận | tên | vị trí | T2 … CN
   r.get('/api/schedule.xlsx', 'staff', ({ me, query }) => {

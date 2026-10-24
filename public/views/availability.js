@@ -118,15 +118,34 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
     </section>`)}
     ${cell ? html`<${Modal} title=${`${cell.p.name} · ${dayLabel(cell.x)}`} onClose=${() => setCell(null)}><div class="stack">
       ${cell.sh.map((x) => html`<div class="stack"><b>${x.text}</b>
-        ${zones.length ? html`<div><small class="muted">Giao khu (người quản khu chụp checklist khu đó):</small><div class="chips">
-          ${zones.map((z) => html`<button class=${`chip ${x.zone_id === z.id ? 'on' : ''}`} onClick=${() => setZone(x, z.id)}>📍 ${z.name}</button>`)}
-          ${x.zone_id ? html`<button class="chip" onClick=${() => setZone(x, null)}>Bỏ khu</button>` : null}</div></div>` : null}
         <div class="row wrap">
         ${x.segments.length === 1 ? html`<button class="primary" onClick=${() => { setEdit({ p: cell.p, date: cell.x, range: `${x.segments[0].start}-${x.segments[0].end === '00:00' ? '24:00' : x.segments[0].end}`, id: x.group_id }); setCell(null); }}>✎ Sửa giờ</button>` : null}
         <button onClick=${() => act(() => api('POST', '/api/shifts/delete', { group_id: x.group_id }), `Đã bỏ ca ${cell.p.name}`).then((r) => r && setCell(null))}>✕ Bỏ ca</button></div></div>`)}
     </div><//>` : null}
     ${edit ? html`<${AddShift} p=${edit.p} date=${edit.date} range=${edit.range} replaceId=${edit.id} onClose=${() => setEdit(null)} />` : null}
   </div>`;
+}
+
+// Phân khu theo tuần: danh sách nhân viên, bấm khu 1 lần cho cả tuần (chủ quán 24/10)
+function WeekZones({ ws, staff, teams, map, onClose }) {
+  const zonesD = useData('/api/zones');
+  const zones = (zonesD.data || []).filter((z) => z.active !== false && z.active !== 0);
+  const pv = teams.find((t) => /phục vụ/i.test(t.name));
+  const [team, setTeam] = useState(pv ? String(pv.id) : '');
+  const [cur, setCur] = useState(map || {});
+  const people = staff.filter((p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team)));
+  const pick = (p, zid) => act(() => api('POST', '/api/schedule/week-zones', { week: ws, staff_id: p.id, zone_id: zid || undefined })).then((r) => r && setCur(r.week_zones));
+  const count = (zid) => people.filter((p) => Number(cur[p.id]) === zid).length;
+  return html`<${Modal} title=${`📍 Phân khu tuần ${fmtDate(ws)} – ${fmtDate(addDays(ws, 6))}`} onClose=${onClose}><div class="stack">
+    <p class="small muted">Bấm khu cho từng bạn, áp cho <b>cả tuần</b>. Người quản khu chụp checklist khu đó.</p>
+    <div class="chips"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Tất cả</button>
+      ${teams.map((t) => html`<button class=${`chip ${team === String(t.id) ? 'on' : ''}`} onClick=${() => setTeam(String(t.id))}>${t.name}</button>`)}</div>
+    <div class="chips">${zones.map((z) => html`<span class="pill">${z.name}: ${count(z.id)} người</span>`)}</div>
+    ${people.map((p) => html`<div class="zone-row"><b class="grow">${p.name}</b>
+      <div class="chips">${zones.map((z) => html`<button class=${`chip ${Number(cur[p.id]) === z.id ? 'on' : ''}`} onClick=${() => pick(p, z.id)}>${z.name.replace(/^Khu\s*/i, '')}</button>`)}
+        <button class=${`chip ${!cur[p.id] ? 'on' : ''}`} onClick=${() => pick(p, null)}>—</button></div></div>`)}
+    <button class="primary" onClick=${onClose}>Xong</button>
+  </div><//>`;
 }
 
 export function PlanBoard(props) { return Overview(props); }
@@ -139,6 +158,7 @@ function Overview({ me, week, onWeek }) {
   const [team, setTeam] = useState('');
   const [add, setAdd] = useState(null);
   const [covDay, setCovDay] = useState(null);
+  const [zoning, setZoning] = useState(false);
   if (!st.data || !sc.data || !staffD.data) return html`<${Loading} state=${!st.data ? st : !sc.data ? sc : staffD} />`;
   const d = st.data;
   const teams = d.teams.filter((t) => staffD.data.some((p) => p.team_id === t.id));
@@ -162,6 +182,7 @@ function Overview({ me, week, onWeek }) {
     ${canManage ? html`<section class="card stack plan-actions">
       <small>Nhân viên báo lịch xong là <b>tự thành ca</b> (ô đậm). Bấm ô đậm để sửa giờ / bỏ, bấm ô trống để thêm ca, xong bấm <b>Duyệt</b>.</small>
       <div class="row wrap">
+        <button onClick=${() => setZoning(true)}>📍 Phân khu tuần này</button>
         <button class="primary" disabled=${!shifts.length} onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã duyệt: gửi chủ xem + gửi lịch cho nhân viên')}>✅ ${published ? 'Duyệt lại' : 'Duyệt lịch tuần'} (${shifts.length} ca)</button>
       </div>
     </section>` : null}
@@ -177,6 +198,7 @@ function Overview({ me, week, onWeek }) {
       <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}
       ${missing.length && canManage ? html`<button onClick=${() => act(() => api('POST', '/api/availability/remind', { week: d.week_start }), 'Đã nhắc')}>🔔 Nhắc tất cả</button>` : null}</div>
     </details>
+    ${zoning ? html`<${WeekZones} ws=${d.week_start} staff=${staffD.data} teams=${d.teams} map=${sc.data.week_zones} onClose=${() => setZoning(false)} />` : null}
     ${add ? html`<${AddShift} p=${add.p} date=${add.date} range=${add.range} onClose=${() => setAdd(null)} />` : null}
   </div>`;
 }

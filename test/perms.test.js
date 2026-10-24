@@ -164,3 +164,28 @@ test('ca xếp theo giờ trùng loại ca → tự gắn loại ca (checklist t
   assert.equal(sh.label, 'Ca gãy');
   assert.ok(sh.template_id);
 });
+
+test('phân khu theo tuần: 1 lần cho cả tuần, ca có sẵn + ca mới trong tuần đều nhận khu', async (t) => {
+  const db = openDb(':memory:');
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  const team = (await o('GET', '/api/teams')).data[0].id;
+  const a = (await o('POST', '/api/staff', { name: 'An', role: 'staff', team_id: team, pin: '7365' })).data.id;
+  const zA = (await o('GET', '/api/zones')).data[0];
+  await o('POST', '/api/shifts', { staff_id: a, date: '2026-11-02', label: 'Ca', segments: [{ start: '06:00', end: '14:00' }] });
+  assert.equal((await o('POST', '/api/schedule/week-zones', { week: '2026-11-04', staff_id: a, zone_id: zA.id })).status, 200);
+  await o('POST', '/api/shifts', { staff_id: a, date: '2026-11-05', label: 'Ca', segments: [{ start: '14:00', end: '22:00' }] });
+  const d = (await o('GET', '/api/schedule?week=2026-11-02')).data;
+  assert.deepEqual(d.shifts.map((x) => x.zone_name), [zA.name, zA.name]);
+  assert.equal(Number(d.week_zones[a]), zA.id);
+  // tuần sau không bị ảnh hưởng
+  await o('POST', '/api/shifts', { staff_id: a, date: '2026-11-10', label: 'Ca', segments: [{ start: '06:00', end: '14:00' }] });
+  assert.equal((await o('GET', '/api/schedule?week=2026-11-09')).data.shifts[0].zone_id, null);
+});
