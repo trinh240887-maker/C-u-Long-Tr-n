@@ -259,13 +259,14 @@ test('lịch rảnh cố định: báo 1 lần "tuần nào cũng vậy" → tu�
   const nga = s2.people.find((p) => p.name === 'Nga').id;
   assert.ok(s2.cells['2026-11-02:toi'].free.includes(nga) && s2.cells['2026-11-02:chieu'].free.includes(nga) && !s2.cells['2026-11-02:sang'].free.includes(nga));
   assert.deepEqual(s2.hours[`${nga}:2026-11-02`], ['16:00-23:00']);
-  // Quản lý bấm "Xếp hết theo lịch rảnh": mỗi khung rảnh thành 1 ca; bấm lại không tạo trùng
-  let fa = (await o('POST', '/api/schedule/from-availability', { week: '2026-11-02' })).data;
-  assert.equal(fa.made, 2);
-  fa = (await o('POST', '/api/schedule/from-availability', { week: '2026-11-02', staff_id: nga })).data;
-  assert.deepEqual([fa.made, fa.skipped], [0, 2]); // mỗi ngày 1 ca (khung rảnh cùng ngày gộp)
-  const sh = (await o('GET', '/api/schedule?week=2026-11-02')).data.shifts.filter((x) => x.staff_id === nga).map((x) => `${x.date} ${x.text}`);
-  assert.equal(sh.length, 2);
+  // Lịch rảnh = lịch làm: tuần tự điền theo lịch cố định đã thành ca (ô đậm), quản lý chỉ sửa / bỏ
+  const sh = (await o('GET', '/api/schedule?week=2026-11-02')).data.shifts.filter((x) => x.staff_id === nga);
+  assert.deepEqual(sh.map((x) => `${x.date} ${x.text}`), ['2026-11-02 16:00–23:00', '2026-11-07 10:30–22:00']);
+  // Quản lý sửa 1 ca → nhân viên gửi lại lịch rảnh không đè ca đã sửa, ca tự tạo thì thay theo lịch mới
+  await o('POST', '/api/shifts', { staff_id: nga, date: '2026-11-02', label: 'Ca', segments: [{ start: '17:00', end: '22:00' }], replace_group_id: sh[0].group_id });
+  await nv('POST', '/api/availability/me', { week: '2026-11-02', picks: { '2026-11-02': ['06:00-14:00'], '2026-11-04': ['14:00-22:00'] } });
+  const sh2 = (await o('GET', '/api/schedule?week=2026-11-02')).data.shifts.filter((x) => x.staff_id === nga).map((x) => `${x.date} ${x.text}`);
+  assert.deepEqual(sh2, ['2026-11-02 17:00–22:00', '2026-11-04 14:00–22:00']);
   const sum = (await o('GET', '/api/availability?week=2026-11-09')).data;
   assert.ok(sum.people.find((p) => p.name === 'Nga').fixed);
   // Bỏ lịch cố định → tuần sau không tự điền nữa

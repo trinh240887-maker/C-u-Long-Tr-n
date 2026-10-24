@@ -79,6 +79,7 @@ export default function (r, ctx) {
       const wk = db.prepare("INSERT OR IGNORE INTO availability_weeks (staff_id, week_start, submitted_at, note) VALUES (?, ?, ?, ?)");
       for (const x of rows) { add.run(x.staff_id, addDays(ws, x.dow - 1), x.slot); wk.run(x.staff_id, ws, ctx.now(), FIXED_NOTE); }
     });
+    for (const id of new Set(rows.map((x) => x.staff_id))) ctx.availToShifts?.(id, ws, { id: null });
   }
   ctx.fillFixedAvailability = fillFixed;
   const fixedOf = (staffId) => {
@@ -146,6 +147,7 @@ export default function (r, ctx) {
       }
     });
     ctx.audit(who, me.id === who.id ? 'availability.submit' : 'availability.submit_for', { week: ws, staff: me.id, fixed: !!body.fixed });
+    ctx.availToShifts?.(me.id, ws, who);
     ctx.broadcast('availability');
     return { ok: true };
   });

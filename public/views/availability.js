@@ -99,8 +99,8 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
       <div class="wk-head">${g.name.toUpperCase()} <small>${g.people.length} người</small></div>
       <div class="wk-wrap"><table class="wk">
         <thead><tr><th class="wk-name">Tên</th>${d.days.map((x) => html`<th>${dayLabel(x).split(' ')[0]}<br /><small>${x.slice(8)}/${x.slice(5, 7)}</small><br /><b class="wk-n">${g.people.filter((p) => shiftOf(p.id, x).length).length}</b></th>`)}</tr></thead>
-        <tbody>${g.people.map((p) => { const freeLeft = d.days.some((x) => !shiftOf(p.id, x).length && (d.hours?.[`${p.id}:${x}`] || []).length); return html`<tr><td class="wk-name"><b>${p.name}</b>${p.position_name ? html`<br /><small class="muted">${p.position_name}</small>` : null}
-            ${canManage && freeLeft ? html`<br /><button class="small take" onClick=${() => onTake(p)}>✓ Nhận lịch</button>` : null}</td>
+        <tbody>${g.people.map((p) => { return html`<tr><td class="wk-name"><b>${p.name}</b>${p.position_name ? html`<br /><small class="muted">${p.position_name}</small>` : null}
+</td>
           ${d.days.map((x) => {
             const sh = shiftOf(p.id, x);
             const fr = d.hours?.[`${p.id}:${x}`] || [];
@@ -150,7 +150,7 @@ function Overview({ me, week, onWeek }) {
       ${published ? html`<span class="pill ok">Đã duyệt ${dt(published)}</span>` : html`<span class="pill warn">Chưa duyệt</span>`}
     </div>
     ${canManage ? html`<section class="card stack plan-actions">
-      <small>Ô xanh = lịch rảnh nhân viên báo · ô đậm = đã thành ca. Bấm ô xanh để xếp, bấm ô đậm để sửa giờ / bỏ.</small>
+      <small>Nhân viên báo lịch xong là <b>tự thành ca</b> (ô đậm). Bấm ô đậm để sửa giờ / bỏ, bấm ô trống để thêm ca, xong bấm <b>Duyệt</b>.</small>
       <div class="row wrap">
         <button class="primary" disabled=${!shifts.length} onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã duyệt: gửi chủ xem + gửi lịch cho nhân viên')}>✅ ${published ? 'Duyệt lại' : 'Duyệt lịch tuần'} (${shifts.length} ca)</button>
       </div>
@@ -162,8 +162,7 @@ function Overview({ me, week, onWeek }) {
     <div class="row between wrap"><div class="chips"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Cả quán</button>
       ${teams.map((t) => html`<button class=${`chip ${team === String(t.id) ? 'on' : ''}`} onClick=${() => setTeam(String(t.id))}>${t.name}</button>`)}</div>
       <a class="btn small" href=${`/api/schedule.xlsx?week=${d.week_start}`} download>⬇ Tải Excel</a></div>
-    <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })}
-      onTake=${(p) => act(() => api('POST', '/api/schedule/from-availability', { week: d.week_start, staff_id: p.id }), `Đã nhận lịch rảnh của ${p.name}`)} />
+    <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />
     <details class="card"><summary><b>Chưa báo lịch rảnh (${missing.length})</b> <small class="muted">hạn ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} ${d.deadline.time}</small></summary>
       <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}
       ${missing.length && canManage ? html`<button onClick=${() => act(() => api('POST', '/api/availability/remind', { week: d.week_start }), 'Đã nhắc')}>🔔 Nhắc tất cả</button>` : null}</div>

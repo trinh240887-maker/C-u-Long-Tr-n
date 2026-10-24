@@ -9,7 +9,7 @@ export const PAGES = [
   { path: '/', label: 'Hôm nay', role: 'staff', fixed: true },
   { path: '/quan-ly', label: 'Quản lý', role: 'shift_lead' },
   // Xếp ca là quyền riêng: chủ quán cấp cho ai thì người đó xếp được (màn Lịch rảnh → Xếp ca). Đặt TRƯỚC /lich
-  { path: '/lich#xep', label: 'Lịch ca › Xếp ca, công bố lịch', role: 'manager', sub: true, api: [['/api/shifts', 'all'], ['/api/schedule/copy', 'all'], ['/api/schedule/from-availability', 'all'], ['/api/schedule/publish', 'all'], ['/api/availability/remind', 'all']] },
+  { path: '/lich#xep', label: 'Lịch ca › Xếp ca, công bố lịch', role: 'manager', sub: true, api: [['/api/shifts', 'all'], ['/api/schedule/copy', 'all'], ['/api/schedule/publish', 'all'], ['/api/availability/remind', 'all']] },
   { path: '/lich', label: 'Lịch ca (xem)', role: 'staff' },
   { path: '/ban', label: 'Sơ đồ bàn', role: 'staff' },
   { path: '/kho', label: 'Kho', role: 'staff', api: [['/api/stock/receive', 'w'], ['/api/stock/transfers', 'w'], ['/api/stock/po', 'w'], ['/api/stock/ingredients', 'w'], ['/api/stock/stores', 'w'], ['/api/stock/suppliers', 'w'], ['/api/stock/nxt', 'all']] },

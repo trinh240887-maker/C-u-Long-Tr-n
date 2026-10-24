@@ -245,43 +245,40 @@ export default function (r, ctx) {
     return { copied, skipped };
   });
 
-  // Nhận lịch rảnh thành ca: mỗi khung giờ rảnh → 1 ca (bỏ qua ngày người đó đã có ca). staff_id: chỉ 1 người
-  r.post('/api/schedule/from-availability', 'manager', ({ me, body }) => {
-    if (!isDate(body.week)) fail(400, 'Tuần không hợp lệ');
-    const start = weekStart(body.week);
-    const only = body.staff_id ? v.int(body.staff_id, { min: 1, name: 'Nhân viên' }) : null;
-    ctx.fillFixedAvailability?.(start);
-    const rows = db.prepare(`SELECT a.staff_id, a.date, a.slot FROM availability a JOIN staff s ON s.id = a.staff_id AND s.active = 1
-      WHERE a.date BETWEEN ? AND ? ${only ? 'AND a.staff_id = ?' : ''} ORDER BY a.staff_id, a.date, a.slot`).all(start, addDays(start, 6), ...(only ? [only] : []));
+  // Lịch rảnh nhân viên báo = lịch làm (chủ quán 24/10): báo xong tự thành ca, quản lý chỉ sửa / bỏ rồi Duyệt.
+  // Gửi lại → thay các ca tự tạo (note 'Theo lịch rảnh') của tuần đó; ca quản lý tự xếp / đã sửa giữ nguyên. Tuần đã duyệt thì không tự đổi
+  const AUTO_NOTE = 'Theo lịch rảnh';
+  function availToShifts(staffId, start, me) {
+    if (Number(ctx.setting(`published:${start}`) || 0)) return { made: 0, skipped: 0 };
+    const end = addDays(start, 6);
+    const rows = db.prepare('SELECT date, slot FROM availability WHERE staff_id = ? AND date BETWEEN ? AND ? ORDER BY date, slot').all(staffId, start, end);
     let made = 0, skipped = 0;
-    // Gom khung rảnh cùng người cùng ngày thành 1 ca (ca gãy 10–14 + 17–22 = 1 ca 2 khúc)
-    const byDay = new Map();
-    for (const a of rows) {
-      const r = ctx.availRange?.(a.slot);
-      if (!r) continue;
-      const k = `${a.staff_id}|${a.date}`;
-      byDay.set(k, [...(byDay.get(k) || []), r]);
-    }
     tx(db, () => {
-      for (const [k, list] of byDay) {
-        const [sid, date] = k.split('|');
-        const staffId = Number(sid);
+      db.prepare('DELETE FROM assignments WHERE staff_id = ? AND date BETWEEN ? AND ? AND note = ? AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = assignments.group_id)').run(staffId, start, end, AUTO_NOTE);
+      const byDay = new Map();
+      for (const a of rows) { const r = ctx.availRange?.(a.slot); if (r) byDay.set(a.date, [...(byDay.get(a.date) || []), r]); }
+      for (const [date, list] of byDay) {
         if (db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(staffId, date)) { skipped++; continue; }
         const segs = list.sort((x, y) => x.start - y.start).reduce((acc, r) => {
           const last = acc.at(-1);
           if (last && r.start <= last.end_min) last.end_min = Math.max(last.end_min, r.end); else acc.push({ start_min: r.start, end_min: r.end });
           return acc;
         }, []).slice(0, 4);
-        try {
-          createGroup(me, { staffId, date, teamId: null, segs, templateId: null, label: 'Ca', note: 'Theo lịch rảnh' });
-          made++;
-        } catch { skipped++; }
+        try { createGroup(me, { staffId, date, teamId: null, segs, templateId: null, label: 'Ca', note: AUTO_NOTE }); made++; } catch { skipped++; }
       }
     });
-    ctx.audit(me, 'schedule.from_availability', { week: start, staff: only, made, skipped });
-    ctx.broadcast('schedule');
+    if (made) ctx.broadcast('schedule');
     return { made, skipped };
-  });
+  }
+  ctx.availToShifts = availToShifts;
+  // 1 lần: lịch rảnh đã báo trước khi có tính năng này → tạo ca cho tuần hiện tại / sắp tới chưa duyệt
+  if (!ctx.setting('avail_to_shift_v1')) {
+    const from = weekStart(ctx.today());
+    for (const w of db.prepare('SELECT staff_id, week_start FROM availability_weeks WHERE week_start >= ?').all(from)) {
+      try { availToShifts(w.staff_id, w.week_start, { id: null }); } catch { /* bỏ qua */ }
+    }
+    ctx.setSetting('avail_to_shift_v1', '1');
+  }
 
   // Tải lịch tuần ra Excel theo kiểu bảng "Lịch trực ca": bộ phận | tên | vị trí | T2 … CN
   r.get('/api/schedule.xlsx', 'staff', ({ me, query }) => {
