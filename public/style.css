@@ -645,3 +645,18 @@ table.nxt th, table.nxt td { white-space: nowrap; padding: 6px 6px; }
 table.nxt td:first-child { white-space: normal; min-width: 120px; }
 table.nxt tr { cursor: pointer; }
 table.nxt tr.bad-row td { background: color-mix(in srgb, #dc2626 10%, var(--panel)); }
+/* Phân quyền */
+.perm-wrap { padding: 0; overflow-x: auto; }
+table.perm { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
+table.perm th:not(:first-child), table.perm td:not(:first-child) { width: 44px; }
+table.perm .perm-more td { width: auto; }
+table.perm select.full { width: 100%; max-width: 100%; }
+table.perm th { position: sticky; top: 0; background: var(--panel); font-size: 12px; font-weight: 600; padding: 8px 4px; text-align: center; border-bottom: 1px solid var(--line); }
+table.perm th:first-child { text-align: left; padding-left: 12px; }
+table.perm td { padding: 4px; text-align: center; border-bottom: 1px solid var(--line); }
+table.perm td:first-child { text-align: left; padding-left: 12px; }
+table.perm input[type=checkbox] { width: 24px; height: 24px; margin: 0; }
+table.perm tr.on td { background: var(--accent-soft); }
+table.perm .perm-more td { text-align: left; padding: 10px 12px; background: var(--bg); }
+.link-btn { display: block; width: 100%; white-space: normal; overflow-wrap: anywhere; background: none; border: 0; padding: 6px 0; min-height: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.link-btn:disabled { opacity: .6; }

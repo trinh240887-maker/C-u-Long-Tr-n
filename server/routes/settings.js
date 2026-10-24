@@ -5,6 +5,7 @@ import { fail, v } from '../http.js';
 import { parseOffset, parseHM } from '../lib/time.js';
 import { runBackup, listBackups } from '../backup.js';
 import { readStatic } from '../lib/vietqr.js';
+import { loadPerms, ROLES_EDITABLE, PAGES } from '../lib/perms.js';
 
 const SECRET_KEYS = ['zalo_secret_key', 'zalo_access_token', 'zalo_refresh_token', 'anthropic_api_key', 'zalo_bot_token'];
 const OWNER_ONLY = ['anthropic_api_key', 'zalo_bot_token', 'zalo_bot_group_id', 'zalo_bot_group_name']; // mã tốn tiền / điều khiển bot: chỉ chủ quán dán
@@ -110,6 +111,32 @@ export default function (r, ctx) {
   }
 
   r.get('/api/settings', 'manager', () => view());
+
+  // ---------- Phân quyền từng mục (chỉ chủ quán) ----------
+  const permView = () => ({
+    roles: ROLES_EDITABLE,
+    pages: loadPerms(ctx),
+    staff: db.prepare("SELECT s.id, s.name, s.role, t.name AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.active = 1 AND s.role != 'owner' ORDER BY s.name").all(),
+  });
+  r.get('/api/permissions', 'owner', () => permView());
+  r.put('/api/permissions', 'owner', ({ me, body }) => {
+    const ids = new Set(db.prepare('SELECT id FROM staff WHERE active = 1').all().map((x) => x.id));
+    const out = {};
+    for (const p of PAGES) {
+      if (p.fixed) continue;
+      const c = body.pages?.[p.path];
+      if (!c) continue;
+      out[p.path] = {
+        roles: (Array.isArray(c.roles) ? c.roles : []).filter((x) => ROLES_EDITABLE.includes(x)),
+        allow: [...new Set((c.allow || []).map(Number).filter((x) => ids.has(x)))],
+        deny: [...new Set((c.deny || []).map(Number).filter((x) => ids.has(x)))],
+      };
+    }
+    ctx.setSetting('perm_pages', JSON.stringify(out));
+    ctx.audit(me, 'perm.update', Object.keys(out).length);
+    ctx.broadcast('me');
+    return permView();
+  });
 
   // ---------- Zalo Bot: kiểm tra, tìm nhóm, gửi thử (chủ quán) ----------
   const owner = (me) => { if (me.role !== 'owner') fail(403, 'Chỉ chủ quán'); };

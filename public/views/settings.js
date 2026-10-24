@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast, hm, dayLabel } from '../ui.js';
 
-const TABS = [['chung', 'Chung'], ['bot', '🤖 Zalo Bot'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['ketnoi', 'Kết nối (mã)'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
+const TABS = [['chung', 'Chung'], ['quyen', '🔐 Phân quyền'], ['bot', '🤖 Zalo Bot'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['ketnoi', 'Kết nối (mã)'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
 
 const DEF_SLOTS = [{ key: 'sang', label: 'Sáng', start: '06:00', end: '12:00' }, { key: 'chieu', label: 'Chiều', start: '12:00', end: '17:00' }, { key: 'toi', label: 'Tối', start: '17:00', end: '24:00' }];
 
@@ -429,6 +429,48 @@ function Audit() {
     <tbody>${st.data.map((a) => html`<tr><td>${dt(a.at)}</td><td>${a.staff_name || '—'}</td><td><code>${a.action}</code></td><td><small class="muted">${a.detail.slice(0, 120)}</small></td></tr>`)}</tbody></table></div></section>`;
 }
 
+// Phân quyền từng mục: tick vai trò được thấy, cấp / chặn riêng từng người. Chủ quán luôn thấy hết.
+const ROLE_SHORT = { staff: 'Nhân viên', team_lead: 'Tổ trưởng', shift_lead: 'Trưởng ca', manager: 'Quản lý' };
+const ROLE_ABBR = { staff: 'NV', team_lead: 'TT', shift_lead: 'TC', manager: 'QL' };
+function Perms() {
+  const d = useData('/api/permissions');
+  const [cfg, setCfg] = useState(null);
+  const [open, setOpen] = useState(null);
+  useEffect(() => { if (d.data) setCfg(Object.fromEntries(d.data.pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny }]))); }, [d.data]);
+  if (!d.data || !cfg) return html`<${Loading} state=${d} />`;
+  const { roles, pages, staff } = d.data;
+  const name = (id) => staff.find((x) => x.id === id)?.name || `#${id}`;
+  const set = (path, patch) => setCfg({ ...cfg, [path]: { ...cfg[path], ...patch } });
+  const toggle = (path, r) => { const c = cfg[path]; set(path, { roles: c.roles.includes(r) ? c.roles.filter((x) => x !== r) : [...c.roles, r] }); };
+  const addP = (path, kind, id) => { if (!id) return; const c = cfg[path]; const other = kind === 'allow' ? 'deny' : 'allow'; set(path, { [kind]: [...new Set([...c[kind], id])], [other]: c[other].filter((x) => x !== id) }); };
+  const delP = (path, kind, id) => set(path, { [kind]: cfg[path][kind].filter((x) => x !== id) });
+  const dirty = JSON.stringify(cfg) !== JSON.stringify(Object.fromEntries(pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny }])));
+  const save = () => act(() => api('PUT', '/api/permissions', { pages: cfg }), 'Đã lưu phân quyền');
+  const reset = (p) => { const def = roles.filter((r) => roles.indexOf(r) >= roles.indexOf(p.role)); set(p.path, { roles: def, allow: [], deny: [] }); };
+  return html`<div class="stack">
+    <section class="card"><p class="small">Tick vai trò nào được thấy và dùng mục đó. Bỏ tick thì mục ẩn khỏi menu và máy chủ chặn luôn. Bấm tên mục để cấp riêng / chặn riêng từng người. Chủ quán luôn thấy hết.</p>
+      <p class="small muted">NV = Nhân viên · TT = Tổ trưởng · TC = Trưởng ca · QL = Quản lý</p></section>
+    <section class="card perm-wrap">
+      <table class="perm">
+        <thead><tr><th>Mục</th>${roles.map((r) => html`<th title=${ROLE_SHORT[r]}>${ROLE_ABBR[r]}</th>`)}</tr></thead>
+        <tbody>${pages.map((p) => { const c = cfg[p.path]; const n = c.allow.length + c.deny.length; return html`
+          <tr class=${open === p.path ? 'on' : ''}>
+            <td><button class="link-btn" disabled=${p.fixed} onClick=${() => setOpen(open === p.path ? null : p.path)}>${p.label}${n ? html` <b class="pill">${n} người</b>` : null}${p.team ? html`<small class="muted"> + tổ ${p.team}</small>` : null}</button></td>
+            ${roles.map((r) => html`<td><input type="checkbox" aria-label=${`${p.label} – ${ROLE_SHORT[r]}`} disabled=${p.fixed} checked=${c.roles.includes(r)} onChange=${() => toggle(p.path, r)} /></td>`)}
+          </tr>
+          ${open === p.path ? html`<tr class="perm-more"><td colspan=${roles.length + 1}><div class="stack">
+            <div><b>✅ Cấp riêng:</b> ${c.allow.length ? c.allow.map((id) => html`<span class="chip">${name(id)} <button class="small" onClick=${() => delP(p.path, 'allow', id)}>✕</button></span>`) : html`<span class="muted">không có</span>`}</div>
+            <select class="full" onChange=${(e) => { addP(p.path, 'allow', Number(e.target.value)); e.target.value = ''; }}><option value="">+ Cấp riêng cho…</option>${staff.filter((x) => !c.allow.includes(x.id)).map((x) => html`<option value=${x.id}>${x.name} (${ROLE_SHORT[x.role] || x.role}${x.team_name ? ` · ${x.team_name}` : ''})</option>`)}</select>
+            <div><b>⛔ Chặn riêng:</b> ${c.deny.length ? c.deny.map((id) => html`<span class="chip">${name(id)} <button class="small" onClick=${() => delP(p.path, 'deny', id)}>✕</button></span>`) : html`<span class="muted">không có</span>`}</div>
+            <select class="full" onChange=${(e) => { addP(p.path, 'deny', Number(e.target.value)); e.target.value = ''; }}><option value="">+ Chặn riêng…</option>${staff.filter((x) => !c.deny.includes(x.id)).map((x) => html`<option value=${x.id}>${x.name} (${ROLE_SHORT[x.role] || x.role}${x.team_name ? ` · ${x.team_name}` : ''})</option>`)}</select>
+            <div class="row end"><button class="small" onClick=${() => reset(p)}>Về mặc định</button></div>
+          </div></td></tr>` : null}`; })}</tbody>
+      </table>
+    </section>
+    <div class="sum-bar row end">${dirty ? html`<span class="grow warn-text small">Chưa lưu</span>` : null}<button class="primary big" disabled=${!dirty} onClick=${save}>Lưu phân quyền</button></div>
+  </div>`;
+}
+
 export function SettingsView({ me, query }) {
   const tab = query.get('tab') || 'chung';
   const st = useData('/api/settings');
@@ -436,7 +478,7 @@ export function SettingsView({ me, query }) {
   const ver = useData('/api/version');
   return html`<div class="stack">
     ${ver.data ? html`<small class="muted">Phiên bản đang chạy: <b>${ver.data.version}</b> · khởi động ${hm(ver.data.started_at)} ${dayLabel(new Date(ver.data.started_at + 7 * 3600e3).toISOString().slice(0, 10))}</small>` : null}
-    <div class="tabs scroll">${TABS.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/cai-dat?tab=${k}`)}>${l}</button>`)}</div>
+    <div class="tabs scroll">${TABS.filter(([k]) => k !== 'quyen' || me.role === 'owner').map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/cai-dat?tab=${k}`)}>${l}</button>`)}</div>
     ${!st.data ? html`<${Loading} state=${st} />`
       : tab === 'chung' ? html`<${General} s=${st.data} staff=${(staff.data || []).filter((p) => p.active)} />`
       : tab === 'to' ? html`<${Teams} />`
@@ -446,6 +488,7 @@ export function SettingsView({ me, query }) {
       : tab === 'checklist' ? html`<${Checklists} me=${me} teams=${me.teams} />`
       : tab === 'ketnoi' ? html`<${Keys} s=${st.data} me=${me} only="claude" />`
       : tab === 'bot' ? html`<${Keys} s=${st.data} me=${me} only="bot" />`
+      : tab === 'quyen' ? (me.role === 'owner' ? html`<${Perms} />` : html`<p class="warn-text">Chỉ chủ quán phân quyền.</p>`)
       : tab === 'zalo' ? html`<${Zalo} s=${st.data} />`
       : tab === 'saoluu' ? html`<${Backups} s=${st.data} />`
       : html`<${Audit} />`}

@@ -54,6 +54,9 @@ const NAV = [
   { path: '/ho-so', label: 'Tài khoản', icon: '◎', role: 'staff' },
 ];
 
+// Mục nào người này được mở: theo Phân quyền chủ quán đặt (máy chủ tính sẵn trong /api/me), máy cũ thì theo vai trò
+const canOpen = (me, n) => (Array.isArray(me.pages) ? me.pages.includes(n.path) : n.show ? n.show(me) : atLeast(me, n.role));
+
 function Login({ onDone }) {
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
@@ -119,7 +122,7 @@ function ChangePin({ me, onDone }) {
 }
 
 function Shell({ me, children, path, online }) {
-  const items = NAV.filter((n) => (n.show ? n.show(me) : atLeast(me, n.role)));
+  const items = NAV.filter((n) => canOpen(me, n));
   const main = items.filter((n) => n.main).slice(0, 4);
   const [more, setMore] = useState(false);
   const active = (p) => (p === '/' ? path === '/' : path.startsWith(p));
@@ -217,7 +220,7 @@ function App() {
     '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/thuc-don': MenuView, '/goi-mon': OrderView, '/dat-ban': ReservationsView, '/may-in': PrintersView, '/khuyen-mai': PromotionsView, '/thu-ngan': CashierView, '/duyet-so': DaybookView, '/phieu-bep': TicketsView, '/bao-cao': ReportsView, '/mua-hang': PurchasesView, '/cai-dat': SettingsView, '/ho-so': Profile,
   };
   const nav = NAV.find((n) => n.path === base);
-  const View = routes[base] && (!nav || atLeast(me, nav.role)) ? routes[base] : Home;
+  const View = routes[base] && (!nav || canOpen(me, nav)) ? routes[base] : Home;
   return html`<${Shell} me=${me} path=${base} online=${online}><${View} me=${me} query=${query} reloadMe=${loadMe} /><//>`;
 }
 

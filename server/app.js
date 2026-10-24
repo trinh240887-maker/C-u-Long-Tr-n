@@ -14,6 +14,7 @@ import promoRoutes from './routes/promotions.js';
 import paymentRoutes from './routes/payments.js';
 import { codeHash } from './lib/version.js';
 import { createZaloBot } from './lib/zalo-bot.js';
+import { apiGate } from './lib/perms.js';
 import { createZns } from './notify/zns.js';
 import bankRoutes from './routes/bank.js';
 import daybookRoutes from './routes/daybook.js';
@@ -210,7 +211,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
     const url = new URL(req.url, 'http://localhost');
     const { pathname } = url;
     try {
-      const { token, me } = sessionOf(req);
+      let { token, me } = sessionOf(req);
       const net = clientIp(req);
 
       if (pathname === '/api/events') {
@@ -236,6 +237,12 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
         if (!hit) fail(404, 'Không có chức năng này');
         const { route, params } = hit;
         if (route.role && !me) fail(401, 'Chưa đăng nhập');
+        if (route.role && me) {
+          // Phân quyền từng mục (Cài đặt → Phân quyền): chặn mục bị bỏ, nâng quyền cho người được cấp riêng (không bao giờ thành chủ)
+          const gate = apiGate(ctx, me, req.method, pathname);
+          if (gate === 'deny') fail(403, 'Bạn chưa được cấp quyền mục này');
+          if (gate && route.role !== 'owner') me = { ...me, role: gate };
+        }
         if (route.role) ctx.need(me, route.role);
         if (req.method !== 'GET') {
           // Chỉ nhận JSON để chặn trang web lạ gửi lệnh thay người dùng
