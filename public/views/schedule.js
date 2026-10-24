@@ -162,10 +162,12 @@ function LeadBoard({ me, query }) {
 function MyWeek({ me, query }) {
   const [week, setWeek] = useState(query.get('week') || me.today);
   const [leaveFor, setLeaveFor] = useState(null);
+  const [picking, setPicking] = useState(false);
   const st = useData(`/api/schedule?week=${week}`);
   if (!st.data) return html`<${Loading} state=${st} />`;
   const d = st.data;
   const mine = d.shifts.filter((x) => x.staff_id === me.id);
+  const canLeave = mine.filter((m) => m.date >= me.today && !m.leave);
   const fmt = (x) => `${x.slice(8)}/${x.slice(5, 7)}`;
   return html`<div class="stack">
     <div class="row between wrap">
@@ -179,12 +181,17 @@ function MyWeek({ me, query }) {
       ${d.days.map((x) => { const sh = mine.filter((m) => m.date === x); return html`<div class=${`my-day ${sh.length ? 'on' : ''} ${x === me.today ? 'today' : ''}`}>
         <b>${dayLabel(x)}</b>
         <span class="stack tight-r">${sh.length ? sh.map((m) => html`<span class="pill">${m.label && m.label !== 'Ca' ? `${m.label} · ` : ''}${m.text}${m.position_name ? ` · ${m.position_name}` : ''}${m.zone_name ? ` · ${m.zone_name}` : ''}</span>
-          ${m.leave?.status === 'pending' ? html`<small class="warn-text">Chờ duyệt nghỉ</small>` : m.leave?.status === 'approved' ? html`<small class="muted">Đã duyệt nghỉ</small>`
-            : x >= me.today ? html`<button class="small" onClick=${() => setLeaveFor(m)}>Xin nghỉ</button>` : null}`) : html`<span class="muted">Nghỉ</span>`}</span>
+          ${m.leave?.status === 'pending' ? html`<small class="warn-text">Chờ duyệt nghỉ</small>` : m.leave?.status === 'approved' ? html`<small class="muted">Đã duyệt nghỉ</small>` : null}`) : html`<span class="muted">Nghỉ</span>`}</span>
       </div>`; })}
     </section>
     ${!d.published_at && mine.length ? html`<p class="small muted">Lịch có thể còn đổi tới khi quản lý duyệt.</p>` : null}
-    <button onClick=${() => navigate('/ranh')}>◷ Báo lịch rảnh tuần sau</button>
+    <div class="row wrap">
+      ${canLeave.length ? html`<button onClick=${() => setPicking(true)}>✋ Xin nghỉ</button>` : null}
+      <button onClick=${() => navigate('/ranh')}>◷ Báo lịch rảnh tuần sau</button>
+    </div>
+    ${picking ? html`<${Modal} title="Xin nghỉ ca nào?" onClose=${() => setPicking(false)}><div class="stack">
+      ${canLeave.map((m) => html`<button class="tpl-row" onClick=${() => { setPicking(false); setLeaveFor(m); }}><b class="grow">${dayLabel(m.date)}</b><span>${m.text}</span></button>`)}
+    </div><//>` : null}
     ${leaveFor ? html`<${LeaveForm} shift=${leaveFor} onClose=${() => setLeaveFor(null)} />` : null}
   </div>`;
 }

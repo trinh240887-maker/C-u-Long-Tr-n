@@ -69,6 +69,7 @@ export function Home({ me }) {
   const must = ['staff', 'team_lead', 'shift_lead'].includes(me.role);
   const avail = useData(must ? '/api/availability/me' : null);
   const [leaveFor, setLeaveFor] = useState(null);
+  const [pickLeave, setPickLeave] = useState(false);
   const myTasks = (tasks.data || []).filter((t) => t.assignee_id === me.id || (!t.assignee_id && t.team_id === me.team_id));
   // Khuyến mãi đã có thẻ 🎁 ở trên → không lặp trong Thông báo mới
   const unread = (notes.data || []).filter((n) => !n.read_at && n.link !== '/khuyen-mai').slice(0, 3);
@@ -124,9 +125,13 @@ export function Home({ me }) {
           <span class="grow"><b>${s.text}</b>${s.label ? html` <small class="muted">${s.label}</small>` : null}${s.position_name ? html` <small class="pos-tag">▸ ${s.position_name}</small>` : null}${s.zone_name ? html`<br /><small class="zone-tag">📍 ${s.zone_name}${s.tables_text ? ` · bàn ${s.tables_text}` : ' · cả khu'}</small>` : null}${s.team_name ? html`<br /><small class="muted">${s.team_name}${s.note ? ` · ${s.note}` : ''}</small>` : null}</span>
           ${s.leave?.status === 'pending' ? html`<span class="pill warn">Chờ duyệt nghỉ</span>`
             : s.leave?.status === 'approved' ? html`<span class="pill">Đã nghỉ</span>`
-            : html`<button class="small" onClick=${() => setLeaveFor(s)}>Xin nghỉ</button>`}
+            : null}
         </div>`) : html`<p class="muted">Chưa có ca nào được xếp.</p>`}
     </section>
+    ${(shifts.data || []).some((x) => !x.leave) ? html`<button onClick=${() => setPickLeave(true)}>✋ Xin nghỉ</button>` : null}
+    ${pickLeave ? html`<${Modal} title="Xin nghỉ ca nào?" onClose=${() => setPickLeave(false)}><div class="stack">
+      ${(shifts.data || []).filter((x) => !x.leave).map((x) => html`<button class="tpl-row" onClick=${() => { setPickLeave(false); setLeaveFor(x); }}><b class="grow">${dayLabel(x.date)}</b><span>${x.text}</span></button>`)}
+    </div><//>` : null}
     ${leaveFor ? html`<${LeaveForm} shift=${leaveFor} onClose=${() => setLeaveFor(null)} />` : null}
   </div>`;
 }
