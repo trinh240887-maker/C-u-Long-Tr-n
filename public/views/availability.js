@@ -131,7 +131,7 @@ function WeekZones({ ws, staff, teams, map, onClose }) {
   const zonesD = useData('/api/zones');
   const zones = (zonesD.data || []).filter((z) => z.active !== false && z.active !== 0);
   const pv = teams.find((t) => /phục vụ/i.test(t.name));
-  const [team, setTeam] = useState(pv ? String(pv.id) : '');
+  const team = pv ? String(pv.id) : ''; // chỉ Phục vụ chia khu (chủ quán 24/10)
   const [cur, setCur] = useState(map || {});
   const RANK = ['manager', 'shift_lead', 'team_lead', 'staff'];
   // Trưởng ca, tổ trưởng lên đầu danh sách
@@ -141,8 +141,7 @@ function WeekZones({ ws, staff, teams, map, onClose }) {
   const count = (zid) => people.filter((p) => Number(cur[p.id]) === zid).length;
   return html`<${Modal} title=${`📍 Phân khu tuần ${fmtDate(ws)} – ${fmtDate(addDays(ws, 6))}`} onClose=${onClose}><div class="stack">
     <p class="small muted">Bấm khu cho từng bạn, áp cho <b>cả tuần</b>. Người quản khu chụp checklist khu đó.</p>
-    <div class="chips"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Tất cả</button>
-      ${teams.map((t) => html`<button class=${`chip ${team === String(t.id) ? 'on' : ''}`} onClick=${() => setTeam(String(t.id))}>${t.name}</button>`)}</div>
+    <p class="small muted">Chỉ <b>Phục vụ</b> chia theo khu. Bếp, Bar, Thu ngân, Tiếp thực phân theo đầu mục công việc (checklist "Ai làm").</p>
     <div class="chips">${zones.map((z) => html`<span class="pill">${z.name}: ${count(z.id)} người</span>`)}</div>
     ${people.map((p) => html`<div class="zone-row"><span class="grow"><b>${p.name}</b>${p.role !== 'staff' || p.position_name ? html`<br /><small class=${p.role !== 'staff' ? 'role-tag' : 'muted'}>${p.role !== 'staff' ? `⭐ ${p.role_label}` : ''}${p.role !== 'staff' && p.position_name ? ' · ' : ''}${p.position_name || ''}</small>` : null}</span>
       <div class="chips">${zones.map((z) => html`<button class=${`chip ${Number(cur[p.id]) === z.id ? 'on' : ''}`} onClick=${() => pick(p, z.id)}>${z.name.replace(/^Khu\s*/i, '')}</button>`)}
