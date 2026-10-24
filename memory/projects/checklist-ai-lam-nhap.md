@@ -19,4 +19,7 @@ Mở ca: số người, số mâm sạch · 📷 cả tổ đội nón cầm mâ
 Mở cửa: 📷 mặt tiền + bảng hiệu sáng · két đầu ngày (đã có ở Thu ngân)
 Đóng cửa: 📷 toàn quán khu khách sau khi đóng · tắt điện khu khách, khoá gas tổng, khoá cổng (📷 ổ khoá) · kiểm checklist các khu đã đủ
 
-Tạp vụ / lối đi / mặt tiền & giữ xe: giữ như cũ (cả tổ tạp vụ).
+Tạp vụ / lối đi / mặt tiền & giữ xe: **giao cho 1 nhân viên cụ thể** (chủ quán 24/10) → ô "Ai làm" cần có lựa chọn "1 người cụ thể".
+
+## Thứ tự làm
+1. Chủ quán gửi danh sách checklist **Phục vụ** (ai làm · lúc nào · 📷) → làm "Ai làm" + giao khu trên Lịch ca. 2. Tạp vụ (1 người cụ thể). 3. Bếp làm sau.
