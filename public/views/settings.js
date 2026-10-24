@@ -389,38 +389,48 @@ function Keys({ s, me, only }) {
       <${Field} label="Mã Claude" hint=${s.anthropic_api_key ? `Đã lưu (${s.anthropic_api_key}). Dán mã mới để đổi.` : 'Chưa có: nút Đọc bill sẽ báo chưa cài.'}><input id="k-claude" type="password" autocomplete="off" disabled=${!owner} value=${f.anthropic_api_key} placeholder="sk-ant-…" onInput=${(e) => setF({ ...f, anthropic_api_key: e.target.value })} /><//>
       <div class="row end"><button class="primary" disabled=${!owner || !f.anthropic_api_key} onClick=${() => save('anthropic_api_key', 'Đã lưu mã Claude')}>Lưu mã</button></div>
     </section>` : null}
-    ${only !== 'claude' ? html`<section class="card stack"><h3>🤖 Zalo Bot (gửi đơn hàng vào nhóm)</h3>
+    ${only !== 'claude' ? html`<section class="card stack"><h3>🤖 Zalo Bot (nhóm đặt hàng + nhóm nhân viên)</h3>
       <p class="small"><b>Bước 1:</b> dán Token bot (chuỗi dài dạng 123456789:AbCd…, không phải ID bot) rồi bấm Lưu token.</p>
       <${Field} label="Token Zalo Bot" hint=${s.zalo_bot_token ? `Đã lưu (${s.zalo_bot_token}). Dán token mới để đổi.` : 'Chưa có.'}><input id="k-zbot" type="password" autocomplete="off" disabled=${!owner} value=${f.zalo_bot_token} onInput=${(e) => setF({ ...f, zalo_bot_token: e.target.value })} /><//>
       <div class="row end"><button class="primary" disabled=${!owner || !f.zalo_bot_token} onClick=${() => save('zalo_bot_token', 'Đã lưu token Zalo Bot')}>Lưu token</button></div>
-      ${owner ? html`<${BotGroup} s=${s} />` : html`<p class="warn-text small">Đăng nhập bằng tài khoản chủ quán để cài bot.</p>`}
+      ${owner ? html`<${BotGroup} s=${s} kind="order" /><${BotGroup} s=${s} kind="staff" />` : html`<p class="warn-text small">Đăng nhập bằng tài khoản chủ quán để cài bot.</p>`}
     </section>` : null}
   </div>`;
 }
 
-// Chọn nhóm Zalo nhận đơn đặt hàng đã duyệt: Kiểm tra bot → Tìm nhóm → Chọn → Gửi thử
-function BotGroup({ s }) {
+// Chọn nhóm Zalo cho bot: Kiểm tra bot → Tìm nhóm → Chọn → Gửi thử.
+// kind 'order': nhóm đặt hàng (gửi đơn duyệt) · 'staff': nhóm nhân viên (nhắc lịch rảnh tối thứ 7)
+const BOT_KINDS = {
+  order: { id: 'zalo_bot_group_id', name: 'zalo_bot_group_name', test: '/api/zalo-bot/test', title: '🛒 Nhóm nhận đơn đặt hàng', none: 'chưa chọn (duyệt đơn chỉ hiện nút sao chép)', note: 'Mỗi lần anh bấm Duyệt đơn đặt hàng, app tự gửi nội dung đơn vào nhóm. Gửi lỗi thì app báo và vẫn còn nút "Chép nội dung gửi Zalo".' },
+  staff: { id: 'zalo_bot_staff_group_id', name: 'zalo_bot_staff_group_name', test: '/api/zalo-bot/test-staff', title: '👥 Nhóm nhân viên (nhắc lịch rảnh)', none: 'chưa chọn', note: 'Tối thứ 7 lúc 20:00, bot tự nhắn vào nhóm tên các bạn CHƯA báo lịch rảnh tuần tới (chia theo bộ phận) kèm link vào app. Nút "Nhắc người chưa báo" ở Lịch ca cũng gửi vào nhóm này.' },
+};
+function BotGroup({ s, kind = 'order' }) {
+  const K = BOT_KINDS[kind];
   const [bot, setBot] = useState(null);
   const [chats, setChats] = useState(null);
-  const [grp, setGrp] = useState({ id: s.zalo_bot_group_id || '', name: s.zalo_bot_group_name || '' });
+  const [grp, setGrp] = useState({ id: s[K.id] || '', name: s[K.name] || '' });
+  const [on, setOn] = useState(s.avail_bot_on !== '0');
   const check = () => act(() => api('POST', '/api/zalo-bot/check'), 'Bot chạy được').then((r) => r && setBot(r.bot));
   const find = () => act(() => api('POST', '/api/zalo-bot/chats')).then((r) => r && setChats(r.chats));
-  const pick = (c) => act(() => api('PUT', '/api/settings', { zalo_bot_group_id: c.id, zalo_bot_group_name: c.name || c.id }), 'Đã chọn nhóm').then((r) => r && setGrp({ id: c.id, name: c.name || c.id }));
-  const off = () => act(() => api('PUT', '/api/settings', { zalo_bot_group_id: '', zalo_bot_group_name: '' }), 'Đã tắt gửi nhóm').then((r) => r && setGrp({ id: '', name: '' }));
-  return html`<div class="stack">
+  const pick = (c) => act(() => api('PUT', '/api/settings', { [K.id]: c.id, [K.name]: c.name || c.id }), 'Đã chọn nhóm').then((r) => { if (r) { setGrp({ id: c.id, name: c.name || c.id }); setChats(null); } });
+  const off = () => act(() => api('PUT', '/api/settings', { [K.id]: '', [K.name]: '' }), 'Đã tắt gửi nhóm').then((r) => r && setGrp({ id: '', name: '' }));
+  const toggle = () => act(() => api('PUT', '/api/settings', { avail_bot_on: on ? '0' : '1' }), on ? 'Đã tắt nhắc tự động' : 'Đã bật nhắc tự động').then((r) => r && setOn(!on));
+  return html`<section class="card stack">
+    <h3>${K.title}</h3>
     <div class="row wrap"><button onClick=${check}>Kiểm tra bot</button>
       ${bot ? html`<span class="ok-text">✓ ${bot.account_name || bot.display_name || bot.name || 'Bot'} </span>` : null}</div>
-    <p class="small"><b>Nhóm nhận đơn:</b> ${grp.id ? html`${grp.name} <button class="small" onClick=${off}>Tắt</button>` : html`<span class="muted">chưa chọn (duyệt đơn chỉ hiện nút sao chép)</span>`}</p>
+    <p class="small"><b>Nhóm:</b> ${grp.id ? html`${grp.name} <button class="small" onClick=${off}>Bỏ nhóm</button>` : html`<span class="muted">${K.none}</span>`}</p>
     <ol class="plain steps small">
-      <li>Thêm bot vào nhóm Zalo đặt hàng.</li>
+      <li>Thêm bot vào nhóm Zalo.</li>
       <li>Trong nhóm, nhắn <b>@tên bot</b> một câu bất kỳ (ví dụ "@bot xin chào").</li>
-      <li>Bấm "Tìm nhóm" bên dưới, chọn đúng nhóm, rồi "Gửi thử".</li>
+      <li>Bấm "Tìm nhóm", chọn đúng nhóm, rồi "Gửi thử".</li>
     </ol>
-    <div class="row wrap"><button onClick=${find}>Tìm nhóm</button>${grp.id ? html`<button class="primary" onClick=${() => act(() => api('POST', '/api/zalo-bot/test'), 'Đã gửi, mở nhóm Zalo xem')}>Gửi thử vào nhóm</button>` : null}</div>
+    <div class="row wrap"><button onClick=${find}>Tìm nhóm</button>${grp.id ? html`<button class="primary" onClick=${() => act(() => api('POST', K.test), 'Đã gửi, mở nhóm Zalo xem')}>Gửi thử vào nhóm</button>` : null}</div>
     ${chats ? (chats.length ? chats.map((c) => html`<button class="tpl-row" onClick=${() => pick(c)}><b class="grow">${c.name || '(không tên)'}</b><span class="muted">${c.type}${c.text ? ` · "${c.text.slice(0, 30)}"` : ''}</span></button>`)
       : html`<p class="warn-text small">Chưa thấy tin nào. Nhắn @bot trong nhóm rồi bấm lại.</p>`) : null}
-    <p class="small muted">Có nhóm rồi thì mỗi lần anh bấm Duyệt đơn đặt hàng, app tự gửi nội dung đơn vào nhóm. Gửi lỗi thì app báo và vẫn còn nút "Chép nội dung gửi Zalo".</p>
-  </div>`;
+    ${kind === 'staff' && grp.id ? html`<button class=${`chip ${on ? 'on' : ''}`} onClick=${toggle}>${on ? '🔔 Tự nhắc tối thứ 7: BẬT' : '🔕 Tự nhắc tối thứ 7: TẮT'}</button>` : null}
+    <p class="small muted">${K.note}</p>
+  </section>`;
 }
 
 function Zalo({ s }) {

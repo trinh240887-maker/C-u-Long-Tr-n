@@ -8,7 +8,7 @@ import { readStatic } from '../lib/vietqr.js';
 import { loadPerms, ROLES_EDITABLE, PAGES } from '../lib/perms.js';
 
 const SECRET_KEYS = ['zalo_secret_key', 'zalo_access_token', 'zalo_refresh_token', 'anthropic_api_key', 'zalo_bot_token'];
-const OWNER_ONLY = ['anthropic_api_key', 'zalo_bot_token', 'zalo_bot_group_id', 'zalo_bot_group_name']; // mã tốn tiền / điều khiển bot: chỉ chủ quán dán
+const OWNER_ONLY = ['anthropic_api_key', 'zalo_bot_token', 'zalo_bot_group_id', 'zalo_bot_group_name', 'zalo_bot_staff_group_id', 'zalo_bot_staff_group_name', 'avail_bot_on']; // mã tốn tiền / điều khiển bot: chỉ chủ quán dán
 const FIELDS = {
   shop_name: (x) => v.text(x, { name: 'Tên quán', required: true, max: 80 }),
   shop_address: (x) => v.text(x, { name: 'Địa chỉ quán', max: 160 }),
@@ -74,6 +74,9 @@ const FIELDS = {
   zalo_bot_token: (x) => v.text(x, { name: 'Token Zalo Bot', max: 300 }).trim(),
   zalo_bot_group_id: (x) => v.text(x, { name: 'Nhóm Zalo nhận đơn', max: 100 }).trim(),
   zalo_bot_group_name: (x) => v.text(x, { name: 'Tên nhóm', max: 120 }),
+  zalo_bot_staff_group_id: (x) => v.text(x, { name: 'Nhóm Zalo nhân viên', max: 100 }).trim(),
+  zalo_bot_staff_group_name: (x) => v.text(x, { name: 'Tên nhóm', max: 120 }),
+  avail_bot_on: (x) => (x === false || x === '0' || x === 0 ? '0' : '1'),
   zalo_access_token: (x) => v.text(x, { name: 'Access token', max: 2000 }),
   zalo_refresh_token: (x) => v.text(x, { name: 'Refresh token', max: 2000 }),
   reserve_hold_minutes: (x) => String(v.int(x, { min: 0, max: 120, name: 'Giữ bàn' })),
@@ -147,6 +150,14 @@ export default function (r, ctx) {
     const gid = ctx.setting('zalo_bot_group_id');
     if (!gid) fail(400, 'Chưa chọn nhóm');
     try { await ctx.zaloBot.send(gid, `✅ ${ctx.setting('shop_name') || 'Quán'}: bot đã nối với nhóm, đơn đặt hàng duyệt xong sẽ tự gửi vào đây.`); } catch (e) { fail(502, e.message); }
+    return { ok: true };
+  });
+  // Nhóm nhân viên: gửi thử = gửi ngay tin nhắc lịch rảnh tuần tới
+  r.post('/api/zalo-bot/test-staff', 'manager', async ({ me }) => {
+    owner(me);
+    const gid = ctx.setting('zalo_bot_staff_group_id');
+    if (!gid) fail(400, 'Chưa chọn nhóm nhân viên');
+    try { await ctx.zaloBot.send(gid, ctx.availGroupText()); } catch (e) { fail(502, e.message); }
     return { ok: true };
   });
 

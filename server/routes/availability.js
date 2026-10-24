@@ -1,6 +1,6 @@
 import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
-import { isDate, addDays, weekStart } from '../lib/time.js';
+import { isDate, addDays, weekStart, isoWeekday } from '../lib/time.js';
 import { allowedPages } from '../lib/perms.js';
 
 // Lịch rảnh: nhân viên thời vụ tự báo buổi rảnh của tuần sau; quản lý xem dư/thiếu rồi tự xếp ca.
@@ -213,11 +213,48 @@ export default function (r, ctx) {
     return summary(readWeek(query.get('week')));
   });
 
-  r.post('/api/availability/remind', 'manager', ({ me, body }) => {
+  // Tin nhắc vào nhóm Zalo nhân viên: liệt kê người chưa báo lịch rảnh tuần ws (chủ quán 24/10: tối thứ 7)
+  const ddmm = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
+  function groupText(ws, people) {
+    const missing = people.filter((p) => !p.submitted_at);
+    const head = `📅 Lịch rảnh tuần ${ddmm(ws)}–${ddmm(addDays(ws, 6))}`;
+    const base = (ctx.setting('public_url') || '').replace(/\/$/, '');
+    const link = base ? `\nVào app báo lịch: ${base}/ranh?week=${ws}` : '\nVào app → Lịch rảnh để báo.';
+    if (!missing.length) return `${head}: ✅ cả quán đã báo đủ (${people.length} người). Cảm ơn mọi người!`;
+    const byTeam = new Map();
+    for (const p of missing) { const k = p.team_name || 'Khác'; byTeam.set(k, [...(byTeam.get(k) || []), p.name]); }
+    const lines = [...byTeam].map(([t, names]) => `• ${t}: ${names.join(', ')}`);
+    return `${head}\nCòn ${missing.length}/${people.length} bạn CHƯA báo:\n${lines.join('\n')}${link}`;
+  }
+  ctx.availGroupText = (week) => { const ws = readWeek(week); return groupText(ws, summary(ws).people); };
+  async function sendGroup(ws, people) {
+    const gid = ctx.setting('zalo_bot_staff_group_id');
+    if (!gid || !ctx.zaloBot?.ready()) return false;
+    await ctx.zaloBot.send(gid, groupText(ws, people));
+    return true;
+  }
+  // Chạy mỗi phút: đến tối thứ 7 (giờ quán) thì bot nhắc 1 lần cho tuần tới
+  ctx.availBotTick = async () => {
+    if (ctx.setting('avail_bot_on') === '0') return;
+    const c = ctx.clock(), n = ctx.now();
+    const date = c.dateOf(n);
+    const dow = Number(ctx.setting('avail_bot_dow') || 6);
+    if (isoWeekday(date) !== dow || c.minuteOf(n) < toMin(ctx.setting('avail_bot_time') || '20:00')) return;
+    const ws = addDays(weekStart(date), 7);
+    const key = `avail_bot_sent:${ws}`;
+    if (ctx.setting(key)) return;
+    ctx.setSetting(key, String(n));
+    try { if (await sendGroup(ws, summary(ws).people)) ctx.audit(null, 'availability.bot_remind', { week: ws }); }
+    catch (e) { ctx.setSetting(key, ''); console.error('Bot nhắc lịch rảnh lỗi:', e.message); }
+  };
+
+  r.post('/api/availability/remind', 'manager', async ({ me, body }) => {
     const ws = readWeek(body.week);
     const s = summary(ws);
     const ids = s.people.filter((p) => !p.submitted_at).map((p) => p.id);
     const dl = s.deadline;
+    let group = false, group_error = '';
+    try { group = await sendGroup(ws, s.people); } catch (e) { group_error = e.message; }
     if (ids.length) {
       ctx.notify(ids, {
         title: 'Báo lịch rảnh tuần sau',
@@ -225,7 +262,7 @@ export default function (r, ctx) {
         link: `/ranh?week=${ws}`,
       });
     }
-    ctx.audit(me, 'availability.remind', { week: ws, n: ids.length });
-    return { sent: ids.length };
+    ctx.audit(me, 'availability.remind', { week: ws, n: ids.length, group });
+    return { sent: ids.length, group, group_error };
   });
 }

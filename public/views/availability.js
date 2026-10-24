@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
 import { HourCoverage } from './schedule.js';
-import { html, api, act, useData, Loading, Modal, dt, dayLabel, addDays, atLeast, navigate } from '../ui.js';
+import { html, api, act, useData, Loading, Modal, dt, dayLabel, addDays, atLeast, navigate, toast } from '../ui.js';
 
 const fmtDate = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
 const TIMES = Array.from({ length: 37 }, (_, i) => { const m = 360 + i * 30; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${m % 60 ? '30' : '00'}`; }); // 06:00 … 24:00
@@ -204,7 +204,7 @@ function Overview({ me, week, onWeek }) {
     <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />
     <details class="card"><summary><b>Chưa báo lịch rảnh (${missing.length})</b> <small class="muted">hạn ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} ${d.deadline.time}</small></summary>
       <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}
-      ${missing.length && canManage ? html`<button onClick=${() => act(() => api('POST', '/api/availability/remind', { week: d.week_start }), 'Đã nhắc')}>🔔 Nhắc tất cả</button>` : null}</div>
+      ${missing.length && canManage ? html`<button onClick=${() => act(() => api('POST', '/api/availability/remind', { week: d.week_start })).then((r) => r && toast(r.group ? 'Đã nhắc trong app + nhóm Zalo' : r.group_error ? `Đã nhắc trong app. Nhóm Zalo lỗi: ${r.group_error}` : 'Đã nhắc trong app (chưa chọn nhóm Zalo nhân viên)'))}>🔔 Nhắc tất cả</button>` : null}</div>
     </details>
     ${zoning ? html`<${WeekZones} ws=${d.week_start} staff=${staffD.data} teams=${d.teams} map=${sc.data.week_zones} shifts=${shifts} onClose=${() => setZoning(false)} />` : null}
     ${add ? html`<${AddShift} p=${add.p} date=${add.date} range=${add.range} onClose=${() => setAdd(null)} />` : null}
