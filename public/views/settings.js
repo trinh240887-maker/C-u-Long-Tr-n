@@ -432,42 +432,57 @@ function Audit() {
 // Phân quyền từng mục: tick vai trò được thấy, cấp / chặn riêng từng người. Chủ quán luôn thấy hết.
 const ROLE_SHORT = { staff: 'Nhân viên', team_lead: 'Tổ trưởng', shift_lead: 'Trưởng ca', manager: 'Quản lý' };
 const ROLE_ABBR = { staff: 'NV', team_lead: 'TT', shift_lead: 'TC', manager: 'QL' };
-function Perms() {
+function Perms({ staffId }) {
   const d = useData('/api/permissions');
   const [cfg, setCfg] = useState(null);
-  const [open, setOpen] = useState(null);
+  const [who, setWho] = useState(staffId || null);
+  const [matrix, setMatrix] = useState(false);
   useEffect(() => { if (d.data) setCfg(Object.fromEntries(d.data.pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny }]))); }, [d.data]);
   if (!d.data || !cfg) return html`<${Loading} state=${d} />`;
   const { roles, pages, staff } = d.data;
-  const name = (id) => staff.find((x) => x.id === id)?.name || `#${id}`;
-  const set = (path, patch) => setCfg({ ...cfg, [path]: { ...cfg[path], ...patch } });
-  const toggle = (path, r) => { const c = cfg[path]; set(path, { roles: c.roles.includes(r) ? c.roles.filter((x) => x !== r) : [...c.roles, r] }); };
-  const addP = (path, kind, id) => { if (!id) return; const c = cfg[path]; const other = kind === 'allow' ? 'deny' : 'allow'; set(path, { [kind]: [...new Set([...c[kind], id])], [other]: c[other].filter((x) => x !== id) }); };
-  const delP = (path, kind, id) => set(path, { [kind]: cfg[path][kind].filter((x) => x !== id) });
-  const dirty = JSON.stringify(cfg) !== JSON.stringify(Object.fromEntries(pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny }])));
+  const orig = JSON.stringify(Object.fromEntries(pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny }])));
+  const dirty = JSON.stringify(cfg) !== orig;
+  const set = (path, patch) => setCfg((c) => ({ ...c, [path]: { ...c[path], ...patch } }));
   const save = () => act(() => api('PUT', '/api/permissions', { pages: cfg }), 'Đã lưu phân quyền');
-  const reset = (p) => { const def = roles.filter((r) => roles.indexOf(r) >= roles.indexOf(p.role)); set(p.path, { roles: def, allow: [], deny: [] }); };
+  const person = staff.find((x) => x.id === who);
+  // Người này có thấy mục không: chặn riêng > cấp riêng > cấp bậc (+ tổ Thu ngân)
+  const byRole = (p, x) => cfg[p.path].roles.includes(x.role) || (p.team && x.team_name === p.team);
+  const sees = (p, x) => p.fixed || (!cfg[p.path].deny.includes(x.id) && (cfg[p.path].allow.includes(x.id) || byRole(p, x)));
+  const flip = (p, x) => {
+    const c = cfg[p.path]; const on = sees(p, x);
+    const allow = c.allow.filter((i) => i !== x.id); const deny = c.deny.filter((i) => i !== x.id);
+    if (on && byRole(p, x)) deny.push(x.id); else if (!on && !byRole(p, x)) allow.push(x.id);
+    set(p.path, { allow, deny });
+  };
+  const resetPerson = (x) => { for (const p of pages) set(p.path, { allow: cfg[p.path].allow.filter((i) => i !== x.id), deny: cfg[p.path].deny.filter((i) => i !== x.id) }); };
+  const custom = (x) => pages.filter((p) => cfg[p.path].allow.includes(x.id) || cfg[p.path].deny.includes(x.id)).length;
+  const toggleRole = (path, r) => { const c = cfg[path]; set(path, { roles: c.roles.includes(r) ? c.roles.filter((y) => y !== r) : [...c.roles, r] }); };
+  const groups = roles.slice().reverse().map((r) => ({ r, people: staff.filter((x) => x.role === r) })).filter((g) => g.people.length);
+  const bar = html`<div class="sum-bar row end">${dirty ? html`<span class="grow warn-text small">Chưa lưu</span>` : null}<button class="primary big" disabled=${!dirty} onClick=${save}>Lưu phân quyền</button></div>`;
+
+  if (person) return html`<div class="stack">
+    <button class="small" onClick=${() => setWho(null)}>← Danh sách nhân viên</button>
+    <section class="card"><h3>🔐 ${person.name}</h3>
+      <p class="small muted">${ROLE_SHORT[person.role]}${person.team_name ? ` · ${person.team_name}` : ''}. Tick mục bạn này được thấy và dùng. Mặc định theo cấp bậc; mục anh đổi riêng có chữ <b>riêng</b>.</p></section>
+    <section class="card stack perm-list">${pages.map((p) => { const on = sees(p, person); const own = cfg[p.path].allow.includes(person.id) || cfg[p.path].deny.includes(person.id); return html`
+      <label class=${`perm-row ${on ? 'on' : ''}`}><input type="checkbox" checked=${on} disabled=${p.fixed} onChange=${() => flip(p, person)} />
+        <span class="grow">${p.label}</span>${own ? html`<b class="pill warn">riêng</b>` : p.fixed ? html`<small class="muted">ai cũng có</small>` : null}</label>`; })}</section>
+    <div class="row between"><button class="small" onClick=${() => resetPerson(person)}>Về mặc định theo cấp bậc</button></div>
+    ${bar}
+  </div>`;
+
   return html`<div class="stack">
-    <section class="card"><p class="small">Tick vai trò nào được thấy và dùng mục đó. Bỏ tick thì mục ẩn khỏi menu và máy chủ chặn luôn. Bấm tên mục để cấp riêng / chặn riêng từng người. Chủ quán luôn thấy hết.</p>
-      <p class="small muted">NV = Nhân viên · TT = Tổ trưởng · TC = Trưởng ca · QL = Quản lý</p></section>
-    <section class="card perm-wrap">
-      <table class="perm">
-        <thead><tr><th>Mục</th>${roles.map((r) => html`<th title=${ROLE_SHORT[r]}>${ROLE_ABBR[r]}</th>`)}</tr></thead>
-        <tbody>${pages.map((p) => { const c = cfg[p.path]; const n = c.allow.length + c.deny.length; return html`
-          <tr class=${open === p.path ? 'on' : ''}>
-            <td><button class="link-btn" disabled=${p.fixed} onClick=${() => setOpen(open === p.path ? null : p.path)}>${p.label}${n ? html` <b class="pill">${n} người</b>` : null}${p.team ? html`<small class="muted"> + tổ ${p.team}</small>` : null}</button></td>
-            ${roles.map((r) => html`<td><input type="checkbox" aria-label=${`${p.label} – ${ROLE_SHORT[r]}`} disabled=${p.fixed} checked=${c.roles.includes(r)} onChange=${() => toggle(p.path, r)} /></td>`)}
-          </tr>
-          ${open === p.path ? html`<tr class="perm-more"><td colspan=${roles.length + 1}><div class="stack">
-            <div><b>✅ Cấp riêng:</b> ${c.allow.length ? c.allow.map((id) => html`<span class="chip">${name(id)} <button class="small" onClick=${() => delP(p.path, 'allow', id)}>✕</button></span>`) : html`<span class="muted">không có</span>`}</div>
-            <select class="full" onChange=${(e) => { addP(p.path, 'allow', Number(e.target.value)); e.target.value = ''; }}><option value="">+ Cấp riêng cho…</option>${staff.filter((x) => !c.allow.includes(x.id)).map((x) => html`<option value=${x.id}>${x.name} (${ROLE_SHORT[x.role] || x.role}${x.team_name ? ` · ${x.team_name}` : ''})</option>`)}</select>
-            <div><b>⛔ Chặn riêng:</b> ${c.deny.length ? c.deny.map((id) => html`<span class="chip">${name(id)} <button class="small" onClick=${() => delP(p.path, 'deny', id)}>✕</button></span>`) : html`<span class="muted">không có</span>`}</div>
-            <select class="full" onChange=${(e) => { addP(p.path, 'deny', Number(e.target.value)); e.target.value = ''; }}><option value="">+ Chặn riêng…</option>${staff.filter((x) => !c.deny.includes(x.id)).map((x) => html`<option value=${x.id}>${x.name} (${ROLE_SHORT[x.role] || x.role}${x.team_name ? ` · ${x.team_name}` : ''})</option>`)}</select>
-            <div class="row end"><button class="small" onClick=${() => reset(p)}>Về mặc định</button></div>
-          </div></td></tr>` : null}`; })}</tbody>
-      </table>
+    <section class="card"><p class="small">Bấm tên nhân viên → tick từng quyền của bạn đó. Quyền mặc định lấy theo <b>cấp bậc</b> (Nhân viên / Tổ trưởng / Trưởng ca / Quản lý), anh chỉ cần sửa chỗ khác. Chủ quán luôn thấy hết.</p></section>
+    ${groups.map((g) => html`<section class="card stack"><h3>${ROLE_SHORT[g.r]} <small class="muted">${g.people.length} người</small></h3>
+      ${g.people.map((x) => html`<button class="tpl-row" onClick=${() => setWho(x.id)}><b class="grow">${x.name}</b><span class="muted">${x.team_name || ''}${custom(x) ? ` · ${custom(x)} quyền riêng` : ''} · ${pages.filter((p) => sees(p, x)).length} mục</span></button>`)}
+    </section>`)}
+    <section class="card stack"><button class="link-btn" onClick=${() => setMatrix(!matrix)}><b>${matrix ? '▾' : '▸'} Mặc định theo cấp bậc</b> <small class="muted">(áp cho người mới / người chưa đổi riêng)</small></button>
+      ${matrix ? html`<p class="small muted">NV = Nhân viên · TT = Tổ trưởng · TC = Trưởng ca · QL = Quản lý</p>
+      <div class="perm-wrap"><table class="perm"><thead><tr><th>Mục</th>${roles.map((r) => html`<th title=${ROLE_SHORT[r]}>${ROLE_ABBR[r]}</th>`)}</tr></thead>
+        <tbody>${pages.map((p) => html`<tr><td>${p.label}${p.team ? html`<small class="muted"> + tổ ${p.team}</small>` : null}</td>
+          ${roles.map((r) => html`<td><input type="checkbox" aria-label=${`${p.label} – ${ROLE_SHORT[r]}`} disabled=${p.fixed} checked=${cfg[p.path].roles.includes(r)} onChange=${() => toggleRole(p.path, r)} /></td>`)}</tr>`)}</tbody></table></div>` : null}
     </section>
-    <div class="sum-bar row end">${dirty ? html`<span class="grow warn-text small">Chưa lưu</span>` : null}<button class="primary big" disabled=${!dirty} onClick=${save}>Lưu phân quyền</button></div>
+    ${bar}
   </div>`;
 }
 
@@ -488,7 +503,7 @@ export function SettingsView({ me, query }) {
       : tab === 'checklist' ? html`<${Checklists} me=${me} teams=${me.teams} />`
       : tab === 'ketnoi' ? html`<${Keys} s=${st.data} me=${me} only="claude" />`
       : tab === 'bot' ? html`<${Keys} s=${st.data} me=${me} only="bot" />`
-      : tab === 'quyen' ? (me.role === 'owner' ? html`<${Perms} />` : html`<p class="warn-text">Chỉ chủ quán phân quyền.</p>`)
+      : tab === 'quyen' ? (me.role === 'owner' ? html`<${Perms} staffId=${Number(query.get('staff')) || null} />` : html`<p class="warn-text">Chỉ chủ quán phân quyền.</p>`)
       : tab === 'zalo' ? html`<${Zalo} s=${st.data} />`
       : tab === 'saoluu' ? html`<${Backups} s=${st.data} />`
       : html`<${Audit} />`}

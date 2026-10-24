@@ -660,3 +660,8 @@ table.perm tr.on td { background: var(--accent-soft); }
 table.perm .perm-more td { text-align: left; padding: 10px 12px; background: var(--bg); }
 .link-btn { display: block; width: 100%; white-space: normal; overflow-wrap: anywhere; background: none; border: 0; padding: 6px 0; min-height: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
 .link-btn:disabled { opacity: .6; }
+.perm-list { gap: 0; padding: 4px 12px; }
+.perm-row { display: flex; align-items: center; gap: 12px; min-height: 52px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 16px; }
+.perm-row:last-child { border-bottom: 0; }
+.perm-row input { width: 26px; height: 26px; margin: 0; }
+.perm-row:not(.on) span { color: var(--muted); }

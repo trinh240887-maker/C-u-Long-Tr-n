@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { html, api, act, useData, Modal, Field, Loading, money, ROLE_LABEL, atLeast } from '../ui.js';
+import { html, api, act, useData, Modal, Field, Loading, money, ROLE_LABEL, atLeast, navigate } from '../ui.js';
 
 const ROLES = ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'];
 
@@ -88,7 +88,8 @@ export function StaffView({ me }) {
   const pick = (k) => { setDept(k); try { localStorage.setItem('staff-dept', k); } catch {} };
   const shown = groups.filter((g) => g.people.length && (dept === 'all' || dept === g.key));
   const row = (s) => html`<tr class=${s.active ? 'click' : 'click off'} onClick=${() => (atLeast(me, 'manager') ? setEdit(s) : null)}>
-    <td><b>${s.name}</b><br /><small class="muted">${s.phone}</small></td>
+    <td><b>${s.name}</b><br /><small class="muted">${s.phone}</small>
+      ${me.role === 'owner' && s.role !== 'owner' && s.active ? html`<br /><button class="small" onClick=${(e) => { e.stopPropagation(); navigate(`/cai-dat?tab=quyen&staff=${s.id}`); }}>🔐 Quyền</button>` : null}</td>
     <td>${s.role_label}</td>
     <td>${s.position_name || (s.team_id ? html`<span class="muted">—</span>` : MGMT.includes(s.role) ? html`<span class="muted">Cả quán</span>` : html`<span class="warn-text">Chưa có bộ phận</span>`)}</td>
     <td><small>${[...s.pskills.map((k) => `${posName(k.position_id)}${'★'.repeat(k.level)}`), ...s.skills.map((k) => `${teamName(k.team_id)}${'★'.repeat(k.level)}`)].join(', ') || '—'}</small></td>
