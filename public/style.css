@@ -673,3 +673,4 @@ table.perm .perm-more td { text-align: left; padding: 10px 12px; background: var
 .av-time select { min-height: 44px; font-size: 16px; padding: 0 6px; }
 .av-off { color: var(--muted); min-height: 44px; }
 .pline-warn { background: var(--warn-soft, #fff7e0); border-radius: 8px; padding: 6px; }
+.conv { display: grid; gap: 4px; background: var(--panel); border-radius: 8px; padding: 6px 8px; } .conv input { min-height: 40px; }

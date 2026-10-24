@@ -44,6 +44,11 @@ export default function (r, ctx) {
     status TEXT NOT NULL DEFAULT 'open', given_by INTEGER, created_at INTEGER NOT NULL,
     returned INTEGER, settled_by INTEGER, settled_at INTEGER, settle_date TEXT, diff INTEGER
   );
+  -- Quy đổi đơn vị trên bill (két, lốc…) ra đơn vị kho: 1 bill_unit = factor đơn vị dùng (chai, lon, g…). Nhập 1 lần, app nhớ
+  CREATE TABLE IF NOT EXISTS unit_aliases (
+    ingredient_id INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE, bill_unit TEXT NOT NULL, factor REAL NOT NULL,
+    PRIMARY KEY (ingredient_id, bill_unit)
+  );
   CREATE INDEX IF NOT EXISTS pb_status ON purchase_bills (status, date);
   CREATE INDEX IF NOT EXISTS pb_supplier ON purchase_bills (supplier_id, status);
   `);
@@ -51,6 +56,7 @@ export default function (r, ctx) {
   // Ảnh hàng thực nhận (chủ quán 24/10): cùng bảng ảnh, phân biệt bằng kind
   try { db.exec("ALTER TABLE purchase_bill_photos ADD COLUMN kind TEXT NOT NULL DEFAULT 'bill'"); } catch { /* đã có */ }
   const photoDir = path.join(ctx.photoDir || path.join(os.tmpdir(), 'quanly-photos'), 'hoadon-mua');
+  const r3 = (x) => Math.round(x * 1000) / 1000;
   const vnd = (n) => `${Number(n || 0).toLocaleString('vi-VN')}đ`;
   const money = (x, name, { min = 0 } = {}) => v.int(Number(String(x ?? '').replace(/[.,\s]/g, '') || 0), { min, max: 2_000_000_000, name });
   const isCashier = (me) => rank(me.role) >= rank('shift_lead') || !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id);
@@ -169,6 +175,12 @@ export default function (r, ctx) {
       for (const l of lines) add.run(id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount);
       for (const ph of photos) savePhoto(id, ph, me);
       for (const ph of goodsPhotos) savePhoto(id, ph, me, 'goods');
+      // Nhớ quy đổi nhân viên vừa nhập (1 két = 24 chai) cho lần đọc bill sau
+      for (const c of Array.isArray(body.conversions) ? body.conversions.slice(0, 60) : []) {
+        const f = Number(c?.factor);
+        const unitName = String(c?.bill_unit || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 20);
+        if (c?.ingredient_id && unitName && f > 0 && f <= 100000 && db.prepare('SELECT 1 FROM ingredients WHERE id = ?').get(Number(c.ingredient_id))) db.prepare('INSERT INTO unit_aliases (ingredient_id, bill_unit, factor) VALUES (?, ?, ?) ON CONFLICT (ingredient_id, bill_unit) DO UPDATE SET factor = excluded.factor').run(Number(c.ingredient_id), unitName, f);
+      }
       return id;
     });
     const b = load(id);
@@ -225,7 +237,7 @@ export default function (r, ctx) {
     const n = cnt.date === today ? cnt.n : 0;
     if (n >= max) fail(429, `Hôm nay đã đọc ${n} bill (tối đa ${max}). Nhập tay giúp, hoặc chủ quán tăng giới hạn`);
     ctx.setSetting('bill_reader_count', JSON.stringify({ date: today, n: n + 1 }));
-    const ings = db.prepare('SELECT id, name, unit, purchase_unit FROM ingredients WHERE active = 1 ORDER BY name').all();
+    const ings = db.prepare('SELECT id, name, unit, purchase_unit, purchase_factor FROM ingredients WHERE active = 1 ORDER BY name').all();
     let out;
     try { out = await (ctx.readBill || readBill)(photos, ings, { apiKey: billReaderKey(ctx) }); } catch (e) { fail(502, e.message); }
     const norm = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -237,7 +249,16 @@ export default function (r, ctx) {
       lines: out.lines.map((l) => {
         const g = l.ingredient_id ? byId.get(l.ingredient_id) : null;
         const ku = g ? g.purchase_unit || g.unit : '';
-        return { ingredient_id: g?.id || null, name: g ? g.name : l.name, bill_name: l.name, unit: g ? ku : l.unit, bill_unit: l.unit, qty: l.qty, price: l.price, unit_mismatch: !!g && norm(ku) !== norm(l.unit) };
+        const base = { ingredient_id: g?.id || null, name: g ? g.name : l.name, bill_name: l.name, unit: g ? ku : l.unit, bill_unit: l.unit, bill_qty: l.qty, bill_price: l.price, qty: l.qty, price: l.price,
+          use_unit: g?.unit || '', pf: g?.purchase_factor || 1, unit_mismatch: false, need_factor: false, factor: null };
+        if (!g || !l.unit || norm(ku) === norm(l.unit) || norm(g.unit) === norm(l.unit)) {
+          // Bill ghi theo đơn vị dùng (vd chai) mà kho mua theo thùng → đổi ra thùng
+          if (g && l.unit && norm(ku) !== norm(l.unit) && norm(g.unit) === norm(l.unit)) return { ...base, factor: 1, qty: r3(l.qty / base.pf), price: Math.round(l.price * base.pf) };
+          return base;
+        }
+        const al = db.prepare('SELECT factor FROM unit_aliases WHERE ingredient_id = ? AND bill_unit = ?').get(g.id, norm(l.unit));
+        if (!al) return { ...base, unit_mismatch: true, need_factor: true };
+        return { ...base, factor: al.factor, qty: r3((l.qty * al.factor) / base.pf), price: Math.round((l.price * base.pf) / al.factor) };
       }),
     };
   });

@@ -64,6 +64,19 @@ test('đọc bill qua app: nhân viên bấm Đọc bill → khớp NCC + hàng 
   assert.equal(r.data.lines[0].unit_mismatch, (g.purchase_unit || g.unit) !== 'thùng');
   assert.equal(r.data.lines[1].ingredient_id, null);
   assert.equal(r.data.note, 'dòng 2 mờ');
+  // Quy đổi: bill ghi "két", kho tính chai / mua theo thùng 12 chai → hỏi 1 két = ? chai, nhập 1 lần, lần sau tự đổi
+  db.prepare("INSERT INTO ingredients (name, unit, purchase_unit, purchase_factor, active) VALUES ('Nước suối 500 ml', 'chai', 'thùng', 12, 1)").run();
+  const ns = db.prepare("SELECT id FROM ingredients WHERE name = 'Nước suối 500 ml'").get().id;
+  app.ctx.readBill = async () => ({ supplier_name: 'Swire Coca-Cola', total: 1361120, lines: [{ ingredient_id: ns, name: 'Dasani 500', unit: 'Két', qty: 20, price: 68056 }, { ingredient_id: ns, name: 'Dasani lẻ', unit: 'chai', qty: 24, price: 2900 }] });
+  let rb = (await o('POST', '/api/purchases/read-bill', { photos: [IMG] })).data;
+  assert.equal(rb.lines[0].need_factor, true);
+  assert.equal(rb.lines[0].bill_unit, 'Két');
+  assert.deepEqual([rb.lines[1].qty, rb.lines[1].price, rb.lines[1].need_factor], [2, 34800, false]); // bill ghi chai → đổi ra thùng
+  const st = (await o('GET', '/api/stock/meta')).data.stores.find((x) => x.kind === 'main').id;
+  const sv = await o('POST', '/api/purchases', { store_id: st, supplier_name: 'Swire Coca-Cola', signer_name: 'Phát', photos: [IMG], lines: [{ ingredient_id: ns, qty: 40, price: 34028 }], conversions: [{ ingredient_id: ns, bill_unit: 'Két', factor: 24 }] });
+  assert.equal(sv.status, 200, JSON.stringify(sv.data));
+  rb = (await o('POST', '/api/purchases/read-bill', { photos: [IMG] })).data;
+  assert.deepEqual([rb.lines[0].need_factor, rb.lines[0].factor, rb.lines[0].qty, rb.lines[0].price], [false, 24, 40, 34028]); // 20 két × 24 = 480 chai = 40 thùng
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('bill_reader_daily_max', '1')").run();
   assert.equal((await o('POST', '/api/purchases/read-bill', { photos: [IMG] })).status, 429);
   assert.equal((await o('POST', '/api/purchases/read-bill', { photos: [] })).status, 400);
