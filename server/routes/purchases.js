@@ -6,7 +6,7 @@ import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
 import { isDate, addDays } from '../lib/time.js';
 import { makeXlsx } from '../lib/xlsx.js';
-import { readBill, billReaderReady } from '../lib/bill-reader.js';
+import { readBill, billReaderReady, billReaderKey } from '../lib/bill-reader.js';
 
 // Hoá đơn mua hàng + công nợ NCC + tạm ứng đi chợ.
 // 1. Khu nhận hàng (bếp / lẩu / bar): nhập số thực nhận, CHỤP BILL NCC (có chữ ký người nhận), ghi tên người ký,
@@ -207,7 +207,7 @@ export default function (r, ctx) {
     const ids = db.prepare(`SELECT id FROM purchase_bills WHERE date BETWEEN ? AND ? ${status ? 'AND status = ?' : ''} ${mine ? 'AND received_by = ?' : ''} ORDER BY id DESC LIMIT 300`)
       .all(...[from, to, ...(status ? [status] : []), ...(mine ? [me.id] : [])]).map((x) => x.id);
     const pending = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS t FROM purchase_bills WHERE status = 'received'").get();
-    return { bills: ids.map(load), pending: pending.n, pending_total: pending.t, can_approve: isCashier(me), is_boss: isBoss(me), bill_reader: billReaderReady() };
+    return { bills: ids.map(load), pending: pending.n, pending_total: pending.t, can_approve: isCashier(me), is_boss: isBoss(me), bill_reader: billReaderReady(ctx) };
   });
 
   // Đọc ảnh bill bằng AI → điền sẵn dòng hàng; nhân viên vẫn kiểm & sửa trước khi lưu. Giới hạn số lần / ngày để khỏi tốn tiền.
@@ -222,7 +222,7 @@ export default function (r, ctx) {
     ctx.setSetting('bill_reader_count', JSON.stringify({ date: today, n: n + 1 }));
     const ings = db.prepare('SELECT id, name, unit, purchase_unit FROM ingredients WHERE active = 1 ORDER BY name').all();
     let out;
-    try { out = await (ctx.readBill || readBill)(photos, ings); } catch (e) { fail(502, e.message); }
+    try { out = await (ctx.readBill || readBill)(photos, ings, { apiKey: billReaderKey(ctx) }); } catch (e) { fail(502, e.message); }
     const norm = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
     const byId = new Map(ings.map((g) => [g.id, g]));
     const sup = out.supplier_name ? db.prepare('SELECT id, name FROM suppliers WHERE active = 1').all().find((x) => norm(x.name) === norm(out.supplier_name) || norm(out.supplier_name).includes(norm(x.name))) : null;

@@ -3,7 +3,7 @@
 //   POST https://api.anthropic.com/v1/messages · header x-api-key, anthropic-version: 2026-10-21
 //   output_config.format = { type: 'json_schema', schema } → câu trả lời là JSON đúng khuôn
 //   fallbacks: 'default' (beta server-side-fallback-2026-07-01): model từ chối thì máy chủ tự chạy lại bằng model khác
-// Cần biến môi trường ANTHROPIC_API_KEY (Railway → Variables). Không có thì nút "Đọc bill" báo chưa cài.
+// Mã: biến môi trường ANTHROPIC_API_KEY hoặc chủ quán dán trong app (Cài đặt → Kết nối). Không có thì nút "Đọc bill" báo chưa cài.
 const URL_ = 'https://api.anthropic.com/v1/messages';
 const MODEL = process.env.BILL_READER_MODEL || 'claude-opus-5-5';
 
@@ -39,15 +39,17 @@ Nhiệm vụ: chép lại từng dòng hàng trên bill, không bỏ dòng, khô
 - ingredient_id: chọn trong DANH SÁCH KHO bên dưới nếu dòng đó là cùng loại hàng (tên gần giống, viết tắt, không dấu đều được). Không chắc thì để null, đừng đoán bừa.
 - Chỗ nào mờ / không chắc thì vẫn ghi số đọc được và nêu trong note.`;
 
-export function billReaderReady() { return !!process.env.ANTHROPIC_API_KEY; }
+// Mã lấy từ biến môi trường ANTHROPIC_API_KEY, hoặc chủ quán dán trong app (Cài đặt → Kết nối)
+export const billReaderKey = (ctx) => process.env.ANTHROPIC_API_KEY || ctx?.setting?.('anthropic_api_key') || '';
+export function billReaderReady(ctx) { return !!billReaderKey(ctx); }
 
 /**
  * photos: ['data:image/jpeg;base64,...'] · ingredients: [{id, name, unit, purchase_unit}]
  * Trả { supplier_name, signer_name, total, note, lines: [...] } hoặc ném Error có thông điệp tiếng Việt.
  */
-export async function readBill(photos, ingredients, { fetchImpl = globalThis.fetch, timeoutMs = 120_000 } = {}) {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) throw new Error('Chưa cài đọc bill tự động (thiếu ANTHROPIC_API_KEY trên máy chủ)');
+export async function readBill(photos, ingredients, { fetchImpl = globalThis.fetch, timeoutMs = 120_000, apiKey = process.env.ANTHROPIC_API_KEY } = {}) {
+  const key = apiKey;
+  if (!key) throw new Error('Chưa cài đọc bill tự động: chủ quán dán mã Claude ở Cài đặt → Kết nối');
   const images = photos.map((p) => /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(p || ''))).filter(Boolean);
   if (!images.length) throw new Error('Chưa có ảnh bill hợp lệ');
   const kho = ingredients.map((g) => `${g.id}: ${g.name} (${g.purchase_unit || g.unit})`).join('\n');
@@ -78,7 +80,7 @@ export async function readBill(photos, ingredients, { fetchImpl = globalThis.fet
   let r = await call(body, 'server-side-fallback-2026-07-01');
   // Phòng khi tài khoản chưa có beta fallback: gửi lại không kèm
   if (r.status === 400 && /fallback/i.test(JSON.stringify(r.data))) { const { fallbacks, ...rest } = body; r = await call(rest); }
-  if (r.status === 401) throw new Error('Mã ANTHROPIC_API_KEY sai hoặc đã bị xoá');
+  if (r.status === 401) throw new Error('Mã Claude sai hoặc đã bị xoá: dán lại ở Cài đặt → Kết nối');
   if (r.status === 402 || (r.status === 400 && /credit|balance|billing/i.test(JSON.stringify(r.data)))) throw new Error('Tài khoản Claude hết tiền: nạp thêm ở console.anthropic.com');
   if (r.status === 429) throw new Error('Đọc bill đang quá tải, thử lại sau 1 phút');
   if (r.status >= 400) throw new Error(`Máy đọc bill báo lỗi ${r.status}: ${r.data?.error?.message || ''}`.trim());

@@ -28,7 +28,7 @@ test('đọc bill: gửi đúng khuôn Claude API (ảnh base64, json_schema, fa
   assert.deepEqual(sent.body.messages[0].content[0], { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: IMG.split(',')[1] } });
   assert.match(sent.body.messages[0].content[1].text, /1: Thăn bò tươi \(kg\)/);
   assert.deepEqual(out.lines.map((l) => [l.ingredient_id, l.qty, l.price]), [[1, 5, 280000], [null, 2.5, 300000]]);
-  await assert.rejects(readBill([IMG], [], { fetchImpl: async () => ({ status: 401, json: async () => ({}) }) }), /ANTHROPIC_API_KEY sai/);
+  await assert.rejects(readBill([IMG], [], { fetchImpl: async () => ({ status: 401, json: async () => ({}) }) }), /Mã Claude sai/);
   await assert.rejects(readBill([IMG], [], { fetchImpl: async () => ({ status: 400, json: async () => ({ error: { message: 'Your credit balance is too low' } }) }) }), /hết tiền/);
   delete process.env.ANTHROPIC_API_KEY;
   await assert.rejects(readBill([IMG], []), /Chưa cài/);
@@ -67,4 +67,32 @@ test('đọc bill qua app: nhân viên bấm Đọc bill → khớp NCC + hàng 
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('bill_reader_daily_max', '1')").run();
   assert.equal((await o('POST', '/api/purchases/read-bill', { photos: [IMG] })).status, 429);
   assert.equal((await o('POST', '/api/purchases/read-bill', { photos: [] })).status, 400);
+});
+
+test('mã Claude / token Zalo Bot: chủ quán dán trong app, chỉ hiện 4 ký tự cuối, quản lý không đổi được', async (t) => {
+  delete process.env.ANTHROPIC_API_KEY;
+  const db = openDb(':memory:');
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), photoDir: fs.mkdtempSync(path.join(os.tmpdir(), 'bk-')), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  const r = await o('PUT', '/api/settings', { anthropic_api_key: 'sk-ant-abc123WXYZ' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.anthropic_api_key, '••••WXYZ');
+  assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'anthropic_api_key'").get().value, 'sk-ant-abc123WXYZ');
+  assert.equal((await o('GET', '/api/purchases')).data.bill_reader, true);
+  // Gửi lại chuỗi đã che → giữ nguyên mã cũ
+  await o('PUT', '/api/settings', { anthropic_api_key: '••••WXYZ' });
+  assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'anthropic_api_key'").get().value, 'sk-ant-abc123WXYZ');
+  const team = (await o('GET', '/api/teams')).data[0].id;
+  await o('POST', '/api/staff', { name: 'QL', role: 'manager', team_id: team, pin: '736511' });
+  const m = mk();
+  await m('POST', '/api/login', { pin: '736511' });
+  await m('POST', '/api/me/pin', { current_pin: '736511', new_pin: '836512' });
+  assert.equal((await m('PUT', '/api/settings', { zalo_bot_token: 'abc' })).status, 403);
 });

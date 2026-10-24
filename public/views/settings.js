@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast, hm, dayLabel } from '../ui.js';
 
-const TABS = [['chung', 'Chung'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
+const TABS = [['chung', 'Chung'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['ketnoi', 'Kết nối (mã)'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
 
 const DEF_SLOTS = [{ key: 'sang', label: 'Sáng', start: '06:00', end: '12:00' }, { key: 'chieu', label: 'Chiều', start: '12:00', end: '17:00' }, { key: 'toi', label: 'Tối', start: '17:00', end: '24:00' }];
 
@@ -326,6 +326,27 @@ export function Checklists({ me, teams }) {
   </section>`;
 }
 
+// Mã kết nối dịch vụ ngoài: chủ quán dán thẳng trong app (không cần vào Railway). Lưu xong chỉ hiện 4 ký tự cuối.
+function Keys({ s, me }) {
+  const [f, setF] = useState({ anthropic_api_key: '', zalo_bot_token: '' });
+  const owner = me.role === 'owner';
+  const save = (k, msg) => act(() => api('PUT', '/api/settings', { [k]: f[k] }), msg).then((r) => r && setF({ ...f, [k]: '' }));
+  return html`<div class="stack">
+    ${!owner ? html`<p class="warn-text">Chỉ chủ quán dán / đổi mã ở đây.</p>` : null}
+    <section class="card stack"><h3>📖 Đọc bill tự động (Claude)</h3>
+      <p class="small muted">Lấy mã ở console.anthropic.com → API Keys → Create Key (bắt đầu bằng sk-ant-). Nạp tiền ở mục Billing.</p>
+      <${Field} label="Mã Claude" hint=${s.anthropic_api_key ? `Đã lưu (${s.anthropic_api_key}). Dán mã mới để đổi.` : 'Chưa có: nút Đọc bill sẽ báo chưa cài.'}><input id="k-claude" type="password" autocomplete="off" disabled=${!owner} value=${f.anthropic_api_key} placeholder="sk-ant-…" onInput=${(e) => setF({ ...f, anthropic_api_key: e.target.value })} /><//>
+      <div class="row end"><button class="primary" disabled=${!owner || !f.anthropic_api_key} onClick=${() => save('anthropic_api_key', 'Đã lưu mã Claude')}>Lưu mã</button></div>
+    </section>
+    <section class="card stack"><h3>🤖 Zalo Bot (gửi đơn hàng vào nhóm)</h3>
+      <p class="small muted">Tạo bot trong Zalo (Zalo Bot Manager), chép Token bot dán vào đây. Thêm bot vào nhóm đặt hàng rồi nhắn @bot một câu.</p>
+      <${Field} label="Token Zalo Bot" hint=${s.zalo_bot_token ? `Đã lưu (${s.zalo_bot_token}). Dán token mới để đổi.` : 'Chưa có.'}><input id="k-zbot" type="password" autocomplete="off" disabled=${!owner} value=${f.zalo_bot_token} onInput=${(e) => setF({ ...f, zalo_bot_token: e.target.value })} /><//>
+      <div class="row end"><button class="primary" disabled=${!owner || !f.zalo_bot_token} onClick=${() => save('zalo_bot_token', 'Đã lưu token Zalo Bot')}>Lưu token</button></div>
+      <p class="small muted">Phần gửi vào nhóm sẽ bật khi có tài liệu Zalo Bot (đang chờ anh gửi ảnh hướng dẫn).</p>
+    </section>
+  </div>`;
+}
+
 function Zalo({ s }) {
   const [f, setF] = useState(s);
   useEffect(() => setF(s), [s]);
@@ -397,6 +418,7 @@ export function SettingsView({ me, query }) {
       : tab === 'dung-cu' ? html`<${Utensils} s=${st.data} />`
       : tab === 'ca' ? html`<${Templates} />`
       : tab === 'checklist' ? html`<${Checklists} me=${me} teams=${me.teams} />`
+      : tab === 'ketnoi' ? html`<${Keys} s=${st.data} me=${me} />`
       : tab === 'zalo' ? html`<${Zalo} s=${st.data} />`
       : tab === 'saoluu' ? html`<${Backups} s=${st.data} />`
       : html`<${Audit} />`}

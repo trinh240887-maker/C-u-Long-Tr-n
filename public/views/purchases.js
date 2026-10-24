@@ -105,7 +105,7 @@ function Receive({ me, meta, advances, onDone }) {
     <${Field} label="Tên người ký nhận trên bill"><input value=${f.signer_name} placeholder="Họ tên như chữ ký trên bill" onInput=${(e) => set('signer_name', e.target.value)} /><//>
     <${PhotoPicker} photos=${photos} setPhotos=${setPhotos} />
     ${photos.length ? (meta.bill_reader ? html`<button class="primary big" disabled=${reading} onClick=${readBill}>${reading ? '📖 Đang đọc bill… (10–40 giây)' : '📖 Đọc bill: tự điền hàng, số lượng, giá'}</button>`
-      : html`<p class="small muted">📖 Đọc bill tự động: chưa cài (chủ quán thêm ANTHROPIC_API_KEY trên Railway).</p>`) : null}
+      : html`<p class="small muted">📖 Đọc bill tự động: chưa cài (chủ quán dán mã Claude ở Cài đặt → Kết nối).</p>`) : null}
     ${readNote ? html`<p class="warn-text small">⚠ Máy đọc ghi chú: ${readNote}</p>` : null}
     <${Field} label="Thanh toán"><div class="chips">
       ${[['', 'Ghi nợ'], ['transfer', 'Đã CK tại chỗ'], ...(meta.is_cashier ? [['cash', 'Trả tiền mặt từ két']] : [])].map(([k, l]) => html`<button class=${`chip ${!f.advance_id && f.paid_method === k ? 'on' : ''}`} onClick=${() => setF({ ...f, paid_method: k, advance_id: '' })}>${l}</button>`)}

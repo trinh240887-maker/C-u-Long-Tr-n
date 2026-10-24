@@ -6,7 +6,8 @@ import { parseOffset, parseHM } from '../lib/time.js';
 import { runBackup, listBackups } from '../backup.js';
 import { readStatic } from '../lib/vietqr.js';
 
-const SECRET_KEYS = ['zalo_secret_key', 'zalo_access_token', 'zalo_refresh_token'];
+const SECRET_KEYS = ['zalo_secret_key', 'zalo_access_token', 'zalo_refresh_token', 'anthropic_api_key', 'zalo_bot_token'];
+const OWNER_ONLY = ['anthropic_api_key', 'zalo_bot_token']; // mã tốn tiền / điều khiển bot: chỉ chủ quán dán
 const FIELDS = {
   shop_name: (x) => v.text(x, { name: 'Tên quán', required: true, max: 80 }),
   shop_address: (x) => v.text(x, { name: 'Địa chỉ quán', max: 160 }),
@@ -68,6 +69,8 @@ const FIELDS = {
   zalo_enabled: (x) => String(v.bool(x)),
   zalo_app_id: (x) => v.text(x, { name: 'Zalo App ID', max: 64 }),
   zalo_secret_key: (x) => v.text(x, { name: 'Zalo Secret key', max: 200 }),
+  anthropic_api_key: (x) => v.text(x, { name: 'Mã Claude (đọc bill)', max: 300 }).trim(),
+  zalo_bot_token: (x) => v.text(x, { name: 'Token Zalo Bot', max: 300 }).trim(),
   zalo_access_token: (x) => v.text(x, { name: 'Access token', max: 2000 }),
   zalo_refresh_token: (x) => v.text(x, { name: 'Refresh token', max: 2000 }),
   reserve_hold_minutes: (x) => String(v.int(x, { min: 0, max: 120, name: 'Giữ bàn' })),
@@ -111,6 +114,7 @@ export default function (r, ctx) {
     for (const [k, parse] of Object.entries(FIELDS)) {
       if (body[k] === undefined) continue;
       if (SECRET_KEYS.includes(k) && (body[k] === '' || String(body[k]).startsWith('••••'))) continue; // giữ nguyên khoá cũ
+      if (OWNER_ONLY.includes(k) && me.role !== 'owner') fail(403, 'Chỉ chủ quán dán mã này');
       changes[k] = parse(body[k]);
     }
     if (changes.zalo_access_token) changes.zalo_token_expires_at = String(ctx.now() + 3600_000);
