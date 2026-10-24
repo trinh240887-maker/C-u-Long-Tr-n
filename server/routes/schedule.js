@@ -254,13 +254,26 @@ export default function (r, ctx) {
     const rows = db.prepare(`SELECT a.staff_id, a.date, a.slot FROM availability a JOIN staff s ON s.id = a.staff_id AND s.active = 1
       WHERE a.date BETWEEN ? AND ? ${only ? 'AND a.staff_id = ?' : ''} ORDER BY a.staff_id, a.date, a.slot`).all(start, addDays(start, 6), ...(only ? [only] : []));
     let made = 0, skipped = 0;
+    // Gom khung rảnh cùng người cùng ngày thành 1 ca (ca gãy 10–14 + 17–22 = 1 ca 2 khúc)
+    const byDay = new Map();
+    for (const a of rows) {
+      const r = ctx.availRange?.(a.slot);
+      if (!r) continue;
+      const k = `${a.staff_id}|${a.date}`;
+      byDay.set(k, [...(byDay.get(k) || []), r]);
+    }
     tx(db, () => {
-      for (const a of rows) {
-        const r = ctx.availRange?.(a.slot);
-        if (!r) continue;
-        if (db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ? AND start_min < ? AND end_min > ?').get(a.staff_id, a.date, r.end, r.start)) { skipped++; continue; }
+      for (const [k, list] of byDay) {
+        const [sid, date] = k.split('|');
+        const staffId = Number(sid);
+        if (db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(staffId, date)) { skipped++; continue; }
+        const segs = list.sort((x, y) => x.start - y.start).reduce((acc, r) => {
+          const last = acc.at(-1);
+          if (last && r.start <= last.end_min) last.end_min = Math.max(last.end_min, r.end); else acc.push({ start_min: r.start, end_min: r.end });
+          return acc;
+        }, []).slice(0, 4);
         try {
-          createGroup(me, { staffId: a.staff_id, date: a.date, teamId: null, segs: [{ start_min: r.start, end_min: r.end }], templateId: null, label: 'Ca', note: 'Theo lịch rảnh' });
+          createGroup(me, { staffId, date, teamId: null, segs, templateId: null, label: 'Ca', note: 'Theo lịch rảnh' });
           made++;
         } catch { skipped++; }
       }

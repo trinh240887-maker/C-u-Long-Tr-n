@@ -263,7 +263,7 @@ test('lịch rảnh cố định: báo 1 lần "tuần nào cũng vậy" → tu�
   let fa = (await o('POST', '/api/schedule/from-availability', { week: '2026-11-02' })).data;
   assert.equal(fa.made, 2);
   fa = (await o('POST', '/api/schedule/from-availability', { week: '2026-11-02', staff_id: nga })).data;
-  assert.deepEqual([fa.made, fa.skipped], [0, 2]);
+  assert.deepEqual([fa.made, fa.skipped], [0, 2]); // mỗi ngày 1 ca (khung rảnh cùng ngày gộp)
   const sh = (await o('GET', '/api/schedule?week=2026-11-02')).data.shifts.filter((x) => x.staff_id === nga).map((x) => `${x.date} ${x.text}`);
   assert.equal(sh.length, 2);
   const sum = (await o('GET', '/api/availability?week=2026-11-09')).data;

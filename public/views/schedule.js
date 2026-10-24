@@ -144,7 +144,40 @@ function HourCoverage({ shifts, day, prevDay, teams, zones = [], positions = [] 
   </section>`;
 }
 
-export function Schedule({ me, query }) {
+// Nhân viên thường: chỉ xem ca của mình trong tuần (chủ quán 24/10). Tổ trưởng / trưởng ca / quản lý / người có quyền Xếp ca: màn đầy đủ
+export function Schedule(props) {
+  const { me } = props;
+  const simple = me.role === 'staff' && !(me.pages || []).includes('/lich#xep');
+  return simple ? html`<${MyWeek} ...${props} />` : html`<${FullSchedule} ...${props} />`;
+}
+
+function MyWeek({ me, query }) {
+  const [week, setWeek] = useState(query.get('week') || me.today);
+  const st = useData(`/api/schedule?week=${week}`);
+  if (!st.data) return html`<${Loading} state=${st} />`;
+  const d = st.data;
+  const mine = d.shifts.filter((x) => x.staff_id === me.id);
+  const fmt = (x) => `${x.slice(8)}/${x.slice(5, 7)}`;
+  return html`<div class="stack">
+    <div class="row between wrap">
+      <div class="row"><button class="icon" aria-label="Tuần trước" onClick=${() => setWeek(addDays(d.week_start, -7))}>‹</button>
+        <b>Tuần ${fmt(d.week_start)} – ${fmt(addDays(d.week_start, 6))}</b>
+        <button class="icon" aria-label="Tuần sau" onClick=${() => setWeek(addDays(d.week_start, 7))}>›</button></div>
+      ${d.published_at ? html`<span class="pill ok">Lịch đã duyệt</span>` : html`<span class="pill warn">Quản lý chưa duyệt</span>`}
+    </div>
+    <section class="card stack my-week">
+      <h3>Ca của tôi · ${mine.length} ca</h3>
+      ${d.days.map((x) => { const sh = mine.filter((m) => m.date === x); return html`<div class=${`my-day ${sh.length ? 'on' : ''} ${x === me.today ? 'today' : ''}`}>
+        <b>${dayLabel(x)}</b>
+        <span>${sh.length ? sh.map((m) => html`<span class="pill">${m.label && m.label !== 'Ca' ? `${m.label} · ` : ''}${m.text}${m.position_name ? ` · ${m.position_name}` : ''}${m.zone_name ? ` · ${m.zone_name}` : ''}</span>`) : html`<span class="muted">Nghỉ</span>`}</span>
+      </div>`; })}
+    </section>
+    ${!d.published_at && mine.length ? html`<p class="small muted">Lịch có thể còn đổi tới khi quản lý duyệt.</p>` : null}
+    <button onClick=${() => navigate('/ranh')}>◷ Báo lịch rảnh tuần sau</button>
+  </div>`;
+}
+
+function FullSchedule({ me, query }) {
   const week = query.get('week') || me.today;
   const st = useData(`/api/schedule?week=${week}`);
   const staff = useData('/api/staff');

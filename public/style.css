@@ -708,3 +708,8 @@ table.av-grid .wk-name { width: 92px; min-width: 92px; }
 .plan-actions button { min-height: 48px; }
 table.wk .take { margin-top: 4px; min-height: 32px; padding: 0 8px; font-size: 12px; }
 table.wk .wk-name { white-space: normal; overflow: hidden; }
+.my-day { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 52px; border-bottom: 1px solid var(--line); }
+.my-day:last-child { border-bottom: 0; }
+.my-day.on b { color: var(--accent); }
+.my-day.today { background: var(--accent-soft); margin: 0 -12px; padding: 0 12px; border-radius: 8px; }
+.my-day .pill { font-size: 14px; }
