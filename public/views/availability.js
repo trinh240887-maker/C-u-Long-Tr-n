@@ -114,6 +114,8 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
   </div>`;
 }
 
+export function PlanBoard(props) { return Overview(props); }
+
 function Overview({ me, week, onWeek }) {
   const st = useData(`/api/availability${week ? `?week=${week}` : ''}`);
   const ws = st.data?.week_start;

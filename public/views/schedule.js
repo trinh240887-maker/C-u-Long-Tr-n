@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks';
+import { PlanBoard } from './availability.js';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, dayLabel, addDays, atLeast, navigate, Link } from '../ui.js';
 
 function ShiftForm({ init, staff, teams, templates, zones, positions = [], avail = null, onClose }) {
@@ -148,7 +149,13 @@ function HourCoverage({ shifts, day, prevDay, teams, zones = [], positions = [] 
 export function Schedule(props) {
   const { me } = props;
   const simple = me.role === 'staff' && !(me.pages || []).includes('/lich#xep');
-  return simple ? html`<${MyWeek} ...${props} />` : html`<${FullSchedule} ...${props} />`;
+  return simple ? html`<${MyWeek} ...${props} />` : html`<${LeadBoard} ...${props} />`;
+}
+
+// Tổ trưởng / trưởng ca / quản lý: Bảng tuần giống Excel (chủ quán 24/10 bỏ màn theo ngày). Xếp / duyệt theo quyền Xếp ca
+function LeadBoard({ me, query }) {
+  const [week, setWeek] = useState(query.get('week') || me.today);
+  return html`<${PlanBoard} me=${me} week=${week} onWeek=${setWeek} />`;
 }
 
 function MyWeek({ me, query }) {
