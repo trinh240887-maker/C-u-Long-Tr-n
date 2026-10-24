@@ -144,3 +144,23 @@ test('lịch ca: nhân viên chỉ thấy ca của mình, tổ trưởng thấy 
   assert.deepEqual(await names(await login('7368', '8368')), ['An', 'Bình']);
   assert.deepEqual(await names(o), ['An', 'Bình', 'Cúc']);
 });
+
+test('ca xếp theo giờ trùng loại ca → tự gắn loại ca (checklist theo ca hiện đúng)', async (t) => {
+  const db = openDb(':memory:');
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  await o('POST', '/api/shift-templates', { name: 'Ca gãy', segments: [{ start: '10:00', end: '14:00' }, { start: '17:00', end: '22:00' }] });
+  const team = (await o('GET', '/api/teams')).data[0].id;
+  const a = (await o('POST', '/api/staff', { name: 'An', role: 'staff', team_id: team, pin: '7365' })).data.id;
+  await o('POST', '/api/shifts', { staff_id: a, date: '2026-11-02', label: 'Ca', segments: [{ start: '10:00', end: '14:00' }, { start: '17:00', end: '22:00' }] });
+  const sh = (await o('GET', '/api/schedule?week=2026-11-02')).data.shifts[0];
+  assert.equal(sh.label, 'Ca gãy');
+  assert.ok(sh.template_id);
+});

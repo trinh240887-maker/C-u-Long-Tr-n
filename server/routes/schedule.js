@@ -152,6 +152,15 @@ export default function (r, ctx) {
       if (mine.some((b) => overlaps(range, b))) fail(409, `${st.name} đã có ca trùng giờ ${fmtHM(s.start_min)}–${fmtHM(s.end_min)}`);
     }
     const team = teamId ?? st.team_id;
+    // Ca không chọn loại ca (xếp từ lịch rảnh / Bảng tuần) mà giờ trùng đúng 1 loại ca → gắn loại ca đó,
+    // để checklist theo ca (Mở ca / Đóng ca…) hiện đúng cho người làm
+    if (!templateId) {
+      const key = segs.map((x) => `${x.start_min}-${x.end_min % 1440}`).join('|');
+      for (const t of db.prepare('SELECT id, name, segments FROM shift_templates WHERE active = 1').all()) {
+        const tk = JSON.parse(t.segments).map((x) => { const m = segmentMinutes(x.start, x.end); return `${m.start_min}-${m.end_min % 1440}`; }).join('|');
+        if (tk === key) { templateId = t.id; if (!label || label === 'Ca') label = t.name; break; }
+      }
+    }
     // Không chọn vị trí: dùng vị trí chính của người đó nếu cùng bộ phận
     const pos = positionId ?? (st.position_id && team === st.team_id ? st.position_id : null);
     const insert = db.prepare(`INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, template_id, label, note, created_by, created_at, zone_id, tables_text, position_id)
@@ -271,6 +280,17 @@ export default function (r, ctx) {
     return { made, skipped };
   }
   ctx.availToShifts = availToShifts;
+  // 1 lần: ca đã tạo không có loại ca mà giờ trùng loại ca → gắn loại ca (từ hôm nay trở đi)
+  if (!ctx.setting('shift_tpl_v1')) {
+    const tpls = db.prepare('SELECT id, name, segments FROM shift_templates WHERE active = 1').all().map((t) => ({ ...t, key: JSON.parse(t.segments).map((x) => { const m = segmentMinutes(x.start, x.end); return `${m.start_min}-${m.end_min % 1440}`; }).join('|') }));
+    const groups = new Map();
+    for (const a of db.prepare('SELECT group_id, start_min, end_min, label FROM assignments WHERE template_id IS NULL AND date >= ? ORDER BY start_min').all(ctx.today())) groups.set(a.group_id, [...(groups.get(a.group_id) || []), a]);
+    for (const [gid, segs] of groups) {
+      const t = tpls.find((x) => x.key === segs.map((z) => `${z.start_min}-${z.end_min % 1440}`).join('|'));
+      if (t) db.prepare("UPDATE assignments SET template_id = ?, label = CASE WHEN label IN ('', 'Ca') THEN ? ELSE label END WHERE group_id = ?").run(t.id, t.name, gid);
+    }
+    ctx.setSetting('shift_tpl_v1', '1');
+  }
   // 1 lần: lịch rảnh đã báo trước khi có tính năng này → tạo ca cho tuần hiện tại / sắp tới chưa duyệt
   if (!ctx.setting('avail_to_shift_v1')) {
     const from = weekStart(ctx.today());
