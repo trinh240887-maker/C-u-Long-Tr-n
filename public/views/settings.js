@@ -342,8 +342,33 @@ function Keys({ s, me }) {
       <p class="small muted">Tạo bot trong Zalo (Zalo Bot Manager), chép Token bot dán vào đây. Thêm bot vào nhóm đặt hàng rồi nhắn @bot một câu.</p>
       <${Field} label="Token Zalo Bot" hint=${s.zalo_bot_token ? `Đã lưu (${s.zalo_bot_token}). Dán token mới để đổi.` : 'Chưa có.'}><input id="k-zbot" type="password" autocomplete="off" disabled=${!owner} value=${f.zalo_bot_token} onInput=${(e) => setF({ ...f, zalo_bot_token: e.target.value })} /><//>
       <div class="row end"><button class="primary" disabled=${!owner || !f.zalo_bot_token} onClick=${() => save('zalo_bot_token', 'Đã lưu token Zalo Bot')}>Lưu token</button></div>
-      <p class="small muted">Phần gửi vào nhóm sẽ bật khi có tài liệu Zalo Bot (đang chờ anh gửi ảnh hướng dẫn).</p>
+      ${s.zalo_bot_token && owner ? html`<${BotGroup} s=${s} />` : null}
     </section>
+  </div>`;
+}
+
+// Chọn nhóm Zalo nhận đơn đặt hàng đã duyệt: Kiểm tra bot → Tìm nhóm → Chọn → Gửi thử
+function BotGroup({ s }) {
+  const [bot, setBot] = useState(null);
+  const [chats, setChats] = useState(null);
+  const [grp, setGrp] = useState({ id: s.zalo_bot_group_id || '', name: s.zalo_bot_group_name || '' });
+  const check = () => act(() => api('POST', '/api/zalo-bot/check'), 'Bot chạy được').then((r) => r && setBot(r.bot));
+  const find = () => act(() => api('POST', '/api/zalo-bot/chats')).then((r) => r && setChats(r.chats));
+  const pick = (c) => act(() => api('PUT', '/api/settings', { zalo_bot_group_id: c.id, zalo_bot_group_name: c.name || c.id }), 'Đã chọn nhóm').then((r) => r && setGrp({ id: c.id, name: c.name || c.id }));
+  const off = () => act(() => api('PUT', '/api/settings', { zalo_bot_group_id: '', zalo_bot_group_name: '' }), 'Đã tắt gửi nhóm').then((r) => r && setGrp({ id: '', name: '' }));
+  return html`<div class="stack">
+    <div class="row wrap"><button onClick=${check}>Kiểm tra bot</button>
+      ${bot ? html`<span class="ok-text">✓ ${bot.account_name || bot.display_name || bot.name || 'Bot'} </span>` : null}</div>
+    <p class="small"><b>Nhóm nhận đơn:</b> ${grp.id ? html`${grp.name} <button class="small" onClick=${off}>Tắt</button>` : html`<span class="muted">chưa chọn (duyệt đơn chỉ hiện nút sao chép)</span>`}</p>
+    <ol class="plain steps small">
+      <li>Thêm bot vào nhóm Zalo đặt hàng.</li>
+      <li>Trong nhóm, nhắn <b>@tên bot</b> một câu bất kỳ (ví dụ "@bot xin chào").</li>
+      <li>Bấm "Tìm nhóm" bên dưới, chọn đúng nhóm, rồi "Gửi thử".</li>
+    </ol>
+    <div class="row wrap"><button onClick=${find}>Tìm nhóm</button>${grp.id ? html`<button class="primary" onClick=${() => act(() => api('POST', '/api/zalo-bot/test'), 'Đã gửi, mở nhóm Zalo xem')}>Gửi thử vào nhóm</button>` : null}</div>
+    ${chats ? (chats.length ? chats.map((c) => html`<button class="tpl-row" onClick=${() => pick(c)}><b class="grow">${c.name || '(không tên)'}</b><span class="muted">${c.type}${c.text ? ` · "${c.text.slice(0, 30)}"` : ''}</span></button>`)
+      : html`<p class="warn-text small">Chưa thấy tin nào. Nhắn @bot trong nhóm rồi bấm lại.</p>`) : null}
+    <p class="small muted">Có nhóm rồi thì mỗi lần anh bấm Duyệt đơn đặt hàng, app tự gửi nội dung đơn vào nhóm. Gửi lỗi thì app báo và vẫn còn nút "Chép nội dung gửi Zalo".</p>
   </div>`;
 }
 

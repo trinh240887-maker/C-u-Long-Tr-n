@@ -630,7 +630,13 @@ export default function (r, ctx) {
     db.prepare("UPDATE purchase_orders SET status = 'approved', approved_by = ?, approved_at = ?, submitted_by = COALESCE(submitted_by, ?), submitted_at = COALESCE(submitted_at, ?) WHERE id = ?")
       .run(me.id, ctx.now(), me.id, ctx.now(), po.id);
     const done = loadPo(po.id);
-    // Gửi nội dung đơn cho người giữ kho và người lập/gửi đơn. Gửi thẳng vào nhóm Zalo "Mua đồ" cần nhóm của OA (chưa xác nhận API) → tạm dùng nút sao chép.
+    // Gửi nội dung đơn cho người giữ kho và người lập/gửi đơn; có nhóm Zalo Bot thì tự gửi vào nhóm (lỗi thì báo, vẫn còn nút sao chép)
+    const gid = ctx.setting('zalo_bot_group_id');
+    if (gid && ctx.zaloBot?.ready()) {
+      ctx.zaloBot.send(gid, done.text)
+        .then(() => ctx.audit(me, 'po.zalo_group', po.id))
+        .catch((e) => ctx.notify([me.id], { title: `Chưa gửi được đơn #${po.id} vào nhóm Zalo`, body: `${e.message}. Bấm "Chép nội dung gửi Zalo" để gửi tay.`, link: '/kho?tab=dat' }));
+    }
     ctx.notify([...holderTargets(), po.created_by, po.submitted_by].filter((x) => x && x !== me.id), { title: `Đã duyệt đơn #${po.id} – gửi NCC`, body: done.text, link: '/kho?tab=dat' });
     ctx.audit(me, 'po.approve', po.id);
     ctx.broadcast('stock');

@@ -60,7 +60,9 @@ test('xuất kho theo lô hết hạn trước', () => {
 async function setup() {
   let now = at('2026-10-01', '09:00');
   const db = openDb(':memory:', { now });
-  const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const botSent = [];
+  const zaloBot = { ready: () => true, send: async (chat, text) => { botSent.push({ chat, text }); }, call: async () => ({}), chats: async () => [] };
+  const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} }, zaloBot });
   const server = http.createServer(app.handler);
   await new Promise((r) => server.listen(0, r));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -81,7 +83,7 @@ async function setup() {
       async login(pin) { const r = await call('POST', '/api/login', { pin }); assert.equal(r.status, 200, JSON.stringify(r.data)); },
     };
   };
-  return { db, client, setNow: (ms) => { now = ms; }, close: () => new Promise((r) => { app.close(); server.close(r); }) };
+  return { db, botSent, client, setNow: (ms) => { now = ms; }, close: () => new Promise((r) => { app.close(); server.close(r); }) };
 }
 
 test('luồng kho: nhập kho, lĩnh hàng, kiểm kho cuối ca, gợi ý đặt hàng, duyệt, nhận hàng', async (t) => {
@@ -161,8 +163,12 @@ test('luồng kho: nhập kho, lĩnh hàng, kiểm kho cuối ca, gợi ý đặ
   ok(await dung.patch(`/api/stock/po/${po.id}`, { lines: [{ ingredient_id: bo, qty: 10 }], note: 'Giao trước 8h' }));
   ok(await dung.post(`/api/stock/po/${po.id}/submit`));
   assert.equal((await dung.post(`/api/stock/po/${po.id}/approve`)).status, 403);
+  env.db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('zalo_bot_group_id', 'g123')").run();
   const approved = ok(await o.post(`/api/stock/po/${po.id}/approve`));
   assert.match(approved.text, /Bò bắp: 10 kg/);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(env.botSent.map((x) => x.chat), ['g123']); // duyệt xong tự gửi vào nhóm Zalo
+  assert.equal(env.botSent[0].text, approved.text);
   assert.match(approved.text, /Giao trước 8h/);
   const before = ok(await o.get('/api/stock/overview')).items.find((x) => x.id === bo).stock[main.id];
   ok(await o.post(`/api/stock/po/${po.id}/receive`, { lines: [{ ingredient_id: bo, qty: 9.5, price: 290000 }] }));

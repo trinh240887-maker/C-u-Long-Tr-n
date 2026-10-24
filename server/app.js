@@ -13,6 +13,7 @@ import printRoutes from './routes/print.js';
 import promoRoutes from './routes/promotions.js';
 import paymentRoutes from './routes/payments.js';
 import { codeHash } from './lib/version.js';
+import { createZaloBot } from './lib/zalo-bot.js';
 import { createZns } from './notify/zns.js';
 import bankRoutes from './routes/bank.js';
 import daybookRoutes from './routes/daybook.js';
@@ -47,7 +48,7 @@ const MIME = {
   '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json',
 };
 
-export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport, backupDir, photoDir } = {}) {
+export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport, zaloBot, backupDir, photoDir } = {}) {
   const clients = new Set();
   const failedLogins = new Map();
   const qSetting = db.prepare('SELECT value FROM settings WHERE key = ?');
@@ -91,6 +92,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   let version = 'unknown';
   try { version = codeHash(path.resolve(publicDir, '..')); } catch { /* bỏ qua */ }
   ctx.version = () => ({ version, started_at: startedAt });
+  ctx.zaloBot = zaloBot || createZaloBot(ctx);
   router.get('/api/version', null, () => {
     // Tình trạng cầu in (không lộ IP / mã): để kiểm tra từ xa máy tính ở quán có đang chạy cầu in không
     const seen = Number(ctx.setting('print_bridge_seen') || 0);

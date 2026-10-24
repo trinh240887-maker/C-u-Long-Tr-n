@@ -7,7 +7,7 @@ import { runBackup, listBackups } from '../backup.js';
 import { readStatic } from '../lib/vietqr.js';
 
 const SECRET_KEYS = ['zalo_secret_key', 'zalo_access_token', 'zalo_refresh_token', 'anthropic_api_key', 'zalo_bot_token'];
-const OWNER_ONLY = ['anthropic_api_key', 'zalo_bot_token']; // mã tốn tiền / điều khiển bot: chỉ chủ quán dán
+const OWNER_ONLY = ['anthropic_api_key', 'zalo_bot_token', 'zalo_bot_group_id', 'zalo_bot_group_name']; // mã tốn tiền / điều khiển bot: chỉ chủ quán dán
 const FIELDS = {
   shop_name: (x) => v.text(x, { name: 'Tên quán', required: true, max: 80 }),
   shop_address: (x) => v.text(x, { name: 'Địa chỉ quán', max: 160 }),
@@ -71,6 +71,8 @@ const FIELDS = {
   zalo_secret_key: (x) => v.text(x, { name: 'Zalo Secret key', max: 200 }),
   anthropic_api_key: (x) => v.text(x, { name: 'Mã Claude (đọc bill)', max: 300 }).trim(),
   zalo_bot_token: (x) => v.text(x, { name: 'Token Zalo Bot', max: 300 }).trim(),
+  zalo_bot_group_id: (x) => v.text(x, { name: 'Nhóm Zalo nhận đơn', max: 100 }).trim(),
+  zalo_bot_group_name: (x) => v.text(x, { name: 'Tên nhóm', max: 120 }),
   zalo_access_token: (x) => v.text(x, { name: 'Access token', max: 2000 }),
   zalo_refresh_token: (x) => v.text(x, { name: 'Refresh token', max: 2000 }),
   reserve_hold_minutes: (x) => String(v.int(x, { min: 0, max: 120, name: 'Giữ bàn' })),
@@ -108,6 +110,18 @@ export default function (r, ctx) {
   }
 
   r.get('/api/settings', 'manager', () => view());
+
+  // ---------- Zalo Bot: kiểm tra, tìm nhóm, gửi thử (chủ quán) ----------
+  const owner = (me) => { if (me.role !== 'owner') fail(403, 'Chỉ chủ quán'); };
+  r.post('/api/zalo-bot/check', 'manager', async ({ me }) => { owner(me); try { return { ok: true, bot: await ctx.zaloBot.call('getMe') }; } catch (e) { fail(502, e.message); } });
+  r.post('/api/zalo-bot/chats', 'manager', async ({ me }) => { owner(me); try { return { chats: await ctx.zaloBot.chats() }; } catch (e) { fail(502, e.message); } });
+  r.post('/api/zalo-bot/test', 'manager', async ({ me }) => {
+    owner(me);
+    const gid = ctx.setting('zalo_bot_group_id');
+    if (!gid) fail(400, 'Chưa chọn nhóm');
+    try { await ctx.zaloBot.send(gid, `✅ ${ctx.setting('shop_name') || 'Quán'}: bot đã nối với nhóm, đơn đặt hàng duyệt xong sẽ tự gửi vào đây.`); } catch (e) { fail(502, e.message); }
+    return { ok: true };
+  });
 
   r.put('/api/settings', 'manager', ({ me, body }) => {
     const changes = {};
