@@ -91,7 +91,15 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   let version = 'unknown';
   try { version = codeHash(path.resolve(publicDir, '..')); } catch { /* bỏ qua */ }
   ctx.version = () => ({ version, started_at: startedAt });
-  router.get('/api/version', null, () => ({ ...ctx.version(), uptime_min: Math.round((now() - startedAt) / 60000) }));
+  router.get('/api/version', null, () => {
+    // Tình trạng cầu in (không lộ IP / mã): để kiểm tra từ xa máy tính ở quán có đang chạy cầu in không
+    const seen = Number(ctx.setting('print_bridge_seen') || 0);
+    let printers = [];
+    try { printers = db.prepare('SELECT name, printer_ip IS NOT NULL AND printer_ip != \'\' AS has_ip, printer_ok AS ok FROM kitchen_stations WHERE active = 1 ORDER BY sort, id').all().map((x) => ({ name: x.name, has_ip: !!x.has_ip, ok: x.ok == null ? null : !!x.ok })); } catch { /* bảng chưa có */ }
+    let waiting = 0;
+    try { waiting = db.prepare("SELECT COUNT(*) AS n FROM kitchen_tickets WHERE print_status = 'pending'").get().n; } catch { /* bỏ qua */ }
+    return { ...ctx.version(), uptime_min: Math.round((now() - startedAt) / 60000), print_bridge: { online: !!seen && now() - seen < 20_000, seen_min_ago: seen ? Math.round((now() - seen) / 60000) : null, waiting, printers } };
+  });
 
   for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes, printRoutes, promoRoutes, paymentRoutes, bankRoutes, daybookRoutes, bookingOnlineRoutes, bookingGuardRoutes, waitlistRoutes, reportRoutes, purchaseRoutes, stockSaleRoutes, laborRoutes, tipBoxRoutes]) {
     register(router, ctx);

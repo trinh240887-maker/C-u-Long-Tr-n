@@ -55,6 +55,7 @@ jobs:
           # Bản cũ nhưng commit mới < 20 phút: Railway có thể đang build, chưa coi là lỗi
           if [ "$STATUS" = "old" ] && [ "$COMMIT_AGE_MIN" -lt 20 ] && [ "${{ github.event_name }}" != "push" ]; then STATUS=ok; fi
           echo "Kết quả: $STATUS (app thật: ${LIVE:-không đọc được})"
+          echo "Cầu in ở quán:"; echo "$BODY" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const b=JSON.parse(s).print_bridge;if(!b)return console.log('  (bản cũ chưa báo)');console.log('  '+(b.online?'ĐANG CHẠY':'KHÔNG CHẠY')+(b.seen_min_ago!=null?' · lần cuối thấy '+b.seen_min_ago+' phút trước':' · chưa từng kết nối')+' · phiếu chờ in: '+b.waiting);for(const p of b.printers)console.log('  - '+p.name+': '+(!p.has_ip?'chưa có IP':p.ok==null?'chưa kiểm tra':p.ok?'kết nối được':'KHÔNG thấy máy'))}catch{console.log('  không đọc được')}})"
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           echo "live=$LIVE" >> "$GITHUB_OUTPUT"
           echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
