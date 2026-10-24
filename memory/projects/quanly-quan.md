@@ -43,6 +43,7 @@ Một app web dùng chung cho cả quán (điện thoại phục vụ, màn hìn
 - Deploy: `Dockerfile`, `railway.json`, biến `DATA_DIR`, `PORT`, `TRUST_PROXY=1` khi sau proxy cloud.
 
 ## Câu hỏi mở (chờ chủ quán)
+- (24/10) **Xếp ca tự động theo lịch rảnh**: đã đề xuất (nút ⚡ xếp đủ số tối thiểu, ca nằm gọn giờ rảnh, chia đều giờ, bản nháp rồi Công bố). Chủ quán: để nhân viên dùng lịch rảnh mới trước, quản lý thấy chỗ nào không ổn thì báo lại rồi mới quyết.
 0. **Số bàn thật từng khu A/B/C** (đang để mặc định A 1-40, B 41-80, C 81-100). Sửa ở Cài đặt → Khu & bàn.
 1. ~~Checklist theo ca~~: **đã làm** (ô "Áp dụng cho ca"). Vẫn cần giờ thật của ca sáng/chiều để tạo loại ca.
 2. ~~Deploy~~: **xong 20/10** trên Railway: https://c-u-long-tr-n-production.up.railway.app (project `marvelous-spirit`, Volume `c-u-long-tr-n-volume` ở `/data`). dathangsi cũng chạy trên Railway (project `dathangsi`, 7 dịch vụ). Railway GitHub App được cấp All repositories.
