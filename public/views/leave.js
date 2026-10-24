@@ -2,44 +2,22 @@ import { useState } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, dayLabel, ago, atLeast } from '../ui.js';
 
 const STATUS = { pending: ['Chờ duyệt', 'warn'], approved: ['Đã duyệt', 'ok'], rejected: ['Không duyệt', 'bad'], cancelled: ['Đã huỷ', 'muted'] };
-const OFFER = { invited: ['Đã mời', ''], accepted: ['Nhận làm thay', 'ok'], declined: ['Từ chối', 'muted'], closed: ['Đã đóng', 'muted'] };
 
+// Chủ quán 24/10: không chọn người làm thay — quản lý duyệt / không duyệt, rồi tự sắp xếp lại sơ đồ quán
 function Handle({ me, leave, onClose }) {
-  const sug = useData(`/api/leave/${leave.id}/suggestions`);
-  const [pick, setPick] = useState([]);
   const [note, setNote] = useState('');
-  const [rep, setRep] = useState(leave.offers.find((o) => o.status === 'accepted')?.staff_id || '');
   const isManager = atLeast(me, 'manager');
-  const toggle = (id) => setPick(pick.includes(id) ? pick.filter((x) => x !== id) : [...pick, id]);
-  return html`<${Modal} title=${`Đơn nghỉ của ${leave.staff_name}`} onClose=${onClose} wide>
+  return html`<${Modal} title=${`Đơn nghỉ của ${leave.staff_name}`} onClose=${onClose}>
+    <div class="stack">
     <p><b>${dayLabel(leave.shift?.date || leave.date, { long: true })}</b> · ${leave.shift?.text}${leave.shift?.team_name ? ` · ${leave.shift.team_name}` : ''}<br />
       <span class="muted">Lý do: ${leave.reason}</span></p>
-    <h4>Người có thể làm thay</h4>
-    ${!sug.data ? html`<${Loading} state=${sug} />` : html`<div class="cands">
-      ${sug.data.candidates.filter((c) => c.eligible).map((c) => html`<label class=${`cand ${pick.includes(c.staff_id) ? 'on' : ''}`}>
-        <input type="checkbox" checked=${pick.includes(c.staff_id)} disabled=${c.offer === 'invited' || c.offer === 'accepted'} onChange=${() => toggle(c.staff_id)} />
-        <span class="grow"><b>${c.name}</b><br /><small class="muted">${c.primary ? 'Cùng tổ' : `Vị trí phụ ${'★'.repeat(c.level)}`} · đã xếp ${c.week_hours} giờ tuần này</small></span>
-        ${c.offer ? html`<span class=${`pill ${OFFER[c.offer][1]}`}>${OFFER[c.offer][0]}</span>` : null}
-      </label>`)}
-      ${!sug.data.candidates.some((c) => c.eligible) ? html`<p class="warn-text">Không có ai phù hợp. Có thể điều người đang trong ca hoặc gọi thêm người.</p>` : null}
-      <details><summary class="muted small">Không phù hợp (${sug.data.candidates.filter((c) => !c.eligible).length})</summary>
-        <ul class="plain small">${sug.data.candidates.filter((c) => !c.eligible).map((c) => html`<li><b>${c.name}</b>: ${c.reasons.join(', ')}</li>`)}</ul></details>
-    </div>
-    <div class="row end"><button class="primary" disabled=${!pick.length} onClick=${() => act(() => api('POST', `/api/leave/${leave.id}/invite`, { staff_ids: pick }), 'Đã gửi lời nhờ qua thông báo').then((ok) => ok && setPick([]))}>
-      Nhờ ${pick.length || ''} người làm thay</button></div>`}
-
-    ${isManager ? html`<hr /><h4>Duyệt đơn</h4>
-      <div class="row">
-        <${Field} label="Người làm thay"><select id="lv-rep" value=${rep} onChange=${(e) => setRep(e.target.value)}>
-          <option value="">(không có, để trống ca)</option>
-          ${(sug.data?.candidates || []).filter((c) => c.eligible).map((c) => html`<option value=${c.staff_id}>${c.name}${c.offer === 'accepted' ? ' (đã nhận)' : ''}</option>`)}
-        </select><//>
-        <${Field} label="Ghi chú"><input id="lv-note" value=${note} onInput=${(e) => setNote(e.target.value)} /><//>
-      </div>
+    ${isManager ? html`
+      <${Field} label="Ghi chú (không bắt buộc)"><input id="lv-note" value=${note} onInput=${(e) => setNote(e.target.value)} /><//>
       <div class="row end">
         <button class="danger" onClick=${async () => { if (await act(() => api('POST', `/api/leave/${leave.id}/decide`, { approve: false, note }), 'Đã từ chối đơn')) onClose(); }}>Không duyệt</button>
-        <button class="primary" onClick=${async () => { if (await act(() => api('POST', `/api/leave/${leave.id}/decide`, { approve: true, replacement_id: rep || null, note }), 'Đã duyệt')) onClose(); }}>Duyệt nghỉ</button>
-      </div>` : html`<p class="muted small">Quản lý sẽ duyệt đơn sau khi có người nhận làm thay.</p>`}
+        <button class="primary" onClick=${async () => { if (await act(() => api('POST', `/api/leave/${leave.id}/decide`, { approve: true, note }), 'Đã duyệt nghỉ, nhớ sắp xếp lại người')) onClose(); }}>✓ Duyệt nghỉ</button>
+      </div>` : html`<p class="muted small">Quản lý sẽ duyệt đơn này.</p>`}
+    </div>
   <//>`;
 }
 

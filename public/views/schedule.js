@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { PlanBoard } from './availability.js';
+import { LeaveForm } from './home.js';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, dayLabel, addDays, atLeast, navigate, Link } from '../ui.js';
 
 function ShiftForm({ init, staff, teams, templates, zones, positions = [], avail = null, onClose }) {
@@ -160,6 +161,7 @@ function LeadBoard({ me, query }) {
 
 function MyWeek({ me, query }) {
   const [week, setWeek] = useState(query.get('week') || me.today);
+  const [leaveFor, setLeaveFor] = useState(null);
   const st = useData(`/api/schedule?week=${week}`);
   if (!st.data) return html`<${Loading} state=${st} />`;
   const d = st.data;
@@ -176,11 +178,14 @@ function MyWeek({ me, query }) {
       <h3>Ca của tôi · ${mine.length} ca</h3>
       ${d.days.map((x) => { const sh = mine.filter((m) => m.date === x); return html`<div class=${`my-day ${sh.length ? 'on' : ''} ${x === me.today ? 'today' : ''}`}>
         <b>${dayLabel(x)}</b>
-        <span>${sh.length ? sh.map((m) => html`<span class="pill">${m.label && m.label !== 'Ca' ? `${m.label} · ` : ''}${m.text}${m.position_name ? ` · ${m.position_name}` : ''}${m.zone_name ? ` · ${m.zone_name}` : ''}</span>`) : html`<span class="muted">Nghỉ</span>`}</span>
+        <span class="stack tight-r">${sh.length ? sh.map((m) => html`<span class="pill">${m.label && m.label !== 'Ca' ? `${m.label} · ` : ''}${m.text}${m.position_name ? ` · ${m.position_name}` : ''}${m.zone_name ? ` · ${m.zone_name}` : ''}</span>
+          ${m.leave?.status === 'pending' ? html`<small class="warn-text">Chờ duyệt nghỉ</small>` : m.leave?.status === 'approved' ? html`<small class="muted">Đã duyệt nghỉ</small>`
+            : x >= me.today ? html`<button class="small" onClick=${() => setLeaveFor(m)}>Xin nghỉ</button>` : null}`) : html`<span class="muted">Nghỉ</span>`}</span>
       </div>`; })}
     </section>
     ${!d.published_at && mine.length ? html`<p class="small muted">Lịch có thể còn đổi tới khi quản lý duyệt.</p>` : null}
     <button onClick=${() => navigate('/ranh')}>◷ Báo lịch rảnh tuần sau</button>
+    ${leaveFor ? html`<${LeaveForm} shift=${leaveFor} onClose=${() => setLeaveFor(null)} />` : null}
   </div>`;
 }
 

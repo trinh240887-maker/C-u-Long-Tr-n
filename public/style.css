@@ -713,3 +713,4 @@ table.wk .wk-name { white-space: normal; overflow: hidden; }
 .my-day.on b { color: var(--accent); }
 .my-day.today { background: var(--accent-soft); margin: 0 -12px; padding: 0 12px; border-radius: 8px; }
 .my-day .pill { font-size: 14px; }
+.tight-r { gap: 4px; align-items: flex-end; }

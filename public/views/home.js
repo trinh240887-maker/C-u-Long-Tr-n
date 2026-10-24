@@ -8,7 +8,7 @@ export function LeaveForm({ shift, onClose }) {
   return html`<${Modal} title="Xin nghỉ ca" onClose=${onClose}>
     <p><b>${dayLabel(shift.date, { long: true })}</b> · ${shift.label ? `${shift.label} · ` : ''}${shift.text}</p>
     <${Field} label="Lý do"><textarea id="leave-reason" rows="3" value=${reason} onInput=${(e) => setReason(e.target.value)} placeholder="Ví dụ: ốm, việc gia đình…" /><//>
-    <p class="muted small">Tổ trưởng sẽ tìm người làm thay, quản lý duyệt. Bạn vẫn đi làm ca này cho tới khi đơn được duyệt.</p>
+    <p class="muted small">Quản lý sẽ duyệt đơn. Bạn vẫn đi làm ca này cho tới khi đơn được duyệt.</p>
     <div class="row end">
       <button onClick=${onClose}>Thôi</button>
       <button class="primary" disabled=${!reason.trim()} onClick=${async () => {
