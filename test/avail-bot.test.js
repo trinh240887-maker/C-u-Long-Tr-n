@@ -42,3 +42,46 @@ test('bot nhắc lịch rảnh: tối thứ 7 20h gửi 1 lần vào nhóm nhân
   await ctx.availBotTick();
   assert.equal(sent.length, 1);
 });
+
+test('bot đọc tin @bot trong nhóm nhân viên → tự điền lịch rảnh + trả lời', async (t) => {
+  let now = clock.toEpoch('2026-10-24', 23 * 60 + 40); // T7 24/10 23:40
+  const db = openDb(':memory:', { now });
+  const sent = [];
+  let inbox = [];
+  const zaloBot = { ready: () => true, send: async (chat, text) => { sent.push({ chat, text }); }, call: async () => ({}), chats: async () => [], updates: async () => inbox, remember: () => [] };
+  const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} }, zaloBot });
+  t.after(() => app.close());
+  const pv = Number(db.prepare("INSERT INTO teams (name, sort, min_staff) VALUES ('Tiếp thực', 9, 1)").run().lastInsertRowid);
+  db.prepare("INSERT INTO staff (name, role, team_id, created_at) VALUES ('Trần Nguyễn Trường Giang', 'staff', ?, 0), ('Nguyễn Hồng Phúc', 'staff', ?, 0), ('Cẩm Tú', 'staff', ?, 0)").run(pv, pv, pv);
+  const id = (n) => db.prepare('SELECT id FROM staff WHERE name = ?').get(n).id;
+  const { ctx } = app;
+  ctx.setSetting('zalo_bot_staff_group_id', 'grpNV');
+  const msg = (mid, text, from = { id: 'u1', name: 'Trường Giang' }, chat = 'grpNV') => ({ id: mid, date: now, chat: { id: chat, type: 'GROUP', name: 'Demo Quán' }, from, text });
+
+  inbox = [msg('m1', '@Bot Trường Giang ( tiếp thực)\nHồng phúc ( Tiếp Thực)\n14h-23h'), msg('x', '@Bot 10-14', { id: 'u9', name: 'Ai' }, 'grpKhac')];
+  await ctx.zaloBotPoll();
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /Đã ghi lịch rảnh/);
+  assert.match(sent[0].text, /Trần Nguyễn Trường Giang: cả tuần 26\/10–01\/11: 14:00–23:00/);
+  const rows = db.prepare('SELECT date, slot FROM availability WHERE staff_id = ? ORDER BY date').all(id('Nguyễn Hồng Phúc'));
+  assert.equal(rows.length, 7);
+  assert.equal(rows[0].slot, '14:00-23:00');
+  // Tạo ca tự động theo lịch rảnh
+  assert.ok(db.prepare("SELECT COUNT(*) AS n FROM assignments WHERE staff_id = ? AND note = 'Theo lịch rảnh'").get(id('Nguyễn Hồng Phúc')).n >= 7);
+
+  await ctx.zaloBotPoll(); // cùng tin → không xử lý lại
+  assert.equal(sent.length, 1);
+
+  // Sửa 1 ngày: T3 nghỉ, ngày khác giữ nguyên; tên lấy từ người nhắn (Zalo "Cẩm Tú")
+  inbox = [msg('m2', '@Bot T3 nghỉ\nT4 10-14, 17h-22h', { id: 'u3', name: 'Cẩm Tú' })];
+  await ctx.zaloBotPoll();
+  assert.match(sent[1].text, /Cẩm Tú: T3 27\/10 nghỉ · T4 28\/10 10:00–14:00, 17:00–22:00/);
+  assert.deepEqual(db.prepare('SELECT slot FROM availability WHERE staff_id = ? AND date = ?').all(id('Cẩm Tú'), '2026-10-28').map((x) => x.slot), ['10:00-14:00', '17:00-22:00']);
+
+  inbox = [msg('m3', '@Bot xin chào', { id: 'u3', name: 'Cẩm Tú' })];
+  await ctx.zaloBotPoll();
+  assert.match(sent[2].text, /Chưa đọc được giờ/);
+  inbox = [msg('m4', '@Bot Ai đó 14-23', { id: 'u7', name: 'Người lạ' })];
+  await ctx.zaloBotPoll();
+  assert.match(sent[3].text, /Chưa thấy tên/);
+});

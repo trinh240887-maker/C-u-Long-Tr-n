@@ -2,6 +2,7 @@ import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
 import { isDate, addDays, weekStart, isoWeekday } from '../lib/time.js';
 import { allowedPages } from '../lib/perms.js';
+import { parseAvailMessage, findStaff } from '../lib/avail-parse.js';
 
 // Lịch rảnh: nhân viên thời vụ tự báo buổi rảnh của tuần sau; quản lý xem dư/thiếu rồi tự xếp ca.
 export const DEFAULT_SLOTS = [
@@ -246,6 +247,86 @@ export default function (r, ctx) {
     ctx.setSetting(key, String(n));
     try { if (await sendGroup(ws, summary(ws).people)) ctx.audit(null, 'availability.bot_remind', { week: ws }); }
     catch (e) { ctx.setSetting(key, ''); console.error('Bot nhắc lịch rảnh lỗi:', e.message); }
+  };
+
+  // ---------- Bot đọc tin báo lịch rảnh trong nhóm nhân viên → tự điền (chủ quán 24/10) ----------
+  db.exec(`CREATE TABLE IF NOT EXISTS zalo_bot_msgs (key TEXT PRIMARY KEY, at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS zalo_bot_users (uid TEXT PRIMARY KEY, staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE)`);
+  const BOT_NOTE = 'Báo qua Zalo';
+  const DOWS = ['', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+  const dayTxt = (d) => `${DOWS[isoWeekday(d)]} ${ddmm(d)}`;
+  // Ghi lịch rảnh cho 1 người: chỉ những ngày có trong tin (ngày khác giữ nguyên)
+  function applyBot(staffId, picks, off) {
+    const today = ctx.today(), from = weekStart(today);
+    const dates = [...new Set([...Object.keys(picks), ...off])].filter((d) => d >= today && weekStart(d) >= from).sort();
+    const weeks = new Set();
+    tx(db, () => {
+      for (const d of dates) {
+        db.prepare('DELETE FROM availability WHERE staff_id = ? AND date = ?').run(staffId, d);
+        for (const x of picks[d] || []) { const t = readPick(x); if (t) db.prepare('INSERT OR IGNORE INTO availability (staff_id, date, slot) VALUES (?, ?, ?)').run(staffId, d, t); }
+        weeks.add(weekStart(d));
+      }
+      for (const ws of weeks) {
+        db.prepare(`INSERT INTO availability_weeks (staff_id, week_start, submitted_at, note) VALUES (?, ?, ?, ?)
+          ON CONFLICT (staff_id, week_start) DO UPDATE SET submitted_at = excluded.submitted_at, note = CASE WHEN note = '${FIXED_NOTE}' OR note = '' THEN excluded.note ELSE note END`).run(staffId, ws, ctx.now(), BOT_NOTE);
+      }
+    });
+    const locked = [];
+    for (const ws of weeks) { if (Number(ctx.setting(`published:${ws}`) || 0)) locked.push(ws); else ctx.availToShifts?.(staffId, ws, { id: null }); }
+    return { dates, locked };
+  }
+  function describe(picks, off, dates, week) {
+    const all = Array.from({ length: 7 }, (_, i) => addDays(week, i));
+    const txt = (d) => (picks[d] || []).map((r) => r.replace('-', '–')).join(', ');
+    if (all.every((d) => dates.includes(d)) && new Set(all.map(txt)).size === 1 && txt(all[0])) return `cả tuần ${ddmm(all[0])}–${ddmm(all[6])}: ${txt(all[0])}`;
+    return dates.map((d) => `${dayTxt(d)} ${off.includes(d) && !picks[d] ? 'nghỉ' : txt(d)}`).join(' · ');
+  }
+  function handleBotMsg(u) {
+    const staff = db.prepare('SELECT id, name FROM staff WHERE active = 1').all();
+    // Người nhắn: đã liên kết, hoặc tên Zalo trùng đúng 1 nhân viên
+    let sender = u.from.id ? db.prepare('SELECT staff_id FROM zalo_bot_users WHERE uid = ?').get(u.from.id)?.staff_id : null;
+    if (!sender && u.from.id && u.from.name) {
+      const m = findStaff(u.from.name, staff);
+      if (m.length === 1) { sender = m[0].id; db.prepare('INSERT OR REPLACE INTO zalo_bot_users (uid, staff_id) VALUES (?, ?)').run(u.from.id, sender); }
+    }
+    const p = parseAvailMessage(u.text, { staff, today: ctx.today(), sender });
+    const hint = 'Nhắn kiểu: @bot Tên 14h-23h (cả tuần) hoặc @bot Tên T2 14-23, T3 nghỉ';
+    if (!Object.keys(p.picks).length && !p.off.length) return `❓ Chưa đọc được giờ. ${hint}`;
+    if (!p.people.length) return `❓ Chưa thấy tên nhân viên (ghi đúng tên như trong app). ${hint}`;
+    const lines = [];
+    let locked = false;
+    for (const person of p.people) {
+      const r = applyBot(person.id, p.picks, p.off);
+      if (!r.dates.length) { lines.push(`• ${person.name}: ngày đã qua, không ghi`); continue; }
+      if (r.locked.length) locked = true;
+      lines.push(`• ${person.name}: ${describe(p.picks, p.off, r.dates, p.week)}`);
+    }
+    ctx.audit(null, 'availability.zalo', { from: u.from.name, staff: p.people.map((x) => x.id), text: u.text.slice(0, 200) });
+    ctx.broadcast('availability');
+    return `✅ Đã ghi lịch rảnh:\n${lines.join('\n')}${locked ? '\n(Tuần đã duyệt lịch: quản lý sẽ xếp lại nếu cần)' : ''}`;
+  }
+  ctx.handleBotAvailMsg = handleBotMsg;
+  let polling = false;
+  ctx.zaloBotPoll = async () => {
+    if (polling || !ctx.zaloBot?.ready() || !ctx.zaloBot.updates) return;
+    polling = true;
+    try {
+      const list = await ctx.zaloBot.updates();
+      if (!list.length) return;
+      ctx.zaloBot.remember?.(list);
+      const gid = ctx.setting('zalo_bot_staff_group_id');
+      for (const u of list) {
+        if (!gid || u.chat.id !== gid || u.from.bot || !u.text.trim()) continue;
+        if (u.date && ctx.now() - u.date > 2 * 86_400_000) continue; // tin cũ quá 2 ngày bỏ qua
+        const key = `${u.chat.id}:${u.id || `${u.from.id}:${u.date}:${u.text}`}`;
+        if (db.prepare('INSERT OR IGNORE INTO zalo_bot_msgs (key, at) VALUES (?, ?)').run(key, ctx.now()).changes === 0) continue;
+        let reply;
+        try { reply = handleBotMsg(u); } catch (e) { reply = `⚠ Lỗi khi ghi: ${e.message}`; }
+        if (reply) await ctx.zaloBot.send(gid, reply).catch((e) => console.error('Bot trả lời lỗi:', e.message));
+      }
+      db.prepare('DELETE FROM zalo_bot_msgs WHERE at < ?').run(ctx.now() - 7 * 86_400_000);
+    } catch (e) { if (!/Chưa dán token/.test(e.message)) console.error('Bot đọc tin lỗi:', e.message); }
+    finally { polling = false; }
   };
 
   r.post('/api/availability/remind', 'manager', async ({ me, body }) => {

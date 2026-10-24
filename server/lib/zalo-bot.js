@@ -18,18 +18,41 @@ export function createZaloBot(ctx, { fetchImpl = globalThis.fetch } = {}) {
     if (res.status >= 400 || j.ok === false) throw new Error(`Zalo Bot báo lỗi ${j.error_code ?? res.status}: ${j.description || j.message || ''}`.trim());
     return j.result ?? j;
   }
-  // Tìm các cuộc trò chuyện bot đã nhận tin (nhóm: nhắn @bot trong nhóm trước)
-  async function chats() {
+  // Lấy tin bot nhận được (trong nhóm chỉ có tin @bot), chuẩn hoá về 1 dạng
+  async function updates() {
     const r = await call('getUpdates', { timeout: 0 });
     const list = Array.isArray(r) ? r : r ? [r] : [];
-    const seen = new Map();
+    const out = [];
     for (const u of list) {
       const m = u.message || u.result?.message || u;
       const c = m?.chat;
-      if (c?.id && !seen.has(String(c.id))) seen.set(String(c.id), { id: String(c.id), type: c.chat_type || c.type || '', name: c.title || c.display_name || c.name || m.from?.display_name || '', text: m.text || '' });
+      if (!c?.id) continue;
+      let date = Number(m.date || u.date || 0);
+      if (date && date < 1e12) date *= 1000;
+      out.push({
+        id: String(m.message_id || m.msg_id || ''), date,
+        chat: { id: String(c.id), type: c.chat_type || c.type || '', name: c.title || c.display_name || c.name || '' },
+        from: { id: String(m.from?.id || ''), name: m.from?.display_name || m.from?.name || '', bot: !!m.from?.is_bot },
+        text: String(m.text || ''),
+      });
     }
-    return [...seen.values()];
+    return out;
+  }
+  // Nhớ các nhóm đã thấy (máy tự đọc tin liên tục nên nút "Tìm nhóm" lấy từ đây)
+  function remember(list) {
+    let seen = [];
+    try { seen = JSON.parse(ctx.setting('zalo_bot_seen_chats') || '[]'); } catch { /* rỗng */ }
+    const map = new Map(seen.map((c) => [c.id, c]));
+    for (const u of list) map.set(u.chat.id, { id: u.chat.id, type: u.chat.type, name: u.chat.name || map.get(u.chat.id)?.name || u.from.name, text: u.text.slice(0, 60) });
+    const all = [...map.values()].slice(-20);
+    if (list.length && ctx.setSetting) ctx.setSetting('zalo_bot_seen_chats', JSON.stringify(all));
+    return all;
+  }
+  async function chats() {
+    let list = [];
+    try { list = await updates(); } catch (e) { if (!ctx.setting('zalo_bot_seen_chats')) throw e; }
+    return remember(list).reverse();
   }
   const send = (chatId, text) => call('sendMessage', { chat_id: chatId, text: String(text).slice(0, 2000) });
-  return { call, chats, send, ready: () => !!token() };
+  return { call, chats, updates, remember, send, ready: () => !!token() };
 }
