@@ -185,6 +185,13 @@ test('phân khu theo tuần: 1 lần cho cả tuần, ca có sẵn + ca mới tr
   const d = (await o('GET', '/api/schedule?week=2026-11-02')).data;
   assert.deepEqual(d.shifts.map((x) => x.zone_name), [zA.name, zA.name]);
   assert.equal(Number(d.week_zones[a]), zA.id);
+  // Giao thêm bàn phụ trách trong khu (vd 2 bàn đầu khu A) → mọi ca trong tuần ghi bàn
+  const two = zA.tables.slice(0, 2).map((x) => x.number).join(', ');
+  assert.equal((await o('POST', '/api/schedule/week-zones', { week: '2026-11-02', staff_id: a, zone_id: zA.id, tables_text: two })).status, 200);
+  const d2 = (await o('GET', '/api/schedule?week=2026-11-02')).data;
+  assert.ok(d2.shifts.every((x) => x.tables_text && x.zone_id === zA.id));
+  // bàn không thuộc khu → chặn
+  assert.equal((await o('POST', '/api/schedule/week-zones', { week: '2026-11-02', staff_id: a, zone_id: zA.id, tables_text: '999' })).status, 400);
   // tuần sau không bị ảnh hưởng
   await o('POST', '/api/shifts', { staff_id: a, date: '2026-11-10', label: 'Ca', segments: [{ start: '06:00', end: '14:00' }] });
   assert.equal((await o('GET', '/api/schedule?week=2026-11-09')).data.shifts[0].zone_id, null);

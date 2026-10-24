@@ -144,7 +144,9 @@ export default function (r, ctx) {
 
   // Phân khu theo tuần (chủ quán 24/10): mỗi người 1 khu cho cả tuần → mọi ca trong tuần nhận khu đó
   const weekZones = (ws) => { try { return JSON.parse(ctx.setting(`zone_week:${ws}`) || '{}'); } catch { return {}; } };
-  ctx.weekZoneOf = (staffId, date) => Number(weekZones(weekStart(date))[staffId]) || null;
+  // Giá trị: số (khu) hoặc { z: khu, t: 'bàn 1-10' }
+  const wzOf = (v0) => (v0 && typeof v0 === 'object' ? { zoneId: Number(v0.z) || null, tablesText: v0.t || '' } : { zoneId: Number(v0) || null, tablesText: '' });
+  ctx.weekZoneOf = (staffId, date) => wzOf(weekZones(weekStart(date))[staffId]);
 
   function createGroup(me, { staffId, date, teamId, segs, templateId, label, note, replaceGroup, zoneId = null, tablesText = '', positionId = null }) {
     const st = ctx.staff(staffId);
@@ -157,7 +159,7 @@ export default function (r, ctx) {
       if (mine.some((b) => overlaps(range, b))) fail(409, `${st.name} đã có ca trùng giờ ${fmtHM(s.start_min)}–${fmtHM(s.end_min)}`);
     }
     const team = teamId ?? st.team_id;
-    if (!zoneId) zoneId = ctx.weekZoneOf(staffId, date);
+    if (!zoneId) { const wz = ctx.weekZoneOf(staffId, date); zoneId = wz.zoneId; tablesText = wz.tablesText; }
     // Ca không chọn loại ca (xếp từ lịch rảnh / Bảng tuần) mà giờ trùng đúng 1 loại ca → gắn loại ca đó,
     // để checklist theo ca (Mở ca / Đóng ca…) hiện đúng cho người làm
     if (!templateId) {
@@ -310,12 +312,12 @@ export default function (r, ctx) {
     if (!isDate(body.week)) fail(400, 'Tuần không hợp lệ');
     const ws = weekStart(body.week);
     const staffId = v.int(body.staff_id, { min: 1, name: 'Nhân viên' });
-    const zoneId = v.optInt(body.zone_id, { min: 1, name: 'Khu' });
-    if (zoneId && !db.prepare('SELECT 1 FROM zones WHERE id = ? AND active = 1').get(zoneId)) fail(400, 'Khu không tồn tại');
+    // Khu + (tuỳ chọn) bàn phụ trách, vd khu A bàn 1-10
+    const { zoneId, tablesText } = ctx.readZone({ zone_id: body.zone_id, tables_text: body.tables_text });
     const map = weekZones(ws);
-    if (zoneId) map[staffId] = zoneId; else delete map[staffId];
+    if (zoneId) map[staffId] = tablesText ? { z: zoneId, t: tablesText } : zoneId; else delete map[staffId];
     ctx.setSetting(`zone_week:${ws}`, JSON.stringify(map));
-    db.prepare("UPDATE assignments SET zone_id = ?, tables_text = '' WHERE staff_id = ? AND date BETWEEN ? AND ?").run(zoneId, staffId, ws, addDays(ws, 6));
+    db.prepare('UPDATE assignments SET zone_id = ?, tables_text = ? WHERE staff_id = ? AND date BETWEEN ? AND ?').run(zoneId, tablesText, staffId, ws, addDays(ws, 6));
     ctx.audit(me, 'schedule.week_zone', { week: ws, staff: staffId, zone: zoneId });
     ctx.broadcast('schedule');
     return { ok: true, week_zones: map };
