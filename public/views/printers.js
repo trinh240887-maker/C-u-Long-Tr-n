@@ -62,7 +62,9 @@ export function PrintersView({ me }) {
       <h3>Máy in (${d.stations.length})</h3>
       ${manager ? html`<button onClick=${() => act(() => api('POST', '/api/print/test', { station_id: 'all' }), 'Đã gửi in thử mọi máy')}>In thử tất cả</button>` : ''}
     </div>
+    ${manager ? html`<p class="small muted">Mỗi khu 1 máy: bấm vào ô số dưới tên khu, gõ <b>IP dán trên máy in</b> (vd 192.168.1.240) → <b>Lưu</b> → <b>In thử</b>.</p>` : ''}
     ${d.stations.map((s) => html`<${StationRow} key=${s.id} s=${s} canEdit=${manager} />`)}
+    ${manager ? html`<button onClick=${() => { const n = prompt('Tên máy in / khu mới (vd Thu ngân, Bar 2)'); if (n && n.trim()) act(() => api('POST', '/api/kitchen-stations', { name: n.trim() }), 'Đã thêm máy in'); }}>+ Thêm máy in</button>` : ''}
 
     ${manager ? html`<div class="card stack">
       <b>Chữ trên phiếu</b>
