@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { html, api, act, useData, Loading, dayLabel, addDays, atLeast, navigate } from '../ui.js';
+import { html, api, act, useData, Loading, Modal, dayLabel, addDays, atLeast, navigate } from '../ui.js';
 
 const fmtDate = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
 const TIMES = Array.from({ length: 37 }, (_, i) => { const m = 360 + i * 30; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${m % 60 ? '30' : '00'}`; }); // 06:00 … 24:00
@@ -58,77 +58,92 @@ function Mine({ week, onWeek, staffId = null, onDone = null }) {
   </div>`;
 }
 
+// Xếp ca dễ: chọn ngày → thấy ai rảnh mấy giờ → "+ Xếp" → xong tuần bấm Công bố. Ai có quyền "Xếp ca" cũng làm được
+const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+function AddShift({ p, date, range, onClose }) {
+  const [from, to] = (range || '17:00-23:00').split('-');
+  const [f, setF] = useState({ from, to });
+  const save = () => act(() => api('POST', '/api/shifts', { staff_id: p.id, date, team_id: p.team_id || undefined, label: 'Ca', segments: [{ start: f.from, end: f.to === '24:00' ? '00:00' : f.to }] }), `Đã xếp ${p.name}`).then((r) => r && onClose());
+  return html`<${Modal} title=${`Xếp ca: ${p.name}`} onClose=${onClose}><div class="stack">
+    <p class="small muted">${dayLabel(date)}${range ? ` · rảnh ${range.replace('-', '–')}` : ''}. Sửa giờ nếu cần rồi bấm Xếp.</p>
+    <div class="row tight av-time"><select value=${f.from} onChange=${(e) => setF({ ...f, from: e.target.value })}>${TIMES.slice(0, -1).map((x) => html`<option value=${x}>${x}</option>`)}</select>
+      <span>→</span><select value=${f.to} onChange=${(e) => setF({ ...f, to: e.target.value })}>${TIMES.filter((x) => x > f.from).map((x) => html`<option value=${x}>${x}</option>`)}</select></div>
+    <button class="primary big" onClick=${save}>✓ Xếp ca ${f.from}–${f.to}</button>
+  </div><//>`;
+}
+
 function Overview({ me, week, onWeek }) {
   const st = useData(`/api/availability${week ? `?week=${week}` : ''}`);
+  const ws = st.data?.week_start;
+  const sc = useData(ws ? `/api/schedule?week=${ws}` : null);
   const [team, setTeam] = useState('');
-  const [open, setOpen] = useState(null);
-  if (!st.data) return html`<${Loading} state=${st} />`;
+  const [day, setDay] = useState(null);
+  const [add, setAdd] = useState(null);
+  if (!st.data || !sc.data) return html`<${Loading} state=${st.data ? sc : st} />`;
   const d = st.data;
+  const cur = day && d.days.includes(day) ? day : d.days[0];
   const teams = d.teams.filter((t) => d.people.some((p) => p.team_id === t.id));
-  const people = d.people.filter((p) => !team || p.team_id === Number(team));
-  const pid = new Set(people.map((p) => p.id));
-  const busy = new Set(d.busy);
-  const missing = people.filter((p) => !p.submitted_at);
-  const cellOf = (day, slot) => {
-    const c = d.cells[`${day}:${slot}`];
-    const free = c.free.filter((id) => pid.has(id));
-    const need = team ? c.by_team[team]?.need || 0 : 0;
-    const sched = team ? c.by_team[team]?.scheduled || 0 : Object.values(c.by_team).reduce((n, x) => n + x.scheduled, 0);
-    return { free, need, sched };
+  const inTeam = (x) => !team || x.team_id === Number(team);
+  const shifts = sc.data.shifts.filter((x) => x.leave?.status !== 'approved');
+  const shiftsOf = (date) => shifts.filter((x) => x.date === date && inTeam(x));
+  const freeOf = (date) => {
+    const has = new Set(shifts.filter((x) => x.date === date).map((x) => x.staff_id));
+    return d.people.filter((p) => inTeam(p) && !has.has(p.id) && (d.hours?.[`${p.id}:${date}`] || []).length);
   };
-  const tone = ({ free, need }) => (!need ? (free.length ? 'ok' : 'zero') : free.length < need ? 'low' : free.length > need * 1.5 ? 'many' : 'ok');
+  const missing = d.people.filter((p) => inTeam(p) && !p.submitted_at);
+  const done = shiftsOf(cur);
+  const free = freeOf(cur);
+  const published = sc.data.published_at;
+  const canManage = atLeast(me, 'manager') || (me.pages || []).includes('/lich#xep');
   return html`<div class="stack">
     <div class="row between wrap">
       <div class="row">
-        <button class="icon" aria-label="Tuần trước" onClick=${() => onWeek(addDays(d.week_start, -7))}>‹</button>
+        <button class="icon" aria-label="Tuần trước" onClick=${() => { setDay(null); onWeek(addDays(d.week_start, -7)); }}>‹</button>
         <b>Tuần ${fmtDate(d.week_start)} – ${fmtDate(addDays(d.week_start, 6))}</b>
-        <button class="icon" aria-label="Tuần sau" onClick=${() => onWeek(addDays(d.week_start, 7))}>›</button>
+        <button class="icon" aria-label="Tuần sau" onClick=${() => { setDay(null); onWeek(addDays(d.week_start, 7)); }}>›</button>
       </div>
-      <button onClick=${() => navigate(`/lich?week=${d.week_start}`)}>Mở lịch ca tuần này →</button>
+      ${published ? html`<span class="pill ok">Đã công bố</span>` : html`<span class="pill warn">Chưa công bố</span>`}
     </div>
+    <section class="card hint small"><span><b>1.</b> Bấm ngày · <b>2.</b> Bấm <b>+ Xếp</b> cạnh người rảnh · <b>3.</b> Xếp xong cả tuần bấm <b>Công bố</b> để gửi lịch cho nhân viên.</span></section>
+    <div class="chips scroll-x day-chips">${d.days.map((x) => { const n = shiftsOf(x).length; const fr = freeOf(x).length; return html`<button class=${`chip big ${x === cur ? 'on' : ''}`} onClick=${() => setDay(x)}>
+      <b>${dayLabel(x).split(' ')[0]}</b> ${fmtDate(x)}<small>${n} ca${fr ? ` · ${fr} rảnh` : ''}</small></button>`; })}</div>
     <div class="chips"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Cả quán</button>
       ${teams.map((t) => html`<button class=${`chip ${team === String(t.id) ? 'on' : ''}`} onClick=${() => setTeam(String(t.id))}>${t.name}</button>`)}</div>
-    <section class="card">
-      <div class="row between"><h3>Số người rảnh</h3><span class="muted small">${team ? 'rảnh / cần tối thiểu · đỏ = thiếu, xanh đậm = dư' : 'chọn bộ phận để so với số tối thiểu'}</span></div>
-      <div class="grid-wrap"><table class="hours avail-grid">
-        <thead><tr><th class="who">Ngày</th>${d.slots.map((s) => html`<th>${s.label}</th>`)}</tr></thead>
-        <tbody>${d.days.map((day) => html`<tr><td class="who">${dayLabel(day)}</td>${d.slots.map((s) => {
-          const c = cellOf(day, s.key);
-          return html`<td class=${`av-cell ${tone(c)}`} onClick=${() => setOpen({ day, slot: s })}>
-            <b>${c.free.length}</b>${c.need ? html`<small>/${c.need}</small>` : null}${c.sched ? html`<br /><small>đã xếp ${c.sched}</small>` : null}</td>`;
-        })}</tr>`)}</tbody>
-      </table></div>
+
+    <section class="card stack"><h3>🙋 Rảnh, chưa xếp (${free.length})</h3>
+      ${free.length ? free.map((p) => { const rg = d.hours[`${p.id}:${cur}`]; return html`<div class="plan-row">
+        <span class="grow"><b>${p.name}</b> <small class="muted">${p.team_name || ''}</small><br /><span class="ok-text">rảnh ${rg.join(', ').replace(/-/g, '–')}</span></span>
+        ${canManage ? html`<button class="primary" onClick=${() => setAdd({ p, range: rg[0] })}>+ Xếp</button>` : null}</div>`; })
+        : html`<p class="muted small">Không còn ai rảnh mà chưa xếp ngày này.</p>`}
     </section>
-    ${open ? html`<section class="card stack">
-      <div class="row between"><h3>${dayLabel(open.day)} · ${open.slot.label} (${open.slot.start}–${open.slot.end})</h3><button class="icon" aria-label="Đóng" onClick=${() => setOpen(null)}>✕</button></div>
-      ${(() => {
-        const ids = cellOf(open.day, open.slot.key).free;
-        const list = people.filter((p) => ids.includes(p.id));
-        return list.length ? html`<ul class="plain">${list.map((p) => html`<li class="row between"><span><b>${p.name}</b> <b class="pill">${(d.hours?.[`${p.id}:${open.day}`] || []).join(', ').replace(/-/g, '–')}</b> <small class="muted">${p.team_name || ''}${p.position_name ? ` · ${p.position_name}` : ''}</small></span>
-          ${busy.has(`${p.id}:${open.day}:${open.slot.key}`) ? html`<span class="pill ok">Đã xếp</span>` : html`<span class="pill muted">Chưa xếp</span>`}</li>`)}</ul>`
-          : html`<p class="muted">Không ai báo rảnh buổi này.</p>`;
-      })()}
-    </section>` : null}
-    <section class="card stack">
-      <div class="row between"><h3>Chưa gửi lịch rảnh (${missing.length})</h3>
-        ${missing.length && atLeast(me, 'manager') ? html`<button onClick=${() => act(() => api('POST', '/api/availability/remind', { week: d.week_start }), 'Đã nhắc')}>Nhắc tất cả</button>` : null}</div>
-      <p class="muted small">Hạn: ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} lúc ${d.deadline.time}.</p>
-      ${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã gửi.</p>`}
-      ${people.some((p) => p.fixed) ? html`<p class="small muted">${people.filter((p) => p.fixed).length} bạn dùng lịch cố định (tự điền mỗi tuần).</p>` : null}
-      ${people.some((p) => p.note) ? html`<details><summary class="muted small">Ghi chú của nhân viên</summary><ul class="plain small">
-        ${people.filter((p) => p.note).map((p) => html`<li><b>${p.name}:</b> ${p.note}</li>`)}</ul></details>` : null}
+
+    <section class="card stack"><h3>✅ Đã xếp ca (${done.length})</h3>
+      ${done.length ? done.map((x) => html`<div class="plan-row">
+        <span class="grow"><b>${x.staff_name}</b> <small class="muted">${x.team_name || ''}</small><br /><span>${x.text}</span></span>
+        ${canManage ? html`<button class="small" aria-label="Bỏ ca" onClick=${() => act(() => api('POST', '/api/shifts/delete', { group_id: x.group_id }), `Đã bỏ ca ${x.staff_name}`)}>✕ Bỏ</button>` : null}</div>`)
+        : html`<p class="muted small">Chưa xếp ai ngày này.</p>`}
     </section>
+
+    <details class="card"><summary><b>Chưa báo lịch rảnh (${missing.length})</b> <small class="muted">hạn ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} ${d.deadline.time}</small></summary>
+      <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}
+      ${missing.length && canManage ? html`<button onClick=${() => act(() => api('POST', '/api/availability/remind', { week: d.week_start }), 'Đã nhắc')}>🔔 Nhắc tất cả</button>` : null}</div>
+    </details>
+
+    ${canManage ? html`<div class="sum-bar row between">
+      <small class="muted">${shifts.length} ca cả tuần</small>
+      <button class="primary big" disabled=${!shifts.length} onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã gửi lịch cho nhân viên')}>📣 ${published ? 'Công bố lại' : 'Công bố lịch tuần'}</button></div>` : null}
+    ${add ? html`<${AddShift} p=${add.p} date=${cur} range=${add.range} onClose=${() => setAdd(null)} />` : null}
   </div>`;
 }
 
 export function AvailabilityView({ me, query }) {
-  const lead = atLeast(me, 'team_lead');
-  const [tab, setTab] = useState(query.get('tab') || (lead && !['staff', 'team_lead', 'shift_lead'].includes(me.role) ? 'all' : 'mine'));
-  const [week, setWeek] = useState(query.get('week') || '');
+  const canPlan = atLeast(me, 'team_lead') || (me.pages || []).includes('/lich#xep');
   const mustSubmit = ['staff', 'team_lead', 'shift_lead'].includes(me.role);
+  const [tab, setTab] = useState(query.get('tab') || (canPlan && !mustSubmit ? 'all' : 'mine'));
+  const [week, setWeek] = useState(query.get('week') || '');
   return html`<div class="stack">
-    ${lead ? html`<div class="tabs">${mustSubmit ? html`<button class=${tab === 'mine' ? 'on' : ''} onClick=${() => setTab('mine')}>Lịch rảnh của tôi</button>` : null}
-      <button class=${tab === 'all' ? 'on' : ''} onClick=${() => setTab('all')}>Cả quán</button></div>` : null}
-    ${tab === 'all' && lead ? html`<${Overview} me=${me} week=${week} onWeek=${setWeek} />` : html`<${Mine} week=${week} onWeek=${setWeek} />`}
+    ${canPlan ? html`<div class="tabs">${mustSubmit ? html`<button class=${tab === 'mine' ? 'on' : ''} onClick=${() => setTab('mine')}>Lịch rảnh của tôi</button>` : null}
+      <button class=${tab === 'all' ? 'on' : ''} onClick=${() => setTab('all')}>🗓 Xếp ca</button></div>` : null}
+    ${tab === 'all' && canPlan ? html`<${Overview} me=${me} week=${week} onWeek=${setWeek} />` : html`<${Mine} week=${week} onWeek=${setWeek} />`}
   </div>`;
 }

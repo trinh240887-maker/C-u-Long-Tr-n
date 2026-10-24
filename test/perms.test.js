@@ -84,3 +84,34 @@ test('phân quyền mục con Mua hàng: nhân viên không có Công nợ NCC /
   assert.ok(pages.includes('/mua-hang#congno'));
   assert.equal((await nv('GET', '/api/suppliers/debts')).status, 200);
 });
+
+test('xếp ca: người được cấp quyền "Xếp ca" xem lịch rảnh cả quán, xếp ca, công bố; người không có quyền bị chặn', async (t) => {
+  const db = openDb(':memory:');
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  const team = (await o('GET', '/api/teams')).data[0].id;
+  const aId = (await o('POST', '/api/staff', { name: 'Hậu', role: 'staff', team_id: team, pin: '7365' })).data.id;
+  const bId = (await o('POST', '/api/staff', { name: 'Nga', role: 'staff', team_id: team, pin: '7366' })).data.id;
+  const login = async (pin, np) => { const c = mk(); await c('POST', '/api/login', { pin }); await c('POST', '/api/me/pin', { current_pin: pin, new_pin: np }); return c; };
+  const a = await login('7365', '8365');
+  const b = await login('7366', '8366');
+  const shift = { staff_id: bId, date: '2026-11-02', team_id: team, label: 'Ca', segments: [{ start: '17:00', end: '00:00' }] };
+  assert.equal((await a('GET', '/api/availability?week=2026-11-02')).status, 403);
+  assert.equal((await a('POST', '/api/shifts', shift)).status, 403);
+  const perm = (await o('GET', '/api/permissions')).data;
+  const cfg = Object.fromEntries(perm.pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny }]));
+  cfg['/lich#xep'].allow = [aId];
+  await o('PUT', '/api/permissions', { pages: cfg });
+  assert.equal((await a('GET', '/api/availability?week=2026-11-02')).status, 200);
+  const r = await a('POST', '/api/shifts', shift);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal((await a('POST', '/api/schedule/publish', { week: '2026-11-02' })).status, 200);
+  assert.equal((await b('POST', '/api/shifts', { ...shift, staff_id: aId })).status, 403);
+});

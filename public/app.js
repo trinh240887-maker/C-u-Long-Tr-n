@@ -38,7 +38,7 @@ const NAV = [
   { path: '/dat-ban', label: 'Đặt bàn', icon: '☏', role: 'staff' },
   { path: '/phieu-bep', label: 'Phiếu bếp (máy in hỏng)', icon: '🧾', role: 'staff' },
   { path: '/thuc-don', label: 'Thực đơn', icon: '☰', role: 'team_lead' },
-  { path: '/ranh', label: 'Lịch rảnh', icon: '◷', role: 'staff' },
+  { path: '/ranh', label: 'Lịch rảnh & xếp ca', icon: '◷', role: 'staff' },
   { path: '/duyet-anh', label: 'Duyệt ảnh', icon: '▣', role: 'team_lead' },
   { path: '/thu-ngan', label: 'Thu ngân & doanh thu', icon: '₫', role: 'staff', show: (me) => atLeast(me, 'shift_lead') || me.team?.name === 'Thu ngân' },
   { path: '/duyet-so', label: 'Duyệt sổ', icon: '✔', role: 'manager' },

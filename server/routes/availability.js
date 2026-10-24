@@ -1,6 +1,7 @@
 import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
 import { isDate, addDays, weekStart } from '../lib/time.js';
+import { allowedPages } from '../lib/perms.js';
 
 // Lịch rảnh: nhân viên thời vụ tự báo buổi rảnh của tuần sau; quản lý xem dư/thiếu rồi tự xếp ca.
 export const DEFAULT_SLOTS = [
@@ -204,7 +205,11 @@ export default function (r, ctx) {
   }
   ctx.availabilitySummary = summary;
 
-  r.get('/api/availability', 'team_lead', ({ query }) => summary(readWeek(query.get('week'))));
+  // Xem lịch rảnh cả quán: tổ trưởng trở lên, hoặc người được cấp quyền Xếp ca
+  r.get('/api/availability', 'staff', ({ me, query }) => {
+    if (rank(me.role) < rank('team_lead') && !allowedPages(ctx, me).includes('/lich#xep')) fail(403, 'Cần quyền Xếp ca');
+    return summary(readWeek(query.get('week')));
+  });
 
   r.post('/api/availability/remind', 'manager', ({ me, body }) => {
     const ws = readWeek(body.week);
