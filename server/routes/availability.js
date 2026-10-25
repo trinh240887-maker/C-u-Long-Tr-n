@@ -468,6 +468,7 @@ export default function (r, ctx) {
     polling = true;
     try {
       const list = await ctx.zaloBot.updates();
+      if (list.length) ctx.zaloBot.remember?.(list); // nút "Tìm nhóm" lấy từ đây, không gọi Zalo song song với vòng đọc tin
       botLog.poll = { at: ctx.now(), n: list.length, error: '' };
       if (!list.length) return;
       ctx.zaloBot.remember?.(list);

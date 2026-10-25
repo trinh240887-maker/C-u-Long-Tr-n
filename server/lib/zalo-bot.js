@@ -8,12 +8,12 @@ const BASE = 'https://bot-api.zaloplatforms.com';
 export function createZaloBot(ctx, { fetchImpl = globalThis.fetch } = {}) {
   const state = { lastRaw: '' };
   const token = () => ctx.setting('zalo_bot_token') || process.env.ZALO_BOT_TOKEN || '';
-  async function call(method, body = {}) {
+  async function call(method, body = {}, { timeoutMs = 15_000 } = {}) {
     const t = token();
     if (!t) throw new Error('Chưa dán token Zalo Bot (Cài đặt → Kết nối)');
     let res;
     try {
-      res = await fetchImpl(`${BASE}/bot${t}/${method}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
+      res = await fetchImpl(`${BASE}/bot${t}/${method}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
     } catch (e) { throw new Error(`Không gọi được Zalo Bot: ${e.message}`); }
     const j = await res.json().catch(() => ({}));
     if (res.status >= 400 || j.ok === false) throw new Error(`Zalo Bot báo lỗi ${j.error_code ?? res.status}: ${j.description || j.message || ''}`.trim());
@@ -21,7 +21,11 @@ export function createZaloBot(ctx, { fetchImpl = globalThis.fetch } = {}) {
   }
   // Lấy tin bot nhận được (trong nhóm chỉ có tin @bot), chuẩn hoá về 1 dạng
   async function updates() {
-    const r = await call('getUpdates', { timeout: 0 });
+    // Chờ dài (long polling): Zalo giữ kết nối tới khi có tin hoặc hết `timeout` giây. Hết giờ mà không có tin = bình thường,
+    // không phải lỗi. Trước đây ngắt sau 15 giây trong khi Zalo giữ ~30 giây → tin tới đúng lúc bị ngắt có thể mất (26/10)
+    let r;
+    try { r = await call('getUpdates', { timeout: 25 }, { timeoutMs: 40_000 }); }
+    catch (e) { if (/timeout|aborted|408|no update/i.test(e.message)) return []; throw e; }
     const list = Array.isArray(r) ? r : r ? [r] : [];
     if (list.length) state.lastRaw = JSON.stringify(list[0]).slice(0, 600); // để chủ quán xem bot nhận gì (Cài đặt → Zalo Bot)
     const out = [];
@@ -50,10 +54,9 @@ export function createZaloBot(ctx, { fetchImpl = globalThis.fetch } = {}) {
     if (list.length && ctx.setSetting) ctx.setSetting('zalo_bot_seen_chats', JSON.stringify(all));
     return all;
   }
+  // Vòng đọc tin (mỗi vài giây) đã nhớ các nhóm → không gọi getUpdates song song (Zalo chỉ cho 1 kết nối chờ tin)
   async function chats() {
-    let list = [];
-    try { list = await updates(); } catch (e) { if (!ctx.setting('zalo_bot_seen_chats')) throw e; }
-    return remember(list).reverse();
+    return remember([]).reverse();
   }
   const send = (chatId, text) => call('sendMessage', { chat_id: chatId, text: String(text).slice(0, 2000) });
   // Ảnh: Zalo chỉ nhận link http(s) công khai (không nhận file / base64), chú thích tối đa 2000 ký tự
