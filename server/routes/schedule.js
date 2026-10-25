@@ -370,7 +370,14 @@ export default function (r, ctx) {
         AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') ORDER BY a.date, a.start_min`).all(p.id, start, end);
       const byDay = new Map();
       for (const a of rows) byDay.set(a.date, [...(byDay.get(a.date) || []), a]);
-      table.rows.push({ name: p.name, tags: [ROLE_TAG[p.role], WORK_TAG[p.work_type], p.position_name].filter(Boolean), cells: days7.map((d) => (byDay.has(d) ? short(byDay.get(d)) : '')) });
+      // Khu chính của tuần = khu xuất hiện nhiều ngày nhất; ô chỉ ghi khu khi ngày đó khác khu chính (chủ quán 25/10: ảnh xếp theo khu)
+      const zCount = new Map();
+      for (const segs of byDay.values()) { const a = segs.find((x) => x.zone_id); if (a) zCount.set(a.zone_id, (zCount.get(a.zone_id) || 0) + 1); }
+      const mainZ = [...zCount].sort((x, y) => y[1] - x[1])[0]?.[0] || null;
+      const cellOf = (segs) => { const a = segs.find((x) => x.zone_id); const base = describeGroup(segs).replace(/:00/g, '').replace(/\b0(\d)/g, '$1').replace(/–0\b/g, '–24');
+        if (!a) return base; if (a.zone_id === mainZ) return base + (a.tables_text ? ` · bàn ${a.tables_text}` : ''); return base + zoneTxt(segs); };
+      table.rows.push({ name: p.name, zone: mainZ ? `KHU ${zname.get(mainZ) || ''}`.trim() : '', zone_sort: mainZ ? [...zname.keys()].indexOf(mainZ) : 999, lead: ['shift_lead', 'team_lead', 'manager'].includes(p.role) ? 0 : 1,
+        tags: [ROLE_TAG[p.role], WORK_TAG[p.work_type], p.position_name].filter(Boolean), cells: days7.map((d) => (byDay.has(d) ? cellOf(byDay.get(d)) : '')) });
       if (!rows.length) continue;
       const days = [...byDay].map(([date, segs]) => ({ date, txt: describeGroup(segs).replace(/:00/g, '').replace(/\b0(\d)/g, '$1').replace(/–0\b/g, '–24') }));
       // Gộp ngày liền nhau cùng giờ: "T2–T6 8–12 + 14–23 · T7 14–23"
@@ -394,7 +401,9 @@ export default function (r, ctx) {
     if (owners.length) ctx.notify(owners, { title: `${me.name} đã duyệt lịch ${team.name} tuần ${start.slice(8)}/${start.slice(5, 7)}`, body: `${sent} người có ca.`, link: `/ranh?tab=all&week=${start}` });
     ctx.audit(me, 'schedule.publish_team', { week: start, team: team.id, made, sent, groups });
     ctx.broadcast('schedule');
-    table.rows.sort((a, b) => (b.cells.some(Boolean) ? 1 : 0) - (a.cells.some(Boolean) ? 1 : 0));
+    // Gộp theo khu (A, B, C… rồi chưa khu), trong khu: trưởng ca / tổ trưởng lên đầu; ai không có ca xuống cuối
+    table.rows.sort((a, b) => (b.cells.some(Boolean) ? 1 : 0) - (a.cells.some(Boolean) ? 1 : 0) || a.zone_sort - b.zone_sort || a.lead - b.lead || a.name.localeCompare(b.name, 'vi'));
+    table.grouped = table.rows.some((r) => r.zone);
     return { made, sent, groups, group_error, text, table };
   });
 

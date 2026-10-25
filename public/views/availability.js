@@ -251,8 +251,19 @@ async function publishTeam(week, g) {
 function drawScheduleImage(t) {
   const W0 = 230, CW = 128, HH = 64, TH = 70, PAD = 16;
   const RH = t.rows.some((r) => r.cells.some((x) => x.includes(' · ') && x.includes(' + '))) ? 72 : 58;
-  const rows = t.rows.length ? t.rows : [{ name: '(chưa có ai có ca)', tags: [], cells: Array(7).fill('') }];
-  const W = PAD * 2 + W0 + CW * 7, H = PAD * 2 + TH + HH + RH * rows.length + 30;
+  const raw = t.rows.length ? t.rows : [{ name: '(chưa có ai có ca)', tags: [], cells: Array(7).fill('') }];
+  // Xếp theo khu: chèn dòng tiêu đề "KHU A · 6 người" trước mỗi khu
+  const rows = [];
+  if (t.grouped) {
+    let last = null;
+    for (const r of raw) {
+      const key = r.cells.some(Boolean) ? (r.zone || 'CHƯA PHÂN KHU') : 'KHÔNG CÓ CA TUẦN NÀY';
+      if (key !== last) { rows.push({ header: key, n: raw.filter((x) => (x.cells.some(Boolean) ? (x.zone || 'CHƯA PHÂN KHU') : 'KHÔNG CÓ CA TUẦN NÀY') === key).length }); last = key; }
+      rows.push(r);
+    }
+  } else rows.push(...raw);
+  const GH = 40;
+  const W = PAD * 2 + W0 + CW * 7, H = PAD * 2 + TH + HH + rows.reduce((a, r) => a + (r.header ? GH : RH), 0) + 30;
   const scale = 2;
   const cv = document.createElement('canvas');
   cv.width = W * scale; cv.height = H * scale;
@@ -276,7 +287,16 @@ function drawScheduleImage(t) {
   });
   y += HH;
   // Từng người
+  const ZC = ['#1565c0', '#6a1b9a', '#00838f', '#ef6c00', '#2e7d32', '#ad1457'];
+  let zi = -1;
   rows.forEach((r, k) => {
+    if (r.header) {
+      zi++;
+      c.fillStyle = r.header.startsWith('KHU') ? ZC[zi % ZC.length] : '#9e9e9e'; c.fillRect(PAD, y, W - PAD * 2, GH);
+      c.fillStyle = '#fff'; c.textAlign = 'left'; c.font = `800 19px ${F}`; c.fillText(`📍 ${r.header}  ·  ${r.n} người`, PAD + 12, y + GH / 2);
+      y += GH;
+      return;
+    }
     c.fillStyle = k % 2 ? '#fafafa' : '#fff'; c.fillRect(PAD, y, W - PAD * 2, RH);
     c.textAlign = 'left'; c.fillStyle = '#222'; c.font = `700 17px ${F}`;
     c.fillText(r.name.length > 22 ? `${r.name.slice(0, 21)}…` : r.name, PAD + 12, y + (r.tags.length ? 21 : RH / 2));
@@ -294,11 +314,11 @@ function drawScheduleImage(t) {
       lines.forEach((ln, j) => { c.font = ln.startsWith('📍') ? `600 14px ${F}` : `700 16px ${F}`; c.fillStyle = ln.startsWith('📍') ? '#1d4ed8' : '#b23c17'; c.fillText(ln, x + CW / 2, top + j * 19); });
     });
     c.strokeStyle = '#e8e2d8'; c.lineWidth = 1; c.beginPath(); c.moveTo(PAD, y + RH); c.lineTo(W - PAD, y + RH); c.stroke();
+    for (let i = 0; i <= 7; i++) { const x = PAD + W0 + CW * i; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + RH); c.stroke(); }
     y += RH;
   });
   // Đường dọc
-  c.strokeStyle = '#e8e2d8';
-  for (let i = 0; i <= 7; i++) { const x = PAD + W0 + CW * i; c.beginPath(); c.moveTo(x, PAD + TH); c.lineTo(x, y); c.stroke(); }
+
   c.fillStyle = '#888'; c.textAlign = 'right'; c.font = `13px ${F}`; c.fillText('Ô tô màu = có ca · ô trống = nghỉ', W - PAD, y + 16);
   return cv.toDataURL('image/png');
 }
