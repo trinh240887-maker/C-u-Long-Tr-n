@@ -265,8 +265,8 @@ export default function (r, ctx) {
   // Lịch rảnh nhân viên báo = lịch làm (chủ quán 24/10): báo xong tự thành ca, quản lý chỉ sửa / bỏ rồi Duyệt.
   // Gửi lại → thay các ca tự tạo (note 'Theo lịch rảnh') của tuần đó; ca quản lý tự xếp / đã sửa giữ nguyên. Tuần đã duyệt thì không tự đổi
   const AUTO_NOTE = 'Theo lịch rảnh';
-  function availToShifts(staffId, start, me) {
-    if (Number(ctx.setting(`published:${start}`) || 0)) return { made: 0, skipped: 0 };
+  function availToShifts(staffId, start, me, { force = false } = {}) {
+    if (!force && Number(ctx.setting(`published:${start}`) || 0)) return { made: 0, skipped: 0 };
     const end = addDays(start, 6);
     const rows = db.prepare('SELECT date, slot FROM availability WHERE staff_id = ? AND date BETWEEN ? AND ? ORDER BY date, slot').all(staffId, start, end);
     let made = 0, skipped = 0;
@@ -341,6 +341,49 @@ export default function (r, ctx) {
   });
 
   // Gửi lịch tuần cho từng nhân viên qua thông báo (Zalo nếu đã bật)
+  // Duyệt lịch TỪNG BỘ PHẬN (chủ quán 25/10): ngày chưa có ca mà có lịch rảnh → tạo ca theo lịch rảnh,
+  // báo từng người, bot gửi bảng lịch bộ phận vào nhóm Zalo có bộ phận đó
+  r.post('/api/schedule/publish-team', 'manager', async ({ me, body }) => {
+    if (!isDate(body.week)) fail(400, 'Tuần không hợp lệ');
+    const start = weekStart(body.week);
+    const team = db.prepare('SELECT id, name FROM teams WHERE id = ?').get(v.int(body.team_id, { min: 1, name: 'Bộ phận' }));
+    if (!team) fail(404, 'Không tìm thấy bộ phận');
+    const people = db.prepare("SELECT id, name FROM staff WHERE active = 1 AND role != 'owner' AND team_id = ? ORDER BY name").all(team.id);
+    let made = 0;
+    for (const p of people) made += availToShifts(p.id, start, me, { force: true }).made;
+    const end = addDays(start, 6);
+    const lines = [];
+    let sent = 0;
+    for (const p of people) {
+      const rows = db.prepare(`SELECT a.* FROM assignments a WHERE a.staff_id = ? AND a.date BETWEEN ? AND ?
+        AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') ORDER BY a.date, a.start_min`).all(p.id, start, end);
+      if (!rows.length) continue;
+      const byDay = new Map();
+      for (const a of rows) byDay.set(a.date, [...(byDay.get(a.date) || []), a]);
+      const days = [...byDay].map(([date, segs]) => ({ date, txt: describeGroup(segs).replace(/:00/g, '').replace(/\b0(\d)/g, '$1').replace(/–0\b/g, '–24') }));
+      // Gộp ngày liền nhau cùng giờ: "T2–T6 8–12 + 14–23 · T7 14–23"
+      const grp = [];
+      for (const x of days) { const g = grp.at(-1); if (g && g.txt === x.txt && addDays(g.to, 1) === x.date) g.to = x.date; else grp.push({ from: x.date, to: x.date, txt: x.txt }); }
+      const all7 = grp.length === 1 && grp[0].from === start && grp[0].to === end;
+      lines.push(`• ${p.name}: ${all7 ? `cả tuần ${grp[0].txt}` : grp.map((g) => `${WEEKDAY[isoWeekday(g.from)]}${g.to !== g.from ? `–${WEEKDAY[isoWeekday(g.to)]}` : ''} ${g.txt}`).join(' · ')}`);
+      ctx.notify(p.id, { title: `Lịch làm tuần ${start.slice(8)}/${start.slice(5, 7)} đã duyệt`, body: [...byDay].map(([date, segs]) => `• ${WEEKDAY[isoWeekday(date)]} ${date.slice(8)}/${date.slice(5, 7)}: ${describeGroup(segs)}`).join('\n'), link: '/lich' });
+      sent++;
+    }
+    ctx.setSetting(`published:${start}:t${team.id}`, ctx.now());
+    const text = `📅 LỊCH ${team.name.toUpperCase()} tuần ${start.slice(8)}/${start.slice(5, 7)}–${end.slice(8)}/${end.slice(5, 7)} (đã duyệt)\n${lines.length ? lines.join('\n') : '(chưa có ai có ca)'}\nAi cần đổi ca báo quản lý. Xem chi tiết: mở app → Lịch ca.`;
+    let groups = 0, group_error = '';
+    if (ctx.zaloBot?.ready() && ctx.staffGroups) {
+      for (const g of ctx.staffGroups().filter((x) => (x.teams || []).includes(team.id))) {
+        try { await ctx.zaloBot.send(g.id, text.slice(0, 2000)); groups++; } catch (e) { group_error = e.message; }
+      }
+    }
+    const owners = db.prepare("SELECT id FROM staff WHERE active = 1 AND role = 'owner'").all().map((x) => x.id).filter((id) => id !== me.id);
+    if (owners.length) ctx.notify(owners, { title: `${me.name} đã duyệt lịch ${team.name} tuần ${start.slice(8)}/${start.slice(5, 7)}`, body: `${sent} người có ca.`, link: `/ranh?tab=all&week=${start}` });
+    ctx.audit(me, 'schedule.publish_team', { week: start, team: team.id, made, sent, groups });
+    ctx.broadcast('schedule');
+    return { made, sent, groups, group_error, text };
+  });
+
   r.post('/api/schedule/publish', 'manager', ({ me, body }) => {
     if (!isDate(body.week)) fail(400, 'Tuần không hợp lệ');
     const start = weekStart(body.week);

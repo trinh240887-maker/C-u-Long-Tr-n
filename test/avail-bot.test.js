@@ -175,6 +175,13 @@ test('bot: người mới báo lịch → hướng dẫn đăng ký, giữ lịc
   await ctx.zaloBotPoll();
   assert.match(sent.at(-1).text, /Trần Trung Hậu: T2 26\/10 nghỉ/);
 
+  // Duyệt lịch từng bộ phận: tạo ca theo lịch rảnh + bot gửi bảng lịch vào nhóm có bộ phận đó
+  ctx.saveStaffGroups([{ id: 'g', name: 'Chung', teams: [pv] }]);
+  const pub = (await o('POST', '/api/schedule/publish-team', { week: '2026-10-26', team_id: pv })).data;
+  assert.equal(pub.groups, 1);
+  assert.match(sent.at(-1).text, /LỊCH PHỤC VỤ tuần 26\/10–01\/11 \(đã duyệt\)\n• Trần Trung Hậu: T3–CN 8–12 \+ 14–23/);
+  assert.equal(db.prepare('SELECT COUNT(DISTINCT date) AS n FROM assignments WHERE staff_id = ?').get(st.id).n, 6);
+
   // Nghỉ việc: bỏ lịch sắp tới, bot không ghi nữa
   await o('PATCH', `/api/staff/${st.id}`, { active: false });
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM availability WHERE staff_id = ?').get(st.id).n, 0);

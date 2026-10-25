@@ -735,3 +735,4 @@ table.wk .wk-name { white-space: normal; overflow: hidden; }
 .wk-tag { font-size: 11px; padding: 0 5px; border-radius: 6px; background: var(--line); color: var(--muted); white-space: nowrap; }
 .wk-tag.lead { background: #fde7c8; color: #8a4b00; font-weight: 600; }
 .late-photo { display: grid; gap: 6px; padding: 10px; border-radius: 10px; background: #fff4e5; border: 1px solid #f3c27a; margin: 8px 0; }
+.wk-ok { margin-left: 8px; background: #fff; color: #2e7d32; border: 1px solid #fff; font-weight: 700; }
