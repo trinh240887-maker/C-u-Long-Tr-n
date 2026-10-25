@@ -584,16 +584,19 @@ function Perms({ staffId }) {
   const [cfg, setCfg] = useState(null);
   const [who, setWho] = useState(staffId || null);
   const [matrix, setMatrix] = useState(false);
-  useEffect(() => { if (d.data) setCfg(Object.fromEntries(d.data.pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny }]))); }, [d.data]);
+  useEffect(() => { if (d.data) setCfg(Object.fromEntries(d.data.pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny, teams: p.teams }]))); }, [d.data]);
   if (!d.data || !cfg) return html`<${Loading} state=${d} />`;
-  const { roles, pages, staff } = d.data;
-  const orig = JSON.stringify(Object.fromEntries(pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny }])));
+  const { roles, pages, staff, teams = [] } = d.data;
+  const orig = JSON.stringify(Object.fromEntries(pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny, teams: p.teams }])));
   const dirty = JSON.stringify(cfg) !== orig;
   const set = (path, patch) => setCfg((c) => ({ ...c, [path]: { ...c[path], ...patch } }));
   const save = () => act(() => api('PUT', '/api/permissions', { pages: cfg }), 'Đã lưu phân quyền');
   const person = staff.find((x) => x.id === who);
   // Người này có thấy mục không: chặn riêng > cấp riêng > cấp bậc (+ tổ Thu ngân)
-  const byRole = (p, x) => cfg[p.path].roles.includes(x.role) || (p.team && x.team_name === p.team);
+  const LEAD = ['shift_lead', 'manager'];
+  const teamOk = (p, x) => LEAD.includes(x.role) || !Array.isArray(cfg[p.path].teams) || cfg[p.path].teams.includes(x.team_id);
+  const byRole = (p, x) => (cfg[p.path].roles.includes(x.role) && teamOk(p, x)) || (p.team && x.team_name === p.team);
+  const toggleTeam = (path, id) => { const cur = cfg[path].teams; const list = Array.isArray(cur) ? cur : teams.map((t) => t.id); set(path, { teams: list.includes(id) ? list.filter((y) => y !== id) : [...list, id] }); };
   const sees = (p, x) => p.fixed || (!cfg[p.path].deny.includes(x.id) && (cfg[p.path].allow.includes(x.id) || byRole(p, x)));
   const flip = (p, x) => {
     const c = cfg[p.path]; const on = sees(p, x);
@@ -623,6 +626,12 @@ function Perms({ staffId }) {
     ${groups.map((g) => html`<section class="card stack"><h3>${ROLE_SHORT[g.r]} <small class="muted">${g.people.length} người</small></h3>
       ${g.people.map((x) => html`<button class="tpl-row" onClick=${() => setWho(x.id)}><b class="grow">${x.name}</b><span class="muted">${x.team_name || ''}${custom(x) ? ` · ${custom(x)} quyền riêng` : ''} · ${pages.filter((p) => sees(p, x)).length} mục</span></button>`)}
     </section>`)}
+    <section class="card stack"><h3>Theo bộ phận</h3>
+      <p class="small muted">Nhân viên / Tổ trưởng chỉ thấy mục khi thuộc bộ phận được tick. Trưởng ca, quản lý thấy hết. Muốn cho riêng 1 người thì bấm tên người đó ở trên rồi tick.</p>
+      ${pages.filter((p) => !p.fixed && cfg[p.path].roles.some((r) => !LEAD.includes(r))).map((p) => { const t = cfg[p.path].teams; return html`<div class="stack tight perm-team">
+        <div class="row"><b class="grow small">${p.label}</b>${Array.isArray(t) ? html`<button class="small" onClick=${() => set(p.path, { teams: null })}>Mọi bộ phận</button>` : html`<small class="muted">mọi bộ phận</small>`}</div>
+        <div class="row wrap">${teams.map((tm) => html`<button class=${`chip ${!Array.isArray(t) || t.includes(tm.id) ? 'on' : ''}`} onClick=${() => toggleTeam(p.path, tm.id)}>${tm.name}</button>`)}</div></div>`; })}
+    </section>
     <section class="card stack"><button class="link-btn" onClick=${() => setMatrix(!matrix)}><b>${matrix ? '▾' : '▸'} Mặc định theo cấp bậc</b> <small class="muted">(áp cho người mới / người chưa đổi riêng)</small></button>
       ${matrix ? html`<p class="small muted">NV = Nhân viên · TT = Tổ trưởng · TC = Trưởng ca · QL = Quản lý</p>
       <div class="perm-wrap"><table class="perm"><thead><tr><th>Mục</th>${roles.map((r) => html`<th title=${ROLE_SHORT[r]}>${ROLE_ABBR[r]}</th>`)}</tr></thead>

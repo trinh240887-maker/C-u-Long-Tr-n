@@ -234,3 +234,28 @@ test('tạo PIN hàng loạt: mỗi người 1 PIN 6 số, đăng nhập đượ
   assert.equal((await C('POST', '/api/login', { pin: '730215', phone: '0909999999' })).status, 401);
   assert.equal((await C('POST', '/api/login', { pin: '730215', phone: '0901234567' })).status, 200);
 });
+
+test('phân quyền theo bộ phận: bếp không thấy Sơ đồ bàn, không mở bàn được; phục vụ được; Đặt bàn chỉ người được cấp', async (t) => {
+  const http = (await import('node:http')).default;
+  const { DEFAULT_OWNER_PIN } = await import('../server/db.js');
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie = ''; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const teams = (await o('GET', '/api/teams')).data;
+  const bep = teams.find((x) => /bếp/i.test(x.name)).id, pv = teams.find((x) => x.name === 'Phục vụ').id;
+  await o('POST', '/api/staff', { name: 'Bếp A', team_id: bep, pin: '4821' });
+  await o('POST', '/api/staff', { name: 'PV B', team_id: pv, pin: '5932' });
+  const B = mk(); await B('POST', '/api/login', { pin: '4821' });
+  const P = mk(); await P('POST', '/api/login', { pin: '5932' });
+  const bp = (await B('GET', '/api/me')).data.pages, pp = (await P('GET', '/api/me')).data.pages;
+  assert.ok(!bp.includes('/ban') && bp.includes('/phieu-bep') && bp.includes('/kho'));
+  assert.ok(pp.includes('/ban') && !pp.includes('/phieu-bep') && !pp.includes('/dat-ban'));
+  assert.equal((await B('POST', '/api/pos/sessions', { tables: [5] })).status, 403);
+  assert.notEqual((await P('POST', '/api/pos/sessions', { tables: [5] })).status, 403);
+});

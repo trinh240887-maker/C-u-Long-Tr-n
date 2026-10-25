@@ -124,7 +124,8 @@ export default function (r, ctx) {
   const permView = () => ({
     roles: ROLES_EDITABLE,
     pages: loadPerms(ctx),
-    staff: db.prepare("SELECT s.id, s.name, s.role, t.name AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.active = 1 AND s.role != 'owner' ORDER BY s.name").all(),
+    teams: db.prepare('SELECT id, name FROM teams WHERE active = 1 ORDER BY sort, id').all(),
+    staff: db.prepare("SELECT s.id, s.name, s.role, s.team_id, t.name AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.active = 1 AND s.role != 'owner' ORDER BY s.name").all(),
   });
   r.get('/api/permissions', 'owner', () => permView());
   r.put('/api/permissions', 'owner', ({ me, body }) => {
@@ -138,6 +139,7 @@ export default function (r, ctx) {
         roles: (Array.isArray(c.roles) ? c.roles : []).filter((x) => ROLES_EDITABLE.includes(x)),
         allow: [...new Set((c.allow || []).map(Number).filter((x) => ids.has(x)))],
         deny: [...new Set((c.deny || []).map(Number).filter((x) => ids.has(x)))],
+        teams: Array.isArray(c.teams) ? [...new Set(c.teams.map(Number).filter((x) => Number.isInteger(x) && x > 0))] : null,
       };
     }
     ctx.setSetting('perm_pages', JSON.stringify(out));

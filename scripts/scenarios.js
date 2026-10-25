@@ -355,23 +355,23 @@ export async function run({ quiet = false } = {}) {
     return r2.data.error;
   });
   await step('Khách đặt đến → mở bàn 50-51, tự đánh dấu ưu tiên', async () => {
-    const list = (await pv1('GET', `/api/reservations?date=${DAY}`)).data.items;
+    const list = (await lead('GET', `/api/reservations?date=${DAY}`)).data.items;
     const hung = list.find((x) => x.name === 'Anh Hùng');
-    const r = await pv1('POST', `/api/reservations/${hung.id}/arrive`, {});
+    const r = await lead('POST', `/api/reservations/${hung.id}/arrive`, {});
     const s = await sess(r.data.session_id);
     expect(r.status === 200 && s.priority && s.tables.join(',') === '50,51', JSON.stringify(s.tables));
     return 'bàn 50,51 ưu tiên';
   });
   await step('Khách không đến → lần sau đặt app cảnh báo đã bỏ đặt', async () => {
-    const mai = (await pv1('GET', `/api/reservations?date=${DAY}`)).data.items.find((x) => x.name === 'Chị Mai' && x.status === 'booked');
+    const mai = (await lead('GET', `/api/reservations?date=${DAY}`)).data.items.find((x) => x.name === 'Chị Mai' && x.status === 'booked');
     await lead('PATCH', `/api/reservations/${mai.id}`, { status: 'no_show' });
     const r = await lead('POST', '/api/reservations', { name: 'Chị Mai', phone: '0911', guests: 2, date: '2026-10-25', time: '19:00' });
     expect(r.data.history.no_show === 1, JSON.stringify(r.data.history));
     return 'Khách cũ: bỏ đặt 1 lần';
   });
   await step('Hết bàn → khách vào danh sách chờ → có bàn thì mời vào', async () => {
-    const w = await pv2('POST', '/api/reservations', { kind: 'walkin', name: 'Áo xanh', guests: 3, date: DAY });
-    const r = await pv2('POST', `/api/reservations/${w.data.id}/arrive`, { tables: '60' });
+    const w = await lead('POST', '/api/reservations', { kind: 'walkin', name: 'Áo xanh', guests: 3, date: DAY });
+    const r = await lead('POST', `/api/reservations/${w.data.id}/arrive`, { tables: '60' });
     expect(w.status === 200 && r.status === 200, `${w.status}/${r.status}`);
     return 'Áo xanh vào bàn 60';
   });
