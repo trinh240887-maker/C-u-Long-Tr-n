@@ -100,6 +100,23 @@ function WeekGrid({ t, date, onPick, week }) {
   </table><small class="muted">👥 = số bạn có ca trong khu đúng khung giờ · +n = bạn chưa phân khu (vd tiếp thực) hỗ trợ · ~phút/ng = việc chia đều mỗi người. Bấm 1 ô để xem ai làm gì ngày đó.</small></div>`;
 }
 
+// Chưa có checklist giao việc: chọn ngay ở đây (khỏi đi tìm nút trên màn Checklist)
+function PickChecklist({ me }) {
+  const d = useData('/api/checklist-templates');
+  const lead = ['shift_lead', 'manager', 'owner'].includes(me.role);
+  if (!lead) return html`<p class="muted">Quản lý chưa bật giao việc từng người.</p>`;
+  if (!d.data) return html`<${Loading} state=${d} />`;
+  const list = d.data.filter((t) => !t.job_mode && t.items.length >= 3);
+  const tt = (me.teams || []).find((t) => /tiếp thực|tiep thuc/i.test(t.name));
+  const go = (t) => confirm(`Chuyển "${t.title}" sang giao việc từng người?`) && act(() => api('PATCH', `/api/checklist-templates/${t.id}`, {
+    job_mode: true, job_teams: [...new Set([t.team_id, t.team_id && /phục vụ|phuc vu/i.test(t.team_name || '') ? tt?.id : null].filter(Boolean))],
+    ...(t.phase === 'open' && /phục vụ|phuc vu/i.test(t.team_name || '') ? { job_from: '14:00', job_to: '15:30' } : {}),
+  }), 'Đã chuyển');
+  return html`<div class="stack"><p>Chọn checklist muốn <b>giao việc từng người</b> (bấm 1 lần là xong):</p>
+    ${list.map((t) => html`<button class="tpl-row" onClick=${() => go(t)}><b class="grow">${t.title}</b><small class="muted">${t.team_name || 'Cả quán'} · ${t.phase === 'close' ? 'Đóng ca' : 'Mở ca'} · ${t.items.length} việc</small><span class="pill">Chuyển</span></button>`)}
+    <small class="muted">Mở ca Phục vụ tự đặt khung giờ 14:00–15:30 và gộp Tiếp thực làm chung; sửa lại được ở Cài đặt → Checklist.</small></div>`;
+}
+
 function Board({ me }) {
   const [date, setDate] = useState(me.today);
   const d = useData(`/api/jobs/board?date=${date}`);
@@ -108,7 +125,7 @@ function Board({ me }) {
   const [ph, setPh] = useState(null);
   if (!d.data) return html`<${Loading} state=${d} />`;
   const ts = d.data.templates;
-  if (!ts.length) return html`<p class="muted">Chưa có checklist nào bật "Giao việc từng người". Trên màn Checklist, cuối thẻ checklist (vd Mở ca phục vụ) bấm <b>👥 Chuyển sang giao việc từng người</b>.</p>`;
+  if (!ts.length) return html`<${PickChecklist} me=${me} />`;
   const cur = ts.find((t) => t.id === ph) || ts[0];
   const canAll = ['shift_lead', 'manager', 'owner'].includes(me.role) || cur.zones.some((z) => z.can_check);
   const future = date > me.today, past = date < me.today;
