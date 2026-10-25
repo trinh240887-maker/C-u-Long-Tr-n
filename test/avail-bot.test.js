@@ -86,7 +86,21 @@ test('bot đọc tin @bot trong nhóm nhân viên → tự điền lịch rảnh
   inbox = [msg('m3', '@Bot xin chào', { id: 'u3', name: 'Cẩm Tú' })];
   await ctx.zaloBotPoll();
   assert.match(sent[2].text, /Chưa đọc được giờ/);
+  // Tên bot có chữ trùng tên nhân viên ("Cửu Long Trấn") → không nhận nhầm
+  db.prepare("INSERT INTO staff (name, role, team_id, created_at) VALUES ('Trường Long', 'staff', ?, 0)").run(pv);
+  ctx.setSetting('zalo_bot_name', 'Bot Cửu Long Trấn');
+  inbox = [msg('m5', '@Bot Cửu Long Trấn 14-23', { id: 'u8', name: 'Khách' })];
+  await ctx.zaloBotPoll();
+  assert.match(sent.at(-1).text, /Chưa thấy tên/);
   inbox = [msg('m4', '@Bot Ai đó 14-23', { id: 'u7', name: 'Người lạ' })];
   await ctx.zaloBotPoll();
-  assert.match(sent[3].text, /Chưa thấy tên/);
+  assert.match(sent.at(-1).text, /Chưa thấy tên/);
+
+  // Chưa chọn nhóm nhân viên → tin báo giờ đầu tiên tự nhận nhóm
+  ctx.setSetting('zalo_bot_staff_group_id', '');
+  inbox = [msg('m6', '@Bot Cẩm Tú 15-22', { id: 'u3', name: 'Cẩm Tú' }, 'grpMoi')];
+  await ctx.zaloBotPoll();
+  assert.equal(ctx.setting('zalo_bot_staff_group_id'), 'grpMoi');
+  assert.equal(sent.at(-1).chat, 'grpMoi');
+  assert.match(sent.at(-1).text, /Cẩm Tú: cả tuần/);
 });

@@ -290,7 +290,18 @@ export default function (r, ctx) {
     if (all.every((d) => dates.includes(d)) && new Set(all.map(txt)).size === 1 && txt(all[0])) return `cả tuần ${ddmm(all[0])}–${ddmm(all[6])}: ${txt(all[0])}`;
     return dates.map((d) => `${dayTxt(d)} ${off.includes(d) && !picks[d] ? 'nghỉ' : txt(d)}`).join(' · ');
   }
-  function handleBotMsg(u) {
+  // Bỏ "@tên bot" khỏi tin (vd "@Bot Cửu Long Trấn" → không hiểu nhầm "Long" là tên nhân viên)
+  function stripBotName(text) {
+    let t = String(text || '');
+    const name = ctx.setting('zalo_bot_name');
+    if (name) {
+      const esc = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+      t = t.replace(new RegExp(`@?${esc}`, 'giu'), ' ');
+    }
+    return t;
+  }
+  function handleBotMsg(u0) {
+    const u = { ...u0, text: stripBotName(u0.text) };
     const staff = db.prepare('SELECT id, name FROM staff WHERE active = 1').all();
     // Người nhắn: đã liên kết, hoặc tên Zalo trùng đúng 1 nhân viên
     let sender = u.from.id ? db.prepare('SELECT staff_id FROM zalo_bot_users WHERE uid = ?').get(u.from.id)?.staff_id : null;
@@ -323,7 +334,22 @@ export default function (r, ctx) {
       const list = await ctx.zaloBot.updates();
       if (!list.length) return;
       ctx.zaloBot.remember?.(list);
-      const gid = ctx.setting('zalo_bot_staff_group_id');
+      // Lấy tên bot 1 lần (để bỏ "@tên bot" khỏi tin)
+      if (!ctx.setting('zalo_bot_name')) {
+        try { const me = await ctx.zaloBot.call('getMe'); const n = me?.account_name || me?.display_name || me?.name; if (n) ctx.setSetting('zalo_bot_name', String(n).slice(0, 80)); } catch { /* bỏ qua */ }
+      }
+      let gid = ctx.setting('zalo_bot_staff_group_id');
+      // Chưa chọn nhóm nhân viên: tin báo giờ đầu tiên từ 1 nhóm (không phải nhóm đặt hàng) → tự nhận nhóm đó, báo chủ quán
+      if (!gid) {
+        const first = list.find((u) => /group/i.test(u.chat.type || 'group') && u.chat.id !== ctx.setting('zalo_bot_group_id') && /\d{1,2}\s*(?:h|g|:\d\d)?\s*[-–]\s*\d{1,2}/.test(u.text));
+        if (first) {
+          gid = first.chat.id;
+          ctx.setSetting('zalo_bot_staff_group_id', gid);
+          ctx.setSetting('zalo_bot_staff_group_name', first.chat.name || 'Nhóm nhân viên');
+          const owners = db.prepare("SELECT id FROM staff WHERE role = 'owner' AND active = 1").all().map((x) => x.id);
+          ctx.notify(owners, { title: 'Bot đã tự nhận nhóm nhân viên', body: `Nhóm "${first.chat.name || gid}" giờ là nhóm báo lịch rảnh. Sai nhóm thì vào Cài đặt → Zalo Bot đổi lại.`, link: '/cai-dat?tab=bot' });
+        }
+      }
       for (const u of list) {
         if (!gid || u.chat.id !== gid || u.from.bot || !u.text.trim()) continue;
         if (u.date && ctx.now() - u.date > 2 * 86_400_000) continue; // tin cũ quá 2 ngày bỏ qua
