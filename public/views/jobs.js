@@ -4,6 +4,9 @@ import { html, api, act, useData, Loading, hm, navigate, addDays } from '../ui.j
 import { compressImage } from './checklists.js';
 
 const ST = { todo: ['Chưa nhận', ''], doing: ['Đang làm', 'warn'], done: ['Chờ kiểm', 'warn'], ok: ['Đạt', 'ok'], redo: ['Làm lại', 'bad'] };
+const ROLE_TAG = { team_lead: 'Tổ trưởng', shift_lead: 'Trưởng ca', manager: 'Quản lý', owner: 'Chủ' };
+const tag = (r) => (ROLE_TAG[r] ? ` · ${ROLE_TAG[r]}` : '');
+const RoleBadge = ({ role }) => (ROLE_TAG[role] ? html`<span class=${`role-tag r-${role}`}>${ROLE_TAG[role]}</span>` : null);
 const hmMin = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 function useNow(ms = 15_000) {
@@ -73,12 +76,13 @@ function ZoneBoard({ t, z, now, today = true }) {
   const upZone = async (e) => { const data = await pick(e); if (data) act(() => api('POST', '/api/jobs/zone-photo', { template_id: t.id, zone_id: z.zone_id, data }), 'Đã gửi ảnh tổng khu'); };
   return html`<section class="card stack">
     <div class="row"><i class="sw" style=${`background:${z.color}`}></i><b class="grow">${z.zone_name}${z.tables ? html` <small class="muted">${z.tables} bàn</small>` : ''}</b><span class=${`pill ${z.done === z.jobs.length ? 'ok' : ''}`}>${z.done}/${z.jobs.length}</span></div>
-    <small class="muted">Kiểm tra: ${z.checkers.map((c) => c.name).join(', ') || '—'} · Người làm: ${z.people.map((p) => `${p.name.replace(/\(.*?\)/g, '').trim().split(' ').at(-1)} ${hmMin(p.start)}`).join(', ') || 'chưa có ai có ca'}</small>
+    <small>🔍 Kiểm tra: <b>${z.checkers.map((c) => c.name).join(', ') || '—'}</b></small>
+    <div class="row wrap people-chips">${z.people.length ? z.people.map((p) => html`<span class="pchip">${p.name} <small class="muted">${hmMin(p.start)}</small><${RoleBadge} role=${p.role} />${!p.zone_id && z.zone_id ? html`<span class="role-tag r-help">hỗ trợ</span>` : null}</span>`) : html`<small class="muted">Chưa có ai có ca trong khung giờ</small>`}</div>
     ${z.jobs.map((j) => { const [label, cls] = ST[j.status]; return html`<div class=${`job-row ${j.overdue ? 'bad' : ''}`}>
       <div class="row"><span class="grow"><b>${j.title}</b>${j.qty ? ` · ${j.qty}` : ''}${j.minutes ? html` <small class="muted">${j.minutes}′</small>` : ''}</span><span class=${`pill ${cls}`}>${label}</span></div>
       <div class="row wrap small">
         ${z.can_check && ['todo', 'doing'].includes(j.status) ? html`<select value=${j.staff_id || ''} onChange=${(e) => act(() => api('PATCH', `/api/jobs/${j.id}`, { staff_id: e.target.value || null }), 'Đã đổi người')}>
-          <option value="">(chưa ai)</option>${z.people.map((p) => html`<option value=${p.id}>${p.name}</option>`)}${j.staff_id && !z.people.some((p) => p.id === j.staff_id) ? html`<option value=${j.staff_id}>${j.staff_name}</option>` : null}</select>` : html`<b>${j.staff_name || '(chưa ai)'}</b>`}
+          <option value="">(chưa ai)</option>${z.people.map((p) => html`<option value=${p.id}>${p.name}${tag(p.role)}</option>`)}${j.staff_id && !z.people.some((p) => p.id === j.staff_id) ? html`<option value=${j.staff_id}>${j.staff_name}</option>` : null}</select>` : html`<b>${j.staff_name || '(chưa ai)'}</b>`}<${RoleBadge} role=${j.staff_role} />
         <span class="muted">${j.claimed_at ? `nhận ${hm(j.claimed_at)}` : ''}${j.done_at ? ` · xong ${hm(j.done_at)} (${j.minutes_used}′)` : ''}${j.status === 'doing' && j.due_at ? ` · hạn ${hm(j.due_at)}` : ''}</span>
         ${j.count != null ? html`<span class=${`pill ${j.short ? 'bad' : 'ok'}`}>${j.count}/${j.expect}${j.short ? ` thiếu ${j.short}` : ''}</span>` : null}
         ${j.late ? html`<span class="pill bad">trễ</span>` : null}${j.redo_count ? html`<span class="pill warn">làm lại ${j.redo_count}</span>` : null}

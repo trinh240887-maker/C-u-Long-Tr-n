@@ -197,7 +197,7 @@ export default function (r, ctx) {
     return {
       id: j.id, date: j.date, template_id: j.template_id, title: it.text, phase: t?.phase, template_title: t?.title, zone_id: j.zone_id,
       qty: qtyText(it, j.zone_id), minutes: it.job_minutes || 0, fetch_where: it.fetch_where || '', photo_required: !!it.photo_required,
-      staff_id: j.staff_id, staff_name: name(j.staff_id), status: j.status, claimed_at: j.claimed_at, due_at: j.due_at, done_at: j.done_at,
+      staff_id: j.staff_id, staff_name: name(j.staff_id), staff_role: j.staff_id ? db.prepare('SELECT role FROM staff WHERE id = ?').get(j.staff_id)?.role || '' : '', status: j.status, claimed_at: j.claimed_at, due_at: j.due_at, done_at: j.done_at,
       minutes_used: j.minutes_used, late: !!j.late, redo_count: j.redo_count, has_photo: !!j.photo, checked_by_name: name(j.checked_by), check_note: j.check_note,
       overdue: j.status === 'doing' && j.due_at && j.due_at < ctx.now(),
       own: !!j.owner_id, with_title: it.job_with ? (t?.items.find((i) => i.id === it.job_with)?.text || '') : '', expect: it.job_expect || 0, count: j.count, short: j.short || 0,
@@ -252,7 +252,7 @@ export default function (r, ctx) {
           return {
             zone_id: zid, zone_name: zid ? zname.get(zid)?.name || 'Khu' : 'Việc chung cả quán', color: zid ? zname.get(zid)?.color : '#666', tables: zid ? tables(zid) : 0,
             checkers: checkerOf(date, zid).map((id) => ({ id, name: name(id) })), can_check: canCheck(me, date, zid),
-            people: ps.filter((p) => inWindow(p, t) && (!zid || p.zone_id === zid || !p.zone_id)).map((p) => ({ id: p.id, name: p.name, zone_id: p.zone_id, start: p.start, end: p.end })),
+            people: ps.filter((p) => inWindow(p, t) && (!zid || p.zone_id === zid || !p.zone_id)).map((p) => ({ id: p.id, name: p.name, role: p.role, zone_id: p.zone_id, start: p.start, end: p.end })),
             jobs: list, done: list.filter((x) => ['done', 'ok'].includes(x.status)).length, ok: list.filter((x) => x.status === 'ok').length,
             photos: db.prepare('SELECT id, staff_id, at FROM job_zone_photos WHERE date = ? AND template_id = ? AND zone_id = ? ORDER BY id').all(date, t.id, zid).map((p) => ({ ...p, staff_name: name(p.staff_id) })),
           };

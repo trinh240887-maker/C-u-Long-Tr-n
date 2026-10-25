@@ -782,3 +782,10 @@ table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align
 .wk-jobs td.on, .wk-jobs th.on { background: var(--accent-soft, #fdebd9); }
 .wk-jobs td.bad { outline: 2px solid #e57373; outline-offset: -2px; }
 .wk-jobs tbody th { text-align: left; white-space: nowrap; }
+.people-chips { gap: 4px; }
+.pchip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid var(--line, #ddd); border-radius: 999px; font-size: 13px; }
+.role-tag { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 6px; margin-left: 4px; color: #fff; background: #78716c; white-space: nowrap; }
+.role-tag.r-shift_lead { background: #b45309; }
+.role-tag.r-manager, .role-tag.r-owner { background: #7f1d1d; }
+.role-tag.r-team_lead { background: #1d4ed8; }
+.role-tag.r-help { background: #e5e7eb; color: #374151; }
