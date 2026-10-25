@@ -13,6 +13,7 @@ import { tx, rank } from '../db.js';
 import { isDate, addDays } from '../lib/time.js';
 
 const DEFAULT_MIN = 10; // việc chưa đặt thời gian chuẩn tính 10 phút khi chia việc
+const BORROW = 30; // phút: khu khác phải rảnh hơn ít nhất ngần này mới được mượn sang (lớn hơn điểm xoay vòng 25 để không mượn chỉ vì đổi việc)
 
 export default function (r, ctx) {
   const { db } = ctx;
@@ -128,13 +129,15 @@ export default function (r, ctx) {
         if (sid) return { ...s, staff_id: sid };
       }
       if (s.owner_id) { if (load.has(s.owner_id)) load.set(s.owner_id, load.get(s.owner_id) + (s.item.job_minutes || DEFAULT_MIN)); return { ...s, staff_id: s.owner_id }; }
-      // Việc của khu: người trong khu trước; người chưa phân khu (vd tiếp thực) hỗ trợ được; người khu khác không nhận
-      const pool = ps.filter((p) => !s.zone_id || p.zone_id === s.zone_id || !p.zone_id);
+      // Việc của khu: người trong khu trước → người chưa phân khu (vd tiếp thực) → người khu khác (chỉ khi khu này thiếu người rõ rệt)
+      const pool = ps;
+      const near = ps.filter((p) => !s.zone_id || !p.zone_id || p.zone_id === s.zone_id).length; // người cùng khu + hỗ trợ
       if (!pool.length) return { ...s, staff_id: null };
       const cost = (p) => load.get(p.id)
         + (s.zone_id && !p.zone_id ? 8 : 0)
+        + (s.zone_id && p.zone_id && p.zone_id !== s.zone_id ? BORROW : 0)              // mượn người khu khác: chỉ khi chênh > ~30 phút việc
         + (p.role === 'shift_lead' ? 10 : 0)                                         // trưởng ca còn đi kiểm → bớt việc                                           // người hỗ trợ: sau người của khu
-        + (yesterday.get(`${s.item.id}:${s.zone_id}`) === p.id ? 25 : 0)            // hôm qua làm việc này → đổi người
+        + (yesterday.get(`${s.item.id}:${s.zone_id}`) === p.id && near > 1 ? 25 : 0) // hôm qua làm việc này → đổi người (khi khu có người khác để đổi)
         + (t.phase === 'close' ? (last - p.end) / 60 * 15 : (p.start - first) / 60 * 15); // mở ca: vào sớm làm trước
       const best = pool.reduce((a, b) => (cost(b) < cost(a) ? b : a));
       load.set(best.id, load.get(best.id) + (s.item.job_minutes || DEFAULT_MIN));
@@ -252,7 +255,10 @@ export default function (r, ctx) {
           return {
             zone_id: zid, zone_name: zid ? zname.get(zid)?.name || 'Khu' : 'Việc chung cả quán', color: zid ? zname.get(zid)?.color : '#666', tables: zid ? tables(zid) : 0,
             checkers: checkerOf(date, zid).map((id) => ({ id, name: name(id) })), can_check: canCheck(me, date, zid),
-            people: ps.filter((p) => inWindow(p, t) && (!zid || p.zone_id === zid || !p.zone_id)).map((p) => ({ id: p.id, name: p.name, role: p.role, zone_id: p.zone_id, start: p.start, end: p.end })),
+            // Mọi người trong khung giờ (để chọn tay); khu = 'own' người khu này · 'help' chưa phân khu · 'other' khu khác (mượn nếu có việc ở đây)
+            people: ps.filter((p) => inWindow(p, t)).map((p) => ({ id: p.id, name: p.name, role: p.role, zone_id: p.zone_id, start: p.start, end: p.end,
+              kind: !zid || p.zone_id === zid ? 'own' : !p.zone_id ? 'help' : 'other', zone_name: p.zone_id ? zname.get(p.zone_id)?.name || '' : '', borrowed: !!zid && !!p.zone_id && p.zone_id !== zid && list.some((x) => x.staff_id === p.id) }))
+              .sort((a, b) => ['own', 'help', 'other'].indexOf(a.kind) - ['own', 'help', 'other'].indexOf(b.kind)),
             jobs: list, done: list.filter((x) => ['done', 'ok'].includes(x.status)).length, ok: list.filter((x) => x.status === 'ok').length,
             photos: db.prepare('SELECT id, staff_id, at FROM job_zone_photos WHERE date = ? AND template_id = ? AND zone_id = ? ORDER BY id').all(date, t.id, zid).map((p) => ({ ...p, staff_name: name(p.staff_id) })),
           };

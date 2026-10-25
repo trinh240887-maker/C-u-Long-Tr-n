@@ -118,7 +118,7 @@ test('Việc ca: gợi ý chia việc theo khu (tiếp thực vào sớm hỗ tr
   const cellA = wk.templates.find((x) => x.id === tpl.id).rows.find((r) => r.zone_id === 1).cells.find((c) => c.date === tmr);
   assert.equal(cellA.people, 1); assert.equal(cellA.jobs, 3); assert.equal(cellA.unassigned, 0);
   let tb = (await O('GET', `/api/jobs/board?date=${tmr}`)).data.templates.find((x) => x.id === tpl.id);
-  assert.ok(tb.zones.find((z) => z.zone_id === 1).jobs.every((x) => x.staff_id === a1));
+  assert.ok(tb.zones.find((z) => z.zone_id === 1).jobs.every((x) => x.staff_id === a1), JSON.stringify(tb.zones.map((z) => z.jobs.map((x) => [x.title, x.staff_name, x.minutes]))));
   // Tổ trưởng chọn tay 1 việc cho người khu B → giữ nguyên khi lịch đổi
   const pick = tb.zones.find((z) => z.zone_id === 1).jobs[0];
   assert.equal((await O('PATCH', `/api/jobs/${pick.id}`, { staff_id: b1 })).status, 200);
@@ -167,5 +167,14 @@ test('Việc ca: gợi ý chia việc theo khu (tiếp thực vào sớm hỗ tr
   await O('PATCH', `/api/jobs/${mB.id}`, { staff_id: newer });
   const kB = (await O('GET', `/api/jobs/board?date=${tmr}`)).data.templates.find((x) => x.id === tpl.id).zones.find((z) => z.zone_id === 2).jobs.find((x) => x.title === 'Giặt khăn lau chén');
   assert.equal(kB.staff_id, newer);
+
+  // Khu thiếu người (không ai có ca ở khu C) → mượn người khu khác
+  db.prepare('UPDATE zones SET active = 1 WHERE id = 3').run();
+  const d3 = (await import('../server/lib/time.js')).addDays(date, 2);
+  asg.run('k1', a1, pv, d3, 840, 1380, 1, Date.now()); asg.run('k2', lead, pv, d3, 840, 1380, 1, Date.now()); asg.run('k3', b1, pv, d3, 840, 1380, 2, Date.now());
+  const b3 = (await O('GET', `/api/jobs/board?date=${d3}`)).data.templates.find((x) => x.id === tpl.id);
+  const zC = b3.zones.find((z) => z.zone_id === 3);
+  assert.ok(zC.jobs.every((x) => x.staff_id), 'khu C không ai có ca → vẫn có người được mượn');
+  assert.ok(zC.people.some((p) => p.borrowed));
   void sent;
 });
