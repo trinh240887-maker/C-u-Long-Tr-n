@@ -1,7 +1,37 @@
 import { useState } from 'preact/hooks';
-import { html, api, act, useData, Modal, Field, Loading, money, ROLE_LABEL, atLeast, navigate } from '../ui.js';
+import { html, api, act, useData, Modal, Field, Loading, money, ROLE_LABEL, atLeast, navigate, toast } from '../ui.js';
 
 const ROLES = ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'];
+
+// Tạo PIN hàng loạt: tick người cần cấp mã → app tạo PIN 6 số, hiện 1 lần để quản lý gửi riêng từng bạn
+function BulkPin({ me, staff, teams, onClose }) {
+  const people = staff.filter((s) => s.active && s.role !== 'owner' && s.id !== me.id);
+  const [sel, setSel] = useState(() => new Set(people.filter((s) => s.first_login).map((s) => s.id)));
+  const [res, setRes] = useState(null);
+  const flip = (id) => { const n = new Set(sel); n.has(id) ? n.delete(id) : n.add(id); setSel(n); };
+  const tname = (id) => teams.find((t) => t.id === id)?.name || 'Chưa có bộ phận';
+  const url = location.origin;
+  const msg = (x) => `Chào ${x.name}, mã PIN đăng nhập app quán: ${x.pin}\nVào: ${url}\nLần đầu đăng nhập app bắt đổi PIN mới, nhớ giữ kín.`;
+  const copy = (t) => navigator.clipboard?.writeText(t).then(() => toast('Đã chép'), () => toast('Không chép được, giữ lâu để chép tay', true));
+  const run = async () => {
+    if (!confirm(`Tạo PIN mới cho ${sel.size} người? PIN cũ của các bạn này sẽ không dùng được nữa.`)) return;
+    const r = await act(() => api('POST', '/api/staff/bulk-pin', { ids: [...sel] }), 'Đã tạo PIN');
+    if (r) setRes(r.list);
+  };
+  const groups = [...new Set(people.map((p) => p.team_id || 0))].map((tid) => ({ tid, name: tname(tid), list: people.filter((p) => (p.team_id || 0) === tid) }));
+  return html`<${Modal} title="🔑 Tạo mã PIN hàng loạt" onClose=${onClose}><div class="stack">
+    ${res ? html`
+      <p class="small">Đã tạo <b>${res.length}</b> mã PIN. Gửi <b>RIÊNG</b> cho từng bạn (Zalo cá nhân), không gửi vào nhóm. Đóng ô này là không xem lại được.</p>
+      <button class="primary" onClick=${() => copy(res.map((x) => `${x.name}: ${x.pin}`).join('\n'))}>📋 Chép cả danh sách</button>
+      ${res.map((x) => html`<div class="row"><b class="grow">${x.name}</b><b style="font-size:20px;letter-spacing:2px">${x.pin}</b><button class="small" onClick=${() => copy(msg(x))}>Chép tin gửi</button></div>`)}
+      <button onClick=${onClose}>Xong</button>`
+    : html`
+      <p class="small muted">Tick người cần cấp mã. Mặc định đã chọn sẵn các bạn <b>chưa đăng nhập lần nào</b>. Mỗi người được 1 PIN 6 số, lần đầu đăng nhập app bắt đổi PIN riêng.</p>
+      <div class="row wrap"><button class="small" onClick=${() => setSel(new Set(people.map((p) => p.id)))}>Chọn tất cả</button><button class="small" onClick=${() => setSel(new Set())}>Bỏ chọn</button><span class="small muted">Đã chọn ${sel.size}</span></div>
+      ${groups.map((g) => html`<div class="stack tight"><b class="small">${g.name}</b>${g.list.map((p) => html`<label class="check-row"><input type="checkbox" checked=${sel.has(p.id)} onChange=${() => flip(p.id)} /> ${p.name}${p.first_login ? html` <small class="warn-text">· chưa đăng nhập</small>` : ''}</label>`)}</div>`)}
+      <button class="primary" disabled=${!sel.size} onClick=${run}>Tạo PIN cho ${sel.size} người</button>`}
+  </div><//>`;
+}
 
 // Nhân viên mới đăng ký qua bot Zalo → quản lý kiểm tra, bấm Thêm (app tạo tài khoản + PIN, bot báo nhóm, điền lịch đã báo)
 function StaffRequests({ me, teams }) {
@@ -110,6 +140,7 @@ export function StaffView({ me }) {
   const st = useData(`/api/staff${all ? '?all=1' : ''}`);
   const posD = useData('/api/positions');
   const [edit, setEdit] = useState(null);
+  const [bulk, setBulk] = useState(false);
   if (!st.data) return html`<${Loading} state=${st} />`;
   const teams = me.teams;
   const positions = posD.data || [];
@@ -141,7 +172,8 @@ export function StaffView({ me }) {
     <div class="row between wrap">
       <div class="row"><input id="staff-q" type="search" placeholder="Tìm tên, số điện thoại" value=${q} onInput=${(e) => setQ(e.target.value)} />
         <label class="check-row"><input id="staff-all" type="checkbox" checked=${all} onChange=${(e) => setAll(e.target.checked)} /> Hiện cả người đã nghỉ việc</label></div>
-      <button class="primary" onClick=${() => setEdit(dept.startsWith('t') ? { team_id: Number(dept.slice(1)) } : {})}>+ Thêm nhân viên</button>
+      <div class="row">${atLeast(me, 'manager') ? html`<button onClick=${() => setBulk(true)}>🔑 Tạo PIN hàng loạt</button>` : null}
+      <button class="primary" onClick=${() => setEdit(dept.startsWith('t') ? { team_id: Number(dept.slice(1)) } : {})}>+ Thêm nhân viên</button></div>
     </div>
     <div class="chips dept-chips">
       <button class=${`chip ${dept === 'all' ? 'on' : ''}`} onClick=${() => pick('all')}>Tất cả <small>${found.length}</small></button>
@@ -160,5 +192,6 @@ export function StaffView({ me }) {
     </section>`)}
     ${!shown.length ? html`<div class="empty">${dept === 'all' || !found.length ? 'Không có ai khớp.' : 'Bộ phận này chưa có ai. Bấm "+ Thêm nhân viên" hoặc sửa hồ sơ để chọn bộ phận.'}</div>` : null}
     ${edit ? html`<${StaffForm} me=${me} init=${edit} teams=${teams} positions=${positions} onClose=${() => setEdit(null)} />` : null}
+    ${bulk ? html`<${BulkPin} me=${me} staff=${st.data} teams=${teams} onClose=${() => setBulk(false)} />` : null}
   </div>`;
 }

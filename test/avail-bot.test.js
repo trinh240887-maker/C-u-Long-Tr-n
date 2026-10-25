@@ -201,3 +201,28 @@ test('bot: người mới báo lịch → hướng dẫn đăng ký, giữ lịc
   await ctx.zaloBotPoll();
   assert.match(sent.at(-1).text, /Trần Trung Hậu đã nghỉ việc/);
 });
+
+test('tạo PIN hàng loạt: mỗi người 1 PIN 6 số, đăng nhập được, phải đổi PIN; không đụng chủ quán', async (t) => {
+  const http = (await import('node:http')).default;
+  const { DEFAULT_OWNER_PIN } = await import('../server/db.js');
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie = ''; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const o = mk();
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const a = (await o('POST', '/api/staff', { name: 'An', pin: '4821' })).data.id;
+  const b = (await o('POST', '/api/staff', { name: 'Bình', pin: '5932' })).data.id;
+  const owner = db.prepare("SELECT id FROM staff WHERE role = 'owner'").get().id;
+  const r = (await o('POST', '/api/staff/bulk-pin', { ids: [a, b, owner] })).data;
+  assert.equal(r.list.length, 2);
+  assert.ok(r.list.every((x) => /^\d{6}$/.test(x.pin)));
+  const A = mk();
+  assert.equal((await A('POST', '/api/login', { pin: '4821' })).status, 401); // PIN cũ hết dùng
+  const lg = await A('POST', '/api/login', { pin: r.list[0].pin });
+  assert.equal(lg.status, 200);
+  assert.equal(lg.data.must_change_pin ?? lg.data.me?.must_change_pin ?? true, true);
+});

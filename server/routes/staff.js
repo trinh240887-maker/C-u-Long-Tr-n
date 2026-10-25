@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { fail, v } from '../http.js';
 import { tx, rank, ROLES, ROLE_LABEL } from '../db.js';
 import { validatePin } from './auth.js';
@@ -49,6 +50,7 @@ export default function (r, ctx) {
       role: s.role, role_label: ROLE_LABEL[s.role], team_id: s.team_id, team_name: s.team_name || '',
       active: !!s.active, zalo_linked: !!s.zalo_user_id, weekly_limit_hours: s.weekly_limit_hours,
       position_id: s.position_id ?? null, position_name: s.position_name || '', work_type: s.work_type || '',
+      first_login: canSeePay ? !!s.must_change_pin : undefined,
       skills: skills.filter((k) => k.staff_id === s.id).map(({ team_id, level }) => ({ team_id, level })),
       pskills: pskills.filter((k) => k.staff_id === s.id).map(({ position_id, level }) => ({ position_id, level })),
       ...(canSeePay ? { pay_type: s.pay_type, pay_rate: s.pay_rate, zalo_user_id: s.zalo_user_id } : {}),
@@ -95,6 +97,30 @@ export default function (r, ctx) {
     const add = db.prepare('INSERT OR REPLACE INTO position_skills (staff_id, position_id, level) VALUES (?, ?, ?)');
     for (const s of list) add.run(staffId, ctx.readPosition(s.position_id), v.int(s.level ?? 1, { min: 1, max: 3, name: 'Mức kỹ năng' }));
   }
+
+  // Tạo PIN hàng loạt (chủ quán 25/10): mỗi người 1 PIN 6 số ngẫu nhiên, chỉ hiện 1 lần cho người tạo; lần đầu đăng nhập phải đổi PIN
+  r.post('/api/staff/bulk-pin', 'manager', ({ me, body }) => {
+    const ids = (Array.isArray(body.ids) ? body.ids : []).map(Number).filter((x) => Number.isInteger(x) && x > 0).slice(0, 200);
+    if (!ids.length) fail(400, 'Chọn ít nhất 1 người');
+    const out = [];
+    tx(db, () => {
+      for (const id of ids) {
+        const st = db.prepare('SELECT id, name, role, active FROM staff WHERE id = ?').get(id);
+        if (!st || !st.active || st.id === me.id || !canManage(me, st.role) || st.role === 'owner') continue;
+        let pin = '', lookup = null;
+        for (let k = 0; k < 20 && !lookup; k++) {
+          pin = String(crypto.randomInt(100000, 1000000));
+          try { lookup = validatePin(db, pin, st.role, st.id); } catch { lookup = null; }
+        }
+        if (!lookup) continue;
+        db.prepare('UPDATE staff SET pin_lookup = ?, must_change_pin = 1 WHERE id = ?').run(lookup, st.id);
+        db.prepare('DELETE FROM sessions WHERE staff_id = ?').run(st.id);
+        out.push({ id: st.id, name: st.name, pin });
+      }
+    });
+    ctx.audit(me, 'staff.bulk_pin', { n: out.length, ids: out.map((x) => x.id) });
+    return { list: out };
+  });
 
   r.post('/api/staff', 'manager', ({ me, body }) => {
     const f = staffFields(body);
