@@ -31,6 +31,7 @@ Công cụ import đơn 1688 nằm riêng ở repo `trinh240887-maker/dathangsi`
 - Không tự đoán API bên ngoài (Sapo/MISA/Zalo): kiểm tra tài liệu, không có thì báo tôi.
 - Tiền là số nguyên VNĐ, múi giờ Asia/Ho_Chi_Minh, giao diện tiếng Việt, nút lớn cho cảm ứng.
 - Commit & push lên nhánh đang làm; không tạo PR khi tôi chưa yêu cầu.
+- **Không đẩy code app lên `main` trong giờ bán (9:00–23:30 giờ VN)**: mỗi lần đẩy Railway khởi động lại, app mất kết nối ~1–2 phút (25/10 mất lúc đang order). Trong giờ bán: commit lên nhánh `cho-deploy`, sau 23:30 (hoặc khi chủ quán bảo) mới gộp vào `main`. Sửa lỗi gấp thì hỏi chủ quán trước. (Chỉ đổi `*.md`, `memory/`, `test/` thì không khởi động lại.)
 
 ## Kỹ thuật
 - Node.js ≥ 22.13, **không thư viện ngoài** cho app; SQLite có sẵn (`node:sqlite`); giao diện Preact + htm chép sẵn trong `public/vendor` (không build).
