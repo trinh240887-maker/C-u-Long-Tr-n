@@ -56,5 +56,7 @@ export function createZaloBot(ctx, { fetchImpl = globalThis.fetch } = {}) {
     return remember(list).reverse();
   }
   const send = (chatId, text) => call('sendMessage', { chat_id: chatId, text: String(text).slice(0, 2000) });
-  return { call, chats, updates, remember, send, state, ready: () => !!token() };
+  // Ảnh: Zalo chỉ nhận link http(s) công khai (không nhận file / base64), chú thích tối đa 2000 ký tự
+  const sendPhoto = (chatId, url, caption = '') => call('sendPhoto', { chat_id: chatId, photo: url, caption: String(caption).slice(0, 2000) });
+  return { call, chats, updates, remember, send, sendPhoto, state, ready: () => !!token() };
 }

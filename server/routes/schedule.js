@@ -1,5 +1,8 @@
 import { makeXlsx } from '../lib/xlsx.js';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
 import { allowedPages } from '../lib/perms.js';
@@ -348,18 +351,24 @@ export default function (r, ctx) {
     const start = weekStart(body.week);
     const team = db.prepare('SELECT id, name FROM teams WHERE id = ?').get(v.int(body.team_id, { min: 1, name: 'Bộ phận' }));
     if (!team) fail(404, 'Không tìm thấy bộ phận');
-    const people = db.prepare("SELECT id, name FROM staff WHERE active = 1 AND role != 'owner' AND team_id = ? ORDER BY name").all(team.id);
+    const people = db.prepare("SELECT s.id, s.name, s.role, s.work_type, p.name AS position_name FROM staff s LEFT JOIN positions p ON p.id = s.position_id WHERE s.active = 1 AND s.role != 'owner' AND s.team_id = ? ORDER BY s.name").all(team.id);
     let made = 0;
     for (const p of people) made += availToShifts(p.id, start, me, { force: true }).made;
     const end = addDays(start, 6);
     const lines = [];
+    const days7 = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    const short = (segs) => describeGroup(segs).replace(/:00/g, '').replace(/\b0(\d)/g, '$1').replace(/–0\b/g, '–24');
+    const ROLE_TAG = { team_lead: 'Tổ trưởng', shift_lead: 'Trưởng ca', manager: 'Quản lý' };
+    const WORK_TAG = { full: 'Full ca', gay: 'Ca gãy', part: 'Part-time' };
+    const table = { title: `LỊCH ${team.name.toUpperCase()}`, week: `${start.slice(8)}/${start.slice(5, 7)} – ${end.slice(8)}/${end.slice(5, 7)}`, days: days7.map((d) => ({ dow: WEEKDAY[isoWeekday(d)], date: `${d.slice(8)}/${d.slice(5, 7)}` })), rows: [] };
     let sent = 0;
     for (const p of people) {
       const rows = db.prepare(`SELECT a.* FROM assignments a WHERE a.staff_id = ? AND a.date BETWEEN ? AND ?
         AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') ORDER BY a.date, a.start_min`).all(p.id, start, end);
-      if (!rows.length) continue;
       const byDay = new Map();
       for (const a of rows) byDay.set(a.date, [...(byDay.get(a.date) || []), a]);
+      table.rows.push({ name: p.name, tags: [ROLE_TAG[p.role], WORK_TAG[p.work_type], p.position_name].filter(Boolean), cells: days7.map((d) => (byDay.has(d) ? short(byDay.get(d)) : '')) });
+      if (!rows.length) continue;
       const days = [...byDay].map(([date, segs]) => ({ date, txt: describeGroup(segs).replace(/:00/g, '').replace(/\b0(\d)/g, '$1').replace(/–0\b/g, '–24') }));
       // Gộp ngày liền nhau cùng giờ: "T2–T6 8–12 + 14–23 · T7 14–23"
       const grp = [];
@@ -372,7 +381,8 @@ export default function (r, ctx) {
     ctx.setSetting(`published:${start}:t${team.id}`, ctx.now());
     const text = `📅 LỊCH ${team.name.toUpperCase()} tuần ${start.slice(8)}/${start.slice(5, 7)}–${end.slice(8)}/${end.slice(5, 7)} (đã duyệt)\n${lines.length ? lines.join('\n') : '(chưa có ai có ca)'}\nAi cần đổi ca báo quản lý. Xem chi tiết: mở app → Lịch ca.`;
     let groups = 0, group_error = '';
-    if (ctx.zaloBot?.ready() && ctx.staffGroups) {
+    // body.image = true: máy quản lý sẽ vẽ ảnh bảng rồi gọi /team-image để bot gửi ảnh (lỗi thì gửi chữ ở đó)
+    if (!body.image && ctx.zaloBot?.ready() && ctx.staffGroups) {
       for (const g of ctx.staffGroups().filter((x) => (x.teams || []).includes(team.id))) {
         try { await ctx.zaloBot.send(g.id, text.slice(0, 2000)); groups++; } catch (e) { group_error = e.message; }
       }
@@ -381,7 +391,50 @@ export default function (r, ctx) {
     if (owners.length) ctx.notify(owners, { title: `${me.name} đã duyệt lịch ${team.name} tuần ${start.slice(8)}/${start.slice(5, 7)}`, body: `${sent} người có ca.`, link: `/ranh?tab=all&week=${start}` });
     ctx.audit(me, 'schedule.publish_team', { week: start, team: team.id, made, sent, groups });
     ctx.broadcast('schedule');
-    return { made, sent, groups, group_error, text };
+    table.rows.sort((a, b) => (b.cells.some(Boolean) ? 1 : 0) - (a.cells.some(Boolean) ? 1 : 0));
+    return { made, sent, groups, group_error, text, table };
+  });
+
+  // Ảnh bảng lịch bộ phận (máy quản lý vẽ) → lưu, tạo link công khai khó đoán → bot gửi ảnh vào nhóm; lỗi thì gửi chữ
+  const pubDir = path.join(ctx.photoDir || path.join(os.tmpdir(), 'quanly-photos'), 'lich');
+  r.post('/api/schedule/team-image', 'manager', async ({ me, body, req }) => {
+    const team = db.prepare('SELECT id, name FROM teams WHERE id = ?').get(v.int(body.team_id, { min: 1, name: 'Bộ phận' }));
+    if (!team) fail(404, 'Không tìm thấy bộ phận');
+    const text = v.text(body.text, { name: 'Nội dung', max: 4000 });
+    const targets = (ctx.staffGroups?.() || []).filter((x) => (x.teams || []).includes(team.id));
+    if (!targets.length || !ctx.zaloBot?.ready()) return { groups: 0, group_error: targets.length ? 'Chưa cài bot' : '' };
+    let url = '';
+    const m = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(String(body.data || ''));
+    if (m) {
+      const buf = Buffer.from(m[2], 'base64');
+      if (buf.length > 500 && buf.length < 4_000_000) {
+        fs.mkdirSync(pubDir, { recursive: true });
+        // Dọn ảnh lịch cũ hơn 30 ngày
+        try { for (const f of fs.readdirSync(pubDir)) if (Date.now() - fs.statSync(path.join(pubDir, f)).mtimeMs > 30 * 86_400_000) fs.rmSync(path.join(pubDir, f)); } catch { /* bỏ qua */ }
+        const file = `${crypto.randomBytes(16).toString('hex')}.${m[1] === 'jpeg' ? 'jpg' : 'png'}`;
+        fs.writeFileSync(path.join(pubDir, file), buf);
+        const base = (ctx.setting('public_url') || `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`).replace(/\/$/, '');
+        url = `${base}/api/pub/lich?f=${file}`;
+      }
+    }
+    let groups = 0, group_error = '', photo = false;
+    const caption = text.split('\n')[0] + '\nAi cần đổi ca báo quản lý. Xem chi tiết: mở app → Lịch ca.';
+    for (const g of targets) {
+      try {
+        if (url) { try { await ctx.zaloBot.sendPhoto(g.id, url, caption); photo = true; } catch (e) { group_error = `Gửi ảnh lỗi (${e.message}), đã gửi dạng chữ`; await ctx.zaloBot.send(g.id, text.slice(0, 2000)); } }
+        else await ctx.zaloBot.send(g.id, text.slice(0, 2000));
+        groups++;
+      } catch (e) { group_error = e.message; }
+    }
+    ctx.audit(me, 'schedule.team_image', { team: team.id, groups, photo });
+    return { groups, group_error, photo, url };
+  });
+  r.get('/api/pub/lich', null, ({ query }) => {
+    const file = String(query.get('f') || '');
+    if (!/^[0-9a-f]{32}\.(png|jpg)$/.test(file)) fail(404, 'Không có ảnh');
+    let buf;
+    try { buf = fs.readFileSync(path.join(pubDir, file)); } catch { fail(404, 'Không có ảnh'); }
+    return { __binary: buf, type: file.endsWith('.png') ? 'image/png' : 'image/jpeg' };
   });
 
   r.post('/api/schedule/publish', 'manager', ({ me, body }) => {

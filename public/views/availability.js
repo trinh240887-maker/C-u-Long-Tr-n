@@ -104,7 +104,7 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
     ${groups.map((g) => html`<section class="card wk-card">
       <div class="wk-head">${g.name.toUpperCase()} <small>${g.people.length} người</small>
         ${canManage && g.id ? html`<button class="small wk-ok" onClick=${() => confirm(`Duyệt lịch ${g.name} tuần này?\nNgày chưa có ca mà có lịch rảnh sẽ được xếp ca theo lịch rảnh, báo từng người và bot gửi bảng lịch vào nhóm Zalo của ${g.name}.`)
-          && act(() => api('POST', '/api/schedule/publish-team', { week: d.week_start, team_id: g.id })).then((r) => r && toast(`Đã duyệt ${g.name}: ${r.sent} người có ca${r.made ? `, xếp thêm ${r.made} ca theo lịch rảnh` : ''}${r.groups ? ', đã gửi nhóm Zalo' : r.group_error ? `. Nhóm Zalo lỗi: ${r.group_error}` : '. Chưa có nhóm Zalo nào chọn bộ phận này'}`))}>✅ Duyệt ${g.name}</button>` : null}</div>
+          && publishTeam(d.week_start, g)}>✅ Duyệt ${g.name}</button>` : null}</div>
       <div class="wk-wrap"><table class="wk">
         <thead><tr><th class="wk-name">Tên</th>${d.days.map((x) => html`<th>${dayLabel(x).split(' ')[0]}<br /><small>${x.slice(8)}/${x.slice(5, 7)}</small><br /><b class="wk-n">${g.people.filter((p) => shiftOf(p.id, x).length).length}</b></th>`)}</tr></thead>
         <tbody>${g.people.map((p) => { return html`<tr><td class="wk-name"><b>${p.name}</b>${staffTags(p)}
@@ -155,6 +155,67 @@ function WeekZones({ ws, staff, teams, map, shifts = [], onClose }) {
         <button class=${`chip ${!cur[p.id] ? 'on' : ''}`} onClick=${() => pick(p, null)}>—</button></div></div>`; })}
     <button class="primary" onClick=${onClose}>Xong</button>
   </div><//>`;
+}
+
+// Duyệt lịch 1 bộ phận: máy chủ xếp ca theo lịch rảnh + báo từng người → máy này vẽ ảnh bảng → bot gửi ảnh vào nhóm Zalo
+async function publishTeam(week, g) {
+  const r = await act(() => api('POST', '/api/schedule/publish-team', { week, team_id: g.id, image: true }));
+  if (!r) return;
+  let data = '';
+  try { data = drawScheduleImage(r.table); } catch { /* máy không vẽ được → gửi chữ */ }
+  const s = await act(() => api('POST', '/api/schedule/team-image', { team_id: g.id, data, text: r.text }));
+  toast(`Đã duyệt ${g.name}: ${r.sent} người có ca${r.made ? `, xếp thêm ${r.made} ca` : ''}${s?.groups ? (s.photo ? ', đã gửi ảnh lịch vào nhóm Zalo' : ', đã gửi nhóm Zalo (dạng chữ)') : s?.group_error ? `. Nhóm Zalo lỗi: ${s.group_error}` : '. Chưa có nhóm Zalo nào chọn bộ phận này'}`);
+}
+
+// Vẽ bảng lịch giống màn Bảng tuần thành ảnh PNG (canvas của trình duyệt có sẵn font tiếng Việt)
+function drawScheduleImage(t) {
+  const W0 = 230, CW = 128, RH = 58, HH = 64, TH = 70, PAD = 16;
+  const rows = t.rows.length ? t.rows : [{ name: '(chưa có ai có ca)', tags: [], cells: Array(7).fill('') }];
+  const W = PAD * 2 + W0 + CW * 7, H = PAD * 2 + TH + HH + RH * rows.length + 30;
+  const scale = 2;
+  const cv = document.createElement('canvas');
+  cv.width = W * scale; cv.height = H * scale;
+  const c = cv.getContext('2d');
+  c.scale(scale, scale);
+  const F = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+  c.fillStyle = '#ffffff'; c.fillRect(0, 0, W, H);
+  // Tiêu đề
+  c.fillStyle = '#4caf50'; c.fillRect(PAD, PAD, W - PAD * 2, TH);
+  c.fillStyle = '#fff'; c.textBaseline = 'middle'; c.textAlign = 'center';
+  c.font = `700 26px ${F}`; c.fillText(`${t.title}  ·  tuần ${t.week}`, W / 2, PAD + TH / 2);
+  // Hàng ngày
+  let y = PAD + TH;
+  c.fillStyle = '#fff59d'; c.fillRect(PAD, y, W - PAD * 2, HH);
+  c.fillStyle = '#333'; c.textAlign = 'left'; c.font = `600 18px ${F}`; c.fillText('Tên', PAD + 12, y + HH / 2);
+  c.textAlign = 'center';
+  t.days.forEach((d, i) => {
+    const x = PAD + W0 + CW * i + CW / 2;
+    c.font = `700 19px ${F}`; c.fillText(d.dow, x, y + 22);
+    c.font = `15px ${F}`; c.fillText(d.date, x, y + 44);
+  });
+  y += HH;
+  // Từng người
+  rows.forEach((r, k) => {
+    c.fillStyle = k % 2 ? '#fafafa' : '#fff'; c.fillRect(PAD, y, W - PAD * 2, RH);
+    c.textAlign = 'left'; c.fillStyle = '#222'; c.font = `700 17px ${F}`;
+    c.fillText(r.name.length > 22 ? `${r.name.slice(0, 21)}…` : r.name, PAD + 12, y + (r.tags.length ? 21 : RH / 2));
+    if (r.tags.length) { c.fillStyle = '#8a4b00'; c.font = `13px ${F}`; c.fillText(r.tags.join(' · ').slice(0, 30), PAD + 12, y + 42); }
+    r.cells.forEach((txt, i) => {
+      const x = PAD + W0 + CW * i;
+      if (txt) { c.fillStyle = '#fde3d3'; c.fillRect(x + 2, y + 2, CW - 4, RH - 4); }
+      c.fillStyle = '#b23c17'; c.textAlign = 'center'; c.font = `700 16px ${F}`;
+      const parts = txt.split(' + ');
+      if (parts.length > 1) { c.fillText(parts[0], x + CW / 2, y + RH / 2 - 10); c.fillText(parts.slice(1).join(' + '), x + CW / 2, y + RH / 2 + 11); }
+      else c.fillText(txt, x + CW / 2, y + RH / 2);
+    });
+    c.strokeStyle = '#e8e2d8'; c.lineWidth = 1; c.beginPath(); c.moveTo(PAD, y + RH); c.lineTo(W - PAD, y + RH); c.stroke();
+    y += RH;
+  });
+  // Đường dọc
+  c.strokeStyle = '#e8e2d8';
+  for (let i = 0; i <= 7; i++) { const x = PAD + W0 + CW * i; c.beginPath(); c.moveTo(x, PAD + TH); c.lineTo(x, y); c.stroke(); }
+  c.fillStyle = '#888'; c.textAlign = 'right'; c.font = `13px ${F}`; c.fillText('Ô tô màu = có ca · ô trống = nghỉ', W - PAD, y + 16);
+  return cv.toDataURL('image/png');
 }
 
 // Nhãn sau tên ở Bảng tuần: cấp bậc (Tổ trưởng / Trưởng ca), loại ca (Full ca / Ca gãy / Part-time), vị trí
