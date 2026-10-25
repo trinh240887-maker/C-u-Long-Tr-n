@@ -64,7 +64,7 @@ function dateTokens(n, today) {
   const year = Number(today.slice(0, 4));
   const nw = addDays(weekStart(today), 7);
   const dowDate = (k) => addDays(nw, k === 'cn' ? 6 : Number(k) - 2);
-  const RE = /\b(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*(\d{2,4}))?\b|\b(ngay mai|mai|hom nay|toi nay|ngay mot)\b|\b(?:(?:t|thu|th)\s*([2-7])|(cn|chu nhat))\b(?:\s*(?:-|–|den|toi)\s*(?:(?:t|thu|th)\s*([2-7])|(cn|chu nhat))\b)?/g;
+  const RE = /\b(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*(\d{2,4}))?\b|\b(ngay mai|mai|hom nay|toi nay|ngay mot)\b/g;
   for (const m of n.matchAll(RE)) {
     let dates = [];
     if (m[1]) {
@@ -76,12 +76,26 @@ function dateTokens(n, today) {
       dates = [iso];
     } else if (m[4]) {
       dates = [{ 'ngay mai': 1, mai: 1, 'hom nay': 0, 'toi nay': 0, 'ngay mot': 2 }[m[4]]].map((k) => addDays(today, k));
-    } else {
-      const from = dowDate(m[5] || 'cn');
-      const to = m[7] || m[8] ? dowDate(m[7] || 'cn') : from;
-      for (let d = from; d <= to; d = addDays(d, 1)) dates.push(d);
     }
     out.push({ pos: m.index, kind: 'date', dates });
+  }
+  // Thứ: "T3 T6 CN", "T2-T6" (khoảng), "T2-T4-T5" (3 thứ trở lên nối gạch = liệt kê).
+  // "T3-T6" mà trong tin có ghi riêng T4 / T5 thì hiểu là liệt kê T3, T6 (không phải khoảng)
+  const DOW = /\b(?:(?:t|thu|th)\s*([2-7])|(cn|chu nhat))\b(?:\s*(?:-|–|den|toi)\s*(?:(?:t|thu|th)\s*[2-7]|cn|chu nhat)\b)*/g;
+  const dowTok = [];
+  for (const m of n.matchAll(DOW)) {
+    const items = [...m[0].matchAll(/(?:(?:t|thu|th)\s*([2-7])|(cn|chu nhat))/g)].map((x) => dowDate(x[1] || 'cn'));
+    dowTok.push({ pos: m.index, items, range: items.length === 2 && items[1] > items[0] });
+  }
+  const single = new Set(dowTok.filter((x) => !x.range).flatMap((x) => x.items));
+  for (const x of dowTok) {
+    let dates = x.items;
+    if (x.range) {
+      const span = [];
+      for (let d = x.items[0]; d <= x.items[1]; d = addDays(d, 1)) span.push(d);
+      dates = span.slice(1, -1).some((d) => single.has(d)) ? x.items : span;
+    }
+    out.push({ pos: x.pos, kind: 'date', dates });
   }
   return out;
 }

@@ -25,3 +25,10 @@ test('đọc tin báo lịch: "nghỉ" từng ngày thắng khoảng T3-T6; "14h
   // Ca gãy vẫn đúng
   assert.deepEqual(read('Cẩm Tú T2 10h-14h, 17h-22h').picks, { '10-26': '10:00-14:00+17:00-22:00' });
 });
+
+test('đọc tin báo lịch: "T2-T4-T5 nghỉ" là liệt kê, không phải khoảng', () => {
+  const a = read('@Bot Cửu Long Trấn Cẩm Tú T3 T6 T7 CN (18h-23h) : T2-T4-T5 nghỉ');
+  assert.deepEqual(a.off, ['10-26', '10-28', '10-29']);
+  assert.deepEqual(a.picks, { '10-27': '18:00-23:00', '10-30': '18:00-23:00', '10-31': '18:00-23:00', '11-01': '18:00-23:00' });
+  assert.deepEqual(Object.keys(read('Trần Kim T2-T6 14-23, T7 CN 10-22').picks).length, 7);
+});
