@@ -285,8 +285,22 @@ export default function (r, ctx) {
   const DOWS = ['', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
   const dayTxt = (d) => `${DOWS[isoWeekday(d)]} ${ddmm(d)}`;
   // Ghi lịch rảnh cho 1 người: chỉ những ngày có trong tin (ngày khác giữ nguyên)
-  function applyBot(staffId, picks, off) {
+  const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  // Lịch rảnh cũ của ngày trừ khúc nghỉ ("off 8h-12h" khi đang rảnh 8–12 + 14–23 → còn 14–23)
+  const minusRanges = (slots, cuts) => {
+    let parts = slots.map((x) => { const r = ctx.availRange(rangeText(x) || x); return [r.start, r.end]; }).filter((x) => x[1] > x[0]);
+    for (const c of cuts) { const r = ctx.availRange(c); parts = parts.flatMap(([a, b]) => (r.end <= a || r.start >= b ? [[a, b]] : [[a, r.start], [r.end, b]].filter(([x, y]) => y - x >= 30))); }
+    return parts.map(([a, b]) => `${hhmm(a)}-${hhmm(b)}`);
+  };
+  function applyBot(staffId, picks, off, offParts = {}) {
     const today = ctx.today(), from = weekStart(today);
+    // Nghỉ 1 khúc: lịch rảnh ngày đó = lịch đang có trừ khúc nghỉ
+    picks = { ...picks };
+    for (const [d, cuts] of Object.entries(offParts)) {
+      const cur = db.prepare('SELECT slot FROM availability WHERE staff_id = ? AND date = ?').all(staffId, d).map((x) => x.slot);
+      const left = minusRanges(cur, cuts);
+      if (left.length) picks[d] = left; else if (!off.includes(d)) off = [...off, d];
+    }
     const dates = [...new Set([...Object.keys(picks), ...off])].filter((d) => d >= today && weekStart(d) >= from).sort();
     const weeks = new Set();
     tx(db, () => {
@@ -306,6 +320,20 @@ export default function (r, ctx) {
     const leaves = [], noShift = [], changed = [];
     for (const d of dates.filter((x) => locked.includes(weekStart(x)))) {
       const groups = db.prepare('SELECT DISTINCT group_id FROM assignments WHERE staff_id = ? AND date = ?').all(staffId, d).map((x) => x.group_id);
+      if (offParts[d]) {
+        // Nghỉ 1 khúc ngày có ca → đơn nghỉ đúng khúc đó (ca phần còn lại vẫn giữ)
+        if (!groups.length) { noShift.push(d); continue; }
+        for (const cut of offParts[d]) {
+          const r0 = ctx.availRange(cut);
+          for (const g of groups) {
+            const segs = db.prepare('SELECT start_min, end_min FROM assignments WHERE group_id = ?').all(g);
+            if (!segs.some((x) => x.start_min < r0.end && x.end_min > r0.start)) continue;
+            try { const r = ctx.createLeave(null, g, `Báo nghỉ ${hhmm(r0.start)}–${hhmm(r0.end)} qua nhóm Zalo (bot)`, { from: r0.start, to: r0.end }); leaves.push({ date: d, label: r.label, status: 'new', part: `${hhmm(r0.start)}–${hhmm(r0.end)}` }); }
+            catch (e) { leaves.push({ date: d, label: '', status: /đã có đơn/.test(e.message) ? 'pending' : 'err', err: e.message }); }
+          }
+        }
+        continue;
+      }
       if (off.includes(d) && !picks[d]) {
         if (!groups.length) { noShift.push(d); continue; }
         for (const g of groups) {
@@ -401,7 +429,7 @@ export default function (r, ctx) {
       if (byPhone.length === 1) { p.people = byPhone; p.bySender = false; p.unknownName = ''; }
     }
     const hint = 'Nhắn kiểu: @bot Tên 14-23 (cả tuần), ngày khác ghi riêng: @bot Tên 14-23, T7 nghỉ, CN 10-23';
-    if (!Object.keys(p.picks).length && !p.off.length) return `❓ Chưa đọc được giờ. ${hint}`;
+    if (!Object.keys(p.picks).length && !p.off.length && !Object.keys(p.offParts || {}).length) return `❓ Chưa đọc được giờ. ${hint}`;
     // Tên chưa có trong danh sách → báo là người mới, giữ lịch lại chờ duyệt
     if (!p.people.length || (p.bySender && p.unknownName)) {
       // Tên trùng người đã nghỉ việc → không ghi, báo quản lý mở lại nếu đi làm lại
@@ -416,11 +444,13 @@ export default function (r, ctx) {
     const lines = [];
     let locked = false;
     for (const person of p.people) {
-      const r = applyBot(person.id, p.picks, p.off);
+      const r = applyBot(person.id, p.picks, p.off, p.offParts || {});
       if (!r.dates.length) { lines.push(`• ${person.name}: ngày đã qua, không ghi`); continue; }
       if (r.changed.length) locked = true;
-      lines.push(`• ${person.name}: ${describe(p.picks, p.off, r.dates, p.week)}`);
-      for (const l of r.leaves) lines.push(l.status === 'new' ? `  📝 Đã gửi đơn xin nghỉ ${l.label} cho quản lý. Chưa duyệt thì vẫn đi làm; duyệt xong app báo bạn.` : `  ${dayTxt(l.date)}: đã có đơn nghỉ (${l.status === 'approved' ? 'đã duyệt' : 'chờ duyệt'})`);
+      const offTxt = Object.entries(p.offParts || {}).map(([d, x]) => `${dayTxt(d)} nghỉ ${x.map((y) => y.replace('-', '–')).join(', ')}`).join(' · ');
+      const main = describe(Object.fromEntries(Object.entries(p.picks).filter(([d]) => !(p.offParts || {})[d])), p.off, r.dates.filter((d) => !(p.offParts || {})[d]), p.week);
+      lines.push(`• ${person.name}: ${[main, offTxt].filter(Boolean).join(' · ')}`);
+      for (const l of r.leaves) lines.push(l.status === 'new' ? `  📝 Đã gửi đơn xin nghỉ ${l.label}${l.part ? ' (phần còn lại của ca vẫn làm)' : ''} cho quản lý. Chưa duyệt thì vẫn đi làm; duyệt xong app báo bạn.` : l.status === 'err' ? `  ${dayTxt(l.date)}: ${l.err}` : `  ${dayTxt(l.date)}: đã có đơn nghỉ (${l.status === 'approved' ? 'đã duyệt' : 'chờ duyệt'})`);
       if (r.noShift.length) lines.push(`  ${r.noShift.map(dayTxt).join(', ')}: bạn không có ca, ghi nghỉ là xong`);
     }
     ctx.audit(null, 'availability.zalo', { from: u.from.name, staff: p.people.map((x) => x.id), text: u.text.slice(0, 200) });

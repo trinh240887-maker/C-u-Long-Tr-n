@@ -177,7 +177,8 @@ export function parseAvailMessage(text, { staff, today, sender }) {
   const segs = [cur];
   for (const t of tokens) {
     if (t.kind === 'date') {
-      if (cur.times.length || cur.off) { cur = { dates: [], times: [], off: false }; segs.push(cur); }
+      // "off ngày 26/10 8h-12h", "nghỉ T7": chữ nghỉ đứng TRƯỚC ngày vẫn thuộc ngày đó
+      if (cur.times.length || (cur.off && cur.dates.length)) { cur = { dates: [], times: [], off: false }; segs.push(cur); }
       cur.dates.push(...t.dates);
     } else if (t.kind === 'rest') { cur = { dates: [], times: [], off: false }; segs.push(cur); }
     else if (t.kind === 'time') cur.times.push(...t.times);
@@ -186,7 +187,9 @@ export function parseAvailMessage(text, { staff, today, sender }) {
   const base = { times: segs.filter((x) => !x.dates.length).flatMap((x) => x.times) };
   const dated = segs.filter((x) => x.dates.length);
   const done = new Set();
+  const offParts = {}; // "off 26/10 8h-12h" = nghỉ khúc 8–12 ngày đó, phần còn lại vẫn làm (chủ quán 25/10)
   for (const sg of dated) {
+    if (sg.off && sg.times.length) { for (const d of sg.dates) { offParts[d] = [...(offParts[d] || []), ...sg.times]; done.add(d); } continue; }
     if (sg.times.length) { add(sg.dates, sg.times); sg.dates.forEach((d) => done.add(d)); }
     else if (sg.off) sg.dates.forEach((d) => { off.add(d); done.add(d); });
   }
@@ -203,17 +206,17 @@ export function parseAvailMessage(text, { staff, today, sender }) {
   for (const d of off) delete picks[d];
   // Khớp chỉ bằng 1 chữ cuối ("Hậu") mà trong tin còn chữ tên khác ("Trần Trung Hậu") → là người khác, không đoán (chủ quán 25/10)
   if (people.length && people.every((x) => x._single) && left.length >= 1) {
-    return { people: [], picks, off: [...off], week: nextWeek, unknownName: [...left, ...people.map((x) => norm(x.name).trim().split(/\s+/).at(-1))].join(' '), bySender: false };
+    return { people: [], picks, off: [...off], offParts, week: nextWeek, unknownName: [...left, ...people.map((x) => norm(x.name).trim().split(/\s+/).at(-1))].join(' '), bySender: false };
   }
   // Khớp thiếu họ ("Thành Phát" ↔ Lê Thành Phát) mà tin ghi họ KHÁC ("Phan Thành Phát") → người khác, không đoán; hỏi lại (chủ quán 25/10)
   const SURNAMES = new Set(['nguyen', 'tran', 'le', 'pham', 'hoang', 'huynh', 'phan', 'vu', 'vo', 'dang', 'bui', 'do', 'ho', 'ngo', 'duong', 'ly', 'truong', 'dinh', 'cao', 'lam', 'luong', 'ta', 'trinh', 'quach', 'la', 'thai', 'kieu', 'ton', 'chau', 'tang', 'ha', 'mac', 'tieu', 'doan', 'au', 'luu', 'khuu', 'lai', 'giang', 'tong', 'van']);
   const otherSurname = (x) => left.some((w) => SURNAMES.has(w) && !norm(x.name).split(/\s+/).includes(w));
   if (people.length && people.every((x) => x._partial || x._single) && people.some(otherSurname)) {
-    return { people: [], picks, off: [...off], week: nextWeek, near: people.map(({ _single, _partial, ...x }) => x),
+    return { people: [], picks, off: [...off], offParts, week: nextWeek, near: people.map(({ _single, _partial, ...x }) => x),
       unknownName: [...left, ...people.map((x) => norm(x.name).trim().split(/\s+/).slice(-2).join(' '))].join(' '), bySender: false };
   }
   people = people.map(({ _single, _partial, ...x }) => x);
-  return { people, picks, off: [...off], week: nextWeek, unknownName: !named && left.length >= 2 ? left.join(' ') : '', bySender: !named && people.length > 0 };
+  return { people, picks, off: [...off], offParts, week: nextWeek, unknownName: !named && left.length >= 2 ? left.join(' ') : '', bySender: !named && people.length > 0 };
 }
 
 // Tin đăng ký nhân viên mới: "NV mới: Trần Trung Hậu, 0901234567, Phục vụ, nhân viên"

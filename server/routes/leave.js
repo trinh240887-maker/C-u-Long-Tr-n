@@ -8,6 +8,28 @@ import { describeGroup } from './schedule.js';
 
 export default function (r, ctx) {
   const { db } = ctx;
+  // Nghỉ 1 khúc của ca (vd ca 8–12 + 14–23, xin nghỉ 8–12): khúc nghỉ tách thành ca riêng (group mới) để đơn chỉ áp vào khúc đó;
+  // từ chối thì gộp lại như cũ. orig_group = ca gốc (chủ quán 25/10)
+  if (!db.prepare('PRAGMA table_info(leave_requests)').all().some((c) => c.name === 'orig_group')) db.exec("ALTER TABLE leave_requests ADD COLUMN orig_group TEXT NOT NULL DEFAULT ''");
+  function splitOff(groupId, from, to) {
+    const segs = groupSegments(db, groupId);
+    const hit = segs.filter((x) => x.start_min < to && x.end_min > from);
+    if (!hit.length) fail(400, 'Khúc giờ xin nghỉ không trùng ca nào');
+    if (segs.every((x) => x.start_min >= from && x.end_min <= to)) return groupId; // nghỉ hết cả ca
+    const g2 = crypto.randomBytes(8).toString('hex');
+    const cols = db.prepare('PRAGMA table_info(assignments)').all().map((c) => c.name).filter((c) => c !== 'id');
+    const copy = (row, patch) => { const o = { ...row, ...patch }; db.prepare(`INSERT INTO assignments (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => o[c] ?? null)); };
+    for (const x of hit) {
+      const row = db.prepare('SELECT * FROM assignments WHERE id = ?').get(x.id);
+      const a = Math.max(x.start_min, from), b = Math.min(x.end_min, to);
+      if (a <= x.start_min && b >= x.end_min) { db.prepare('UPDATE assignments SET group_id = ? WHERE id = ?').run(g2, x.id); continue; }
+      copy(row, { group_id: g2, start_min: a, end_min: b });
+      if (a > x.start_min && b < x.end_min) { db.prepare('UPDATE assignments SET end_min = ? WHERE id = ?').run(a, x.id); copy(row, { start_min: b }); }
+      else if (a > x.start_min) db.prepare('UPDATE assignments SET end_min = ? WHERE id = ?').run(a, x.id);
+      else db.prepare('UPDATE assignments SET start_min = ? WHERE id = ?').run(b, x.id);
+    }
+    return g2;
+  }
 
   function loadLeave(id) {
     const l = db.prepare(`SELECT l.*, s.name AS staff_name, s.team_id AS staff_team FROM leave_requests l JOIN staff s ON s.id = l.staff_id WHERE l.id = ?`).get(id);
@@ -35,7 +57,10 @@ export default function (r, ctx) {
 
   // ---------- Xin nghỉ ----------
   // Tạo đơn xin nghỉ cho 1 ca (dùng chung: màn Xin nghỉ và bot Zalo khi lịch tuần đã duyệt)
-  function createLeave(by, groupId, reason) {
+  function createLeave(by, groupId0, reason, range = null) {
+    if (!shiftInfo(groupId0)) fail(404, 'Không tìm thấy ca');
+    if (range && db.prepare("SELECT 1 FROM leave_requests WHERE group_id = ? AND status IN ('pending','approved')").get(groupId0)) fail(409, 'Ca này đã có đơn nghỉ');
+    const groupId = range ? tx(db, () => splitOff(groupId0, range.from, range.to)) : groupId0;
     const info = shiftInfo(groupId);
     if (!info) fail(404, 'Không tìm thấy ca');
     const owner = info.segments[0].staff_id;
@@ -43,8 +68,8 @@ export default function (r, ctx) {
     if (rangeOf(clock, info.segments.at(-1)).end < ctx.now()) fail(400, 'Ca này đã qua');
     const id = tx(db, () => {
       if (db.prepare("SELECT 1 FROM leave_requests WHERE group_id = ? AND status IN ('pending','approved')").get(groupId)) fail(409, 'Ca này đã có đơn nghỉ');
-      return Number(db.prepare('INSERT INTO leave_requests (staff_id, group_id, date, reason, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(owner, groupId, info.date, reason, ctx.now()).lastInsertRowid);
+      return Number(db.prepare('INSERT INTO leave_requests (staff_id, group_id, date, reason, created_at, orig_group) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(owner, groupId, info.date, reason, ctx.now(), groupId !== groupId0 ? groupId0 : '').lastInsertRowid);
     });
     const person = ctx.staff(owner);
     const urgent = rangeOf(clock, info.segments[0]).start - ctx.now() < 12 * 3600_000;
@@ -206,6 +231,8 @@ export default function (r, ctx) {
       }
       db.prepare('UPDATE leave_requests SET status = ?, replacement_id = ?, decided_by = ?, decided_at = ?, decision_note = ? WHERE id = ?')
         .run(approve ? 'approved' : 'rejected', replacementId, me.id, ctx.now(), note, l.id);
+      // Từ chối đơn nghỉ 1 khúc → khúc đó về lại ca gốc
+      if (!approve && l.orig_group && groupSegments(db, l.orig_group).length) db.prepare('UPDATE assignments SET group_id = ? WHERE group_id = ?').run(l.orig_group, l.group_id);
     });
     const label = shiftLabel(info);
     ctx.notify(l.staff_id, {

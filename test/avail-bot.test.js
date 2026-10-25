@@ -147,6 +147,20 @@ test('bot đọc tin @bot trong nhóm nhân viên → tự điền lịch rảnh
   await ctx.zaloBotPoll();
   assert.match(sent.at(-1).text, /đã có đơn nghỉ \(chờ duyệt\)/);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM leave_requests WHERE group_id = ?").get(caT6.group_id).n, 1);
+
+  // Ca gãy 8–12 + 14–23, báo "off 27/10 8h-12h" → đơn nghỉ chỉ khúc 8–12, khúc 14–23 vẫn làm
+  const hp = id('Nguyễn Hồng Phúc');
+  db.prepare("DELETE FROM assignments WHERE staff_id = ? AND date = '2026-10-27'").run(hp);
+  const ins = db.prepare("INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES ('gx', ?, ?, '2026-10-27', ?, ?, 0)");
+  ins.run(hp, pv, 480, 720); ins.run(hp, pv, 840, 1380);
+  inbox = [msg('m10', '@Bot Cửu Long Trấn Hồng Phúc off ngày 27/10 8h - 12h', { id: 'u2', name: 'Hồng Phúc' })];
+  await ctx.zaloBotPoll();
+  assert.match(sent.at(-1).text, /T3 27\/10 nghỉ 08:00–12:00/);
+  assert.match(sent.at(-1).text, /Đã gửi đơn xin nghỉ .*8:00–12:00.*phần còn lại của ca vẫn làm/);
+  const lv = db.prepare("SELECT * FROM leave_requests WHERE staff_id = ? AND date = '2026-10-27'").get(hp);
+  assert.equal(lv.orig_group, 'gx');
+  assert.deepEqual(db.prepare('SELECT start_min, end_min FROM assignments WHERE group_id = ?').all(lv.group_id).map((x) => [x.start_min, x.end_min]), [[480, 720]]);
+  assert.deepEqual(db.prepare("SELECT start_min, end_min FROM assignments WHERE group_id = 'gx'").all().map((x) => [x.start_min, x.end_min]), [[840, 1380]]);
 });
 
 test('bot: người mới báo lịch → hướng dẫn đăng ký, giữ lịch; quản lý duyệt → điền lịch + báo nhóm; người đã nghỉ việc không ghi', async (t) => {
