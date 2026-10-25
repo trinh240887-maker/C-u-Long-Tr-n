@@ -108,5 +108,31 @@ test('Việc ca: gợi ý chia việc theo khu (tiếp thực vào sớm hỗ tr
   const rep = (await O('GET', '/api/jobs/report')).data;
   const rd = rep.staff.find((x) => x.staff_id === doer);
   assert.equal(rd.late, 1); assert.equal(rd.redo, 1);
+
+  // Cả tuần: ngày mai theo lịch mới nhất, giữ việc chọn tay; checklist thêm việc → tự thêm vào các ngày
+  const tmr = (await import('../server/lib/time.js')).addDays(date, 1);
+  asg.run('h1', a1, pv, tmr, 840, 1380, 1, Date.now());
+  asg.run('h2', b1, pv, tmr, 840, 1380, 2, Date.now());
+  const wk = (await O('GET', `/api/jobs/week?start=${tmr}`)).data;
+  assert.equal(wk.days.length, 7);
+  const cellA = wk.templates.find((x) => x.id === tpl.id).rows.find((r) => r.zone_id === 1).cells.find((c) => c.date === tmr);
+  assert.equal(cellA.people, 1); assert.equal(cellA.jobs, 3); assert.equal(cellA.unassigned, 0);
+  let tb = (await O('GET', `/api/jobs/board?date=${tmr}`)).data.templates.find((x) => x.id === tpl.id);
+  assert.ok(tb.zones.find((z) => z.zone_id === 1).jobs.every((x) => x.staff_id === a1));
+  // Tổ trưởng chọn tay 1 việc cho người khu B → giữ nguyên khi lịch đổi
+  const pick = tb.zones.find((z) => z.zone_id === 1).jobs[0];
+  assert.equal((await O('PATCH', `/api/jobs/${pick.id}`, { staff_id: b1 })).status, 200);
+  asg.run('h3', lead, pv, tmr, 840, 1380, 1, Date.now()); // thêm tổ trưởng vào khu A ngày mai
+  tb = (await O('GET', `/api/jobs/board?date=${tmr}`)).data.templates.find((x) => x.id === tpl.id);
+  const zA = tb.zones.find((z) => z.zone_id === 1).jobs;
+  assert.equal(zA.find((x) => x.id === pick.id).staff_id, b1);
+  assert.ok(zA.some((x) => x.staff_id === lead), 'lịch thêm người → app chia lại');
+  // Thêm việc mới vào checklist → hôm nay và ngày mai tự có thẻ
+  const full = (await O('GET', '/api/checklist-templates')).data.find((x) => x.id === tpl.id);
+  await O('PATCH', `/api/checklist-templates/${tpl.id}`, { items: [...full.items, { text: 'Lau menu', job_minutes: 5, photo_required: false }] });
+  for (const d of [date, tmr]) {
+    const tz = (await O('GET', `/api/jobs/board?date=${d}`)).data.templates.find((x) => x.id === tpl.id);
+    assert.equal(tz.zones.flatMap((z) => z.jobs).filter((x) => x.title === 'Lau menu').length, 2, d);
+  }
   void sent;
 });

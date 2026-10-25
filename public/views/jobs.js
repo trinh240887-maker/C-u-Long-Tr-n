@@ -1,6 +1,6 @@
 // Việc ca: mỗi việc 1 thẻ, người được giao bấm Nhận → Xong (+ảnh); tổ trưởng khu kiểm Đạt / Làm lại (chủ quán 25/10)
 import { useState, useEffect } from 'preact/hooks';
-import { html, api, act, useData, Loading, hm, navigate } from '../ui.js';
+import { html, api, act, useData, Loading, hm, navigate, addDays } from '../ui.js';
 import { compressImage } from './checklists.js';
 
 const ST = { todo: ['Chưa nhận', ''], doing: ['Đang làm', 'warn'], done: ['Chờ kiểm', 'warn'], ok: ['Đạt', 'ok'], redo: ['Làm lại', 'bad'] };
@@ -60,7 +60,7 @@ function Mine() {
   </div>`;
 }
 
-function ZoneBoard({ t, z, now }) {
+function ZoneBoard({ t, z, now, today = true }) {
   const [note, setNote] = useState({});
   const upZone = async (e) => { const data = await pick(e); if (data) act(() => api('POST', '/api/jobs/zone-photo', { template_id: t.id, zone_id: z.zone_id, data }), 'Đã gửi ảnh tổng khu'); };
   return html`<section class="card stack">
@@ -80,25 +80,47 @@ function ZoneBoard({ t, z, now }) {
         <button class="primary" onClick=${() => act(() => api('POST', `/api/jobs/${j.id}/check`, { ok: true }), 'Đạt')}>✅ Đạt</button></div>` : null}
     </div>`; })}
     <div class="row wrap">${z.photos.map((p) => html`<a href=${`/api/jobs/zone-photo/${p.id}`} target="_blank"><img class="job-photo" src=${`/api/jobs/zone-photo/${p.id}`} title=${`${p.staff_name} ${hm(p.at)}`} /></a>`)}
-      ${z.can_check ? html`<label class=${`button ${z.done === z.jobs.length && !z.photos.length ? 'primary' : ''}`}>📷 Ảnh tổng khu<input type="file" accept="image/*" capture="environment" hidden onChange=${upZone} /></label>` : null}</div>
+      ${z.can_check && today ? html`<label class=${`button ${z.done === z.jobs.length && !z.photos.length ? 'primary' : ''}`}>📷 Ảnh tổng khu<input type="file" accept="image/*" capture="environment" hidden onChange=${upZone} /></label>` : null}</div>
   </section>`;
 }
 
+const DOW = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const dLabel = (d) => `${DOW[new Date(`${d}T00:00:00Z`).getUTCDay()]} ${d.slice(8)}/${d.slice(5, 7)}`;
+
+// Cả tuần: khu × ngày, mỗi ô = số người đầu ca trong khu (+ hỗ trợ) và ~phút việc / người. Bấm ô → xem phân việc ngày đó
+function WeekGrid({ t, date, onPick, week }) {
+  const w = week.templates.find((x) => x.id === t.id);
+  if (!w) return null;
+  return html`<div class="wk-jobs"><table class="tbl small">
+    <thead><tr><th></th>${week.days.map((d) => html`<th class=${d === date ? 'on' : ''}>${dLabel(d)}</th>`)}</tr></thead>
+    <tbody>${w.rows.map((r) => html`<tr><th><i class="sw" style=${`background:${r.color}`}></i>${r.zone_name.replace('Việc chung cả quán', 'Chung')}</th>
+      ${r.cells.map((c) => html`<td class=${`${c.date === date ? 'on' : ''} ${c.unassigned ? 'bad' : ''}`} onClick=${() => onPick(c.date)}>
+        <b>👥 ${c.people}</b>${c.helpers ? html`<small>+${c.helpers}</small>` : ''}<br /><small>${c.jobs ? (c.min_per != null ? `~${c.min_per}′/ng` : `${c.jobs} việc`) : '—'}</small>
+        ${c.unassigned ? html`<br /><small class="warn-text">${c.unassigned} chưa ai</small>` : null}</td>`)}</tr>`)}</tbody>
+  </table><small class="muted">👥 = số bạn có ca trong khu đúng khung giờ · +n = bạn chưa phân khu (vd tiếp thực) hỗ trợ · ~phút/ng = việc chia đều mỗi người. Bấm 1 ô để xem ai làm gì ngày đó.</small></div>`;
+}
+
 function Board({ me }) {
-  const d = useData('/api/jobs/board');
+  const [date, setDate] = useState(me.today);
+  const d = useData(`/api/jobs/board?date=${date}`);
+  const week = useData(`/api/jobs/week?start=${date}`);
   const now = useNow();
   const [ph, setPh] = useState(null);
   if (!d.data) return html`<${Loading} state=${d} />`;
   const ts = d.data.templates;
-  if (!ts.length) return html`<p class="muted">Chưa có checklist nào bật "Giao việc từng người". Quản lý vào Cài đặt → Checklist → sửa checklist (vd Mở ca Phục vụ) → bật <b>👥 Giao việc từng người</b>.</p>`;
+  if (!ts.length) return html`<p class="muted">Chưa có checklist nào bật "Giao việc từng người". Trên màn Checklist, cuối thẻ checklist (vd Mở ca phục vụ) bấm <b>👥 Chuyển sang giao việc từng người</b>.</p>`;
   const cur = ts.find((t) => t.id === ph) || ts[0];
   const canAll = ['shift_lead', 'manager', 'owner'].includes(me.role) || cur.zones.some((z) => z.can_check);
+  const future = date > me.today, past = date < me.today;
   return html`<div class="stack">
-    <div class="row wrap">${ts.map((t) => html`<button class=${`chip ${t.id === cur.id ? 'on' : ''}`} onClick=${() => setPh(t.id)}>${t.title}</button>`)}</div>
-    ${canAll ? html`<button onClick=${() => confirm('Chia lại các việc chưa ai bắt đầu theo gợi ý của app (theo ca và khu hiện tại)?') && act(() => api('POST', '/api/jobs/reassign', { template_id: cur.id }), 'Đã chia lại')}>🔄 Chia lại theo gợi ý</button>` : null}
-    ${canAll ? html`<small class="muted">Đổi người: chọn tên ở từng việc. Sửa việc (phút chuẩn, số lượng, chỗ lấy đồ, cần ảnh): <a href="/cai-dat?tab=checklist" onClick=${(e) => { e.preventDefault(); navigate('/cai-dat?tab=checklist'); }}>Cài đặt → Checklist</a>.</small>` : null}
-    ${cur.window ? html`<p class="small">⏰ Khung giờ: <b>${cur.window}</b> · chỉ người có ca trong khung này được phân</p>` : null}
-    ${cur.zones.map((z) => html`<${ZoneBoard} t=${cur} z=${z} now=${now} />`)}
+    <div class="row wrap">${ts.map((t) => html`<button class=${`chip ${t.id === cur.id ? 'on' : ''}`} onClick=${() => setPh(t.id)}>${t.title}${t.window ? ` · ${t.window}` : ''}</button>`)}</div>
+    <div class="row"><button class="icon" onClick=${() => setDate(addDays(date, -7))}>«</button><b class="grow center">Tuần ${week.data ? `${dLabel(week.data.days[0])} – ${dLabel(week.data.days[6])}` : ''}</b><button class="icon" onClick=${() => setDate(addDays(date, 7))}>»</button></div>
+    ${week.data ? html`<${WeekGrid} t=${cur} date=${date} week=${week.data} onPick=${setDate} />` : null}
+    <h3>${dLabel(date)}${date === me.today ? ' (hôm nay)' : ''}</h3>
+    ${future ? html`<p class="small muted">Ngày tới: app tự chia lại theo lịch ca / phân khu mới nhất. Việc anh chọn tay sẽ được giữ.</p>` : null}
+    ${canAll && !past ? html`<button onClick=${() => confirm('Chia lại các việc chưa ai bắt đầu theo gợi ý của app (kể cả việc đã chọn tay)?') && act(() => api('POST', '/api/jobs/reassign', { date, template_id: cur.id }), 'Đã chia lại')}>🔄 Chia lại theo gợi ý</button>` : null}
+    ${canAll ? html`<small class="muted">Đổi người: chọn tên ở từng việc. Thêm / sửa việc (phút, số lượng, chỗ lấy đồ): <a href="/cai-dat?tab=checklist" onClick=${(e) => { e.preventDefault(); navigate('/cai-dat?tab=checklist'); }}>Cài đặt → Checklist</a>; việc mới tự thêm vào các ngày.</small>` : null}
+    ${cur.zones.length ? cur.zones.map((z) => html`<${ZoneBoard} t=${cur} z=${z} now=${now} today=${date === me.today} />`) : html`<p class="muted">Chưa có việc ngày này.</p>`}
   </div>`;
 }
 

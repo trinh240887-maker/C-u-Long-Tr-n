@@ -113,27 +113,35 @@ export default function (r, ctx) {
   }
 
   // Tạo thẻ việc trong ngày (chỉ lần đầu); chia lại thì chỉ đổi việc chưa ai bắt đầu
-  function materialize(date, t, { reassign = false, by = null } = {}) {
+  // Tạo / cập nhật thẻ việc của 1 ngày.
+  // fill  = hôm nay: chỉ bổ sung thẻ còn thiếu (checklist thêm việc), không đổi người đã giao
+  // auto  = ngày tới trong tuần: chia lại theo lịch mới nhất, giữ việc tổ trưởng đã chọn tay
+  // force = bấm "Chia lại": chia lại mọi việc chưa ai bắt đầu
+  function materialize(date, t, { mode = 'fill' } = {}) {
     const rows = db.prepare('SELECT * FROM jobs WHERE date = ? AND template_id = ?').all(date, t.id);
-    if (rows.length && !reassign) {
-      // checklist thêm việc / thêm khu sau khi đã chia → bổ sung thẻ còn thiếu
+    if (rows.length && mode === 'fill') {
       const have = new Set(rows.map((x) => `${x.item_id}:${x.zone_id}`));
       if (slots(t).every((s) => have.has(`${s.item.id}:${s.zone_id}`))) return;
     }
-    const started = rows.filter((x) => x.status !== 'todo');
-    const fixed = started.map((x) => ({ item_id: x.item_id, zone_id: x.zone_id, staff_id: x.staff_id, minutes: t.items.find((i) => i.id === x.item_id)?.job_minutes }));
-    if (!reassign) for (const x of rows.filter((y) => y.status === 'todo')) fixed.push({ item_id: x.item_id, zone_id: x.zone_id, staff_id: x.staff_id, minutes: t.items.find((i) => i.id === x.item_id)?.job_minutes });
+    const keep = (x) => x.status !== 'todo' || mode === 'fill' || (mode === 'auto' && x.assigned_by != null);
+    const fixed = rows.filter(keep).map((x) => ({ item_id: x.item_id, zone_id: x.zone_id, staff_id: x.staff_id, minutes: t.items.find((i) => i.id === x.item_id)?.job_minutes }));
     const plan = suggest(date, t, fixed);
     const at = ctx.now();
     tx(db, () => {
       for (const p of plan) {
-        db.prepare(`INSERT INTO jobs (date, template_id, item_id, zone_id, staff_id, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (date, item_id, zone_id) DO UPDATE SET staff_id = excluded.staff_id, assigned_by = excluded.assigned_by, assigned_at = excluded.assigned_at, nudged = 0 WHERE jobs.status = 'todo'`)
-          .run(date, t.id, p.item.id, p.zone_id, p.staff_id, by, at);
+        db.prepare(`INSERT INTO jobs (date, template_id, item_id, zone_id, staff_id, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, NULL, ?)
+          ON CONFLICT (date, item_id, zone_id) DO UPDATE SET staff_id = excluded.staff_id, assigned_by = NULL, assigned_at = excluded.assigned_at, nudged = 0
+          WHERE jobs.status = 'todo' AND (? = 'force' OR jobs.assigned_by IS NULL)`)
+          .run(date, t.id, p.item.id, p.zone_id, p.staff_id, at, mode);
       }
     });
   }
-  const ensureDay = (date) => { if (date !== ctx.today()) return; for (const t of jobTemplates()) materialize(date, t); };
+  // Hôm nay: giữ ổn định; các ngày tới (tối đa 14 ngày): luôn theo lịch ca / phân khu mới nhất
+  const ensureDay = (date) => {
+    const today = ctx.today();
+    if (date < today || date > addDays(today, 14)) return;
+    for (const t of jobTemplates()) materialize(date, t, { mode: date === today ? 'fill' : 'auto' });
+  };
 
   // Người kiểm tra khu: chỉ định riêng → tổ trưởng có ca trong khu → trưởng ca có ca hôm đó → quản lý
   function checkerOf(date, zoneId) {
@@ -161,6 +169,37 @@ export default function (r, ctx) {
   }
 
   // ---------- Bảng việc (mọi người trong ca xem được: biết việc nào còn trống) ----------
+  // Cả tuần: mỗi khu mỗi ngày có bao nhiêu người trong khung giờ (+ người hỗ trợ chưa phân khu), bao nhiêu việc, ~phút / người
+  r.get('/api/jobs/week', 'staff', ({ query }) => {
+    let start = query.get('start') || ctx.today();
+    if (!isDate(start)) fail(400, 'Ngày không hợp lệ');
+    const dow = new Date(`${start}T00:00:00Z`).getUTCDay();
+    start = addDays(start, -((dow + 6) % 7)); // về thứ 2
+    const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    for (const d of days) ensureDay(d);
+    const zs = zonesAll();
+    return { start, days, templates: jobTemplates().map((t) => {
+      const zoneIds = [...new Set(slots(t).map((x) => x.zone_id))].sort((a, b) => (a || 1e9) - (b || 1e9));
+      return {
+        id: t.id, title: t.title, phase: t.phase, window: winText(t),
+        rows: zoneIds.map((zid) => ({
+          zone_id: zid, zone_name: zid ? zs.find((z) => z.id === zid)?.name || 'Khu' : 'Việc chung cả quán', color: zid ? zs.find((z) => z.id === zid)?.color : '#666',
+          cells: days.map((d) => {
+            const ps = people(d, t).filter((p) => inWindow(p, t));
+            const jobs = db.prepare('SELECT j.staff_id, j.status, i.job_minutes FROM jobs j JOIN checklist_items i ON i.id = j.item_id WHERE j.date = ? AND j.template_id = ? AND j.zone_id = ?').all(d, t.id, zid);
+            const min = jobs.reduce((a, j) => a + (j.job_minutes || DEFAULT_MIN), 0);
+            const who = new Set(jobs.map((j) => j.staff_id).filter(Boolean));
+            return {
+              date: d, people: zid ? ps.filter((p) => p.zone_id === zid).length : ps.length, helpers: zid ? ps.filter((p) => !p.zone_id).length : 0,
+              jobs: jobs.length, doers: who.size, min_per: who.size ? Math.round(min / who.size) : null,
+              unassigned: jobs.filter((j) => !j.staff_id).length, done: jobs.filter((j) => ['done', 'ok'].includes(j.status)).length,
+            };
+          }),
+        })),
+      };
+    }) };
+  });
+
   r.get('/api/jobs/board', 'staff', ({ me, query }) => {
     const date = query.get('date') || ctx.today();
     if (!isDate(date)) fail(400, 'Ngày không hợp lệ');
@@ -296,7 +335,7 @@ export default function (r, ctx) {
     if (!isDate(date)) fail(400, 'Ngày không hợp lệ');
     const ts = jobTemplates().filter((t) => !body.template_id || t.id === Number(body.template_id));
     if (!isLead(me) && !zonesAll().some((z) => checkerOf(date, z.id).includes(me.id))) fail(403, 'Chỉ tổ trưởng / trưởng ca chia lại việc');
-    for (const t of ts) materialize(date, t, { reassign: true, by: me.id });
+    for (const t of ts) materialize(date, t, { mode: 'force' });
     ctx.audit(me, 'job.reassign', { date, template: body.template_id || null });
     ctx.broadcast('jobs');
     return { ok: true };

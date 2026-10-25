@@ -776,3 +776,9 @@ table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align
 .item-card .row > input.grow { min-width: 0; }
 .job-fields input.grow { flex: 1 1 160px; min-width: 0; }
 .job-switch { width: 100%; margin-top: 8px; border-style: dashed; }
+.wk-jobs { overflow-x: auto; }
+.wk-jobs table { min-width: 560px; }
+.wk-jobs td { text-align: center; cursor: pointer; line-height: 1.25; padding: 6px 4px; }
+.wk-jobs td.on, .wk-jobs th.on { background: var(--accent-soft, #fdebd9); }
+.wk-jobs td.bad { outline: 2px solid #e57373; outline-offset: -2px; }
+.wk-jobs tbody th { text-align: left; white-space: nowrap; }
