@@ -39,6 +39,7 @@ import zoneRoutes from './routes/zones.js';
 import positionRoutes from './routes/positions.js';
 import availabilityRoutes from './routes/availability.js';
 import utensilRoutes from './routes/utensils.js';
+import warehouseRoutes from './routes/warehouse.js';
 import menuRoutes from './routes/menu.js';
 import posRoutes from './routes/pos.js';
 import reservationRoutes from './routes/reservations.js';
@@ -105,7 +106,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
     return { ...ctx.version(), uptime_min: Math.round((now() - startedAt) / 60000), print_bridge: { online: !!seen && now() - seen < 20_000, seen_min_ago: seen ? Math.round((now() - seen) / 60000) : null, waiting, printers } };
   });
 
-  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes, printRoutes, promoRoutes, paymentRoutes, bankRoutes, daybookRoutes, bookingOnlineRoutes, bookingGuardRoutes, waitlistRoutes, reportRoutes, purchaseRoutes, stockSaleRoutes, laborRoutes, tipBoxRoutes]) {
+  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes, printRoutes, promoRoutes, paymentRoutes, bankRoutes, daybookRoutes, bookingOnlineRoutes, bookingGuardRoutes, waitlistRoutes, reportRoutes, purchaseRoutes, stockSaleRoutes, warehouseRoutes, laborRoutes, tipBoxRoutes]) {
     register(router, ctx);
   }
 

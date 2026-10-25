@@ -74,7 +74,9 @@ export default function (r, ctx) {
         // Lấy ở kho khu trước, thiếu thì lấy tiếp kho tổng
         const main = mainStore()?.id;
         let left = need;
-        for (const st of [...new Set([storeOf(g), main].filter(Boolean))]) {
+        // Chế độ chứng từ (đã chốt tồn đầu kỳ): chỉ trừ kho bếp / bar của món, không lấy kho chính (không phiếu không xuất)
+        const live = ctx.setting('wh_live') === '1';
+        for (const st of [...new Set((live ? [storeOf(g)] : [storeOf(g), main]).filter(Boolean))]) {
           if (left <= 1e-9) break;
           const have = stockQty(db, st, g.id);
           const take = Math.min(left, have);
@@ -84,6 +86,7 @@ export default function (r, ctx) {
             left -= take;
           }
         }
+        if (left > 1e-9 && live) ctx.whRecordShort?.(storeOf(g), g.id, left, `${i.name} ×${i.qty}: bán vượt tồn sổ`);
         if (left > 1e-9 && tracked(g.id)) short.push({ ingredient: g.name, need: left, unit: g.unit, item: i.name });
       }
       touched.add(i.menu_item_id);
