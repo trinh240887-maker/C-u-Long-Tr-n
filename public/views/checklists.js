@@ -1,8 +1,17 @@
 import { useState } from 'preact/hooks';
-import { html, api, act, toast, useData, Loading, hm, dayLabel, addDays, PHASE_LABEL, atLeast, Link } from '../ui.js';
+import { html, api, act, toast, useData, Loading, hm, dayLabel, addDays, PHASE_LABEL, atLeast, Link, navigate } from '../ui.js';
 import { Checklists } from './settings.js';
 
 // Nén ảnh trên điện thoại trước khi gửi: cạnh dài tối đa 1280px, JPEG
+// Bật "Giao việc từng người" cho checklist này: bộ phận của checklist + Tiếp thực (nếu có) làm chung → mở Bảng khu để phân việc
+async function toJobs(me, r) {
+  const tt = (me.teams || []).find((t) => /tiếp thực|tiep thuc/i.test(t.name));
+  const teams = [...new Set([r.team_id, r.team_id && /phục vụ|phuc vu/i.test(r.team_name) ? tt?.id : null].filter(Boolean))];
+  if (!confirm(`Chuyển "${r.title}" sang giao việc từng người?\nMỗi việc thành 1 thẻ, app gợi ý ai làm theo khu đã phân, nhân viên bấm Nhận → Xong. Checklist này sẽ không còn hiện ở đây mà nằm ở Việc ca.`)) return;
+  const ok = await act(() => api('PATCH', `/api/checklist-templates/${r.template_id}`, { job_mode: true, job_teams: teams }), 'Đã chuyển, mở Bảng khu để phân việc');
+  if (ok) navigate('/viec-ca?tab=khu');
+}
+
 export async function compressImage(file, max = 1280) {
   const url = URL.createObjectURL(file);
   try {
@@ -157,7 +166,7 @@ export function ChecklistView({ me }) {
         <b>${dayLabel(date, { long: true })}</b>
         <button class="icon" aria-label="Hôm sau" disabled=${date >= me.today} onClick=${() => setDate(addDays(date, 1))}>›</button>
       </div>
-      ${atLeast(me, 'team_lead') ? html`<div class="row"><${Link} href="/duyet-anh" class="btn-link">Duyệt ảnh<//><button class="primary" onClick=${() => setManage(true)}>Tạo / sửa checklist</button></div>` : null}
+      ${atLeast(me, 'team_lead') ? html`<div class="row"><${Link} href="/viec-ca?tab=khu" class="btn-link">✋ Việc ca<//><${Link} href="/duyet-anh" class="btn-link">Duyệt ảnh<//><button class="primary" onClick=${() => setManage(true)}>Tạo / sửa checklist</button></div>` : null}
     </div>
     ${sections.length ? html`<div class="chips scroll-x sec-tabs">${sections.map((x) => html`<button class=${`chip big ${x === curSec ? 'on' : ''}`} onClick=${() => setSec(x)}>${x}${left(x) ? html` <b class="dotn">${left(x)}</b>` : ''}</button>`)}</div>` : null}
     <div class="tabs">${[['open', 'Mở ca'], ['close', 'Đóng ca']].map(([k, l]) => html`<button class=${phase === k ? 'on' : ''} onClick=${() => setPhase(k)}>${l}${left(curSec, k) ? ` (${left(curSec, k)})` : ''}</button>`)}</div>
@@ -169,6 +178,7 @@ export function ChecklistView({ me }) {
       <${Samples} samples=${r.samples || []} templateId=${r.template_id} canEdit=${!old && canEditTpl(me, r.team_id)} label="Ảnh mẫu khu" />
       <ul class="cklist">${r.items.map((i) => html`<${Item} key=${`${r.run_id}-${i.id}-${i.entry?.done_at || 0}`} run=${r} item=${i} disabled=${old} me=${me} />`)}</ul>
       ${!old && canEditTpl(me, r.team_id) ? html`<${AddItemInline} templateId=${r.template_id} />` : null}
+      ${!old && atLeast(me, 'shift_lead') ? html`<button class="job-switch" onClick=${() => toJobs(me, r)}>👥 Chuyển sang giao việc từng người (phân việc cho từng bạn theo khu)</button>` : null}
     </section>`) : html`<div class="empty">${sections.length ? `Mục ${curSec} không có checklist ${phase === 'open' ? 'mở ca' : 'đóng ca'}.` : `Hôm nay bạn không có checklist.${atLeast(me, 'manager') ? ' Tạo checklist ở nút Tạo / sửa checklist.' : ''}`}</div>`}
   </div>`;
 }

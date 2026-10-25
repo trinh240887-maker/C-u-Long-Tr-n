@@ -33,10 +33,12 @@ test('Việc ca: gợi ý chia việc theo khu (tiếp thực vào sớm hỗ tr
   asg.run('g2', a1, pv, date, 840, 1380, 1, Date.now());
   asg.run('g3', b1, pv, date, 840, 1380, 2, Date.now());
   asg.run('g4', sup, Number(tt), date, 780, 1380, null, Date.now()); // vào sớm 1 tiếng, chưa phân khu
+  const eve = await mkStaff('PV ca tối', 'staff', '926315', pv);
+  asg.run('g5', eve, pv, date, 1080, 1380, 1, Date.now()); // ca 18h: ngoài khung mở ca 14:00–15:30 → không được phân
 
   // Chủ quán soạn checklist giao việc: Phục vụ + Tiếp thực dùng chung, chỉ Khu A, B
   db.prepare('UPDATE zones SET active = 0 WHERE id = 3').run();
-  const tpl = (await O('POST', '/api/checklist-templates', { title: 'Mở ca Phục vụ (giao việc)', team_id: pv, phase: 'open', job_mode: true, job_teams: [pv, Number(tt)], items: [
+  const tpl = (await O('POST', '/api/checklist-templates', { title: 'Mở ca Phục vụ (giao việc)', team_id: pv, phase: 'open', job_mode: true, job_teams: [pv, Number(tt)], job_from: '14:00', job_to: '15:30', items: [
     { text: 'Lau muỗng', job_qty: '200 cái', job_minutes: 20, photo_required: true },
     { text: 'Check bếp ga', job_per_table: 1, unit: 'bếp', job_minutes: 10, photo_required: false },
     { text: 'Châm tương ớt', job_minutes: 5, fetch_where: 'Kệ 2 Kho bếp', photo_required: false },
@@ -56,6 +58,9 @@ test('Việc ca: gợi ý chia việc theo khu (tiếp thực vào sớm hỗ tr
   assert.ok(all.every((j) => j.staff_id), 'mọi việc đều có người được gợi ý');
   // Việc khu B không giao cho người khu A
   assert.ok(T.zones.find((z) => z.zone_id === 2).jobs.every((j) => j.staff_id !== a1 && j.staff_id !== lead));
+  assert.ok(all.every((j) => j.staff_id !== eve), 'người ca tối không được phân việc mở ca');
+  assert.equal(T.window, '14:00–15:30');
+  assert.ok(!T.zones.find((z) => z.zone_id === 1).people.some((p) => p.id === eve));
   // Tiếp thực vào sớm được giao việc
   assert.ok(all.some((j) => j.staff_id === sup));
   // Người kiểm tra khu A = tổ trưởng có ca ở khu A

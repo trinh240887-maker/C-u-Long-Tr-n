@@ -64,6 +64,11 @@ export default function (r, ctx) {
     return [...by.values()];
   }
 
+  // Có mặt trong khung giờ làm của checklist ít nhất 30 phút (vd mở ca 14:00–15:30)
+  const inWindow = (p, t) => t.job_from == null || Math.min(p.end, t.job_to) - Math.max(p.start, t.job_from) >= Math.min(30, t.job_to - t.job_from);
+  const winText = (t) => (t.job_from == null ? '' : `${hhmm(t.job_from)}–${hhmm(t.job_to)}`);
+  const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
   // Các thẻ việc cần có của 1 checklist trong ngày: việc "mỗi khu" × từng khu, việc "cả quán" 1 thẻ
   function slots(t) {
     const zs = t.zone_id ? zonesAll().filter((z) => z.id === t.zone_id) : zonesAll();
@@ -82,8 +87,9 @@ export default function (r, ctx) {
   // Gợi ý ai làm việc nào. fixed = việc đã nhận / đã xong (giữ nguyên, tính vào tải của người đó)
   function suggest(date, t, fixed = []) {
     let ps = people(date, t);
+    if (t.job_from != null) ps = ps.filter((p) => inWindow(p, t));
     if (!ps.length) return slots(t).map((s) => ({ ...s, staff_id: null }));
-    if (t.phase === 'close') { const last = Math.max(...ps.map((p) => p.end)); ps = ps.filter((p) => p.end >= last - 90); }
+    if (t.job_from != null) { /* đã lọc theo khung giờ của checklist */ } else if (t.phase === 'close') { const last = Math.max(...ps.map((p) => p.end)); ps = ps.filter((p) => p.end >= last - 90); }
     else { const first = Math.min(...ps.map((p) => p.start)); const early = ps.filter((p) => p.start <= first + 120); if (early.length) ps = early; }
     const first = Math.min(...ps.map((p) => p.start)), last = Math.max(...ps.map((p) => p.end));
     const load = new Map(ps.map((p) => [p.id, 0]));
@@ -165,13 +171,13 @@ export default function (r, ctx) {
       const ps = people(date, t);
       const zoneIds = [...new Set(rows.map((x) => x.zone_id))].sort((a, b) => (a || 1e9) - (b || 1e9));
       return {
-        id: t.id, title: t.title, phase: t.phase,
+        id: t.id, title: t.title, phase: t.phase, window: winText(t),
         zones: zoneIds.map((zid) => {
           const list = rows.filter((x) => x.zone_id === zid);
           return {
             zone_id: zid, zone_name: zid ? zname.get(zid)?.name || 'Khu' : 'Việc chung cả quán', color: zid ? zname.get(zid)?.color : '#666', tables: zid ? tables(zid) : 0,
             checkers: checkerOf(date, zid).map((id) => ({ id, name: name(id) })), can_check: canCheck(me, date, zid),
-            people: ps.filter((p) => !zid || p.zone_id === zid || !p.zone_id).map((p) => ({ id: p.id, name: p.name, zone_id: p.zone_id, start: p.start, end: p.end })),
+            people: ps.filter((p) => inWindow(p, t) && (!zid || p.zone_id === zid || !p.zone_id)).map((p) => ({ id: p.id, name: p.name, zone_id: p.zone_id, start: p.start, end: p.end })),
             jobs: list, done: list.filter((x) => ['done', 'ok'].includes(x.status)).length, ok: list.filter((x) => x.status === 'ok').length,
             photos: db.prepare('SELECT id, staff_id, at FROM job_zone_photos WHERE date = ? AND template_id = ? AND zone_id = ? ORDER BY id').all(date, t.id, zid).map((p) => ({ ...p, staff_name: name(p.staff_id) })),
           };
@@ -359,7 +365,7 @@ export default function (r, ctx) {
     if (!ts.length) return;
     // Tạo thẻ việc trong ngày từ 1 tiếng trước ca sớm nhất
     const nowMin = c.minuteOf(now);
-    for (const t of ts) { const ps = people(date, t); if (ps.length && nowMin >= Math.min(...ps.map((p) => p.start)) - 60) materialize(date, t); }
+    for (const t of ts) { const ps = people(date, t); if (ps.length && nowMin >= (t.job_from ?? Math.min(...ps.map((p) => p.start))) - 60) materialize(date, t); }
     const tpl = new Map(ts.map((t) => [t.id, t]));
     for (const j of db.prepare("SELECT * FROM jobs WHERE date = ? AND status IN ('todo','doing')").all(date)) {
       const t = tpl.get(j.template_id);
@@ -376,12 +382,12 @@ export default function (r, ctx) {
         // Đã giao mà chưa bấm Nhận: mở ca → 10 phút sau khi chấm công vào; đóng ca → 30 phút trước giờ về
         const att = db.prepare('SELECT clock_in FROM attendance WHERE staff_id = ? AND date = ? ORDER BY id LIMIT 1').get(j.staff_id, date);
         const p = people(date, t).find((x) => x.id === j.staff_id);
-        const due = t.phase === 'close' ? (p ? nowMin >= p.end - 30 : false) : (att && now > att.clock_in + 10 * 60_000);
+        const due = t.job_from != null ? nowMin >= t.job_from + 10 : t.phase === 'close' ? (p ? nowMin >= p.end - 30 : false) : (att && now > att.clock_in + 10 * 60_000);
         if (due) { db.prepare('UPDATE jobs SET nudged = 1 WHERE id = ?').run(j.id); ctx.notify([j.staff_id], { title: `Việc của bạn: ${it.text}`, body: `${zoneLabel(j.zone_id)} · bấm Nhận rồi làm${it.job_minutes ? ` (chuẩn ${it.job_minutes} phút)` : ''}`, link: '/viec-ca' }); }
       } else {
         // Chưa ai nhận 15 phút sau ca sớm nhất → báo người kiểm tra khu
         const ps = people(date, t);
-        if (ps.length && nowMin >= Math.min(...ps.map((p) => p.start)) + 15) { db.prepare('UPDATE jobs SET nudged = 1 WHERE id = ?').run(j.id); ctx.notify(checkerOf(date, j.zone_id), { title: `Chưa ai nhận: ${it.text}`, body: zoneLabel(j.zone_id), link: '/viec-ca?tab=khu' }); }
+        if (ps.length && nowMin >= (t.job_from ?? Math.min(...ps.map((p) => p.start))) + 15) { db.prepare('UPDATE jobs SET nudged = 1 WHERE id = ?').run(j.id); ctx.notify(checkerOf(date, j.zone_id), { title: `Chưa ai nhận: ${it.text}`, body: zoneLabel(j.zone_id), link: '/viec-ca?tab=khu' }); }
       }
     }
   };

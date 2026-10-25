@@ -96,6 +96,8 @@ function Board({ me }) {
   return html`<div class="stack">
     <div class="row wrap">${ts.map((t) => html`<button class=${`chip ${t.id === cur.id ? 'on' : ''}`} onClick=${() => setPh(t.id)}>${t.title}</button>`)}</div>
     ${canAll ? html`<button onClick=${() => confirm('Chia lại các việc chưa ai bắt đầu theo gợi ý của app (theo ca và khu hiện tại)?') && act(() => api('POST', '/api/jobs/reassign', { template_id: cur.id }), 'Đã chia lại')}>🔄 Chia lại theo gợi ý</button>` : null}
+    ${canAll ? html`<small class="muted">Đổi người: chọn tên ở từng việc. Sửa việc (phút chuẩn, số lượng, chỗ lấy đồ, cần ảnh): <a href="/cai-dat?tab=checklist" onClick=${(e) => { e.preventDefault(); navigate('/cai-dat?tab=checklist'); }}>Cài đặt → Checklist</a>.</small>` : null}
+    ${cur.window ? html`<p class="small">⏰ Khung giờ: <b>${cur.window}</b> · chỉ người có ca trong khung này được phân</p>` : null}
     ${cur.zones.map((z) => html`<${ZoneBoard} t=${cur} z=${z} now=${now} />`)}
   </div>`;
 }

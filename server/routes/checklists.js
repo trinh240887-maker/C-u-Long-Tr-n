@@ -44,6 +44,8 @@ export default function (r, ctx) {
   // (màn Việc ca), có giờ nhận / giờ xong, tổ trưởng khu kiểm. job_teams = các bộ phận dùng chung (vd Phục vụ + Tiếp thực)
   addCol('checklist_templates', 'job_mode', 'INTEGER NOT NULL DEFAULT 0');
   addCol('checklist_templates', 'job_teams', "TEXT NOT NULL DEFAULT '[]'");
+  addCol('checklist_templates', 'job_from', 'INTEGER'); // khung giờ làm (phút trong ngày), vd mở ca 14:00–15:30: chỉ người có ca trùng khung này được phân
+  addCol('checklist_templates', 'job_to', 'INTEGER');
   addCol('checklist_items', 'job_minutes', 'INTEGER NOT NULL DEFAULT 0');      // thời gian chuẩn (phút)
   addCol('checklist_items', 'job_scope', "TEXT NOT NULL DEFAULT 'zone'");     // zone = mỗi khu 1 người · shop = cả quán 1 người
   addCol('checklist_items', 'job_qty', "TEXT NOT NULL DEFAULT ''");           // số lượng ghi tay: "200 muỗng"
@@ -138,7 +140,12 @@ export default function (r, ctx) {
     const rules = body.rules === undefined ? cur.rules ?? '' : v.text(body.rules, { name: 'Chế tài', max: 500 });
     const jobMode = body.job_mode === undefined ? cur.job_mode ?? 0 : v.bool(body.job_mode);
     const jobTeams = body.job_teams === undefined ? cur.job_teams ?? '[]' : JSON.stringify((Array.isArray(body.job_teams) ? body.job_teams : []).map(Number).filter((x) => db.prepare('SELECT 1 FROM teams WHERE id = ?').get(x)));
-    return { title, teamId, phase, shiftId, positionId, zoneId, doer, section, rules, jobMode, jobTeams };
+    const hm = (x, label) => { if (x === '' || x == null) return null; const m = /^(\d{1,2}):(\d{2})$/.exec(String(x)); if (!m || +m[1] > 29 || +m[2] > 59) fail(400, `${label} không hợp lệ (vd 14:00)`); return +m[1] * 60 + +m[2]; };
+    let jobFrom = body.job_from === undefined ? cur.job_from ?? null : hm(body.job_from, 'Giờ bắt đầu');
+    let jobTo = body.job_to === undefined ? cur.job_to ?? null : hm(body.job_to, 'Giờ kết thúc');
+    if (jobFrom != null && jobTo != null && jobTo <= jobFrom) jobTo += 24 * 60; // qua nửa đêm
+    if ((jobFrom == null) !== (jobTo == null)) fail(400, 'Khung giờ cần đủ giờ bắt đầu và giờ kết thúc');
+    return { title, teamId, phase, shiftId, positionId, zoneId, doer, section, rules, jobMode, jobTeams, jobFrom, jobTo };
   }
 
   // Tổ trưởng chỉ tạo/sửa checklist của tổ mình; trưởng ca trở lên sửa mọi tổ và checklist "Cả quán"
@@ -152,7 +159,7 @@ export default function (r, ctx) {
     const f = tplFields(body);
     canEditTpl(me, f.teamId);
     const id = tx(db, () => {
-      const id = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, shift_template_id, position_id, zone_id, doer, section, rules, job_mode, job_teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, f.rules, f.jobMode, f.jobTeams).lastInsertRowid);
+      const id = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, shift_template_id, position_id, zone_id, doer, section, rules, job_mode, job_teams, job_from, job_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, f.rules, f.jobMode, f.jobTeams, f.jobFrom, f.jobTo).lastInsertRowid);
       saveItems(id, body.items);
       return id;
     });
@@ -183,7 +190,7 @@ export default function (r, ctx) {
     canEditTpl(me, f.teamId);
     const active = body.active === undefined ? cur.active : v.bool(body.active);
     tx(db, () => {
-      db.prepare('UPDATE checklist_templates SET team_id = ?, phase = ?, title = ?, shift_template_id = ?, position_id = ?, zone_id = ?, doer = ?, section = ?, rules = ?, job_mode = ?, job_teams = ?, active = ? WHERE id = ?').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, f.rules, f.jobMode, f.jobTeams, active, cur.id);
+      db.prepare('UPDATE checklist_templates SET team_id = ?, phase = ?, title = ?, shift_template_id = ?, position_id = ?, zone_id = ?, doer = ?, section = ?, rules = ?, job_mode = ?, job_teams = ?, job_from = ?, job_to = ?, active = ? WHERE id = ?').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, f.rules, f.jobMode, f.jobTeams, f.jobFrom, f.jobTo, active, cur.id);
       if (body.items !== undefined) saveItems(cur.id, body.items);
     });
     ctx.audit(me, 'checklist.update', { id: cur.id, title: f.title });

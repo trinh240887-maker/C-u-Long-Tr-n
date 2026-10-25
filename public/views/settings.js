@@ -263,6 +263,7 @@ function Templates() {
   </section>`;
 }
 
+const hmOf = (m) => (m == null ? '' : `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
 function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
   const posD = useData('/api/positions');
   const metaD = useData('/api/stock/meta');
@@ -270,7 +271,7 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
   const zonesD = useData('/api/zones');
   const staffD = useData('/api/staff');
   const [f, setF] = useState({ title: init.title || '', team_id: init.team_id ?? '', phase: init.phase || 'open', active: init.active ?? true,
-    shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '', zone_id: init.zone_id ?? '', doer: init.doer || '', section: init.section || '', rules: init.rules || '', job_mode: !!init.job_mode, job_teams: init.job_teams || [],
+    shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '', zone_id: init.zone_id ?? '', doer: init.doer || '', section: init.section || '', rules: init.rules || '', job_mode: !!init.job_mode, job_teams: init.job_teams || [], job_from: hmOf(init.job_from), job_to: hmOf(init.job_to),
     items: init.items?.map((i) => ({ ...i })) || [{ text: '', kind: 'check', unit: '', required: true, photo_required: true }] });
   const item = (i, k, v) => setF({ ...f, items: f.items.map((x, j) => (j === i ? { ...x, [k]: v } : x)) });
   const move = (i, d) => { const items = [...f.items]; const [x] = items.splice(i, 1); items.splice(i + d, 0, x); setF({ ...f, items }); };
@@ -302,6 +303,8 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
           <button class=${`chip ${f.job_mode ? 'on' : ''}`} onClick=${() => setF({ ...f, job_mode: true, job_teams: f.job_teams.length ? f.job_teams : f.team_id ? [Number(f.team_id)] : [] })}>👥 Giao việc từng người</button>
         </div>
         ${f.job_mode ? html`<small class="muted">Mỗi việc thành 1 thẻ: app gợi ý ai làm theo khu đã phân (chia đều, xoay vòng mỗi ngày, mở ca ưu tiên người vào sớm). Nhân viên bấm Nhận → Xong (+ảnh), tổ trưởng khu kiểm. Xem ở <b>Việc ca</b>.</small>
+          <div class="row wrap tight"><span class="small">⏰ Khung giờ làm:</span><input type="time" value=${f.job_from} onInput=${(e) => setF({ ...f, job_from: e.target.value })} aria-label="Từ giờ" /><span>–</span><input type="time" value=${f.job_to} onInput=${(e) => setF({ ...f, job_to: e.target.value })} aria-label="Đến giờ" /></div>
+          <small class="muted">vd Mở ca 14:00 – 15:30: chỉ người có ca trong khung này mới được phân việc. Để trống = theo giờ ca.</small>
           <div class="row wrap tight"><span class="small">Bộ phận làm chung:</span>${teams.map((t) => html`<button class=${`chip ${f.job_teams.includes(t.id) ? 'on' : ''}`} onClick=${() => setF({ ...f, job_teams: f.job_teams.includes(t.id) ? f.job_teams.filter((y) => y !== t.id) : [...f.job_teams, t.id] })}>${t.name}</button>`)}</div>` : null}
       </div>
       <div class="field"><span>Các việc</span>
