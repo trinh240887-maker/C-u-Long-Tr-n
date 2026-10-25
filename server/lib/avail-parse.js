@@ -111,19 +111,19 @@ export function findStaff(text, staff, { single = true } = {}) {
     const opts = new Set([w.join(' ')]);
     if (w.length >= 3) opts.add(w.slice(-2).join(' '));
     if (w.length >= 4) opts.add(w.slice(-3).join(' '));
-    for (const o of opts) keys.push({ key: o, s });
+    for (const o of opts) keys.push({ key: o, s, partial: o !== w.join(' ') });
   }
   // Khớp chuỗi dài trước, mỗi đoạn chữ chỉ dùng 1 lần
   keys.sort((a, b) => b.key.length - a.key.length);
   let rest = t;
   const found = new Map();
-  for (const { key, s } of keys) {
+  for (const { key, s, partial } of keys) {
     if (found.has(s.id)) continue;
     const k = ` ${key} `;
     if (!rest.includes(k)) continue;
     const same = keys.filter((x) => x.key === key && !found.has(x.s.id));
     if (new Set(same.map((x) => x.s.id)).size > 1) continue; // trùng tên → không đoán
-    found.set(s.id, s);
+    found.set(s.id, partial ? { ...s, _partial: true } : s);
     rest = rest.replace(k, ' ');
   }
   // Tên 1 chữ (vd "Tú") chỉ nhận khi đúng 1 nhân viên có chữ cuối đó
@@ -200,7 +200,14 @@ export function parseAvailMessage(text, { staff, today, sender }) {
   if (people.length && people.every((x) => x._single) && left.length >= 1) {
     return { people: [], picks, off: [...off], week: nextWeek, unknownName: [...left, ...people.map((x) => norm(x.name).trim().split(/\s+/).at(-1))].join(' '), bySender: false };
   }
-  people = people.map(({ _single, ...x }) => x);
+  // Khớp thiếu họ ("Thành Phát" ↔ Lê Thành Phát) mà tin ghi họ KHÁC ("Phan Thành Phát") → người khác, không đoán; hỏi lại (chủ quán 25/10)
+  const SURNAMES = new Set(['nguyen', 'tran', 'le', 'pham', 'hoang', 'huynh', 'phan', 'vu', 'vo', 'dang', 'bui', 'do', 'ho', 'ngo', 'duong', 'ly', 'truong', 'dinh', 'cao', 'lam', 'luong', 'ta', 'trinh', 'quach', 'la', 'thai', 'kieu', 'ton', 'chau', 'tang', 'ha', 'mac', 'tieu', 'doan', 'au', 'luu', 'khuu', 'lai', 'giang', 'tong', 'van']);
+  const otherSurname = (x) => left.some((w) => SURNAMES.has(w) && !norm(x.name).split(/\s+/).includes(w));
+  if (people.length && people.every((x) => x._partial || x._single) && people.some(otherSurname)) {
+    return { people: [], picks, off: [...off], week: nextWeek, near: people.map(({ _single, _partial, ...x }) => x),
+      unknownName: [...left, ...people.map((x) => norm(x.name).trim().split(/\s+/).slice(-2).join(' '))].join(' '), bySender: false };
+  }
+  people = people.map(({ _single, _partial, ...x }) => x);
   return { people, picks, off: [...off], week: nextWeek, unknownName: !named && left.length >= 2 ? left.join(' ') : '', bySender: !named && people.length > 0 };
 }
 

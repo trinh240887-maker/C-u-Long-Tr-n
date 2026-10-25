@@ -390,6 +390,7 @@ export default function (r, ctx) {
       // Tên trùng người đã nghỉ việc → không ghi, báo quản lý mở lại nếu đi làm lại
       const quit = findStaff(u.text, db.prepare('SELECT id, name FROM staff WHERE active = 0').all(), { single: false });
       if (quit.length) return `⛔ ${quit.map((x) => x.name).join(', ')} đã nghỉ việc trong danh sách nên bot không ghi lịch. Đi làm lại thì báo quản lý mở lại tài khoản (Nhân viên → Hiện cả người đã nghỉ việc → bật lại).`;
+      if (p.near?.length) return `❓ Danh sách không có đúng tên bạn nhắn. Có phải ${p.near.map((x) => x.name).join(' / ')}? Nhắn lại ĐÚNG họ tên trong danh sách, hoặc thêm 4 số cuối SĐT, vd: @bot ${p.near[0].name} 1234 T2-CN 14-23.\nNếu bạn là người mới: ${NEW_HINT}`;
       const same = p.unknownName ? staff.filter((x) => norm(x.name).includes(p.unknownName.split(' ').slice(-2).join(' '))) : [];
       if (same.length > 1) return `❓ Có ${same.length} bạn tên giống nhau (${same.map((x) => x.name).join(', ')}). Ghi thêm 4 số cuối SĐT, vd: @bot ${same[0].name} 1234 14-23`;
       pendingAvail(u.from.id, u.text);

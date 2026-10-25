@@ -41,3 +41,13 @@ test('đọc tin báo lịch: "Trần Trung Hậu" không bị nhận nhầm là
   // Chỉ ghi 1 chữ "Tú" thì vẫn hiểu là Cẩm Tú
   assert.deepEqual(parseAvailMessage('@Bot Tú 14-23', { staff: st, today: '2026-10-25', sender: null }).people.map((x) => x.name), ['Cẩm Tú']);
 });
+
+test('đọc tin báo lịch: khác họ ("Phan Thành Phát" ↔ Lê Thành Phát) không đoán, gợi ý người gần giống; ghi thiếu họ vẫn nhận', () => {
+  const st = [{ id: 1, name: 'Lê Thành Phát' }, { id: 2, name: 'Nguyễn Hồng Phúc' }];
+  const r = parseAvailMessage('@Bot Cửu Long Trấn Phan Thành Phát T2-CN (14-23h)', { staff: st, today: '2026-10-25', sender: null });
+  assert.deepEqual(r.people, []);
+  assert.deepEqual(r.near.map((x) => x.name), ['Lê Thành Phát']);
+  assert.equal(parseAvailMessage('@Bot Thành Phát T2-CN 14-23', { staff: st, today: '2026-10-25', sender: null }).people[0]?.name, 'Lê Thành Phát');
+  assert.equal(parseAvailMessage('@Bot Lê Thành Phát T2-CN 14-23', { staff: st, today: '2026-10-25', sender: null }).people[0]?.name, 'Lê Thành Phát');
+  assert.equal(parseAvailMessage('Hồng Phúc 14-23 làm được', { staff: st, today: '2026-10-25', sender: null }).people[0]?.name, 'Nguyễn Hồng Phúc');
+});
