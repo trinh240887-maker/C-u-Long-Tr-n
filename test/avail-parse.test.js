@@ -32,3 +32,12 @@ test('đọc tin báo lịch: "T2-T4-T5 nghỉ" là liệt kê, không phải kh
   assert.deepEqual(a.picks, { '10-27': '18:00-23:00', '10-30': '18:00-23:00', '10-31': '18:00-23:00', '11-01': '18:00-23:00' });
   assert.deepEqual(Object.keys(read('Trần Kim T2-T6 14-23, T7 CN 10-22').picks).length, 7);
 });
+
+test('đọc tin báo lịch: "Trần Trung Hậu" không bị nhận nhầm là "Phước Hậu" (chỉ trùng chữ cuối)', () => {
+  const st = [{ id: 1, name: 'Phước Hậu' }, { id: 2, name: 'Cẩm Tú' }];
+  const r = parseAvailMessage('@Bot Cửu Long Trấn Trần trung hậu 8h - 12h , 14h - 23h', { staff: st, today: '2026-10-25', sender: null });
+  assert.deepEqual(r.people, []);
+  assert.ok(r.unknownName);
+  // Chỉ ghi 1 chữ "Tú" thì vẫn hiểu là Cẩm Tú
+  assert.deepEqual(parseAvailMessage('@Bot Tú 14-23', { staff: st, today: '2026-10-25', sender: null }).people.map((x) => x.name), ['Cẩm Tú']);
+});

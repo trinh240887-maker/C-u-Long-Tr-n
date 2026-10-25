@@ -131,7 +131,7 @@ export function findStaff(text, staff, { single = true } = {}) {
     for (const s of staff) {
       const last = norm(s.name).trim().split(/\s+/).at(-1);
       if (!last || last.length < 2 || DATE_WORDS.has(last) || !rest.includes(` ${last} `)) continue;
-      if (staff.filter((x) => norm(x.name).trim().split(/\s+/).at(-1) === last).length === 1) found.set(s.id, s);
+      if (staff.filter((x) => norm(x.name).trim().split(/\s+/).at(-1) === last).length === 1) found.set(s.id, { ...s, _single: true });
     }
   }
   return [...found.values()];
@@ -140,6 +140,7 @@ export function findStaff(text, staff, { single = true } = {}) {
 // Kết quả: { people, picks: { date: [ranges] }, off: [date], week } — picks rỗng + off rỗng = không hiểu giờ
 export function parseAvailMessage(text, { staff, today, sender }) {
   let people = findStaff(String(text || '').replace(/@\S+/g, ' '), staff, { single: !sender });
+  const named = people.length > 0;
   if (!people.length && sender) people = staff.filter((s) => s.id === sender);
   // Bỏ @bot và tên người (tên "Mai" không bị hiểu là "ngày mai")
   let raw = norm(text).replace(/@\S+/g, ' ');
@@ -190,7 +191,47 @@ export function parseAvailMessage(text, { staff, today, sender }) {
     if (bare.length && !done.size) add(bare, base.times);
     else add(week.filter((d) => !done.has(d)), base.times);
   }
+  // Chữ còn lại sau khi bỏ giờ, ngày, từ khoá: có ≥ 2 chữ mà không khớp ai = có thể là tên người chưa có trong app
+  const STOP = new Set(['nghi', 'ban', 'off', 'khong', 'di', 'lam', 'con', 'lai', 'ngay', 'khac', 'cac', 'ca', 'tuan', 'thu', 'cn', 'chu', 'nhat', 'mai', 'hom', 'nay', 'toi', 'mot', 'den', 'h', 'g', 'gio', 'va', 'tu', 'full', 'gay', 'chinh', 'sang', 'chieu', 'dem', 'phuc', 'vu', 'tiep', 'thuc', 'bep', 'bar', 'thu', 'ngan', 'tap', 'truong', 'to', 'nhan', 'vien', 'pv', 'tt', 'nv', 'oi', 'a', 'e', 'em', 'anh', 'chi', 'nhe', 'nha', 'xin', 'bao', 'lich', 'ranh']);
+  const left = blank.replace(/\b(?:t|thu|th)\s*[2-7]\b/g, ' ').replace(/[^a-z\s]/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !STOP.has(w));
   // Ngày ghi "nghỉ" riêng thắng khoảng ngày ("T4 nghỉ, T5 nghỉ, T3-T6 14-23" → T4, T5 nghỉ)
   for (const d of off) delete picks[d];
-  return { people, picks, off: [...off], week: nextWeek };
+  // Khớp chỉ bằng 1 chữ cuối ("Hậu") mà trong tin còn chữ tên khác ("Trần Trung Hậu") → là người khác, không đoán (chủ quán 25/10)
+  if (people.length && people.every((x) => x._single) && left.length >= 1) {
+    return { people: [], picks, off: [...off], week: nextWeek, unknownName: [...left, ...people.map((x) => norm(x.name).trim().split(/\s+/).at(-1))].join(' '), bySender: false };
+  }
+  people = people.map(({ _single, ...x }) => x);
+  return { people, picks, off: [...off], week: nextWeek, unknownName: !named && left.length >= 2 ? left.join(' ') : '', bySender: !named && people.length > 0 };
+}
+
+// Tin đăng ký nhân viên mới: "NV mới: Trần Trung Hậu, 0901234567, Phục vụ, nhân viên"
+const NEW_KEY = /\b(nv moi|nhan vien moi|nguoi moi|ban moi|moi vao|dang ky nv|dang ky nhan vien)\b/;
+export function isNewStaffMsg(text) { return NEW_KEY.test(norm(String(text || '').replace(/@\S+/g, ' '))); }
+export function parseNewStaff(text, { teams = [], positions = [] } = {}) {
+  const raw = String(text || '').replace(/@\S+/g, ' ');
+  const phoneM = raw.replace(/[.\s]/g, '').match(/(?:\+?84|0)\d{9,10}/);
+  const phone = phoneM ? phoneM[0].replace(/^\+?84/, '0') : '';
+  const parts = raw.replace(/(?:\+?84|0)[\d.\s]{9,14}/, ' ').split(/[,;|\n\-–:]+/).map((x) => x.trim()).filter(Boolean)
+    .map((x) => x.replace(/\b(nv|nhân viên|người|bạn)\s+mới\b|\bmới vào\b|\bđăng ký( nv| nhân viên)?\b|\bsđt\b|\bsdt\b|\bvị trí\b|\bchức vụ\b|\bbộ phận\b/gi, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const lc = (x) => norm(x).trim();
+  let team = null, position = null, role = 'staff', name = '';
+  for (const p of parts) {
+    const n = lc(p);
+    if (/truong ca/.test(n)) { role = 'shift_lead'; continue; }
+    if (/to truong/.test(n)) { role = 'team_lead'; continue; }
+    if (/^(nhan vien|nv|part ?time|full ?ca|ca gay)$/.test(n)) continue;
+    const t = teams.find((x) => lc(x.name) === n) || teams.find((x) => n.includes(lc(x.name)));
+    if (t && !team) {
+      team = t;
+      // "Lê Văn A tiếp thực" → bỏ tên bộ phận, phần còn lại là tên
+      const rest = p.split(/\s+/).slice(0, Math.max(0, p.split(/\s+/).length - t.name.split(/\s+/).length)).join(' ');
+      if (!name && lc(rest) && !lc(rest).includes(lc(t.name)) && rest.split(/\s+/).length >= 2 && n.endsWith(lc(t.name))) name = rest;
+      continue;
+    }
+    const ps = positions.find((x) => lc(x.name) === n);
+    if (ps && !position) { position = ps; if (!team) team = teams.find((x) => x.id === ps.team_id) || null; continue; }
+    if (!name && /[a-zà-ỹđ]/i.test(p) && p.split(/\s+/).length >= 2) name = p.replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  if (name) name = name.split(/\s+/).map((w) => w.charAt(0).toLocaleUpperCase('vi') + w.slice(1).toLocaleLowerCase('vi')).join(' ');
+  return { name, phone, team_id: team?.id || null, team_name: team?.name || '', position_id: position?.id || null, role };
 }

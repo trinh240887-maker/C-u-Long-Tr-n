@@ -1,6 +1,7 @@
 import { fail, v } from '../http.js';
 import { tx, rank, ROLES, ROLE_LABEL } from '../db.js';
 import { validatePin } from './auth.js';
+import { addDays } from '../lib/time.js';
 
 export default function (r, ctx) {
   const { db } = ctx;
@@ -133,7 +134,17 @@ export default function (r, ctx) {
         db.prepare('UPDATE staff SET pin_lookup = ?, must_change_pin = 1 WHERE id = ?').run(validatePin(db, body.pin, f.role, cur.id), cur.id);
       }
       if (!active || body.pin) db.prepare('DELETE FROM sessions WHERE staff_id = ? AND staff_id != ?').run(cur.id, me.id);
+      // Nghỉ việc (chủ quán 25/10): bỏ ca + lịch rảnh từ ngày mai, bỏ lịch cố định, gỡ liên kết Zalo bot. Giữ chấm công / lương cũ
+      if (cur.active && !active) {
+        const tomorrow = addDays(ctx.today(), 1);
+        db.prepare("UPDATE leave_requests SET status = 'cancelled', decision_note = 'Nhân viên đã nghỉ việc' WHERE staff_id = ? AND status = 'pending' AND date >= ?").run(cur.id, tomorrow);
+        db.prepare('DELETE FROM assignments WHERE staff_id = ? AND date >= ? AND NOT EXISTS (SELECT 1 FROM attendance x WHERE x.assignment_id = assignments.id)').run(cur.id, tomorrow);
+        db.prepare('DELETE FROM availability WHERE staff_id = ? AND date >= ?').run(cur.id, tomorrow);
+        db.prepare('DELETE FROM availability_fixed WHERE staff_id = ?').run(cur.id);
+        try { db.prepare('DELETE FROM zalo_bot_users WHERE staff_id = ?').run(cur.id); } catch { /* chưa có bảng */ }
+      }
     });
+    if (cur.active && !active) { ctx.broadcast('schedule'); ctx.broadcast('availability'); }
     ctx.audit(me, 'staff.update', { id: cur.id, name: f.name, active, pin_reset: !!body.pin });
     ctx.broadcast('staff');
     return { ok: true };

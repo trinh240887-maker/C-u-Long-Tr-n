@@ -3,6 +3,44 @@ import { html, api, act, useData, Modal, Field, Loading, money, ROLE_LABEL, atLe
 
 const ROLES = ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'];
 
+// Nhân viên mới đăng ký qua bot Zalo → quản lý kiểm tra, bấm Thêm (app tạo tài khoản + PIN, bot báo nhóm, điền lịch đã báo)
+function StaffRequests({ me, teams }) {
+  const rq = useData('/api/staff-requests');
+  const [f, setF] = useState({});
+  const [made, setMade] = useState(null);
+  if (!rq.data?.length && !made) return null;
+  const val = (q, k) => (f[q.id]?.[k] ?? q[k] ?? '');
+  const set = (q, k, v) => setF({ ...f, [q.id]: { ...(f[q.id] || {}), [k]: v } });
+  const add = async (q) => {
+    const body = { name: val(q, 'name'), phone: val(q, 'phone'), team_id: Number(val(q, 'team_id')) || null, role: val(q, 'role') || 'staff', pay_type: val(q, 'pay_type') || 'hour', pay_rate: Number(val(q, 'pay_rate')) || 0, position_id: q.position_id || null };
+    let res = null, pin = '';
+    for (let k = 0; k < 4 && !res; k++) {
+      pin = String(Math.floor(100000 + Math.random() * 900000));
+      try { res = await api('POST', '/api/staff', { ...body, pin }); } catch (e) { if (!/PIN/.test(e.message)) { act(() => Promise.reject(e)); return; } }
+    }
+    if (!res) return;
+    if (await act(() => api('POST', `/api/staff-requests/${q.id}/done`, { staff_id: res.id }), 'Đã thêm nhân viên')) setMade({ name: body.name, pin });
+  };
+  return html`<section class="card stack attn">
+    <h3>🆕 Nhân viên mới chờ duyệt (${rq.data?.length || 0})</h3>
+    ${made ? html`<p class="ok-text">✓ Đã thêm <b>${made.name}</b>. Mã PIN đăng nhập: <b style="font-size:20px">${made.pin}</b> (gửi riêng cho bạn ấy, lần đầu đăng nhập app bắt đổi).</p>` : null}
+    ${(rq.data || []).map((q) => html`<div class="card tight stack">
+      <small class="muted">Nhắn qua Zalo${q.from_name ? ` (${q.from_name})` : ''}: "${q.raw}"</small>
+      <div class="form-grid">
+        <${Field} label="Họ tên"><input value=${val(q, 'name')} onInput=${(e) => set(q, 'name', e.target.value)} /><//>
+        <${Field} label="Số điện thoại"><input value=${val(q, 'phone')} inputmode="tel" onInput=${(e) => set(q, 'phone', e.target.value)} /><//>
+        <${Field} label="Bộ phận"><select value=${val(q, 'team_id')} onChange=${(e) => set(q, 'team_id', e.target.value)}><option value="">(chưa chọn)</option>${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
+        <${Field} label="Chức vụ"><select value=${val(q, 'role') || 'staff'} onChange=${(e) => set(q, 'role', e.target.value)}>${['staff', 'team_lead', 'shift_lead'].map((r) => html`<option value=${r}>${ROLE_LABEL[r]}</option>`)}</select><//>
+        ${atLeast(me, 'manager') ? html`<${Field} label="Tính lương"><select value=${val(q, 'pay_type') || 'hour'} onChange=${(e) => set(q, 'pay_type', e.target.value)}><option value="hour">Theo giờ</option><option value="shift">Theo ca</option><option value="month">Theo tháng</option></select><//>
+        <${Field} label="Mức lương (đ)"><input type="number" inputmode="numeric" step="1000" value=${val(q, 'pay_rate')} onInput=${(e) => set(q, 'pay_rate', e.target.value)} /><//>` : null}
+      </div>
+      ${q.avail_text ? html`<small class="muted">Lịch đã báo trước: "${q.avail_text.slice(0, 80)}" (duyệt xong tự điền)</small>` : null}
+      <div class="row end"><button onClick=${() => confirm(`Không thêm ${q.name}?`) && act(() => api('POST', `/api/staff-requests/${q.id}/reject`), 'Đã bỏ')}>Không thêm</button>
+        <button class="primary" disabled=${!val(q, 'name')} onClick=${() => add(q)}>Thêm vào danh sách</button></div>
+    </div>`)}
+  </section>`;
+}
+
 function StaffForm({ me, init, teams, positions = [], onClose }) {
   const isNew = !init.id;
   const [f, setF] = useState({
@@ -99,6 +137,7 @@ export function StaffView({ me }) {
     <td>${s.zalo_linked ? html`<span class="pill ok">Đã liên kết</span>` : html`<span class="pill muted">Chưa</span>`}</td>
   </tr>`;
   return html`<div class="stack">
+    ${atLeast(me, 'manager') ? html`<${StaffRequests} me=${me} teams=${teams} />` : null}
     <div class="row between wrap">
       <div class="row"><input id="staff-q" type="search" placeholder="Tìm tên, số điện thoại" value=${q} onInput=${(e) => setQ(e.target.value)} />
         <label class="check-row"><input id="staff-all" type="checkbox" checked=${all} onChange=${(e) => setAll(e.target.checked)} /> Hiện cả người đã nghỉ việc</label></div>

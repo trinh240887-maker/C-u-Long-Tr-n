@@ -2,7 +2,7 @@ import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
 import { isDate, addDays, weekStart, isoWeekday } from '../lib/time.js';
 import { allowedPages } from '../lib/perms.js';
-import { parseAvailMessage, findStaff } from '../lib/avail-parse.js';
+import { parseAvailMessage, findStaff, isNewStaffMsg, parseNewStaff, norm } from '../lib/avail-parse.js';
 
 // Lịch rảnh: nhân viên thời vụ tự báo buổi rảnh của tuần sau; quản lý xem dư/thiếu rồi tự xếp ca.
 export const DEFAULT_SLOTS = [
@@ -324,9 +324,42 @@ export default function (r, ctx) {
     }
     return t;
   }
+  // ---------- Nhân viên mới đăng ký qua bot → quản lý duyệt (chủ quán 25/10) ----------
+  db.exec(`CREATE TABLE IF NOT EXISTS staff_requests (
+    id INTEGER PRIMARY KEY, at INTEGER NOT NULL, chat_id TEXT NOT NULL DEFAULT '', from_uid TEXT NOT NULL DEFAULT '', from_name TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '', team_id INTEGER, position_id INTEGER, role TEXT NOT NULL DEFAULT 'staff',
+    raw TEXT NOT NULL DEFAULT '', avail_text TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', staff_id INTEGER, decided_by INTEGER, decided_at INTEGER)`);
+  const NEW_HINT = 'Nhắn: @bot NV mới: Họ tên, Số điện thoại, Bộ phận, Chức vụ (vd: @bot NV mới: Trần Trung Hậu, 0901234567, Phục vụ, nhân viên)';
+  // Lịch báo trước khi có tên trong app: giữ lại theo người nhắn, duyệt xong tự điền
+  const pendingAvail = (uid, text) => {
+    if (!uid) return;
+    const r = db.prepare("SELECT id FROM staff_requests WHERE from_uid = ? AND status = 'pending' ORDER BY id DESC LIMIT 1").get(uid);
+    if (r) db.prepare('UPDATE staff_requests SET avail_text = ? WHERE id = ?').run(text, r.id);
+    else db.prepare("INSERT INTO staff_requests (at, from_uid, status, avail_text) VALUES (?, ?, 'draft', ?) ").run(ctx.now(), uid, text);
+  };
+  function handleNewStaff(u) {
+    const teams = db.prepare('SELECT id, name FROM teams WHERE active = 1').all();
+    const positions = db.prepare('SELECT id, team_id, name FROM positions WHERE active = 1').all();
+    const f = parseNewStaff(u.text, { teams, positions });
+    if (!f.name) return `❓ Chưa đọc được họ tên. ${NEW_HINT}`;
+    if (!f.phone) return `❓ Thiếu số điện thoại (để phân biệt khi trùng tên). ${NEW_HINT}`;
+    const dupPhone = db.prepare("SELECT name FROM staff WHERE active = 1 AND replace(replace(phone, ' ', ''), '.', '') = ?").get(f.phone);
+    if (dupPhone) return `ℹ Số ${f.phone} đã có trong danh sách: ${dupPhone.name}. Báo lịch bình thường: @bot ${dupPhone.name} 14-23`;
+    const old = db.prepare("SELECT * FROM staff_requests WHERE status IN ('pending', 'draft') AND (phone = ? OR (from_uid = ? AND from_uid != '')) ORDER BY id DESC LIMIT 1").get(f.phone, u.from.id || '');
+    const vals = [ctx.now(), u.chat.id, u.from.id || '', u.from.name || '', f.name, f.phone, f.team_id, f.position_id, f.role, u.text.slice(0, 300)];
+    if (old) db.prepare("UPDATE staff_requests SET at = ?, chat_id = ?, from_uid = ?, from_name = ?, name = ?, phone = ?, team_id = ?, position_id = ?, role = ?, raw = ?, status = 'pending' WHERE id = ?").run(...vals, old.id);
+    else db.prepare("INSERT INTO staff_requests (at, chat_id, from_uid, from_name, name, phone, team_id, position_id, role, raw, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')").run(...vals);
+    const ROLE = { staff: 'nhân viên', team_lead: 'tổ trưởng', shift_lead: 'trưởng ca' };
+    ctx.notify(ctx.managers(), { title: `🆕 Nhân viên mới chờ duyệt: ${f.name}`, body: `${f.phone} · ${f.team_name || 'chưa rõ bộ phận'} · ${ROLE[f.role]}. Vào Nhân viên để thêm.`, link: '/nhan-vien', urgent: true });
+    ctx.broadcast('staff');
+    return `📝 Đã ghi nhân viên mới: ${f.name} · ${f.phone} · ${f.team_name || 'chưa rõ bộ phận'} · ${ROLE[f.role]}.\nChờ quản lý duyệt; duyệt xong bot báo ở đây${old?.avail_text ? ' và tự điền lịch bạn đã báo' : ''}.`;
+  }
+  ctx.handleNewStaffMsg = handleNewStaff;
+
   function handleBotMsg(u0) {
     const u = { ...u0, text: stripBotName(u0.text) };
-    const staff = db.prepare('SELECT id, name FROM staff WHERE active = 1').all();
+    if (isNewStaffMsg(u.text)) return handleNewStaff(u);
+    const staff = db.prepare('SELECT id, name, phone FROM staff WHERE active = 1').all();
     // Người nhắn: đã liên kết, hoặc tên Zalo trùng đúng 1 nhân viên
     let sender = u.from.id ? db.prepare('SELECT staff_id FROM zalo_bot_users WHERE uid = ?').get(u.from.id)?.staff_id : null;
     if (!sender && u.from.id && u.from.name) {
@@ -334,9 +367,24 @@ export default function (r, ctx) {
       if (m.length === 1) { sender = m[0].id; db.prepare('INSERT OR REPLACE INTO zalo_bot_users (uid, staff_id) VALUES (?, ?)').run(u.from.id, sender); }
     }
     const p = parseAvailMessage(u.text, { staff, today: ctx.today(), sender });
+    // Trùng tên: ghi thêm SĐT (đủ số hoặc 4 số cuối) để chọn đúng người
+    const digits = (u.text.match(/\d[\d.\s]{3,13}\d/g) || []).map((x) => x.replace(/\D/g, '')).filter((x) => x.length >= 4 && x.length <= 11);
+    if (digits.length) {
+      const byPhone = staff.filter((x) => { const ph = String(x.phone || '').replace(/\D/g, ''); return ph && digits.some((d) => ph.endsWith(d.slice(-Math.min(d.length, 10)))); });
+      if (byPhone.length === 1) { p.people = byPhone; p.bySender = false; p.unknownName = ''; }
+    }
     const hint = 'Nhắn kiểu: @bot Tên 14-23 (cả tuần), ngày khác ghi riêng: @bot Tên 14-23, T7 nghỉ, CN 10-23';
     if (!Object.keys(p.picks).length && !p.off.length) return `❓ Chưa đọc được giờ. ${hint}`;
-    if (!p.people.length) return `❓ Chưa thấy tên nhân viên (ghi đúng tên như trong app). ${hint}`;
+    // Tên chưa có trong danh sách → báo là người mới, giữ lịch lại chờ duyệt
+    if (!p.people.length || (p.bySender && p.unknownName)) {
+      // Tên trùng người đã nghỉ việc → không ghi, báo quản lý mở lại nếu đi làm lại
+      const quit = findStaff(u.text, db.prepare('SELECT id, name FROM staff WHERE active = 0').all(), { single: false });
+      if (quit.length) return `⛔ ${quit.map((x) => x.name).join(', ')} đã nghỉ việc trong danh sách nên bot không ghi lịch. Đi làm lại thì báo quản lý mở lại tài khoản (Nhân viên → Hiện cả người đã nghỉ việc → bật lại).`;
+      const same = p.unknownName ? staff.filter((x) => norm(x.name).includes(p.unknownName.split(' ').slice(-2).join(' '))) : [];
+      if (same.length > 1) return `❓ Có ${same.length} bạn tên giống nhau (${same.map((x) => x.name).join(', ')}). Ghi thêm 4 số cuối SĐT, vd: @bot ${same[0].name} 1234 14-23`;
+      pendingAvail(u.from.id, u.text);
+      return `🆕 Bạn là người mới, chưa có trong danh sách nhân viên nên bot chưa ghi lịch.\n${NEW_HINT}\nĐăng ký xong, quản lý duyệt là lịch bạn vừa báo được điền luôn.`;
+    }
     const lines = [];
     let locked = false;
     for (const person of p.people) {
@@ -394,6 +442,37 @@ export default function (r, ctx) {
       if (!/Chưa dán token/.test(e.message)) console.error('Bot đọc tin lỗi:', e.message);
     } finally { polling = false; }
   };
+
+  // Danh sách chờ duyệt + duyệt / từ chối (quản lý). Duyệt: tạo tài khoản ở /api/staff rồi gọi /done để liên kết Zalo + điền lịch + báo nhóm
+  r.get('/api/staff-requests', 'manager', () => db.prepare(`SELECT q.*, t.name AS team_name FROM staff_requests q LEFT JOIN teams t ON t.id = q.team_id
+    WHERE q.status = 'pending' ORDER BY q.at DESC`).all());
+  r.post('/api/staff-requests/:id/done', 'manager', async ({ me, params, body }) => {
+    const q = db.prepare('SELECT * FROM staff_requests WHERE id = ?').get(params.id);
+    if (!q || q.status !== 'pending') fail(404, 'Không tìm thấy yêu cầu');
+    const st = db.prepare('SELECT id, name FROM staff WHERE id = ? AND active = 1').get(v.int(body.staff_id, { min: 1, name: 'Nhân viên' }));
+    if (!st) fail(404, 'Không tìm thấy nhân viên vừa tạo');
+    db.prepare("UPDATE staff_requests SET status = 'approved', staff_id = ?, decided_by = ?, decided_at = ? WHERE id = ?").run(st.id, me.id, ctx.now(), q.id);
+    // Liên kết Zalo người nhắn ↔ nhân viên mới chỉ khi chính bạn ấy nhắn (tên Zalo khớp), tránh trưởng ca đăng ký hộ bị gắn nhầm
+    if (q.from_uid && findStaff(q.from_name, [st]).length && !db.prepare('SELECT 1 FROM zalo_bot_users WHERE uid = ?').get(q.from_uid)) db.prepare('INSERT INTO zalo_bot_users (uid, staff_id) VALUES (?, ?)').run(q.from_uid, st.id);
+    let extra = '';
+    if (q.avail_text) {
+      const p = parseAvailMessage(q.avail_text, { staff: [st], today: ctx.today(), sender: st.id });
+      if (Object.keys(p.picks).length || p.off.length) { const r = applyBot(st.id, p.picks, p.off); if (r.dates.length) extra = `\nĐã điền lịch bạn báo trước: ${describe(p.picks, p.off, r.dates, p.week)}`; }
+      ctx.broadcast('availability');
+    }
+    if (q.chat_id && ctx.zaloBot?.ready()) await ctx.zaloBot.send(q.chat_id, `✅ Đã thêm ${st.name} vào danh sách nhân viên.${extra}\nTừ giờ báo lịch: @bot ${st.name} 14-23`).catch(() => {});
+    ctx.audit(me, 'staff_request.approve', { id: q.id, staff: st.id });
+    ctx.broadcast('staff');
+    return { ok: true };
+  });
+  r.post('/api/staff-requests/:id/reject', 'manager', async ({ me, params }) => {
+    const q = db.prepare('SELECT * FROM staff_requests WHERE id = ?').get(params.id);
+    if (!q || q.status !== 'pending') fail(404, 'Không tìm thấy yêu cầu');
+    db.prepare("UPDATE staff_requests SET status = 'rejected', decided_by = ?, decided_at = ? WHERE id = ?").run(me.id, ctx.now(), q.id);
+    ctx.audit(me, 'staff_request.reject', q.id);
+    ctx.broadcast('staff');
+    return { ok: true };
+  });
 
   r.post('/api/availability/remind', 'manager', async ({ me, body }) => {
     const ws = readWeek(body.week);
