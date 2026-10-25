@@ -141,7 +141,14 @@ export function parseAvailMessage(text, { staff, today, sender }) {
   const nd = numericDates(raw, today);
   const tokens = [...nd.tokens];
   for (const m of nd.text.matchAll(TIME)) { const t = timesOf(m[0]); if (t.length) tokens.push({ pos: m.index, kind: 'time', times: t }); }
-  const blank = nd.text.replace(TIME, (x) => ' '.repeat(x.length));
+  let blank = nd.text.replace(TIME, (x) => ' '.repeat(x.length));
+  // "14h,23h" / "14h , 23h" (gõ dấu phẩy thay gạch) → hiểu là 14h-23h
+  for (const m of [...blank.matchAll(/\b(\d{1,2})\s*h\s*,\s*(\d{1,2})\s*h\b(?!\s*[-–])/g)]) {
+    const t = timesOf(`${m[1]}h-${m[2]}h`);
+    if (!t.length) continue;
+    tokens.push({ pos: m.index, kind: 'time', times: t });
+    blank = blank.slice(0, m.index) + ' '.repeat(m[0].length) + blank.slice(m.index + m[0].length);
+  }
   tokens.push(...dateTokens(blank, today));
   for (const m of blank.matchAll(/\b(nghi|ban|khong di|khong lam|off)\b/g)) tokens.push({ pos: m.index, kind: 'off' });
   for (const m of blank.matchAll(/\b(con lai|ngay khac|cac ngay khac|ca tuan)\b/g)) tokens.push({ pos: m.index, kind: 'rest' });
@@ -169,5 +176,7 @@ export function parseAvailMessage(text, { staff, today, sender }) {
     if (bare.length && !done.size) add(bare, base.times);
     else add(week.filter((d) => !done.has(d)), base.times);
   }
+  // Ngày ghi "nghỉ" riêng thắng khoảng ngày ("T4 nghỉ, T5 nghỉ, T3-T6 14-23" → T4, T5 nghỉ)
+  for (const d of off) delete picks[d];
   return { people, picks, off: [...off], week: nextWeek };
 }

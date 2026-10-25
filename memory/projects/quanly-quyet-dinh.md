@@ -156,3 +156,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 150 | 25/10/2026 | **Không phụ cấp làm đêm** (night_bonus_pct = 0, làm đúng ca) |
 | 151 | 25/10/2026 | **Lương chỉ tính trong khung ca**: vào sớm không tính; về sớm bị trừ + báo trưởng ca (quá số phút cho phép trễ); ở lại sau giờ ca > 10′ = tăng ca **chờ CHỦ QUÁN duyệt** (Chấm công → Duyệt tăng ca), duyệt mới cộng lương. Lượt không có ca (quản lý/chủ) tính giờ thực tế |
 | 152 | 25/10/2026 | **Ở lại sau giờ ca = làm cho xong việc, không phải tăng ca**: không báo ai, nhân viên/trưởng ca không thấy; chỉ chủ quán thấy "ở lại X′ · không tính" ở Chấm công và tự bấm "Tính thêm" nếu muốn |
+| 153 | 25/10/2026 | **Bot đọc lịch**: ngày ghi "nghỉ" riêng thắng khoảng ngày (T4 nghỉ + T3-T6 14-23 → T4 nghỉ); "14h,23h" (dấu phẩy) hiểu là 14h-23h |
