@@ -119,7 +119,7 @@ function PickChecklist({ me }) {
   const lead = ['shift_lead', 'manager', 'owner'].includes(me.role);
   if (!lead) return html`<p class="muted">Quản lý chưa bật giao việc từng người.</p>`;
   if (!d.data) return html`<${Loading} state=${d} />`;
-  const list = d.data.filter((t) => !t.job_mode && t.items.length >= 3);
+  const list = d.data.filter((t) => !t.job_mode && t.items.length >= 2);
   const tt = (me.teams || []).find((t) => /tiếp thực|tiep thuc/i.test(t.name));
   const go = (t) => confirm(`Chuyển "${t.title}" sang giao việc từng người?`) && act(() => api('PATCH', `/api/checklist-templates/${t.id}`, {
     job_mode: true, job_teams: [...new Set([t.team_id, ...(t.team_id && /phục vụ|phuc vu/i.test(t.team_name || '') ? [tt?.id, -1] : [])].filter(Boolean))],
@@ -151,6 +151,7 @@ function Board({ me }) {
     ${canAll && !past ? html`<button onClick=${() => confirm('Chia lại các việc chưa ai bắt đầu theo gợi ý của app (kể cả việc đã chọn tay)?') && act(() => api('POST', '/api/jobs/reassign', { date, template_id: cur.id }), 'Đã chia lại')}>🔄 Chia lại theo gợi ý</button>` : null}
     ${canAll ? html`<small class="muted">Đổi người: chọn tên ở từng việc. Thêm / sửa việc (phút, số lượng, chỗ lấy đồ): <a href="/cai-dat?tab=checklist" onClick=${(e) => { e.preventDefault(); navigate('/cai-dat?tab=checklist'); }}>Cài đặt → Checklist</a>; việc mới tự thêm vào các ngày.</small>` : null}
     ${cur.zones.length ? cur.zones.map((z) => html`<${ZoneBoard} t=${cur} z=${z} now=${now} today=${date === me.today} />`) : html`<p class="muted">Chưa có việc ngày này.</p>`}
+    ${['shift_lead', 'manager', 'owner'].includes(me.role) ? html`<details class="card"><summary><b>➕ Chuyển thêm checklist khác sang giao việc</b> (vd Đóng ca, gom khăn)</summary><${PickChecklist} me=${me} /></details>` : null}
   </div>`;
 }
 
