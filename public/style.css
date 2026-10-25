@@ -731,3 +731,6 @@ table.wk .wk-name { white-space: normal; overflow: hidden; }
 .cl-more { border-top: 1px solid var(--line); padding-top: 8px; }
 .cl-more summary { cursor: pointer; padding: 6px 0; }
 .add-inline { display: grid; gap: 6px; border-top: 1px dashed var(--line); padding-top: 10px; margin-top: 6px; } .add-inline input { min-height: 44px; font-size: 16px; }
+.wk-tags { display: inline-flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+.wk-tag { font-size: 11px; padding: 0 5px; border-radius: 6px; background: var(--line); color: var(--muted); white-space: nowrap; }
+.wk-tag.lead { background: #fde7c8; color: #8a4b00; font-weight: 600; }

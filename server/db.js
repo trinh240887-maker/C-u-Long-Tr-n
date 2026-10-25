@@ -437,6 +437,8 @@ function migrate(db, { real = false } = {}) {
   if (!aCols.includes('tables_text')) db.exec("ALTER TABLE assignments ADD COLUMN tables_text TEXT NOT NULL DEFAULT ''");
   if (!aCols.includes('position_id')) db.exec('ALTER TABLE assignments ADD COLUMN position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL');
   if (!cols('staff').includes('position_id')) db.exec('ALTER TABLE staff ADD COLUMN position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL');
+  // Loại ca của nhân viên (chủ quán 25/10): '' | full (full ca) | gay (ca gãy) | part (part-time) → hiện cạnh tên ở Bảng tuần
+  if (!cols('staff').includes('work_type')) db.exec("ALTER TABLE staff ADD COLUMN work_type TEXT NOT NULL DEFAULT ''");
   const iCols = cols('checklist_items');
   if (!iCols.includes('photo_required')) {
     db.exec('ALTER TABLE checklist_items ADD COLUMN photo_required INTEGER NOT NULL DEFAULT 1');

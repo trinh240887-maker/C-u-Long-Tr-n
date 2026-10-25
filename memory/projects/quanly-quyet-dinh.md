@@ -158,3 +158,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 152 | 25/10/2026 | **Ở lại sau giờ ca = làm cho xong việc, không phải tăng ca**: không báo ai, nhân viên/trưởng ca không thấy; chỉ chủ quán thấy "ở lại X′ · không tính" ở Chấm công và tự bấm "Tính thêm" nếu muốn |
 | 153 | 25/10/2026 | **Bot đọc lịch**: ngày ghi "nghỉ" riêng thắng khoảng ngày (T4 nghỉ + T3-T6 14-23 → T4 nghỉ); "14h,23h" (dấu phẩy) hiểu là 14h-23h |
 | 154 | 25/10/2026 | **Bot đọc thứ**: "T2-T4-T5" (3 thứ nối gạch) = liệt kê; "T3-T6" là khoảng, trừ khi trong tin có ghi riêng T4/T5 thì hiểu là T3, T6 |
+| 155 | 25/10/2026 | **Nhãn sau tên ở Bảng tuần**: cấp bậc (⭐ Tổ trưởng / ⭐ Trưởng ca, lấy từ Vai trò), loại ca (Full ca / Ca gãy / Part-time, ô mới "Loại ca" trong hồ sơ nhân viên, cột staff.work_type), vị trí chính |

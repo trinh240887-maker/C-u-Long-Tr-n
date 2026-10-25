@@ -105,7 +105,7 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
       <div class="wk-head">${g.name.toUpperCase()} <small>${g.people.length} người</small></div>
       <div class="wk-wrap"><table class="wk">
         <thead><tr><th class="wk-name">Tên</th>${d.days.map((x) => html`<th>${dayLabel(x).split(' ')[0]}<br /><small>${x.slice(8)}/${x.slice(5, 7)}</small><br /><b class="wk-n">${g.people.filter((p) => shiftOf(p.id, x).length).length}</b></th>`)}</tr></thead>
-        <tbody>${g.people.map((p) => { return html`<tr><td class="wk-name"><b>${p.name}</b>${p.position_name ? html`<br /><small class="muted">${p.position_name}</small>` : null}
+        <tbody>${g.people.map((p) => { return html`<tr><td class="wk-name"><b>${p.name}</b>${staffTags(p)}
 </td>
           ${d.days.map((x) => {
             const sh = shiftOf(p.id, x);
@@ -153,6 +153,14 @@ function WeekZones({ ws, staff, teams, map, shifts = [], onClose }) {
         <button class=${`chip ${!cur[p.id] ? 'on' : ''}`} onClick=${() => pick(p, null)}>—</button></div></div>`; })}
     <button class="primary" onClick=${onClose}>Xong</button>
   </div><//>`;
+}
+
+// Nhãn sau tên ở Bảng tuần: cấp bậc (Tổ trưởng / Trưởng ca), loại ca (Full ca / Ca gãy / Part-time), vị trí
+const ROLE_TAG = { team_lead: '⭐ Tổ trưởng', shift_lead: '⭐ Trưởng ca', manager: 'Quản lý' };
+const WORK_TAG = { full: 'Full ca', gay: 'Ca gãy', part: 'Part-time' };
+function staffTags(p) {
+  const tags = [ROLE_TAG[p.role], WORK_TAG[p.work_type], p.position_name].filter(Boolean);
+  return tags.length ? html`<br /><span class="wk-tags">${tags.map((t) => html`<small class=${`wk-tag ${t.startsWith('⭐') ? 'lead' : ''}`}>${t}</small>`)}</span>` : null;
 }
 
 export function PlanBoard(props) { return Overview(props); }

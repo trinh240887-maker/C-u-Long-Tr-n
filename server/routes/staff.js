@@ -47,7 +47,7 @@ export default function (r, ctx) {
       id: s.id, name: s.name, phone: rank(me.role) >= rank('team_lead') ? s.phone : '',
       role: s.role, role_label: ROLE_LABEL[s.role], team_id: s.team_id, team_name: s.team_name || '',
       active: !!s.active, zalo_linked: !!s.zalo_user_id, weekly_limit_hours: s.weekly_limit_hours,
-      position_id: s.position_id ?? null, position_name: s.position_name || '',
+      position_id: s.position_id ?? null, position_name: s.position_name || '', work_type: s.work_type || '',
       skills: skills.filter((k) => k.staff_id === s.id).map(({ team_id, level }) => ({ team_id, level })),
       pskills: pskills.filter((k) => k.staff_id === s.id).map(({ position_id, level }) => ({ position_id, level })),
       ...(canSeePay ? { pay_type: s.pay_type, pay_rate: s.pay_rate, zalo_user_id: s.zalo_user_id } : {}),
@@ -73,7 +73,8 @@ export default function (r, ctx) {
     const payRate = body.pay_rate === undefined ? current.pay_rate ?? 0 : v.int(body.pay_rate, { min: 0, max: 100_000_000, name: 'Mức lương' });
     const limit = body.weekly_limit_hours === undefined ? current.weekly_limit_hours ?? 48 : v.int(body.weekly_limit_hours, { min: 1, max: 100, name: 'Giới hạn giờ/tuần' });
     const zalo = body.zalo_user_id === undefined ? current.zalo_user_id ?? '' : v.text(body.zalo_user_id, { name: 'Zalo user ID', max: 64 });
-    return { name, phone, role, teamId, positionId, payType, payRate, limit, zalo };
+    const workType = body.work_type === undefined ? current.work_type ?? '' : v.oneOf(body.work_type || '', ['', 'full', 'gay', 'part'], { name: 'Loại ca' });
+    return { name, phone, role, teamId, positionId, payType, payRate, limit, zalo, workType };
   }
 
   function saveSkills(staffId, skills) {
@@ -103,7 +104,7 @@ export default function (r, ctx) {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`).run(f.name, f.phone, f.role, f.teamId, lookup, f.payType, f.payRate, f.limit, f.zalo, ctx.now()).lastInsertRowid);
       saveSkills(id, body.skills);
       savePositionSkills(id, body.pskills);
-      db.prepare('UPDATE staff SET position_id = ? WHERE id = ?').run(f.positionId, id);
+      db.prepare('UPDATE staff SET position_id = ?, work_type = ? WHERE id = ?').run(f.positionId, f.workType, id);
       return id;
     });
     ctx.audit(me, 'staff.create', { id, name: f.name, role: f.role });
@@ -127,7 +128,7 @@ export default function (r, ctx) {
         .run(f.name, f.phone, f.role, f.teamId, f.payType, f.payRate, f.limit, f.zalo, active, cur.id);
       saveSkills(cur.id, body.skills);
       savePositionSkills(cur.id, body.pskills);
-      db.prepare('UPDATE staff SET position_id = ? WHERE id = ?').run(f.positionId, cur.id);
+      db.prepare('UPDATE staff SET position_id = ?, work_type = ? WHERE id = ?').run(f.positionId, f.workType, cur.id);
       if (body.pin) {
         db.prepare('UPDATE staff SET pin_lookup = ?, must_change_pin = 1 WHERE id = ?').run(validatePin(db, body.pin, f.role, cur.id), cur.id);
       }

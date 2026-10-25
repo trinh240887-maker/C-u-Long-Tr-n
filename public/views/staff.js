@@ -9,7 +9,7 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
     name: init.name || '', phone: init.phone || '', role: init.role || 'staff', team_id: init.team_id ?? '',
     pay_type: init.pay_type || 'hour', pay_rate: init.pay_rate ?? '', weekly_limit_hours: init.weekly_limit_hours ?? 48,
     zalo_user_id: init.zalo_user_id || '', active: init.active ?? true, pin: '',
-    skills: init.skills || [], pskills: init.pskills || [], position_id: init.position_id ?? '',
+    skills: init.skills || [], pskills: init.pskills || [], position_id: init.position_id ?? '', work_type: init.work_type || '',
   });
   const set = (k, v) => setF({ ...f, [k]: v });
   const allowed = ROLES.filter((r) => me.role === 'owner' || ROLES.indexOf(r) < ROLES.indexOf(me.role));
@@ -40,6 +40,8 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
         <option value="">(chưa chọn bộ phận)</option>${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
       ${posOf(f.team_id).length ? html`<${Field} label="Vị trí chính" hint="Vị trí hay đứng nhất. Khi xếp ca vẫn đổi được"><select id="st-pos" value=${f.position_id} onChange=${(e) => set('position_id', e.target.value ? Number(e.target.value) : '')}>
         <option value="">(chưa chọn)</option>${posOf(f.team_id).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>` : null}
+      <${Field} label="Loại ca" hint="Hiện cạnh tên ở Lịch ca → Bảng tuần"><select id="st-worktype" value=${f.work_type} onChange=${(e) => set('work_type', e.target.value)}>
+        <option value="">(chưa chọn)</option><option value="full">Full ca</option><option value="gay">Ca gãy</option><option value="part">Part-time</option></select><//>
       <${Field} label="Tính lương"><select id="st-paytype" value=${f.pay_type} onChange=${(e) => set('pay_type', e.target.value)}>
         <option value="hour">Theo giờ</option><option value="shift">Theo ca</option><option value="month">Theo tháng</option></select><//>
       <${Field} label=${({ hour: 'Lương 1 giờ (đ)', shift: 'Lương 1 ca (đ)', month: 'Lương 1 tháng (đ)' })[f.pay_type]}><input id="st-rate" type="number" inputmode="numeric" min="0" step="1000" value=${f.pay_rate} onInput=${(e) => set('pay_rate', e.target.value)} /><//>

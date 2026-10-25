@@ -158,7 +158,7 @@ export default function (r, ctx) {
     fillFixed(ws);
     const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
     const slots = ctx.availSlots();
-    const people = db.prepare(`SELECT s.id, s.name, s.role, s.team_id, s.position_id, t.name AS team_name, p.name AS position_name
+    const people = db.prepare(`SELECT s.id, s.name, s.role, s.work_type, s.team_id, s.position_id, t.name AS team_name, p.name AS position_name
       FROM staff s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN positions p ON p.id = s.position_id
       WHERE s.active = 1 AND s.role IN (${MUST.map(() => '?').join(',')}) ORDER BY t.sort, s.name`).all(...MUST);
     const subs = new Map(db.prepare('SELECT * FROM availability_weeks WHERE week_start = ?').all(ws).map((x) => [x.staff_id, x]));
