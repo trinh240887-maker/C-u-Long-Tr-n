@@ -270,7 +270,7 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
   const zonesD = useData('/api/zones');
   const staffD = useData('/api/staff');
   const [f, setF] = useState({ title: init.title || '', team_id: init.team_id ?? '', phase: init.phase || 'open', active: init.active ?? true,
-    shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '', zone_id: init.zone_id ?? '', doer: init.doer || '', section: init.section || '', rules: init.rules || '',
+    shift_template_id: init.shift_template_id ?? '', position_id: init.position_id ?? '', zone_id: init.zone_id ?? '', doer: init.doer || '', section: init.section || '', rules: init.rules || '', job_mode: !!init.job_mode, job_teams: init.job_teams || [],
     items: init.items?.map((i) => ({ ...i })) || [{ text: '', kind: 'check', unit: '', required: true, photo_required: true }] });
   const item = (i, k, v) => setF({ ...f, items: f.items.map((x, j) => (j === i ? { ...x, [k]: v } : x)) });
   const move = (i, d) => { const items = [...f.items]; const [x] = items.splice(i, 1); items.splice(i + d, 0, x); setF({ ...f, items }); };
@@ -296,6 +296,14 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
           </div><small class="muted">Chỉ người được giao thấy và làm checklist này.</small>` : null}
         </div>
       </div>
+      <div class="field"><span>Cách làm</span>
+        <div class="row wrap tight">
+          <button class=${`chip ${!f.job_mode ? 'on' : ''}`} onClick=${() => setF({ ...f, job_mode: false })}>☑ Checklist chung (ai cũng tick)</button>
+          <button class=${`chip ${f.job_mode ? 'on' : ''}`} onClick=${() => setF({ ...f, job_mode: true, job_teams: f.job_teams.length ? f.job_teams : f.team_id ? [Number(f.team_id)] : [] })}>👥 Giao việc từng người</button>
+        </div>
+        ${f.job_mode ? html`<small class="muted">Mỗi việc thành 1 thẻ: app gợi ý ai làm theo khu đã phân (chia đều, xoay vòng mỗi ngày, mở ca ưu tiên người vào sớm). Nhân viên bấm Nhận → Xong (+ảnh), tổ trưởng khu kiểm. Xem ở <b>Việc ca</b>.</small>
+          <div class="row wrap tight"><span class="small">Bộ phận làm chung:</span>${teams.map((t) => html`<button class=${`chip ${f.job_teams.includes(t.id) ? 'on' : ''}`} onClick=${() => setF({ ...f, job_teams: f.job_teams.includes(t.id) ? f.job_teams.filter((y) => y !== t.id) : [...f.job_teams, t.id] })}>${t.name}</button>`)}</div>` : null}
+      </div>
       <div class="field"><span>Các việc</span>
         ${f.items.map((x, i) => html`<div class="item-card">
           <div class="row tight"><b class="item-no">${i + 1}.</b><input class="grow" value=${x.text} placeholder="Tên công việc (vd Lau bàn ghế khu A)" onInput=${(e) => item(i, 'text', e.target.value)} aria-label="Tên việc" />
@@ -304,6 +312,14 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
             <button class=${`chip ${(x.photo_required ?? x.kind === 'check') ? 'on' : ''}`} onClick=${() => item(i, 'photo_required', !(x.photo_required ?? x.kind === 'check'))}>📷 ${(x.photo_required ?? x.kind === 'check') ? 'Phải chụp ảnh' : 'Không cần ảnh'}</button>
             ${init.id && x.id ? html`<${Samples} samples=${x.samples || []} templateId=${init.id} itemId=${x.id} canEdit=${true} label="Ảnh mẫu" />` : html`<small class="muted">Ảnh mẫu: lưu xong mở lại để thêm</small>`}
           </div>
+          ${f.job_mode ? html`<div class="row wrap tight job-fields">
+            <button class=${`chip ${x.job_scope !== 'shop' ? 'on' : ''}`} onClick=${() => item(i, 'job_scope', 'zone')}>Mỗi khu 1 người</button>
+            <button class=${`chip ${x.job_scope === 'shop' ? 'on' : ''}`} onClick=${() => item(i, 'job_scope', 'shop')}>Cả quán 1 người</button>
+            <label class="row tight small">⏱<input class="num-in" type="number" inputmode="numeric" min="0" value=${x.job_minutes || ''} placeholder="phút" onInput=${(e) => item(i, 'job_minutes', e.target.value)} aria-label="Thời gian chuẩn (phút)" />phút</label>
+            <input class="grow" value=${x.job_qty || ''} placeholder="Số lượng (vd 200 muỗng)" onInput=${(e) => item(i, 'job_qty', e.target.value)} aria-label="Số lượng" />
+            ${x.job_scope !== 'shop' ? html`<label class="row tight small">hoặc mỗi bàn<input class="num-in" type="number" inputmode="decimal" min="0" step="0.5" value=${x.job_per_table || ''} placeholder="0" onInput=${(e) => item(i, 'job_per_table', e.target.value)} aria-label="Số lượng mỗi bàn" /><input class="unit" value=${x.unit || ''} placeholder="bếp, ly…" onInput=${(e) => item(i, 'unit', e.target.value)} /></label>` : null}
+            <input class="grow" value=${x.fetch_where || ''} placeholder="📦 Hết thì lấy ở đâu (vd Kệ 2 Kho bếp)" onInput=${(e) => item(i, 'fetch_where', e.target.value)} aria-label="Chỗ lấy đồ" />
+          </div>` : null}
           <details class="item-more"><summary class="muted small">Tuỳ chọn (kiểu nhập số / chữ, nối kho, thứ tự)</summary><div class="row wrap tight">
           <select value=${x.kind} onChange=${(e) => setF({ ...f, items: f.items.map((y, j) => (j === i ? { ...y, kind: e.target.value, photo_required: e.target.value === 'check' } : y)) })} aria-label="Kiểu">
             <option value="check">Tick</option><option value="number">Nhập số</option><option value="text">Ghi chữ</option></select>

@@ -40,6 +40,15 @@ export default function (r, ctx) {
   addCol('checklist_templates', 'section', "TEXT NOT NULL DEFAULT ''");
   // Chế tài nếu không làm / làm sai (chủ quán tự ghi), hiện cho nhân viên trên đầu checklist
   addCol('checklist_templates', 'rules', "TEXT NOT NULL DEFAULT ''");
+  // Giao việc từng người (chủ quán 25/10): checklist bật chế độ này → mỗi việc thành 1 thẻ việc giao cho 1 người trong khu
+  // (màn Việc ca), có giờ nhận / giờ xong, tổ trưởng khu kiểm. job_teams = các bộ phận dùng chung (vd Phục vụ + Tiếp thực)
+  addCol('checklist_templates', 'job_mode', 'INTEGER NOT NULL DEFAULT 0');
+  addCol('checklist_templates', 'job_teams', "TEXT NOT NULL DEFAULT '[]'");
+  addCol('checklist_items', 'job_minutes', 'INTEGER NOT NULL DEFAULT 0');      // thời gian chuẩn (phút)
+  addCol('checklist_items', 'job_scope', "TEXT NOT NULL DEFAULT 'zone'");     // zone = mỗi khu 1 người · shop = cả quán 1 người
+  addCol('checklist_items', 'job_qty', "TEXT NOT NULL DEFAULT ''");           // số lượng ghi tay: "200 muỗng"
+  addCol('checklist_items', 'job_per_table', 'REAL NOT NULL DEFAULT 0');      // số lượng theo số bàn của khu (vd 1 bếp ga / bàn)
+  addCol('checklist_items', 'fetch_where', "TEXT NOT NULL DEFAULT ''");       // hết đồ thì lấy ở đâu
   const sectionOf = (t) => {
     if (t.section) return t.section;
     if (t.zone_name) return `Tổng ${t.zone_name.toLowerCase().startsWith('khu') ? t.zone_name.replace(/^Khu/i, 'khu') : `khu ${t.zone_name}`}`;
@@ -57,13 +66,14 @@ export default function (r, ctx) {
     const samples = db.prepare('SELECT id, template_id, item_id, note FROM checklist_samples ORDER BY id').all();
     const doerName = (d) => (d === 'lead' ? 'Trưởng ca' : d === 'manager' ? 'Quản lý' : /^staff:\d+$/.test(d || '') ? db.prepare('SELECT name FROM staff WHERE id = ?').get(Number(d.slice(6)))?.name || '?' : '');
     return tpls.map((c) => ({
-      ...c, active: !!c.active, doer_name: doerName(c.doer), section_label: sectionOf(c),
+      ...c, active: !!c.active, job_mode: !!c.job_mode, job_teams: JSON.parse(c.job_teams || '[]'), doer_name: doerName(c.doer), section_label: sectionOf(c),
       samples: samples.filter((x) => x.template_id === c.id && !x.item_id),
       items: items.filter((i) => i.template_id === c.id).map((i) => ({ ...i, extra_ingredient_ids: JSON.parse(i.extra_ingredient_ids || '[]'),
         group_names: JSON.parse(i.extra_ingredient_ids || '[]').length ? [i.ingredient_id, ...JSON.parse(i.extra_ingredient_ids)].map((id) => db.prepare('SELECT name FROM ingredients WHERE id = ?').get(id)?.name).filter(Boolean) : [], pack_mode: !!i.ingredient_id && packMode(i.unit, { unit: i.ingredient_unit, purchase_unit: i.ingredient_pack, purchase_factor: i.ingredient_factor }), required: !!i.required, photo_required: !!i.photo_required, samples: samples.filter((x) => x.item_id === i.id) })),
     }));
   }
 
+  ctx.checklistTemplates = templates;
   r.get('/api/checklist-templates', 'staff', ({ query }) => templates({ activeOnly: query.get('all') !== '1' }));
 
   function saveItems(templateId, items) {
@@ -94,11 +104,15 @@ export default function (r, ctx) {
           if (g2.unit !== ing.unit) fail(400, `"${text}": ${g2.name} khác đơn vị (${g2.unit}), không cân chung với ${ing.name} (${ing.unit}) được`);
         }
       } else ingId = null;
+      const job = { minutes: it.job_minutes ? v.int(it.job_minutes, { min: 0, max: 600, name: 'Thời gian chuẩn' }) : 0, scope: it.job_scope === 'shop' ? 'shop' : 'zone',
+        qty: v.text(it.job_qty, { name: 'Số lượng', max: 40 }), perTable: it.job_per_table ? Number(it.job_per_table) || 0 : 0, fetch: v.text(it.fetch_where, { name: 'Chỗ lấy đồ', max: 80 }) };
+      if (job.perTable < 0 || job.perTable > 50) fail(400, `"${text}": số lượng mỗi bàn không hợp lệ`);
       if (it.id && existing.has(Number(it.id))) {
         db.prepare('UPDATE checklist_items SET text = ?, kind = ?, unit = ?, required = ?, photo_required = ?, ingredient_id = ?, store_id = ?, extra_ingredient_ids = ?, sort = ? WHERE id = ?').run(text, kind, unit, required, photo, ingId, storeId, JSON.stringify(extra), i, Number(it.id));
+        db.prepare('UPDATE checklist_items SET job_minutes = ?, job_scope = ?, job_qty = ?, job_per_table = ?, fetch_where = ? WHERE id = ?').run(job.minutes, job.scope, job.qty, job.perTable, job.fetch, Number(it.id));
         keep.add(Number(it.id));
       } else {
-        db.prepare('INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, extra_ingredient_ids, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(templateId, text, kind, unit, required, photo, ingId, storeId, JSON.stringify(extra), i);
+        db.prepare('INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, extra_ingredient_ids, sort, job_minutes, job_scope, job_qty, job_per_table, fetch_where) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(templateId, text, kind, unit, required, photo, ingId, storeId, JSON.stringify(extra), i, job.minutes, job.scope, job.qty, job.perTable, job.fetch);
       }
     });
     for (const id of existing) if (!keep.has(id)) db.prepare('DELETE FROM checklist_items WHERE id = ?').run(id);
@@ -122,7 +136,9 @@ export default function (r, ctx) {
     }
     const section = body.section === undefined ? cur.section ?? '' : v.text(body.section, { name: 'Mục', max: 40 });
     const rules = body.rules === undefined ? cur.rules ?? '' : v.text(body.rules, { name: 'Chế tài', max: 500 });
-    return { title, teamId, phase, shiftId, positionId, zoneId, doer, section, rules };
+    const jobMode = body.job_mode === undefined ? cur.job_mode ?? 0 : v.bool(body.job_mode);
+    const jobTeams = body.job_teams === undefined ? cur.job_teams ?? '[]' : JSON.stringify((Array.isArray(body.job_teams) ? body.job_teams : []).map(Number).filter((x) => db.prepare('SELECT 1 FROM teams WHERE id = ?').get(x)));
+    return { title, teamId, phase, shiftId, positionId, zoneId, doer, section, rules, jobMode, jobTeams };
   }
 
   // Tổ trưởng chỉ tạo/sửa checklist của tổ mình; trưởng ca trở lên sửa mọi tổ và checklist "Cả quán"
@@ -136,7 +152,7 @@ export default function (r, ctx) {
     const f = tplFields(body);
     canEditTpl(me, f.teamId);
     const id = tx(db, () => {
-      const id = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, shift_template_id, position_id, zone_id, doer, section, rules) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, f.rules).lastInsertRowid);
+      const id = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, shift_template_id, position_id, zone_id, doer, section, rules, job_mode, job_teams) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, f.rules, f.jobMode, f.jobTeams).lastInsertRowid);
       saveItems(id, body.items);
       return id;
     });
@@ -167,7 +183,7 @@ export default function (r, ctx) {
     canEditTpl(me, f.teamId);
     const active = body.active === undefined ? cur.active : v.bool(body.active);
     tx(db, () => {
-      db.prepare('UPDATE checklist_templates SET team_id = ?, phase = ?, title = ?, shift_template_id = ?, position_id = ?, zone_id = ?, doer = ?, section = ?, rules = ?, active = ? WHERE id = ?').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, f.rules, active, cur.id);
+      db.prepare('UPDATE checklist_templates SET team_id = ?, phase = ?, title = ?, shift_template_id = ?, position_id = ?, zone_id = ?, doer = ?, section = ?, rules = ?, job_mode = ?, job_teams = ?, active = ? WHERE id = ?').run(f.teamId, f.phase, f.title, f.shiftId, f.positionId, f.zoneId, f.doer, f.section, f.rules, f.jobMode, f.jobTeams, active, cur.id);
       if (body.items !== undefined) saveItems(cur.id, body.items);
     });
     ctx.audit(me, 'checklist.update', { id: cur.id, title: f.title });
@@ -219,7 +235,7 @@ export default function (r, ctx) {
   ctx.checklistSpot = spotIds;
 
   function dayView(date, scope) {
-    const tpls = templates().filter((t) => inScope(scope, t));
+    const tpls = templates().filter((t) => !t.job_mode && inScope(scope, t)); // checklist giao việc từng người nằm ở màn Việc ca
     const ensure = db.prepare('INSERT OR IGNORE INTO checklist_runs (template_id, date) VALUES (?, ?)');
     const getRun = db.prepare('SELECT * FROM checklist_runs WHERE template_id = ? AND date = ?');
     const entries = db.prepare(`SELECT e.*, s.name AS done_by_name, rv.name AS reviewed_by_name FROM checklist_entries e LEFT JOIN staff s ON s.id = e.done_by LEFT JOIN staff rv ON rv.id = e.reviewed_by WHERE e.run_id = ?`);

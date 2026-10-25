@@ -15,6 +15,7 @@ export const PAGES = [
   { path: '/kho', label: 'Kho', role: 'staff', teamsDefault: /bếp|bep|bar|lẩu|lau|tạp vụ|tap vu/i, api: [['/api/stock/receive', 'w'], ['/api/stock/transfers', 'w'], ['/api/stock/po', 'w'], ['/api/stock/ingredients', 'w'], ['/api/stock/stores', 'w'], ['/api/stock/suppliers', 'w'], ['/api/stock/nxt', 'all']] },
   { path: '/kho-tx', label: 'Kho & Tài sản (chứng từ: ghi huỷ, báo hỏng, đồ đang giữ…)', role: 'staff' },
   { path: '/checklist', label: 'Checklist', role: 'staff' },
+  { path: '/viec-ca', label: 'Việc ca (nhận việc, bảng khu, kiểm tra)', role: 'staff' },
   { path: '/viec', label: 'Việc', role: 'staff', api: [['/api/tasks', 'all']] },
   { path: '/dat-ban', label: 'Đặt bàn', role: 'shift_lead', api: [['/api/reservations', 'all'], ['/api/waitlist', 'all']] },
   { path: '/phieu-bep', label: 'Phiếu bếp (máy in hỏng)', role: 'staff', teamsDefault: /bếp|bep|bar|lẩu|lau|nướng/i },

@@ -767,3 +767,11 @@ table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align
 .qr-sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
 .qr-tag { border: 1px dashed #999; padding: 6px; display: flex; flex-direction: column; align-items: center; background: #fff; color: #000; break-inside: avoid; }
 @media print { .noprint, header, nav, .topbar, .sidebar { display: none !important; } .qr-tag { border-color: #000; } }
+
+/* Việc ca */
+.job.bad, .job-row.bad { border-left: 4px solid #c62828; }
+.job-row { border-top: 1px solid var(--line, #e5e5e5); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.job-photo { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; }
+.row.wrap, .row.tight.wrap { flex-wrap: wrap; }
+.item-card .row > input.grow { min-width: 0; }
+.job-fields input.grow { flex: 1 1 160px; min-width: 0; }

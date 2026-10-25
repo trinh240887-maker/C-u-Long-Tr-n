@@ -3,6 +3,7 @@ import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Link, Modal, Field, hm, dt, dayLabel, PHASE_LABEL, ago } from '../ui.js';
 import { MyCashCard } from './pay.js';
 import { PendingBookCard } from './daybook.js';
+import { MyJobsCard } from './jobs.js';
 
 export function LeaveForm({ shift, onClose }) {
   const [reason, setReason] = useState('');
@@ -109,6 +110,7 @@ export function Home({ me }) {
     <${PendingBookCard} me=${me} />
     <${MyCashCard} />
     <${ClockCard} />
+    <${MyJobsCard} />
     ${(() => { const ps = (promos.data?.items || []).filter((p) => p.status === 'running' || p.status === 'upcoming');
       return ps.length ? html`<${Link} href="/khuyen-mai" class="card promo-card stack"><b>🎁 Khuyến mãi</b>${ps.map((p) => html`<span><b>${p.name}</b>${p.status === 'upcoming' ? ' (sắp tới)' : ''}: ${p.summary}${p.note ? ` · ${p.note}` : ''}</span>`)}<//>` : null; })()}
     <${Link} href="/ban" class="card order-cta"><b>🍽 Order bàn</b><span>Bấm bàn trống để gọi món · đặt bàn ở Thêm → Đặt bàn →</span><//>

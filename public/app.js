@@ -14,6 +14,7 @@ import { SettingsView } from './views/settings.js';
 import { Profile } from './views/profile.js';
 import { StockView } from './views/stock.js';
 import { WarehouseView } from './views/warehouse.js';
+import { JobsView } from './views/jobs.js';
 import { FloorView } from './views/floor.js';
 import { AvailabilityView } from './views/availability.js';
 import { ReviewView } from './views/review.js';
@@ -36,6 +37,7 @@ const NAV = [
   { path: '/kho', label: 'Kho', icon: '▣', role: 'staff', main: true },
   { path: '/kho-tx', label: 'Kho & Tài sản', icon: '▧', role: 'staff' },
   { path: '/checklist', label: 'Checklist', icon: '☑', role: 'staff', main: true },
+  { path: '/viec-ca', label: 'Việc ca', icon: '✋', role: 'staff' },
   { path: '/viec', label: 'Việc', icon: '✎', role: 'staff', main: true },
   { path: '/dat-ban', label: 'Đặt bàn', icon: '☏', role: 'staff' },
   { path: '/phieu-bep', label: 'Phiếu bếp (máy in hỏng)', icon: '🧾', role: 'staff' },
@@ -224,7 +226,7 @@ function App() {
   const query = new URLSearchParams(path.split('?')[1] || '');
   const routes = {
     '/': Home, '/quan-ly': Dashboard, '/lich': Schedule, '/nhan-vien': StaffView, '/cham-cong': AttendanceView,
-    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/kho-tx': WarehouseView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/thuc-don': MenuView, '/goi-mon': OrderView, '/dat-ban': ReservationsView, '/may-in': PrintersView, '/khuyen-mai': PromotionsView, '/thu-ngan': CashierView, '/duyet-so': DaybookView, '/phieu-bep': TicketsView, '/bao-cao': ReportsView, '/mua-hang': PurchasesView, '/cai-dat': SettingsView, '/ho-so': Profile,
+    '/nghi': LeaveView, '/checklist': ChecklistView, '/viec': TasksView, '/so-do': OrgView, '/kho': StockView, '/kho-tx': WarehouseView, '/viec-ca': JobsView, '/ban': FloorView, '/ranh': AvailabilityView, '/duyet-anh': ReviewView, '/thuc-don': MenuView, '/goi-mon': OrderView, '/dat-ban': ReservationsView, '/may-in': PrintersView, '/khuyen-mai': PromotionsView, '/thu-ngan': CashierView, '/duyet-so': DaybookView, '/phieu-bep': TicketsView, '/bao-cao': ReportsView, '/mua-hang': PurchasesView, '/cai-dat': SettingsView, '/ho-so': Profile,
   };
   const nav = NAV.find((n) => n.path === base);
   const View = routes[base] && (!nav || canOpen(me, nav)) ? routes[base] : Home;
