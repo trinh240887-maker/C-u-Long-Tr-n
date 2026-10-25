@@ -740,6 +740,13 @@ table.wk .wk-name { white-space: normal; overflow: hidden; }
 /* Máy tính màn lớn: phóng to cả app cho dễ đọc (chủ quán 25/10: trên máy tính chữ quá nhỏ) */
 @media (min-width: 1280px) {
   html { zoom: 1.2; }
-  .modal { width: min(620px, 100%); }
+  .modal { width: min(620px, 100%); max-height: calc(100vh / 1.2 - 32px); }
+  .shell { min-height: calc(100vh / 1.2); }
+  .side { height: calc(100vh / 1.2); }
 }
-@media (min-width: 1700px) { html { zoom: 1.35; } }
+@media (min-width: 1700px) {
+  html { zoom: 1.35; }
+  .modal { max-height: calc(100vh / 1.35 - 32px); }
+  .shell { min-height: calc(100vh / 1.35); }
+  .side { height: calc(100vh / 1.35); }
+}
