@@ -189,8 +189,8 @@ test('luồng nhân sự: tạo người, xếp ca, chấm công qua đêm, xin 
   // Bảng công tháng
   const ts = (await owner.get('/api/timesheet?month=2026-10')).data;
   const lanRow = ts.rows.find((x) => x.name === 'Lan');
-  assert.equal(lanRow.minutes, 450);
-  assert.equal(lanRow.night_minutes, 160);
+  assert.equal(lanRow.minutes, 440); // 17:10–00:30: ở lại sau giờ ca (00:30–00:40) chưa được chủ duyệt nên không tính
+  assert.equal(lanRow.night_minutes, 150);
   assert.equal(lanRow.late_count, 1);
   // Nhân viên thường không xem được bảng công
   assert.equal((await lanC.get('/api/timesheet?month=2026-10')).status, 403);

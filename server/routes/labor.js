@@ -35,7 +35,7 @@ export default function (r, ctx) {
     const staff = db.prepare(`SELECT s.id, s.name, s.role, s.pay_type, s.pay_rate, t.name AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.role != 'owner'`).all();
     const recs = db.prepare('SELECT a.*, a.assignment_id AS group_key FROM attendance a WHERE a.date BETWEEN ? AND ?').all(from, to);
     const closedRecs = recs.map((x) => ({ ...x, clock_out: x.clock_out || Math.min(now, x.clock_in + 12 * H) }));
-    const sheet = new Map(computeTimesheet(closedRecs, staff, clock, { nightBonusPct: Number(ctx.setting('night_bonus_pct') || 30), monthStandardDays: Number(ctx.setting('month_standard_days') || 26) }).map((x) => [x.staff_id, x]));
+    const sheet = new Map(computeTimesheet(ctx.payRecords ? ctx.payRecords(closedRecs) : closedRecs, staff, clock, { nightBonusPct: Number(ctx.setting('night_bonus_pct') || 0), monthStandardDays: Number(ctx.setting('month_standard_days') || 26) }).map((x) => [x.staff_id, x]));
     const perMin = (id) => { const x = sheet.get(id); return x && x.minutes ? x.pay / x.minutes : 0; };
 
     // Theo giờ trong ngày: người đang chấm công, lương, bàn có khách, doanh thu (giờ khách vào)

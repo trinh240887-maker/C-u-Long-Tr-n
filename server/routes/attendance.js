@@ -7,6 +7,30 @@ import { computeTimesheet } from '../lib/payroll.js';
 export default function (r, ctx) {
   const { db } = ctx;
   const num = (k, d) => Number(ctx.setting(k) || d);
+  // Chủ quán 25/10: không có phụ cấp làm đêm (làm đúng ca). Đặt lại > 0 ở Cài đặt nếu sau này cần
+  if (!ctx.setting('night_bonus_off_v1')) { ctx.setSetting('night_bonus_pct', '0'); ctx.setSetting('night_bonus_off_v1', '1'); }
+  // Chủ quán 25/10: lương chỉ tính TRONG KHUNG CA. Vào sớm không tính; về sớm bị trừ (báo trưởng ca);
+  // ở lại sau giờ ca (tăng ca) chỉ tính khi CHỦ QUÁN duyệt. Lượt không có ca (quản lý) tính giờ thực tế.
+  if (!db.prepare('PRAGMA table_info(attendance)').all().some((x) => x.name === 'ot_status')) {
+    db.exec("ALTER TABLE attendance ADD COLUMN ot_status TEXT NOT NULL DEFAULT ''"); // '' | pending | approved | rejected
+    db.exec('ALTER TABLE attendance ADD COLUMN ot_by INTEGER');
+  }
+  const OT_MIN = 10; // ở lại quá 10 phút mới tính là tăng ca chờ duyệt
+  const segOf = (assignmentId) => (assignmentId ? db.prepare('SELECT date, start_min, end_min FROM assignments WHERE id = ?').get(assignmentId) : null);
+  // Phút tính lương, về sớm, tăng ca của 1 lượt chấm công
+  function payInfo(r) {
+    const a = segOf(r.assignment_id);
+    if (!r.clock_out) return { paid_from: r.clock_in, paid_to: null, early_minutes: 0, ot_minutes: 0 };
+    if (!a) return { paid_from: r.clock_in, paid_to: r.clock_out, early_minutes: 0, ot_minutes: 0 };
+    const { start, end } = rangeOf(ctx.clock(), a);
+    const from = Math.max(r.clock_in, start);
+    const ot = Math.max(0, Math.round((r.clock_out - end) / 60_000));
+    const to = r.ot_status === 'approved' ? r.clock_out : Math.min(r.clock_out, end);
+    return { paid_from: from, paid_to: Math.max(from, to), early_minutes: Math.max(0, Math.round((end - r.clock_out) / 60_000)), ot_minutes: ot >= OT_MIN ? ot : 0 };
+  }
+  ctx.attendancePayInfo = payInfo;
+  // Bản ghi đưa vào tính lương: giờ vào / ra đã cắt theo khung ca
+  ctx.payRecords = (records) => records.map((r) => { if (!r.clock_out) return r; const p = payInfo(r); return { ...r, clock_in: p.paid_from, clock_out: p.paid_to }; });
 
   function parseLocal(text, clock) {
     const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})$/.exec(String(text || ''));
@@ -140,7 +164,12 @@ export default function (r, ctx) {
     // Còn giữ tiền mặt của khách chưa giao thu ngân thì không cho ra ca
     const held = ctx.cashHeldBy ? ctx.cashHeldBy(me.id) : 0;
     if (held) fail(409, `Còn ${held.toLocaleString('vi-VN')}đ tiền mặt bạn thu chưa được thu ngân xác nhận. Đưa tiền cho thu ngân bấm xác nhận rồi chấm ra.`);
-    db.prepare('UPDATE attendance SET clock_out = ? WHERE id = ?').run(ctx.now(), open.id);
+    const outAt = ctx.now();
+    const p = payInfo({ ...open, clock_out: outAt });
+    db.prepare("UPDATE attendance SET clock_out = ?, ot_status = ? WHERE id = ?").run(outAt, p.ot_minutes ? 'pending' : '', open.id);
+    const grace = num('late_grace_minutes', 5);
+    if (p.early_minutes > grace) ctx.notify(ctx.leadsOf(me.team_id).filter((id) => id !== me.id), { title: `${me.name} về sớm ${p.early_minutes} phút`, body: `Chấm ra lúc ${ctx.clock().fmt(outAt)}. Giờ về sớm bị trừ lương.`, link: '/cham-cong' });
+    if (p.ot_minutes) ctx.notify(db.prepare("SELECT id FROM staff WHERE role = 'owner' AND active = 1").all().map((x) => x.id), { title: `${me.name} ở lại ${p.ot_minutes} phút sau giờ ca`, body: 'Chỉ tính lương khi chủ quán duyệt: vào Chấm công → bấm Duyệt tăng ca.', link: '/cham-cong' });
     ctx.audit(me, 'clock.out', open.id);
     ctx.broadcast('attendance');
     return myStatus(me);
@@ -157,7 +186,24 @@ export default function (r, ctx) {
       FROM attendance at JOIN staff s ON s.id = at.staff_id LEFT JOIN teams t ON t.id = s.team_id
       LEFT JOIN assignments a ON a.id = at.assignment_id LEFT JOIN staff e ON e.id = at.edited_by
       WHERE at.date BETWEEN ? AND ? ${staffId ? 'AND at.staff_id = ?' : ''} ORDER BY at.clock_in DESC LIMIT 1000`)
-      .all(...[from, to, ...(staffId ? [Number(staffId)] : [])]);
+      .all(...[from, to, ...(staffId ? [Number(staffId)] : [])]).map((r) => {
+        const p = payInfo(r);
+        return { ...r, ...p, paid_minutes: p.paid_to ? Math.round((p.paid_to - p.paid_from) / 60_000) : null };
+      });
+  });
+
+  // Chủ quán duyệt / không duyệt giờ tăng ca (ở lại sau giờ ca)
+  r.post('/api/attendance/:id/overtime', 'manager', ({ me, params, body }) => {
+    if (me.role !== 'owner') fail(403, 'Chỉ chủ quán duyệt tăng ca');
+    const cur = db.prepare('SELECT at.*, s.name FROM attendance at JOIN staff s ON s.id = at.staff_id WHERE at.id = ?').get(params.id);
+    if (!cur) fail(404, 'Không tìm thấy lượt chấm công');
+    if (!payInfo(cur).ot_minutes) fail(400, 'Lượt này không có tăng ca');
+    const ok = v.bool(body.approve);
+    db.prepare('UPDATE attendance SET ot_status = ?, ot_by = ? WHERE id = ?').run(ok ? 'approved' : 'rejected', me.id, cur.id);
+    ctx.notify(cur.staff_id, { title: ok ? `Tăng ca ${payInfo(cur).ot_minutes} phút được duyệt` : 'Tăng ca không được duyệt', body: `Ngày ${cur.date}`, link: '/' });
+    ctx.audit(me, ok ? 'attendance.ot_approve' : 'attendance.ot_reject', cur.id);
+    ctx.broadcast('attendance');
+    return { ok: true };
   });
 
   r.post('/api/attendance', 'shift_lead', ({ me, body }) => {
@@ -212,7 +258,7 @@ export default function (r, ctx) {
     const staff = db.prepare('SELECT id, name, pay_type, pay_rate, team_id, active FROM staff ORDER BY name').all();
     const records = db.prepare(`SELECT at.*, a.group_id AS group_key FROM attendance at LEFT JOIN assignments a ON a.id = at.assignment_id
       WHERE at.date BETWEEN ? AND ?`).all(from, to);
-    const rows = computeTimesheet(records, staff, clock, { nightBonusPct: num('night_bonus_pct', 30), monthStandardDays: num('month_standard_days', 26) });
+    const rows = computeTimesheet(ctx.payRecords(records), staff, clock, { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: num('month_standard_days', 26) });
     const stats = db.prepare(`SELECT staff_id, SUM(late_minutes > 0) AS late_count, SUM(late_minutes) AS late_minutes, SUM(auto_closed) AS auto_closed
       FROM attendance WHERE date BETWEEN ? AND ? GROUP BY staff_id`).all(from, to);
     const today = ctx.today();
@@ -226,7 +272,7 @@ export default function (r, ctx) {
     const active = new Set(staff.filter((s) => s.active).map((s) => s.id));
     return {
       month, from, to,
-      night_bonus_pct: num('night_bonus_pct', 30),
+      night_bonus_pct: num('night_bonus_pct', 0),
       month_standard_days: num('month_standard_days', 26),
       rows: rows
         .map((row) => ({ ...row, late_count: statBy.get(row.staff_id)?.late_count || 0, late_minutes: statBy.get(row.staff_id)?.late_minutes || 0,

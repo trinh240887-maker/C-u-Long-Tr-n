@@ -47,7 +47,7 @@ function Records({ me }) {
       <button onClick=${() => setEdit({})}>+ Thêm tay</button>
     </div>
     ${!st.data ? html`<${Loading} state=${st} />` : st.data.length ? html`<div class="table-wrap"><table class="list">
-      <thead><tr><th>Nhân viên</th><th>Ca</th><th>Vào</th><th>Ra</th><th class="r">Giờ làm</th><th>Ghi chú</th></tr></thead>
+      <thead><tr><th>Nhân viên</th><th>Ca</th><th>Vào</th><th>Ra</th><th class="r">Giờ tính lương</th><th>Ghi chú</th></tr></thead>
       <tbody>${st.data.map((r) => {
         const mins = r.clock_out ? Math.round((r.clock_out - r.clock_in) / 60000) : null;
         const fmt = (m) => `${String(Math.floor((m % 1440) / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -56,7 +56,12 @@ function Records({ me }) {
           <td>${r.start_min != null ? `${fmt(r.start_min)}–${fmt(r.end_min)}` : html`<span class="pill warn">Ngoài lịch</span>`}</td>
           <td>${hm(r.clock_in)}${r.late_minutes ? html` <span class="pill warn">trễ ${r.late_minutes}′</span>` : null}</td>
           <td>${r.clock_out ? dt(r.clock_out) : html`<span class="pill ok">Đang làm</span>`}${r.auto_closed ? html` <span class="pill bad">tự đóng</span>` : null}</td>
-          <td class="r num">${mins != null ? hours(mins) : '—'}</td>
+          <td class="r num">${r.paid_minutes != null ? hours(r.paid_minutes) : '—'}${mins != null && r.paid_minutes != null && mins !== r.paid_minutes ? html`<br /><small class="muted">thực tế ${hours(mins)}</small>` : null}
+            ${r.early_minutes > 0 ? html`<br /><span class="pill warn">về sớm ${r.early_minutes}′</span>` : null}
+            ${r.ot_minutes > 0 ? html`<br /><span class=${`pill ${r.ot_status === 'approved' ? 'ok' : r.ot_status === 'rejected' ? 'bad' : 'warn'}`}>tăng ca ${r.ot_minutes}′ ${r.ot_status === 'approved' ? 'đã duyệt' : r.ot_status === 'rejected' ? 'không duyệt' : 'chờ chủ duyệt'}</span>
+              ${me.role === 'owner' && r.ot_status !== 'approved' ? html`<div class="row end tight" onClick=${(e) => e.stopPropagation()}>
+                ${r.ot_status !== 'rejected' ? html`<button class="small" onClick=${() => act(() => api('POST', `/api/attendance/${r.id}/overtime`, { approve: false }), 'Không tính tăng ca')}>Không</button>` : null}
+                <button class="small primary" onClick=${() => act(() => api('POST', `/api/attendance/${r.id}/overtime`, { approve: true }), 'Đã duyệt tăng ca')}>Duyệt tăng ca</button></div>` : null}` : null}</td>
           <td><small>${r.note}${r.edited_by_name ? ` (sửa: ${r.edited_by_name})` : ''}</small></td>
         </tr>`;
       })}</tbody></table></div>` : html`<div class="empty">Chưa có ai chấm công ngày này.</div>`}
