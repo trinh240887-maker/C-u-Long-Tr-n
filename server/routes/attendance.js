@@ -1,4 +1,8 @@
 import { fail, v } from '../http.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import { tx, rank } from '../db.js';
 import { addDays, isDate, fmtHM } from '../lib/time.js';
 import { rangeOf } from '../lib/schedule.js';
@@ -15,6 +19,14 @@ export default function (r, ctx) {
     db.exec("ALTER TABLE attendance ADD COLUMN ot_status TEXT NOT NULL DEFAULT ''"); // '' | pending | approved | rejected
     db.exec('ALTER TABLE attendance ADD COLUMN ot_by INTEGER');
   }
+  // Vào trễ: bạn Phục vụ / Tiếp thực tự chụp ảnh nón + khăn khi chấm vào (tổ trưởng đã chụp ảnh chung các bạn vào đúng ca)
+  if (!db.prepare('PRAGMA table_info(attendance)').all().some((x) => x.name === 'late_photo')) db.exec("ALTER TABLE attendance ADD COLUMN late_photo TEXT NOT NULL DEFAULT ''");
+  const photoDir = ctx.photoDir || path.join(os.tmpdir(), 'quanly-photos');
+  const LATE_PHOTO_TEAMS = /^(phục vụ|phuc vu|tiếp thực|tiep thuc)$/i;
+  const needLatePhoto = (staffId) => {
+    const t = db.prepare('SELECT t.name FROM staff s JOIN teams t ON t.id = s.team_id WHERE s.id = ?').get(staffId);
+    return Boolean(t && LATE_PHOTO_TEAMS.test(t.name.trim()));
+  };
   const OT_MIN = 10; // ở lại quá 10 phút mới tính là tăng ca chờ duyệt
   const segOf = (assignmentId) => (assignmentId ? db.prepare('SELECT date, start_min, end_min FROM assignments WHERE id = ?').get(assignmentId) : null);
   // Phút tính lương, về sớm, tăng ca của 1 lượt chấm công
@@ -78,7 +90,7 @@ export default function (r, ctx) {
       .all(me.id, t - 3 * 86_400_000).map((x) => x.assignment_id));
     const next = segs.find((s) => s.end > t && !done.has(s.id)) || null;
     return {
-      open: open ? { ...open } : null,
+      open: open ? { ...open, need_photo: open.late_minutes > 0 && !open.late_photo && needLatePhoto(me.id) } : null,
       next: next ? { id: next.id, date: next.date, label: next.label, start: next.start, end: next.end, text: `${fmtHM(next.start_min)}–${fmtHM(next.end_min)}` } : null,
       ip_restricted: Boolean(ctx.setting('clock_ip_prefixes')) || place().gps,
       gps: place().gps,
@@ -150,11 +162,36 @@ export default function (r, ctx) {
     if (!result.seg) {
       ctx.notify(ctx.leadsOf(me.team_id).filter((id) => id !== me.id), { title: `${me.name} chấm công ngoài lịch`, body: `Lúc ${clock.fmt(t)}`, link: '/cham-cong' });
     } else if (result.late) {
-      ctx.notify(ctx.leadsOf(me.team_id).filter((id) => id !== me.id), { title: `${me.name} đi trễ ${result.late} phút`, link: '/cham-cong' });
+      ctx.notify(ctx.leadsOf(me.team_id).filter((id) => id !== me.id), { title: `${me.name} đi trễ ${result.late} phút`, body: needLatePhoto(me.id) ? 'Bạn ấy phải tự chụp ảnh nón + khăn trong app.' : '', link: '/cham-cong' });
     }
     ctx.audit(me, 'clock.in', result.id);
     ctx.broadcast('attendance');
     return { ...myStatus(me), late_minutes: result.late, scheduled: Boolean(result.seg) };
+  });
+
+  // Ảnh nón + khăn của bạn vào trễ
+  r.post('/api/attendance/late-photo', 'staff', ({ me, body }) => {
+    const open = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id);
+    if (!open) fail(409, 'Bạn chưa chấm vào ca');
+    const m = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(body.data || ''));
+    if (!m) fail(400, 'Ảnh không hợp lệ');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length < 500 || buf.length > 1_500_000) fail(400, 'Ảnh không hợp lệ, chụp lại giúp');
+    const rel = path.join(open.date, `tre-${open.id}-${crypto.randomBytes(6).toString('hex')}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`);
+    fs.mkdirSync(path.join(photoDir, open.date), { recursive: true });
+    fs.writeFileSync(path.join(photoDir, rel), buf);
+    db.prepare('UPDATE attendance SET late_photo = ? WHERE id = ?').run(rel, open.id);
+    ctx.notify(ctx.leadsOf(me.team_id).filter((id) => id !== me.id), { title: `${me.name} vào trễ ${open.late_minutes}′ đã chụp ảnh nón + khăn`, body: 'Xem ở Chấm công.', link: '/cham-cong' });
+    ctx.broadcast('attendance');
+    return { ok: true };
+  });
+  r.get('/api/attendance/:id/late-photo', 'staff', ({ me, params }) => {
+    const a = db.prepare('SELECT staff_id, late_photo FROM attendance WHERE id = ?').get(params.id);
+    if (!a || !a.late_photo) fail(404, 'Không có ảnh');
+    if (a.staff_id !== me.id && rank(me.role) < rank('team_lead')) fail(403, 'Không xem được ảnh này');
+    let buf;
+    try { buf = fs.readFileSync(path.join(photoDir, a.late_photo)); } catch { fail(410, 'Ảnh không còn'); }
+    return { __binary: buf, type: a.late_photo.endsWith('.png') ? 'image/png' : a.late_photo.endsWith('.webp') ? 'image/webp' : 'image/jpeg' };
   });
 
   r.post('/api/attendance/clock-out', 'staff', ({ me, net, body }) => {

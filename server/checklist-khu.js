@@ -88,11 +88,9 @@ export const KHU_CHECKLISTS = [
     T('Kiểm pin xe đủ chạy ca, xe yếu thì báo', false),
     T('Lau xe, bánh xe', false),
   ] },
-  // Phục vụ: mỗi bạn 2 khăn sạch + nón. Trưởng ca cho cả tổ xếp hàng 30 giây, chụp 1 ảnh chung (không bắt từng bạn chụp)
+  // Phục vụ: mỗi bạn 2 khăn sạch + nón. Tổ trưởng chụp 1 ảnh chung các bạn vào ĐÚNG ca; bạn vào trễ tự chụp khi chấm công (chủ quán 25/10)
   { title: 'Đầu ca Phục vụ: khăn + nón', phase: 'open', team: ['phục vụ'], items: [
-    N('Số bạn phục vụ đi làm ca này', 'người'),
-    N('Số bạn đủ 2 khăn sạch + nón', 'người'),
-    T('📷 ĐẦU CA: chụp 1 ảnh cả tổ xếp hàng, cầm 2 khăn, đội nón'),
+    T('📷 ĐẦU CA: tổ trưởng chụp 1 ảnh các bạn vào đúng ca, cầm 2 khăn, đội nón (bạn vào trễ tự chụp khi chấm công)'),
     X('Bạn nào thiếu (ghi tên + thiếu gì)'),
   ] },
   { title: 'Cuối ca Phục vụ: gom khăn', phase: 'close', team: ['phục vụ'], items: [
@@ -180,6 +178,16 @@ export function seedKhuChecklists(db) {
   if (!getSet.get('phuc_vu_gon_v1')) {
     db.prepare("UPDATE checklist_items SET photo_required = 0 WHERE template_id IN (SELECT id FROM checklist_templates WHERE title IN ('Mở ca phục vụ', 'Đóng ca phục vụ'))").run();
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('phuc_vu_gon_v1', '1')").run();
+  }
+  // 25/10: bỏ 2 dòng đếm số người ở "Đầu ca Phục vụ: khăn + nón", đổi chữ việc chụp ảnh (giữ ảnh mẫu, lịch sử)
+  if (!getSet.get('pv_khan_non_v2')) {
+    const t = db.prepare("SELECT id FROM checklist_templates WHERE title = 'Đầu ca Phục vụ: khăn + nón'").get();
+    if (t) {
+      db.prepare("DELETE FROM checklist_items WHERE template_id = ? AND text IN ('Số bạn phục vụ đi làm ca này', 'Số bạn đủ 2 khăn sạch + nón')").run(t.id);
+      db.prepare("UPDATE checklist_items SET text = ? WHERE template_id = ? AND text = '📷 ĐẦU CA: chụp 1 ảnh cả tổ xếp hàng, cầm 2 khăn, đội nón'")
+        .run('📷 ĐẦU CA: tổ trưởng chụp 1 ảnh các bạn vào đúng ca, cầm 2 khăn, đội nón (bạn vào trễ tự chụp khi chấm công)', t.id);
+    }
+    db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('pv_khan_non_v2', '1')").run();
   }
   let done;
   try { done = new Set(JSON.parse(getSet.get('checklist_khu_done')?.value || '[]')); } catch { done = new Set(); }

@@ -31,7 +31,7 @@ test('lương trong khung ca: vào sớm không tính, về sớm trừ + báo, 
   const pv = (await o('GET', '/api/teams')).data.find((x) => x.name === 'Phục vụ').id;
   const id = (await o('POST', '/api/staff', { name: 'Lan', team_id: pv, pin: '4821', pay_type: 'hour', pay_rate: 30000 })).data.id;
   const add = db.prepare("INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES (?, ?, ?, ?, 840, 1380, 0)");
-  add.run('g1', id, pv, '2026-10-26'); add.run('g2', id, pv, '2026-10-27');
+  add.run('g1', id, pv, '2026-10-26'); add.run('g2', id, pv, '2026-10-27'); add.run('g3', id, pv, '2026-10-28');
   const L = mk();
   await L('POST', '/api/login', { pin: '4821' });
 
@@ -60,4 +60,13 @@ test('lương trong khung ca: vào sớm không tính, về sớm trừ + báo, 
   assert.equal((await o('POST', `/api/attendance/${d2.id}/overtime`, { approve: true })).status, 200);
   p = await pay();
   assert.equal(p.minutes, 1090);
+
+  // Vào trễ (Phục vụ) → phải tự chụp ảnh nón + khăn
+  now = at('2026-10-28', '14:20');
+  const cin = (await L('POST', '/api/attendance/clock-in')).data;
+  assert.equal(cin.open.need_photo, true);
+  const jpg = `data:image/jpeg;base64,${Buffer.alloc(900, 7).toString('base64')}`;
+  assert.equal((await L('POST', '/api/attendance/late-photo', { data: jpg })).status, 200);
+  assert.equal((await L('GET', '/api/attendance/me')).data.open.need_photo, false);
+  assert.ok(sent.some((x) => /vào trễ 20′ đã chụp ảnh nón \+ khăn/.test(x.title)));
 });

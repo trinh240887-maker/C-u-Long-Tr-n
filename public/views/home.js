@@ -1,3 +1,4 @@
+import { compressImage } from './checklists.js';
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Link, Modal, Field, hm, dt, dayLabel, PHASE_LABEL, ago } from '../ui.js';
 import { MyCashCard } from './pay.js';
@@ -30,6 +31,7 @@ function ClockCard() {
       <div><div class="eyebrow">Đang trong ca</div>
         <div class="big">Vào lúc ${hm(open.clock_in)}</div>
         <div class="muted">${Math.floor(mins / 60)} giờ ${mins % 60} phút${open.late_minutes ? ` · trễ ${open.late_minutes} phút` : ''}${open.note ? ` · ${open.note}` : ''}</div></div>
+      ${open.need_photo ? html`<${LatePhoto} late=${open.late_minutes} />` : null}
       <button class="solid danger big" onClick=${() => act(async () => api('POST', '/api/attendance/clock-out', st.data.gps ? await myPlace() : {}), 'Đã chấm ra ca')}>Chấm ra</button>
     </section>`;
   }
@@ -42,6 +44,20 @@ function ClockCard() {
       return r;
     }, 'Đã chấm vào ca')}>Chấm vào</button>
   </section>`;
+}
+
+// Vào trễ: tự chụp ảnh đội nón + cầm 2 khăn (tổ trưởng chỉ chụp chung các bạn vào đúng ca)
+function LatePhoto({ late }) {
+  const [busy, setBusy] = useState(false);
+  const up = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    try { const data = await compressImage(file); await act(() => api('POST', '/api/attendance/late-photo', { data }), 'Đã gửi ảnh'); } finally { setBusy(false); }
+  };
+  return html`<div class="late-photo"><b>⚠ Bạn vào trễ ${late} phút</b><span class="small">Chụp 1 ảnh tự sướng: đội nón + cầm 2 khăn sạch.</span>
+    <label class=${`button primary ${busy ? 'muted' : ''}`}>📷 ${busy ? 'Đang gửi…' : 'Chụp ảnh nón + khăn'}<input type="file" accept="image/*" capture="user" hidden onChange=${up} /></label></div>`;
 }
 
 // Lấy vị trí điện thoại để chấm công (quán bật kiểm tra vị trí). Không cho phép / lỗi → gửi rỗng, máy chủ thử theo wifi quán
