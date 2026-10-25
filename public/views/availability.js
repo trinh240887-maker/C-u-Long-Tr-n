@@ -249,7 +249,8 @@ async function publishTeam(week, g) {
 
 // Vẽ bảng lịch giống màn Bảng tuần thành ảnh PNG (canvas của trình duyệt có sẵn font tiếng Việt)
 function drawScheduleImage(t) {
-  const W0 = 230, CW = 128, RH = 58, HH = 64, TH = 70, PAD = 16;
+  const W0 = 230, CW = 128, HH = 64, TH = 70, PAD = 16;
+  const RH = t.rows.some((r) => r.cells.some((x) => x.includes(' · ') && x.includes(' + '))) ? 72 : 58;
   const rows = t.rows.length ? t.rows : [{ name: '(chưa có ai có ca)', tags: [], cells: Array(7).fill('') }];
   const W = PAD * 2 + W0 + CW * 7, H = PAD * 2 + TH + HH + RH * rows.length + 30;
   const scale = 2;
@@ -284,9 +285,13 @@ function drawScheduleImage(t) {
       const x = PAD + W0 + CW * i;
       if (txt) { c.fillStyle = '#fde3d3'; c.fillRect(x + 2, y + 2, CW - 4, RH - 4); }
       c.fillStyle = '#b23c17'; c.textAlign = 'center'; c.font = `700 16px ${F}`;
-      const parts = txt.split(' + ');
-      if (parts.length > 1) { c.fillText(parts[0], x + CW / 2, y + RH / 2 - 10); c.fillText(parts.slice(1).join(' + '), x + CW / 2, y + RH / 2 + 11); }
-      else c.fillText(txt, x + CW / 2, y + RH / 2);
+      // "8–12 + 14–23 · A 1-10" → dòng giờ + dòng khu
+      const [hrs, zone] = txt.split(' · ');
+      const parts = hrs.split(' + ');
+      const lines = parts.length > 1 ? [parts[0], parts.slice(1).join(' + ')] : [hrs];
+      if (zone) lines.push(`📍${zone}`);
+      const top = y + RH / 2 - ((lines.length - 1) * 19) / 2;
+      lines.forEach((ln, j) => { c.font = ln.startsWith('📍') ? `600 14px ${F}` : `700 16px ${F}`; c.fillStyle = ln.startsWith('📍') ? '#1d4ed8' : '#b23c17'; c.fillText(ln, x + CW / 2, top + j * 19); });
     });
     c.strokeStyle = '#e8e2d8'; c.lineWidth = 1; c.beginPath(); c.moveTo(PAD, y + RH); c.lineTo(W - PAD, y + RH); c.stroke();
     y += RH;

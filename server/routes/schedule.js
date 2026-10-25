@@ -357,7 +357,10 @@ export default function (r, ctx) {
     const end = addDays(start, 6);
     const lines = [];
     const days7 = Array.from({ length: 7 }, (_, i) => addDays(start, i));
-    const short = (segs) => describeGroup(segs).replace(/:00/g, '').replace(/\b0(\d)/g, '$1').replace(/–0\b/g, '–24');
+    // Khu phụ trách (Phục vụ): ghi thêm vào ô, vd "14–23 · A 1-10"
+    const zname = new Map(db.prepare('SELECT id, name FROM zones').all().map((z) => [z.id, z.name.replace(/^Khu\s*/i, '')]));
+    const zoneTxt = (segs) => { const a = segs.find((x) => x.zone_id); return a ? ` · ${zname.get(a.zone_id) || ''}${a.tables_text ? ` ${a.tables_text}` : ''}` : ''; };
+    const short = (segs) => describeGroup(segs).replace(/:00/g, '').replace(/\b0(\d)/g, '$1').replace(/–0\b/g, '–24') + zoneTxt(segs);
     const ROLE_TAG = { team_lead: 'Tổ trưởng', shift_lead: 'Trưởng ca', manager: 'Quản lý' };
     const WORK_TAG = { full: 'Full ca', gay: 'Ca gãy', part: 'Part-time' };
     const table = { title: `LỊCH ${team.name.toUpperCase()}`, week: `${start.slice(8)}/${start.slice(5, 7)} – ${end.slice(8)}/${end.slice(5, 7)}`, days: days7.map((d) => ({ dow: WEEKDAY[isoWeekday(d)], date: `${d.slice(8)}/${d.slice(5, 7)}` })), rows: [] };
@@ -375,7 +378,7 @@ export default function (r, ctx) {
       for (const x of days) { const g = grp.at(-1); if (g && g.txt === x.txt && addDays(g.to, 1) === x.date) g.to = x.date; else grp.push({ from: x.date, to: x.date, txt: x.txt }); }
       const all7 = grp.length === 1 && grp[0].from === start && grp[0].to === end;
       lines.push(`• ${p.name}: ${all7 ? `cả tuần ${grp[0].txt}` : grp.map((g) => `${WEEKDAY[isoWeekday(g.from)]}${g.to !== g.from ? `–${WEEKDAY[isoWeekday(g.to)]}` : ''} ${g.txt}`).join(' · ')}`);
-      ctx.notify(p.id, { title: `Lịch làm tuần ${start.slice(8)}/${start.slice(5, 7)} đã duyệt`, body: [...byDay].map(([date, segs]) => `• ${WEEKDAY[isoWeekday(date)]} ${date.slice(8)}/${date.slice(5, 7)}: ${describeGroup(segs)}`).join('\n'), link: '/lich' });
+      ctx.notify(p.id, { title: `Lịch làm tuần ${start.slice(8)}/${start.slice(5, 7)} đã duyệt`, body: [...byDay].map(([date, segs]) => `• ${WEEKDAY[isoWeekday(date)]} ${date.slice(8)}/${date.slice(5, 7)}: ${describeGroup(segs)}${zoneTxt(segs) ? ` · 📍 Khu${zoneTxt(segs).slice(2)}` : ''}`).join('\n'), link: '/lich' });
       sent++;
     }
     ctx.setSetting(`published:${start}:t${team.id}`, ctx.now());
