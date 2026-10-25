@@ -28,7 +28,7 @@ export function LeaveView({ me }) {
   const canHandle = atLeast(me, 'team_lead');
   return html`<div class="stack">
     <div class="tabs">${[['pending', 'Chờ duyệt'], ['approved', 'Đã duyệt'], ['', 'Tất cả']].map(([k, l]) => html`<button class=${filter === k ? 'on' : ''} onClick=${() => setFilter(k)}>${l}</button>`)}</div>
-    <p class="muted small">Muốn xin nghỉ? Vào <b>Hôm nay</b> → mục "Ca của tôi" → bấm <b>Xin nghỉ</b> ở ca đó.</p>
+    <p class="muted small">Muốn xin nghỉ? Vào <b>Hôm nay</b> → bấm <b>✋ Xin nghỉ</b> → chọn ca. Duyệt nghỉ thì ca đó bỏ khỏi lịch, quản lý xếp lại người ở Lịch ca.</p>
     ${!st.data ? html`<${Loading} state=${st} />` : st.data.length ? st.data.map((l) => html`<section class=${`card ${canHandle && l.status === 'pending' && l.staff_id !== me.id ? 'click' : ''}`}
         onClick=${() => canHandle && l.status === 'pending' && l.staff_id !== me.id && setOpen(l)}>
       <div class="row between"><b>${l.staff_name}</b><span class=${`pill ${STATUS[l.status][1]}`}>${STATUS[l.status][0]}</span></div>
@@ -38,7 +38,7 @@ export function LeaveView({ me }) {
       ${l.replacement_name ? html`<div class="small">Người làm thay: <b>${l.replacement_name}</b></div>` : null}
       ${l.decided_by_name ? html`<div class="muted small">${STATUS[l.status][0]} bởi ${l.decided_by_name}${l.decision_note ? `: ${l.decision_note}` : ''}</div>` : null}
       ${l.status === 'pending' && l.staff_id === me.id ? html`<div class="row end"><button class="small" onClick=${(e) => { e.stopPropagation(); act(() => api('POST', `/api/leave/${l.id}/cancel`), 'Đã huỷ đơn'); }}>Huỷ đơn</button></div>` : null}
-      ${canHandle && l.status === 'pending' && l.staff_id !== me.id ? html`<div class="row end"><span class="link">Tìm người thay / duyệt →</span></div>` : null}
+      ${canHandle && l.status === 'pending' && l.staff_id !== me.id ? html`<div class="row end"><span class="link">Duyệt / không duyệt →</span></div>` : null}
     </section>`) : html`<div class="empty">Không có đơn nào.</div>`}
     ${open ? html`<${Handle} me=${me} leave=${open} onClose=${() => setOpen(null)} />` : null}
   </div>`;
