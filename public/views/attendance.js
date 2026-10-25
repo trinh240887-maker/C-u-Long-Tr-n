@@ -58,10 +58,10 @@ function Records({ me }) {
           <td>${r.clock_out ? dt(r.clock_out) : html`<span class="pill ok">Đang làm</span>`}${r.auto_closed ? html` <span class="pill bad">tự đóng</span>` : null}</td>
           <td class="r num">${r.paid_minutes != null ? hours(r.paid_minutes) : '—'}${mins != null && r.paid_minutes != null && mins !== r.paid_minutes ? html`<br /><small class="muted">thực tế ${hours(mins)}</small>` : null}
             ${r.early_minutes > 0 ? html`<br /><span class="pill warn">về sớm ${r.early_minutes}′</span>` : null}
-            ${r.ot_minutes > 0 ? html`<br /><span class=${`pill ${r.ot_status === 'approved' ? 'ok' : r.ot_status === 'rejected' ? 'bad' : 'warn'}`}>tăng ca ${r.ot_minutes}′ ${r.ot_status === 'approved' ? 'đã duyệt' : r.ot_status === 'rejected' ? 'không duyệt' : 'chờ chủ duyệt'}</span>
-              ${me.role === 'owner' && r.ot_status !== 'approved' ? html`<div class="row end tight" onClick=${(e) => e.stopPropagation()}>
-                ${r.ot_status !== 'rejected' ? html`<button class="small" onClick=${() => act(() => api('POST', `/api/attendance/${r.id}/overtime`, { approve: false }), 'Không tính tăng ca')}>Không</button>` : null}
-                <button class="small primary" onClick=${() => act(() => api('POST', `/api/attendance/${r.id}/overtime`, { approve: true }), 'Đã duyệt tăng ca')}>Duyệt tăng ca</button></div>` : null}` : null}</td>
+            ${r.ot_minutes > 0 && me.role === 'owner' ? html`<br /><span class=${`pill ${r.ot_status === 'approved' ? 'ok' : 'muted'}`}>ở lại ${r.ot_minutes}′ ${r.ot_status === 'approved' ? '· đã tính thêm' : '· không tính'}</span>
+              <div class="row end tight" onClick=${(e) => e.stopPropagation()}>${r.ot_status === 'approved'
+                ? html`<button class="small" onClick=${() => act(() => api('POST', `/api/attendance/${r.id}/overtime`, { approve: false }), 'Đã bỏ phần tính thêm')}>Bỏ tính thêm</button>`
+                : html`<button class="small" onClick=${() => act(() => api('POST', `/api/attendance/${r.id}/overtime`, { approve: true }), 'Đã tính thêm vào lương')}>Tính thêm ${r.ot_minutes}′</button>`}</div>` : null}</td>
           <td><small>${r.note}${r.edited_by_name ? ` (sửa: ${r.edited_by_name})` : ''}</small></td>
         </tr>`;
       })}</tbody></table></div>` : html`<div class="empty">Chưa có ai chấm công ngày này.</div>`}

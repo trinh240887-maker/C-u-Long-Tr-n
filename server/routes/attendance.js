@@ -166,17 +166,17 @@ export default function (r, ctx) {
     if (held) fail(409, `Còn ${held.toLocaleString('vi-VN')}đ tiền mặt bạn thu chưa được thu ngân xác nhận. Đưa tiền cho thu ngân bấm xác nhận rồi chấm ra.`);
     const outAt = ctx.now();
     const p = payInfo({ ...open, clock_out: outAt });
-    db.prepare("UPDATE attendance SET clock_out = ?, ot_status = ? WHERE id = ?").run(outAt, p.ot_minutes ? 'pending' : '', open.id);
+    // Ở lại sau giờ ca = làm cho xong việc, KHÔNG phải tăng ca, không báo ai (chủ quán 25/10). Chủ muốn tính thì tự bấm ở Chấm công.
+    db.prepare("UPDATE attendance SET clock_out = ?, ot_status = '' WHERE id = ?").run(outAt, open.id);
     const grace = num('late_grace_minutes', 5);
     if (p.early_minutes > grace) ctx.notify(ctx.leadsOf(me.team_id).filter((id) => id !== me.id), { title: `${me.name} về sớm ${p.early_minutes} phút`, body: `Chấm ra lúc ${ctx.clock().fmt(outAt)}. Giờ về sớm bị trừ lương.`, link: '/cham-cong' });
-    if (p.ot_minutes) ctx.notify(db.prepare("SELECT id FROM staff WHERE role = 'owner' AND active = 1").all().map((x) => x.id), { title: `${me.name} ở lại ${p.ot_minutes} phút sau giờ ca`, body: 'Chỉ tính lương khi chủ quán duyệt: vào Chấm công → bấm Duyệt tăng ca.', link: '/cham-cong' });
     ctx.audit(me, 'clock.out', open.id);
     ctx.broadcast('attendance');
     return myStatus(me);
   });
 
   // ---------- Quản lý chấm công ----------
-  r.get('/api/attendance', 'shift_lead', ({ query }) => {
+  r.get('/api/attendance', 'shift_lead', ({ me, query }) => {
     ctx.autoCloseAttendance();
     const from = query.get('from') || ctx.today();
     const to = query.get('to') || from;
@@ -188,19 +188,20 @@ export default function (r, ctx) {
       WHERE at.date BETWEEN ? AND ? ${staffId ? 'AND at.staff_id = ?' : ''} ORDER BY at.clock_in DESC LIMIT 1000`)
       .all(...[from, to, ...(staffId ? [Number(staffId)] : [])]).map((r) => {
         const p = payInfo(r);
-        return { ...r, ...p, paid_minutes: p.paid_to ? Math.round((p.paid_to - p.paid_from) / 60_000) : null };
+        const out = { ...r, ...p, paid_minutes: p.paid_to ? Math.round((p.paid_to - p.paid_from) / 60_000) : null };
+        if (me.role !== 'owner') { out.ot_minutes = 0; out.ot_status = ''; } // phần ở lại sau ca chỉ chủ quán thấy
+        return out;
       });
   });
 
   // Chủ quán duyệt / không duyệt giờ tăng ca (ở lại sau giờ ca)
   r.post('/api/attendance/:id/overtime', 'manager', ({ me, params, body }) => {
-    if (me.role !== 'owner') fail(403, 'Chỉ chủ quán duyệt tăng ca');
+    if (me.role !== 'owner') fail(403, 'Chỉ chủ quán');
     const cur = db.prepare('SELECT at.*, s.name FROM attendance at JOIN staff s ON s.id = at.staff_id WHERE at.id = ?').get(params.id);
     if (!cur) fail(404, 'Không tìm thấy lượt chấm công');
     if (!payInfo(cur).ot_minutes) fail(400, 'Lượt này không có tăng ca');
     const ok = v.bool(body.approve);
     db.prepare('UPDATE attendance SET ot_status = ?, ot_by = ? WHERE id = ?').run(ok ? 'approved' : 'rejected', me.id, cur.id);
-    ctx.notify(cur.staff_id, { title: ok ? `Tăng ca ${payInfo(cur).ot_minutes} phút được duyệt` : 'Tăng ca không được duyệt', body: `Ngày ${cur.date}`, link: '/' });
     ctx.audit(me, ok ? 'attendance.ot_approve' : 'attendance.ot_reject', cur.id);
     ctx.broadcast('attendance');
     return { ok: true };

@@ -45,17 +45,17 @@ test('lương trong khung ca: vào sớm không tính, về sớm trừ + báo, 
   await L('POST', '/api/attendance/clock-in');
   now = at('2026-10-27', '23:40');
   await L('POST', '/api/attendance/clock-out');
-  assert.ok(sent.some((x) => /ở lại 40 phút sau giờ ca/.test(x.title)));
+  assert.ok(!sent.some((x) => /ở lại|tăng ca/.test(x.title))); // ở lại cho xong việc: không báo ai
   const rows = (await o('GET', '/api/attendance?from=2026-10-26&to=2026-10-27')).data;
   const d2 = rows.find((r) => r.date === '2026-10-27');
   assert.equal(d2.ot_minutes, 40);
-  assert.equal(d2.ot_status, 'pending');
+  assert.equal(d2.ot_status, '');
   assert.equal(d2.paid_minutes, 540);
   const pay = async () => (await o('GET', '/api/timesheet?month=2026-10')).data.rows.find((r) => r.staff_id === id);
   let p = await pay();
   assert.equal(p.minutes, 510 + 540);
   assert.equal(p.pay, Math.round((1050 / 60) * 30000)); // không phụ cấp đêm
-  // Nhân viên / quản lý không duyệt được, chủ duyệt → cộng 40′
+  // Chủ quán muốn tính thì tự bấm "Tính thêm" (không báo nhân viên)
   assert.equal((await L('POST', `/api/attendance/${d2.id}/overtime`, { approve: true })).status, 403);
   assert.equal((await o('POST', `/api/attendance/${d2.id}/overtime`, { approve: true })).status, 200);
   p = await pay();
