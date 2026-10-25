@@ -42,8 +42,17 @@ test('bot nhắc lịch rảnh: tối thứ 7 20h gửi 1 lần vào nhóm nhân
   await ctx.availBotTick(); // đã gửi tuần này → không gửi lại
   assert.equal(sent.length, 1);
 
-  ctx.setSetting('avail_bot_on', '0');
+  // Nhiều nhóm: mỗi nhóm chỉ nhắc bộ phận của nhóm đó
+  ctx.saveStaffGroups([{ id: 'grpNV', name: 'Chung', teams: [pv] }, { id: 'grpTN', name: 'Thu ngân', teams: [tn] }, { id: 'grpX', name: 'Chưa chọn', teams: [] }]);
   now = clock.toEpoch('2026-11-07', 20 * 60 + 5);
+  await ctx.availBotTick();
+  assert.deepEqual(sent.slice(1).map((x) => x.chat), ['grpNV', 'grpTN']);
+  assert.match(sent[1].text, /Lan/);
+  assert.doesNotMatch(sent[1].text, /Kim/);
+  assert.match(sent[2].text, /Thu ngân: Kim/);
+  sent.length = 1;
+  ctx.setSetting('avail_bot_on', '0');
+  now = clock.toEpoch('2026-11-14', 20 * 60 + 5);
   await ctx.availBotTick();
   assert.equal(sent.length, 1);
 });
@@ -63,7 +72,7 @@ test('bot đọc tin @bot trong nhóm nhân viên → tự điền lịch rảnh
   ctx.setSetting('zalo_bot_staff_group_id', 'grpNV');
   const msg = (mid, text, from = { id: 'u1', name: 'Trường Giang' }, chat = 'grpNV') => ({ id: mid, date: now, chat: { id: chat, type: 'GROUP', name: 'Demo Quán' }, from, text });
 
-  inbox = [msg('m1', '@Bot Trường Giang ( tiếp thực)\nHồng phúc ( Tiếp Thực)\n14h-23h'), msg('x', '@Bot 10-14', { id: 'u9', name: 'Ai' }, 'grpKhac')];
+  inbox = [msg('m1', '@Bot Trường Giang ( tiếp thực)\nHồng phúc ( Tiếp Thực)\n14h-23h'), msg('x', '@Bot xin chào', { id: 'u9', name: 'Ai' }, 'grpKhac')];
   await ctx.zaloBotPoll();
   assert.equal(sent.length, 1);
   assert.match(sent[0].text, /Đã ghi lịch rảnh/);
@@ -107,10 +116,10 @@ test('bot đọc tin @bot trong nhóm nhân viên → tự điền lịch rảnh
   assert.match(sent.at(-1).text, /Chưa thấy tên/);
 
   // Chưa chọn nhóm nhân viên → tin báo giờ đầu tiên tự nhận nhóm
-  ctx.setSetting('zalo_bot_staff_group_id', '');
-  inbox = [msg('m6', '@Bot Cẩm Tú 15-22', { id: 'u3', name: 'Cẩm Tú' }, 'grpMoi')];
+  // Nhóm thứ 2 (vd nhóm Bếp) nhắn báo giờ → bot tự thêm nhóm (chưa chọn bộ phận), vẫn ghi lịch + trả lời đúng nhóm
+  inbox = [msg('m6', '@Bot Cẩm Tú 15-22', { id: 'u3', name: 'Cẩm Tú' }, 'grpBep')];
   await ctx.zaloBotPoll();
-  assert.equal(ctx.setting('zalo_bot_staff_group_id'), 'grpMoi');
-  assert.equal(sent.at(-1).chat, 'grpMoi');
+  assert.deepEqual(ctx.staffGroups().map((g) => [g.id, g.teams.length > 0]), [['grpNV', true], ['grpBep', false]]);
+  assert.equal(sent.at(-1).chat, 'grpBep');
   assert.match(sent.at(-1).text, /Cẩm Tú: cả tuần/);
 });

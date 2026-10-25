@@ -413,7 +413,7 @@ function Keys({ s, me, only }) {
       <p class="small"><b>Bước 1:</b> dán Token bot (chuỗi dài dạng 123456789:AbCd…, không phải ID bot) rồi bấm Lưu token.</p>
       <${Field} label="Token Zalo Bot" hint=${s.zalo_bot_token ? `Đã lưu (${s.zalo_bot_token}). Dán token mới để đổi.` : 'Chưa có.'}><input id="k-zbot" type="password" autocomplete="off" disabled=${!owner} value=${f.zalo_bot_token} onInput=${(e) => setF({ ...f, zalo_bot_token: e.target.value })} /><//>
       <div class="row end"><button class="primary" disabled=${!owner || !f.zalo_bot_token} onClick=${() => save('zalo_bot_token', 'Đã lưu token Zalo Bot')}>Lưu token</button></div>
-      ${owner ? html`<${BotGroup} s=${s} kind="order" /><${BotGroup} s=${s} kind="staff" />` : html`<p class="warn-text small">Đăng nhập bằng tài khoản chủ quán để cài bot.</p>`}
+      ${owner ? html`<${BotGroup} s=${s} kind="order" /><${StaffGroups} s=${s} />` : html`<p class="warn-text small">Đăng nhập bằng tài khoản chủ quán để cài bot.</p>`}
     </section>` : null}
   </div>`;
 }
@@ -439,6 +439,40 @@ function BotLog() {
       ${d.raw ? html`<details><summary class="muted">Dữ liệu gốc (gửi Claude nếu cần)</summary><code style="word-break:break-all">${d.raw}</code></details>` : null}
     </div>` : null}
   </div>`;
+}
+
+// Nhóm nhân viên (có thể nhiều nhóm: nhóm chung, nhóm Bếp…): bot đọc tin @bot báo lịch rảnh + tối thứ 7 nhắc người chưa báo của bộ phận đã chọn
+function StaffGroups({ s }) {
+  const gd = useData('/api/zalo-bot/staff-groups');
+  const td = useData('/api/teams');
+  const [chats, setChats] = useState(null);
+  const [on, setOn] = useState(s.avail_bot_on !== '0');
+  const groups = gd.data?.groups || [];
+  const teams = (td.data || []).filter((t) => t.active !== 0);
+  const save = (list, msg) => act(() => api('PUT', '/api/zalo-bot/staff-groups', { groups: list }), msg);
+  const flip = (g, id) => save(groups.map((x) => (x.id === g.id ? { ...x, teams: x.teams.includes(id) ? x.teams.filter((y) => y !== id) : [...x.teams, id] } : x)), 'Đã lưu');
+  const find = () => act(() => api('POST', '/api/zalo-bot/chats')).then((r) => r && setChats(r.chats));
+  const add = (c) => save([...groups, { id: c.id, name: c.name || c.id, teams: [] }], 'Đã thêm nhóm, chọn bộ phận bên dưới').then((r) => r && setChats(null));
+  const toggle = () => act(() => api('PUT', '/api/settings', { avail_bot_on: on ? '0' : '1' }), on ? 'Đã tắt nhắc tự động' : 'Đã bật nhắc tự động').then((r) => r && setOn(!on));
+  return html`<section class="card stack">
+    <h3>👥 Nhóm nhân viên (báo lịch rảnh)</h3>
+    <p class="small muted">Nhân viên nhắn trong nhóm "@tên bot Tên 14-23" (cả tuần), ngày khác ghi riêng: "@bot Tên 14-23, T7 nghỉ, CN 10-23" → bot tự điền lịch rảnh + tạo ca và trả lời ✅. Tối thứ 7 20:00 bot nhắn vào từng nhóm tên người CHƯA báo của các bộ phận đã chọn cho nhóm đó.</p>
+    ${!groups.length ? html`<p class="warn-text small">Chưa có nhóm nào.</p>` : null}
+    ${groups.map((g) => html`<div class="card tight stack">
+      <div class="row wrap"><b class="grow">${g.name}</b>
+        <button class="small" onClick=${() => act(() => api('POST', '/api/zalo-bot/test-staff', { id: g.id }), 'Đã gửi, mở nhóm Zalo xem')}>Gửi thử</button>
+        <button class="small" onClick=${() => confirm(`Bỏ nhóm ${g.name}?`) && save(groups.filter((x) => x.id !== g.id), 'Đã bỏ nhóm')}>Bỏ</button></div>
+      <span class="small">Nhắc tên các bộ phận:</span>
+      <div class="row wrap tight">${teams.map((t) => html`<button class=${`chip ${g.teams.includes(t.id) ? 'on' : ''}`} onClick=${() => flip(g, t.id)}>${g.teams.includes(t.id) ? '✓ ' : ''}${t.name}</button>`)}</div>
+      ${!g.teams.length ? html`<p class="small warn-text">Chưa chọn bộ phận → bot vẫn ghi lịch từ nhóm này nhưng không nhắc ai.</p>` : null}
+    </div>`)}
+    <ol class="plain steps small"><li>Gửi link mời bot vào nhóm, trưởng nhóm bấm Xác nhận.</li><li>Trong nhóm nhắn "@tên bot" kèm giờ (ví dụ "@bot Tên 14-23"). Bot tự thêm nhóm vào đây; hoặc bấm "Tìm nhóm".</li><li>Chọn bộ phận cho nhóm.</li></ol>
+    <div class="row wrap"><button onClick=${find}>Tìm nhóm</button>
+      <button class=${`chip ${on ? 'on' : ''}`} onClick=${toggle}>${on ? '🔔 Tự nhắc tối thứ 7: BẬT' : '🔕 Tự nhắc tối thứ 7: TẮT'}</button></div>
+    ${chats ? (chats.filter((c) => !groups.some((g) => g.id === c.id)).length ? chats.filter((c) => !groups.some((g) => g.id === c.id)).map((c) => html`<button class="tpl-row" onClick=${() => add(c)}><b class="grow">+ ${c.name || '(không tên)'}</b><span class="muted">${c.text ? `"${c.text.slice(0, 30)}"` : ''}</span></button>`)
+      : html`<p class="warn-text small">Không thấy nhóm mới. Nhắn @bot trong nhóm rồi bấm lại.</p>`) : null}
+    <${BotLog} />
+  </section>`;
 }
 
 // Bộ phận bot nhắc tên trong nhóm (mặc định Phục vụ + Tiếp thực)

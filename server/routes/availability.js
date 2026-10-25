@@ -223,25 +223,43 @@ export default function (r, ctx) {
     return db.prepare('SELECT id, name FROM teams').all().filter((t) => BOT_DEFAULT.test(t.name.trim())).map((t) => t.id);
   }
   ctx.availBotTeams = botTeams;
-  function groupText(ws, all) {
-    const teams = botTeams();
+  // Nhiều nhóm nhân viên (chủ quán 25/10: nhóm chung + nhóm Bếp): mỗi nhóm nhắc các bộ phận của nhóm đó
+  function staffGroups() {
+    try { const x = JSON.parse(ctx.setting('zalo_bot_staff_groups') || 'null'); if (Array.isArray(x)) return x; } catch { /* cũ */ }
+    const id = ctx.setting('zalo_bot_staff_group_id');
+    return id ? [{ id, name: ctx.setting('zalo_bot_staff_group_name') || 'Nhóm nhân viên', teams: botTeams() }] : [];
+  }
+  const saveGroups = (list) => ctx.setSetting('zalo_bot_staff_groups', JSON.stringify(list.slice(0, 10)));
+  ctx.staffGroups = staffGroups;
+  ctx.saveStaffGroups = saveGroups;
+  const groupOf = (chatId) => staffGroups().find((g) => g.id === chatId);
+  function groupText(ws, all, teams = botTeams()) {
     const people = teams.length ? all.filter((p) => teams.includes(p.team_id)) : all;
     const missing = people.filter((p) => !p.submitted_at);
     const head = `📅 Lịch rảnh tuần ${ddmm(ws)}–${ddmm(addDays(ws, 6))}`;
     const base = (ctx.setting('public_url') || '').replace(/\/$/, '');
-    const link = base ? `\nVào app báo lịch: ${base}/ranh?week=${ws}` : '\nVào app → Lịch rảnh để báo.';
-    if (!missing.length) return `${head}: ✅ cả quán đã báo đủ (${people.length} người). Cảm ơn mọi người!`;
+    const link = base ? `\nVào app báo lịch: ${base}/ranh?week=${ws}` : '\nHoặc nhắn trong nhóm: @bot Tên 14-23 (cả tuần), ngày khác ghi riêng: T7 nghỉ, CN 10-23';
+    if (!missing.length) return `${head}: ✅ đã báo đủ (${people.length} người). Cảm ơn mọi người!`;
     const byTeam = new Map();
     for (const p of missing) { const k = p.team_name || 'Khác'; byTeam.set(k, [...(byTeam.get(k) || []), p.name]); }
     const lines = [...byTeam].map(([t, names]) => `• ${t}: ${names.join(', ')}`);
     return `${head}\nCòn ${missing.length}/${people.length} bạn CHƯA báo:\n${lines.join('\n')}${link}`;
   }
-  ctx.availGroupText = (week) => { const ws = readWeek(week); return groupText(ws, summary(ws).people); };
+  ctx.availGroupText = (week, groupId) => {
+    const ws = readWeek(week);
+    const g = groupId ? groupOf(groupId) : staffGroups()[0];
+    return groupText(ws, summary(ws).people, g ? g.teams || [] : botTeams());
+  };
+  // Gửi tin nhắc vào mọi nhóm nhân viên đã chọn bộ phận; trả số nhóm gửi được
   async function sendGroup(ws, people) {
-    const gid = ctx.setting('zalo_bot_staff_group_id');
-    if (!gid || !ctx.zaloBot?.ready()) return false;
-    await ctx.zaloBot.send(gid, groupText(ws, people));
-    return true;
+    if (!ctx.zaloBot?.ready()) return 0;
+    let n = 0, err = null;
+    for (const g of staffGroups()) {
+      if (!g.teams?.length) continue; // nhóm chưa chọn bộ phận → không nhắc
+      try { await ctx.zaloBot.send(g.id, groupText(ws, people, g.teams)); n++; } catch (e) { err = e; }
+    }
+    if (!n && err) throw err;
+    return n;
   }
   // Chạy mỗi phút: đến tối thứ 7 (giờ quán) thì bot nhắc 1 lần cho tuần tới
   ctx.availBotTick = async () => {
@@ -333,7 +351,7 @@ export default function (r, ctx) {
   // Nhật ký bot: lần đọc gần nhất + 15 tin gần nhất và bot đã làm gì (Cài đặt → Zalo Bot)
   const botLog = { poll: null, msgs: [] };
   const logMsg = (u, result) => { botLog.msgs.unshift({ at: ctx.now(), chat: u.chat.name || u.chat.id, from: u.from.name, text: u.text.slice(0, 120), result }); botLog.msgs.length = Math.min(botLog.msgs.length, 15); };
-  ctx.zaloBotLog = () => ({ ...botLog, raw: ctx.zaloBot?.state?.lastRaw || '', staff_group: ctx.setting('zalo_bot_staff_group_name') || '' });
+  ctx.zaloBotLog = () => ({ ...botLog, raw: ctx.zaloBot?.state?.lastRaw || '', staff_group: staffGroups().map((g) => g.name).join(', ') });
   let polling = false;
   ctx.zaloBotPoll = async () => {
     if (polling || !ctx.zaloBot?.ready() || !ctx.zaloBot.updates) return;
@@ -347,29 +365,26 @@ export default function (r, ctx) {
       if (!ctx.setting('zalo_bot_name')) {
         try { const me = await ctx.zaloBot.call('getMe'); const n = me?.account_name || me?.display_name || me?.name; if (n) ctx.setSetting('zalo_bot_name', String(n).slice(0, 80)); } catch { /* bỏ qua */ }
       }
-      let gid = ctx.setting('zalo_bot_staff_group_id');
-      // Chưa chọn nhóm nhân viên: tin báo giờ đầu tiên từ 1 nhóm (không phải nhóm đặt hàng) → tự nhận nhóm đó, báo chủ quán
-      if (!gid) {
-        const first = list.find((u) => /group/i.test(u.chat.type || 'group') && u.chat.id !== ctx.setting('zalo_bot_group_id') && /\d{1,2}\s*(?:h|g|:\d\d)?\s*[-–]\s*\d{1,2}/.test(u.text));
-        if (first) {
-          gid = first.chat.id;
-          ctx.setSetting('zalo_bot_staff_group_id', gid);
-          ctx.setSetting('zalo_bot_staff_group_name', first.chat.name || 'Nhóm nhân viên');
-          const owners = db.prepare("SELECT id FROM staff WHERE role = 'owner' AND active = 1").all().map((x) => x.id);
-          ctx.notify(owners, { title: 'Bot đã tự nhận nhóm nhân viên', body: `Nhóm "${first.chat.name || gid}" giờ là nhóm báo lịch rảnh. Sai nhóm thì vào Cài đặt → Zalo Bot đổi lại.`, link: '/cai-dat?tab=bot' });
-        }
+      // Tin báo giờ từ 1 nhóm chưa có trong danh sách (không phải nhóm đặt hàng) → tự thêm nhóm, báo chủ chọn bộ phận
+      for (const u of list) {
+        if (groupOf(u.chat.id) || !/group/i.test(u.chat.type || 'group') || u.chat.id === ctx.setting('zalo_bot_group_id')) continue;
+        if (!/\d{1,2}\s*(?:h|g|:\d\d)?\s*[-–]\s*\d{1,2}/.test(u.text)) continue;
+        const first = !staffGroups().length;
+        saveGroups([...staffGroups(), { id: u.chat.id, name: u.chat.name || 'Nhóm nhân viên', teams: first ? botTeams() : [] }]);
+        const owners = db.prepare("SELECT id FROM staff WHERE role = 'owner' AND active = 1").all().map((x) => x.id);
+        ctx.notify(owners, { title: `Bot đã thêm nhóm "${u.chat.name || u.chat.id}"`, body: first ? 'Nhóm này giờ là nhóm báo lịch rảnh.' : 'Bot đã ghi lịch từ nhóm này. Vào Cài đặt → Zalo Bot chọn bộ phận để bot nhắc người chưa báo trong nhóm.', link: '/cai-dat?tab=bot' });
       }
       for (const u of list) {
         if (u.from.bot || !u.text.trim()) continue;
         const key = `${u.chat.id}:${u.id || `${u.from.id}:${u.date}:${u.text}`}`;
         const fresh = db.prepare('INSERT OR IGNORE INTO zalo_bot_msgs (key, at) VALUES (?, ?)').run(key, ctx.now()).changes > 0;
         if (!fresh) continue;
-        if (!gid || u.chat.id !== gid) { logMsg(u, gid ? 'Bỏ qua: không phải nhóm nhân viên' : 'Bỏ qua: chưa chọn nhóm nhân viên'); continue; }
+        if (!groupOf(u.chat.id)) { logMsg(u, staffGroups().length ? 'Bỏ qua: không phải nhóm nhân viên' : 'Bỏ qua: chưa chọn nhóm nhân viên'); continue; }
         if (u.date && ctx.now() - u.date > 2 * 86_400_000) { logMsg(u, 'Bỏ qua: tin cũ hơn 2 ngày'); continue; }
         let reply;
         try { reply = handleBotMsg(u); } catch (e) { reply = `⚠ Lỗi khi ghi: ${e.message}`; }
         logMsg(u, reply.split('\n').join(' '));
-        if (reply) await ctx.zaloBot.send(gid, reply).catch((e) => console.error('Bot trả lời lỗi:', e.message));
+        if (reply) await ctx.zaloBot.send(u.chat.id, reply).catch((e) => console.error('Bot trả lời lỗi:', e.message));
       }
       db.prepare('DELETE FROM zalo_bot_msgs WHERE at < ?').run(ctx.now() - 7 * 86_400_000);
     } catch (e) {
@@ -383,7 +398,7 @@ export default function (r, ctx) {
     const s = summary(ws);
     const ids = s.people.filter((p) => !p.submitted_at).map((p) => p.id);
     const dl = s.deadline;
-    let group = false, group_error = '';
+    let group = 0, group_error = '';
     try { group = await sendGroup(ws, s.people); } catch (e) { group_error = e.message; }
     if (ids.length) {
       ctx.notify(ids, {

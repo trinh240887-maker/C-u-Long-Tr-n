@@ -162,14 +162,27 @@ export default function (r, ctx) {
     return { ok: true };
   });
   // Nhóm nhân viên: gửi thử = gửi ngay tin nhắc lịch rảnh tuần tới
-  r.post('/api/zalo-bot/test-staff', 'manager', async ({ me }) => {
+  r.post('/api/zalo-bot/test-staff', 'manager', async ({ me, body }) => {
     owner(me);
-    const gid = ctx.setting('zalo_bot_staff_group_id');
-    if (!gid) fail(400, 'Chưa chọn nhóm nhân viên');
-    try { await ctx.zaloBot.send(gid, ctx.availGroupText()); } catch (e) { fail(502, e.message); }
+    const g = ctx.staffGroups().find((x) => x.id === String(body.id || '')) || ctx.staffGroups()[0];
+    if (!g) fail(400, 'Chưa chọn nhóm nhân viên');
+    try { await ctx.zaloBot.send(g.id, ctx.availGroupText(null, g.id)); } catch (e) { fail(502, e.message); }
     return { ok: true };
   });
-
+  // Danh sách nhóm nhân viên: mỗi nhóm chọn bộ phận được nhắc (vd nhóm chung: Phục vụ + Tiếp thực; nhóm Bếp: các tổ bếp)
+  r.get('/api/zalo-bot/staff-groups', 'manager', ({ me }) => { owner(me); return { groups: ctx.staffGroups() }; });
+  r.put('/api/zalo-bot/staff-groups', 'manager', ({ me, body }) => {
+    owner(me);
+    const list = (Array.isArray(body.groups) ? body.groups : []).map((g) => ({
+      id: v.text(g.id, { name: 'Mã nhóm', required: true, max: 100 }).trim(),
+      name: v.text(g.name, { name: 'Tên nhóm', max: 120 }) || 'Nhóm nhân viên',
+      teams: (Array.isArray(g.teams) ? g.teams : []).map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 30),
+    }));
+    if (new Set(list.map((g) => g.id)).size !== list.length) fail(400, 'Nhóm bị trùng');
+    ctx.saveStaffGroups(list);
+    ctx.audit(me, 'zalo_bot.staff_groups', { n: list.length });
+    return { groups: ctx.staffGroups() };
+  });
   r.put('/api/settings', 'manager', ({ me, body }) => {
     const changes = {};
     for (const [k, parse] of Object.entries(FIELDS)) {
