@@ -750,3 +750,8 @@ table.wk .wk-name { white-space: normal; overflow: hidden; }
   .shell { min-height: calc(100vh / 1.35); }
   .side { height: calc(100vh / 1.35); }
 }
+table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align: center; }
+.zcov th, .zcov td { border: 1px solid var(--line); padding: 6px 4px; }
+.zcov td { font-weight: 700; cursor: pointer; }
+.zcov td.ok { background: #e6f4ea; color: #1e7b34; }
+.zcov td.short { background: #fde2e2; color: #b42318; }
