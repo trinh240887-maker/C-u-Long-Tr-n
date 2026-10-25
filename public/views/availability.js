@@ -152,8 +152,8 @@ function WeekZones({ ws, staff, teams, map, shifts = [], hours = {}, onClose }) 
     <p class="small muted">Bấm khu cho từng bạn, áp cho <b>cả tuần</b>. Muốn chia nhỏ thì ghi <b>bàn</b> (vd 1-10, 15, 20-25). Sơ đồ bàn hiện tên người phụ trách từng bàn.</p>
     <p class="small muted">Chỉ <b>Phục vụ</b> chia theo khu. Bếp, Bar, Thu ngân, Tiếp thực phân theo đầu mục công việc (checklist "Ai làm").</p>
     <label class="small row">1 bạn phục vụ <input class="num-in" type="number" min="1" max="30" value=${per} onInput=${(e) => setPer2(Number(e.target.value) || 1)} /> bàn</label>
-    <div class="chips">${zones.map((z) => { const n = count(z.id), k = need(z); return html`<span class=${`pill ${n < k ? 'bad' : n > k ? 'warn' : 'ok'}`}>${z.name}: ${n} người · cần ${k}${n < k ? ` (thiếu ${k - n})` : n > k ? ` (dư ${n - k})` : ' ✓'}</span>`; })}</div>
-    <${ZoneCoverage} ws=${ws} zones=${zones} people=${people} shifts=${shifts} hours=${hours} zOf=${zOf} per=${per} />
+    <div class="chips">${zones.map((z) => { const n = count(z.id), k = need(z); return html`<span class=${`pill ${n < k ? 'bad' : n > k ? 'warn' : 'ok'}`}>${z.name}: ${z.table_count || 0} bàn → cần <b>${k}</b> · đã phân ${n}${n < k ? ` (thiếu ${k - n})` : n > k ? ` (dư ${n - k})` : ' ✓'}</span>`; })}
+      <span class="pill">Cả quán cần <b>${zones.reduce((a, z) => a + need(z), 0)}</b> người/ngày</span></div>
     ${people.map((p) => { const used = [...new Set(shifts.filter((x) => x.staff_id === p.id && x.zone_name).map((x) => x.zone_name.replace(/^Khu\s*/i, '')))]; return html`<div class="zone-row"><span class="grow"><b>${p.name}</b>
       ${zOf(p) ? html`<br /><input class="tables-in" placeholder="Bàn: vd 1-10 (trống = cả khu)" value=${tOf(p)} onChange=${(e) => pick(p, zOf(p), e.target.value)} />` : null}
       <br /><small class="muted">🗓 ${workDays(p.id, ws, shifts, hours)}</small>
