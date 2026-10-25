@@ -74,6 +74,10 @@ test('bot đọc tin @bot trong nhóm nhân viên → tự điền lịch rảnh
   // Tạo ca tự động theo lịch rảnh
   assert.ok(db.prepare("SELECT COUNT(*) AS n FROM assignments WHERE staff_id = ? AND note = 'Theo lịch rảnh'").get(id('Nguyễn Hồng Phúc')).n >= 7);
 
+  const lg = ctx.zaloBotLog();
+  assert.equal(lg.msgs.length, 2);
+  assert.match(lg.msgs[0].result, /không phải nhóm nhân viên/);
+  assert.match(lg.msgs[1].result, /Đã ghi/);
   await ctx.zaloBotPoll(); // cùng tin → không xử lý lại
   assert.equal(sent.length, 1);
 

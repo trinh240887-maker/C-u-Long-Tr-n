@@ -6,6 +6,7 @@
 const BASE = 'https://bot-api.zaloplatforms.com';
 
 export function createZaloBot(ctx, { fetchImpl = globalThis.fetch } = {}) {
+  const state = { lastRaw: '' };
   const token = () => ctx.setting('zalo_bot_token') || process.env.ZALO_BOT_TOKEN || '';
   async function call(method, body = {}) {
     const t = token();
@@ -22,6 +23,7 @@ export function createZaloBot(ctx, { fetchImpl = globalThis.fetch } = {}) {
   async function updates() {
     const r = await call('getUpdates', { timeout: 0 });
     const list = Array.isArray(r) ? r : r ? [r] : [];
+    if (list.length) state.lastRaw = JSON.stringify(list[0]).slice(0, 600); // để chủ quán xem bot nhận gì (Cài đặt → Zalo Bot)
     const out = [];
     for (const u of list) {
       const m = u.message || u.result?.message || u;
@@ -54,5 +56,5 @@ export function createZaloBot(ctx, { fetchImpl = globalThis.fetch } = {}) {
     return remember(list).reverse();
   }
   const send = (chatId, text) => call('sendMessage', { chat_id: chatId, text: String(text).slice(0, 2000) });
-  return { call, chats, updates, remember, send, ready: () => !!token() };
+  return { call, chats, updates, remember, send, state, ready: () => !!token() };
 }

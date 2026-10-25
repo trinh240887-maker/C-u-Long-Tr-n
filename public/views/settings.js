@@ -404,6 +404,23 @@ const BOT_KINDS = {
   order: { id: 'zalo_bot_group_id', name: 'zalo_bot_group_name', test: '/api/zalo-bot/test', title: '🛒 Nhóm nhận đơn đặt hàng', none: 'chưa chọn (duyệt đơn chỉ hiện nút sao chép)', note: 'Mỗi lần anh bấm Duyệt đơn đặt hàng, app tự gửi nội dung đơn vào nhóm. Gửi lỗi thì app báo và vẫn còn nút "Chép nội dung gửi Zalo".' },
   staff: { id: 'zalo_bot_staff_group_id', name: 'zalo_bot_staff_group_name', test: '/api/zalo-bot/test-staff', title: '👥 Nhóm nhân viên (nhắc lịch rảnh)', none: 'chưa chọn', note: 'Nhân viên nhắn trong nhóm "@tên bot Tên mình 14-23\" (cả tuần), ngày khác ghi riêng: \"@bot Tên 14-23, T7 nghỉ, CN 10-23\" → bot tự điền lịch rảnh + tạo ca và trả lời ✅. Tin không có @bot thì bot không đọc được. Tối thứ 7 lúc 20:00, bot tự nhắn vào nhóm tên các bạn CHƯA báo lịch rảnh tuần tới (chỉ các bộ phận đã chọn ở trên) kèm link vào app. Nút "Nhắc người chưa báo" ở Lịch ca cũng gửi vào nhóm này.' },
 };
+// Bot nhận được tin nào, đã làm gì (để biết vì sao bot không trả lời)
+function BotLog() {
+  const [open, setOpen] = useState(0);
+  const lg = useData(open ? `/api/zalo-bot/log?k=${open}` : null);
+  const d = lg.data;
+  const t = (ms) => (ms ? new Date(ms).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
+  return html`<div class="stack tight">
+    <div class="row wrap tight"><button onClick=${() => setOpen(open + 1)}>📋 ${open ? 'Tải lại nhật ký' : 'Xem bot nhận được tin gì'}</button></div>
+    ${open && d ? html`<div class="small stack tight">
+      <p>Lần đọc tin gần nhất: ${d.poll ? html`<b>${t(d.poll.at)}</b> · ${d.poll.error ? html`<span class="warn-text">lỗi: ${d.poll.error}</span>` : `${d.poll.n} tin mới`}` : html`<span class="warn-text">chưa đọc lần nào (máy chủ vừa khởi động?)</span>`}</p>
+      <p>Nhóm nhân viên: <b>${d.staff_group || 'chưa chọn'}</b></p>
+      ${d.msgs?.length ? d.msgs.map((m) => html`<div class="card tight"><b>${t(m.at)} · ${m.from || '?'}</b> (${m.chat})<br/>"${m.text}"<br/><span class="muted">→ ${m.result}</span></div>`) : html`<p class="muted">Chưa nhận tin @bot nào từ lúc máy chủ khởi động.</p>`}
+      ${d.raw ? html`<details><summary class="muted">Dữ liệu gốc (gửi Claude nếu cần)</summary><code style="word-break:break-all">${d.raw}</code></details>` : null}
+    </div>` : null}
+  </div>`;
+}
+
 // Bộ phận bot nhắc tên trong nhóm (mặc định Phục vụ + Tiếp thực)
 function BotTeams({ s }) {
   const st = useData('/api/teams');
@@ -442,7 +459,7 @@ function BotGroup({ s, kind = 'order' }) {
     <div class="row wrap"><button onClick=${find}>Tìm nhóm</button>${grp.id ? html`<button class="primary" onClick=${() => act(() => api('POST', K.test), 'Đã gửi, mở nhóm Zalo xem')}>Gửi thử vào nhóm</button>` : null}</div>
     ${chats ? (chats.length ? chats.map((c) => html`<button class="tpl-row" onClick=${() => pick(c)}><b class="grow">${c.name || '(không tên)'}</b><span class="muted">${c.type}${c.text ? ` · "${c.text.slice(0, 30)}"` : ''}</span></button>`)
       : html`<p class="warn-text small">Chưa thấy tin nào. Nhắn @bot trong nhóm rồi bấm lại.</p>`) : null}
-    ${kind === 'staff' ? html`<${BotTeams} s=${s} />` : null}
+    ${kind === 'staff' ? html`<${BotTeams} s=${s} /><${BotLog} />` : null}
     ${kind === 'staff' && grp.id ? html`<button class=${`chip ${on ? 'on' : ''}`} onClick=${toggle}>${on ? '🔔 Tự nhắc tối thứ 7: BẬT' : '🔕 Tự nhắc tối thứ 7: TẮT'}</button>` : null}
     <p class="small muted">${K.note}</p>
   </section>`;

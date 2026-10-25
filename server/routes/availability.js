@@ -330,12 +330,17 @@ export default function (r, ctx) {
     return `✅ Đã ghi lịch rảnh:\n${lines.join('\n')}${locked ? '\n(Tuần đã duyệt lịch: quản lý sẽ xếp lại nếu cần)' : ''}`;
   }
   ctx.handleBotAvailMsg = handleBotMsg;
+  // Nhật ký bot: lần đọc gần nhất + 15 tin gần nhất và bot đã làm gì (Cài đặt → Zalo Bot)
+  const botLog = { poll: null, msgs: [] };
+  const logMsg = (u, result) => { botLog.msgs.unshift({ at: ctx.now(), chat: u.chat.name || u.chat.id, from: u.from.name, text: u.text.slice(0, 120), result }); botLog.msgs.length = Math.min(botLog.msgs.length, 15); };
+  ctx.zaloBotLog = () => ({ ...botLog, raw: ctx.zaloBot?.state?.lastRaw || '', staff_group: ctx.setting('zalo_bot_staff_group_name') || '' });
   let polling = false;
   ctx.zaloBotPoll = async () => {
     if (polling || !ctx.zaloBot?.ready() || !ctx.zaloBot.updates) return;
     polling = true;
     try {
       const list = await ctx.zaloBot.updates();
+      botLog.poll = { at: ctx.now(), n: list.length, error: '' };
       if (!list.length) return;
       ctx.zaloBot.remember?.(list);
       // Lấy tên bot 1 lần (để bỏ "@tên bot" khỏi tin)
@@ -355,17 +360,22 @@ export default function (r, ctx) {
         }
       }
       for (const u of list) {
-        if (!gid || u.chat.id !== gid || u.from.bot || !u.text.trim()) continue;
-        if (u.date && ctx.now() - u.date > 2 * 86_400_000) continue; // tin cũ quá 2 ngày bỏ qua
+        if (u.from.bot || !u.text.trim()) continue;
         const key = `${u.chat.id}:${u.id || `${u.from.id}:${u.date}:${u.text}`}`;
-        if (db.prepare('INSERT OR IGNORE INTO zalo_bot_msgs (key, at) VALUES (?, ?)').run(key, ctx.now()).changes === 0) continue;
+        const fresh = db.prepare('INSERT OR IGNORE INTO zalo_bot_msgs (key, at) VALUES (?, ?)').run(key, ctx.now()).changes > 0;
+        if (!fresh) continue;
+        if (!gid || u.chat.id !== gid) { logMsg(u, gid ? 'Bỏ qua: không phải nhóm nhân viên' : 'Bỏ qua: chưa chọn nhóm nhân viên'); continue; }
+        if (u.date && ctx.now() - u.date > 2 * 86_400_000) { logMsg(u, 'Bỏ qua: tin cũ hơn 2 ngày'); continue; }
         let reply;
         try { reply = handleBotMsg(u); } catch (e) { reply = `⚠ Lỗi khi ghi: ${e.message}`; }
+        logMsg(u, reply.split('\n').join(' '));
         if (reply) await ctx.zaloBot.send(gid, reply).catch((e) => console.error('Bot trả lời lỗi:', e.message));
       }
       db.prepare('DELETE FROM zalo_bot_msgs WHERE at < ?').run(ctx.now() - 7 * 86_400_000);
-    } catch (e) { if (!/Chưa dán token/.test(e.message)) console.error('Bot đọc tin lỗi:', e.message); }
-    finally { polling = false; }
+    } catch (e) {
+      botLog.poll = { at: ctx.now(), n: 0, error: e.message };
+      if (!/Chưa dán token/.test(e.message)) console.error('Bot đọc tin lỗi:', e.message);
+    } finally { polling = false; }
   };
 
   r.post('/api/availability/remind', 'manager', async ({ me, body }) => {

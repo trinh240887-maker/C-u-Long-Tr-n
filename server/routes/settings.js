@@ -149,6 +149,7 @@ export default function (r, ctx) {
     owner(me);
     try { const bot = await ctx.zaloBot.call('getMe'); const n = bot?.account_name || bot?.display_name || bot?.name; if (n) ctx.setSetting('zalo_bot_name', String(n).slice(0, 80)); return { ok: true, bot }; } catch (e) { fail(502, e.message); }
   });
+  r.get('/api/zalo-bot/log', 'manager', ({ me }) => { owner(me); return ctx.zaloBotLog?.() || {}; });
   r.post('/api/zalo-bot/chats', 'manager', async ({ me }) => { owner(me); try { return { chats: await ctx.zaloBot.chats() }; } catch (e) { fail(502, e.message); } });
   r.post('/api/zalo-bot/test', 'manager', async ({ me }) => {
     owner(me);
