@@ -63,6 +63,9 @@ const FIELDS = {
     for (const p of s.split(',').map((y) => y.trim()).filter(Boolean)) if (!/^[0-9a-f.:]+$/i.test(p)) fail(400, `Dải IP không hợp lệ: ${p}`);
     return s;
   },
+  shop_lat: (x) => { if (x === '' || x == null) return ''; const n = Number(x); if (!Number.isFinite(n) || n < -90 || n > 90) fail(400, 'Vĩ độ không hợp lệ'); return String(n); },
+  shop_lng: (x) => { if (x === '' || x == null) return ''; const n = Number(x); if (!Number.isFinite(n) || n < -180 || n > 180) fail(400, 'Kinh độ không hợp lệ'); return String(n); },
+  clock_radius_m: (x) => String(v.int(x, { min: 30, max: 2000, name: 'Bán kính chấm công' })),
   night_bonus_pct: (x) => String(v.int(x, { min: 0, max: 300, name: 'Phụ cấp làm đêm' })),
   month_standard_days: (x) => String(v.int(x, { min: 0, max: 31, name: 'Ngày công chuẩn' })),
   quiet_from: (x) => { parseHM(x); return String(x); },

@@ -82,6 +82,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
       return db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('manager','owner')").all().map((r) => r.id);
     },
   };
+  ctx.clientIp = (req) => clientIp(req);
   ctx.notifier = createNotifier(ctx, { transport: zaloTransport });
   ctx.notify = (...args) => ctx.notifier.notify(...args);
 

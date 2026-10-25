@@ -30,7 +30,7 @@ function ClockCard() {
       <div><div class="eyebrow">Đang trong ca</div>
         <div class="big">Vào lúc ${hm(open.clock_in)}</div>
         <div class="muted">${Math.floor(mins / 60)} giờ ${mins % 60} phút${open.late_minutes ? ` · trễ ${open.late_minutes} phút` : ''}${open.note ? ` · ${open.note}` : ''}</div></div>
-      <button class="solid danger big" onClick=${() => act(() => api('POST', '/api/attendance/clock-out'), 'Đã chấm ra ca')}>Chấm ra</button>
+      <button class="solid danger big" onClick=${() => act(async () => api('POST', '/api/attendance/clock-out', st.data.gps ? await myPlace() : {}), 'Đã chấm ra ca')}>Chấm ra</button>
     </section>`;
   }
   return html`<section class="card clock">
@@ -38,10 +38,19 @@ function ClockCard() {
       <div class="big">${next ? `${next.label ? next.label + ' · ' : ''}${next.text}` : 'Chưa có ca sắp tới'}</div>
       <div class="muted">${next ? dayLabel(next.date, { long: true }) : 'Vẫn chấm công được nếu quản lý gọi đi làm'}</div></div>
     <button class="primary big" onClick=${() => act(async () => {
-      const r = await api('POST', '/api/attendance/clock-in');
+      const r = await api('POST', '/api/attendance/clock-in', st.data.gps ? await myPlace() : {});
       return r;
     }, 'Đã chấm vào ca')}>Chấm vào</button>
   </section>`;
+}
+
+// Lấy vị trí điện thoại để chấm công (quán bật kiểm tra vị trí). Không cho phép / lỗi → gửi rỗng, máy chủ thử theo wifi quán
+function myPlace() {
+  return new Promise((done) => {
+    if (!navigator.geolocation) return done({});
+    navigator.geolocation.getCurrentPosition((p) => done({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) }),
+      () => done({}), { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+  });
 }
 
 function Offers() {

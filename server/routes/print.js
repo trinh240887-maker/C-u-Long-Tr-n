@@ -40,6 +40,9 @@ export default function (r, ctx) {
     const want = Buffer.from(ctx.setting('print_token'));
     if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) fail(401, 'Sai mã cầu in');
     ctx.setSetting('print_bridge_seen', ctx.now());
+    // Máy cầu in đặt ở quán → IP của nó = IP wifi quán hiện tại (nhà mạng đổi IP thì tự cập nhật); dùng cho chấm công
+    const ip = ctx.clientIp?.(req)?.ip;
+    if (ip) { if (ctx.setting('shop_bridge_ip') !== ip) ctx.setSetting('shop_bridge_ip', ip); ctx.setSetting('shop_bridge_ip_at', String(ctx.now())); }
   };
   const stations = () => db.prepare('SELECT * FROM kitchen_stations ORDER BY sort, id').all();
   // Máy chính, rồi máy dự phòng; máy không có IP thì đi thẳng sang dự phòng

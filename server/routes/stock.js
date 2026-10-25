@@ -349,7 +349,7 @@ export default function (r, ctx) {
     const lech = result.out.filter((x) => x.lech_cost > 0).sort((a, b) => b.lech_cost - a.lech_cost);
     const lechTotal = lech.reduce((a, x) => a + x.lech_cost, 0);
     const limit = Number(ctx.setting('stock_diff_alert_vnd') || 200000);
-    if (lech.length && lechTotal >= limit) {
+    if (lech.length && lechTotal >= limit && !/^Checklist:/.test(note)) { // checklist cân tồn tự báo theo % riêng
       const fmt = (n) => `${Math.round(n).toLocaleString('vi-VN')}đ`;
       ctx.notify(ctx.managers().filter((x) => x !== me.id), {
         title: `⚠ Lệch kho ${st.name}: −${fmt(lechTotal)}`,

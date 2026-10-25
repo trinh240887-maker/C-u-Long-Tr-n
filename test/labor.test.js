@@ -85,9 +85,26 @@ test('năng suất nhân sự: lương/doanh thu theo giờ, giờ thừa ngư�
   await o('PUT', '/api/settings', { clock_ip_prefixes: '10.99.99.' });
   const r = await N('POST', '/api/attendance/clock-in');
   assert.equal(r.status, 403);
-  assert.match(r.data.error, /wifi của quán/);
+  assert.match(r.data.error, /Chỉ chấm công được khi đang ở quán/);
   await N('POST', '/api/attendance/clock-in');
-  assert.equal([...new Set(db.prepare("SELECT title FROM notifications WHERE title LIKE '%chấm công ngoài wifi quán'").all().map((x0) => x0.title))].length, 1);
-  await o('PUT', '/api/settings', { clock_ip_prefixes: net.ip });
+  assert.equal([...new Set(db.prepare("SELECT title FROM notifications WHERE title LIKE '%chấm công khi không ở quán'").all().map((x0) => x0.title))].length, 1);
+  // Máy cầu in ở quán gọi lên → IP của nó thành wifi quán (IP động tự theo)
+  const tok = db.prepare("SELECT value FROM settings WHERE key = 'print_token'").get().value;
+  assert.equal((await fetch(`${base}/api/print/jobs`, { headers: { 'x-print-token': tok } })).status, 200);
+  assert.equal((await N('GET', '/api/attendance/network')).data.allowed, true);
+  // Cầu in im quá 15 phút → không còn tính là wifi quán
+  now += 16 * 60_000;
+  assert.equal((await N('GET', '/api/attendance/network')).data.allowed, false);
+  // GPS: đúng vị trí quán (trong 150m) thì chấm được, xa thì không
+  await o('PUT', '/api/settings', { shop_lat: '10.776900', shop_lng: '106.700900' });
+  const far = await N('POST', '/api/attendance/clock-in', { lat: 10.79, lng: 106.70, acc: 20 });
+  assert.equal(far.status, 403);
+  assert.match(far.data.error, /cách quán khoảng 1\.\dkm/);
+  assert.match((await N('POST', '/api/attendance/clock-in', {})).data.error, /Chưa lấy được vị trí/);
+  const ok = await N('POST', '/api/attendance/clock-in', { lat: 10.7775, lng: 106.7012, acc: 15 });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.match(db.prepare('SELECT source FROM attendance ORDER BY id DESC LIMIT 1').get().source, /^GPS cách quán \d+m/);
+  assert.equal((await N('POST', '/api/attendance/clock-out', { lat: 10.7769, lng: 106.7009, acc: 10 })).status, 200);
+  await o('PUT', '/api/settings', { clock_ip_prefixes: net.ip, shop_lat: '', shop_lng: '' });
   assert.equal((await N('GET', '/api/attendance/network')).data.allowed, true);
 });

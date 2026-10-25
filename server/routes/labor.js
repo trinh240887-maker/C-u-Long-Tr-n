@@ -200,10 +200,12 @@ export default function (r, ctx) {
     if (warned.has(key)) return;
     warned.add(key);
     const mgr = db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager','shift_lead')").all().map((s) => s.id).filter((x) => x !== me.id);
-    ctx.notify(mgr, { title: `${me.name} chấm công ngoài wifi quán`, body: `Mạng ${net.ip || '?'}. Nếu wifi quán vừa đổi địa chỉ, chủ quán vào Cài đặt → Chấm công bấm "Dùng mạng đang kết nối".`, link: '/cai-dat' });
+    ctx.notify(mgr, { title: `${me.name} bấm chấm công khi không ở quán`, body: `Không đúng vị trí quán và không bắt wifi quán (mạng ${net.ip || '?'}). Nếu bạn ấy đang ở quán: kiểm tra máy cầu in còn chạy, hoặc nhắc bật vị trí.`, link: '/cham-cong' });
   };
   r.get('/api/attendance/network', 'staff', ({ net }) => {
     const prefixes = ctx.setting('clock_ip_prefixes').split(',').map((s) => s.trim()).filter(Boolean);
-    return { ip: net.ip, remote: net.remote, allowed: !prefixes.length || (!net.remote && prefixes.some((p) => net.ip.startsWith(p))), prefixes };
+    const bridgeAt = Number(ctx.setting('shop_bridge_ip_at') || 0);
+    return { ip: net.ip, remote: net.remote, allowed: ctx.onShopWifi ? ctx.onShopWifi(net) : !prefixes.length || prefixes.some((p) => net.ip.startsWith(p)), prefixes,
+      bridge_ip: ctx.setting('shop_bridge_ip') || '', bridge_at: bridgeAt || null, gps: ctx.clockPlace?.().gps || false };
   });
 }

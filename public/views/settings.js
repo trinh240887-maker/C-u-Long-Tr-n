@@ -7,6 +7,25 @@ const TABS = [['chung', 'Chung'], ['quyen', '🔐 Phân quyền'], ['bot', '🤖
 const DEF_SLOTS = [{ key: 'sang', label: 'Sáng', start: '06:00', end: '12:00' }, { key: 'chieu', label: 'Chiều', start: '12:00', end: '17:00' }, { key: 'toi', label: 'Tối', start: '17:00', end: '24:00' }];
 
 // Lấy địa chỉ mạng điện thoại đang dùng (đứng ở quán, bắt wifi quán rồi bấm) để làm "wifi quán"
+// Vị trí quán cho chấm công: đứng ở quán bấm "Lấy vị trí hiện tại"
+function ShopPlace({ f, set, setMany }) {
+  const [busy, setBusy] = useState(false);
+  const grab = () => {
+    if (!navigator.geolocation) return toast('Máy này không lấy được vị trí', true);
+    setBusy(true);
+    navigator.geolocation.getCurrentPosition((p) => { setBusy(false); setMany({ shop_lat: p.coords.latitude.toFixed(6), shop_lng: p.coords.longitude.toFixed(6) }); toast(`Đã lấy vị trí (sai số ~${Math.round(p.coords.accuracy)}m). Bấm Lưu.`); },
+      (e) => { setBusy(false); toast(e.code === 1 ? 'Chưa cho phép vị trí: vào Cài đặt điện thoại → Safari/Chrome → Vị trí → Cho phép' : 'Không lấy được vị trí, thử lại', true); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  };
+  return html`<div class="stack tight" style="grid-column:1/-1">
+    <b>📍 Chỉ chấm công khi ở quán</b>
+    <p class="small muted">Nhân viên chấm được khi <b>đứng gần quán</b> (GPS) <b>hoặc</b> đang <b>bắt wifi quán</b>. Đứng trong quán bấm nút dưới rồi bấm Lưu.</p>
+    <div class="row wrap"><button onClick=${grab} disabled=${busy}>${busy ? 'Đang lấy…' : '📍 Lấy vị trí hiện tại làm vị trí quán'}</button>
+      ${f.shop_lat && f.shop_lng ? html`<a class="small" target="_blank" rel="noopener" href=${`https://maps.google.com/?q=${f.shop_lat},${f.shop_lng}`}>Xem trên bản đồ</a> <button class="small" onClick=${() => setMany({ shop_lat: '', shop_lng: '' })}>Bỏ vị trí</button>` : html`<span class="small warn-text">Chưa có vị trí quán</span>`}</div>
+    <label class="row small">Bán kính cho phép <input class="num-in" type="number" min="30" max="2000" value=${f.clock_radius_m || 150} onInput=${(e) => set('clock_radius_m', e.target.value)} /> mét</label>
+  </div>`;
+}
+
 function WifiHere({ value, onUse }) {
   const st = useData('/api/attendance/network');
   if (!st.data) return null;
@@ -22,7 +41,7 @@ function General({ s, staff }) {
   const inp = (k, label, props = {}, hint) => html`<${Field} label=${label} hint=${hint}><input id=${`set-${k}`} value=${f[k]} onInput=${(e) => set(k, e.target.value)} ...${props} /><//>`;
   const save = () => act(() => api('PUT', '/api/settings', {
     shop_name: f.shop_name, public_url: f.public_url, day_cutoff_hour: f.day_cutoff_hour, late_grace_minutes: f.late_grace_minutes,
-    clock_early_minutes: f.clock_early_minutes, auto_close_after_minutes: f.auto_close_after_minutes, clock_ip_prefixes: f.clock_ip_prefixes,
+    clock_early_minutes: f.clock_early_minutes, auto_close_after_minutes: f.auto_close_after_minutes, clock_ip_prefixes: f.clock_ip_prefixes, shop_lat: f.shop_lat, shop_lng: f.shop_lng, clock_radius_m: f.clock_radius_m || '150',
     labor_target_pct: f.labor_target_pct, idle_alert_minutes: f.idle_alert_minutes, count_tolerance_pct: f.count_tolerance_pct, spot_photos_per_run: f.spot_photos_per_run,
     night_bonus_pct: f.night_bonus_pct, month_standard_days: f.month_standard_days, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
     avail_deadline_dow: f.avail_deadline_dow, avail_deadline_time: f.avail_deadline_time, avail_slots: JSON.stringify(slots),
@@ -44,7 +63,8 @@ function General({ s, staff }) {
       ${inp('clock_early_minutes', 'Được chấm vào sớm trước ca (phút)', { type: 'number', min: 0 })}
       ${inp('auto_close_after_minutes', 'Quên chấm ra: tự đóng sau giờ hết ca (phút)', { type: 'number', min: 15 })}
       ${inp('day_cutoff_hour', 'Giờ chốt ngày làm việc', { type: 'number', min: 0, max: 12 }, 'Trước giờ này vẫn tính là ngày hôm trước (ca qua đêm).')}
-      ${inp('clock_ip_prefixes', 'Chỉ chấm công trong wifi quán', { placeholder: 'vd 113.161.20.5' }, 'Để trống = không giới hạn. Nhiều mạng thì cách nhau dấu phẩy.')}
+      <${ShopPlace} f=${f} set=${set} setMany=${(o) => setF((x) => ({ ...x, ...o }))} />
+      ${inp('clock_ip_prefixes', 'Wifi quán (nhập tay, không bắt buộc)', { placeholder: 'vd 113.161.20.5' }, 'Thường để trống: máy cầu in ở quán tự báo IP wifi quán. Nhiều mạng cách nhau dấu phẩy.')}
       <${WifiHere} value=${f.clock_ip_prefixes} onUse=${(ip) => set('clock_ip_prefixes', [...new Set([...String(f.clock_ip_prefixes || '').split(',').map((x) => x.trim()).filter(Boolean), ip])].join(', '))} />
       ${inp('labor_target_pct', 'Lương / doanh thu mục tiêu (%)', { type: 'number', min: 5, max: 80 }, 'Giờ nào vượt 1,5 lần mức này mà ít bàn thì app báo thừa người.')}
       ${inp('idle_alert_minutes', 'Không thao tác bao lâu thì ghi nhận (phút)', { type: 'number', min: 15 }, 'Chỉ tính phục vụ, tiếp thực, thu ngân.')}

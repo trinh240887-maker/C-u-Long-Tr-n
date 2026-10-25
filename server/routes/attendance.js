@@ -56,20 +56,49 @@ export default function (r, ctx) {
     return {
       open: open ? { ...open } : null,
       next: next ? { id: next.id, date: next.date, label: next.label, start: next.start, end: next.end, text: `${fmtHM(next.start_min)}–${fmtHM(next.end_min)}` } : null,
-      ip_restricted: Boolean(ctx.setting('clock_ip_prefixes')),
+      ip_restricted: Boolean(ctx.setting('clock_ip_prefixes')) || place().gps,
+      gps: place().gps,
     };
   }
 
   r.get('/api/attendance/me', 'staff', ({ me }) => myStatus(me));
 
-  function checkNetwork(net, me) {
-    const prefixes = ctx.setting('clock_ip_prefixes').split(',').map((s) => s.trim()).filter(Boolean);
-    if (!prefixes.length) return;
-    if (net.remote || !prefixes.some((p) => net.ip.startsWith(p))) { if (me) ctx.clockBlocked?.(me, net); fail(403, 'Chỉ chấm công được khi điện thoại bắt wifi của quán. Tắt 4G, kết nối wifi quán rồi bấm lại.'); }
+  // Chỉ chấm công khi ở quán (chủ quán 25/10): đúng VỊ TRÍ quán (GPS) HOẶC đang bắt WIFI quán.
+  // Wifi quán: IP máy cầu in ở quán báo lên (tự theo khi nhà mạng đổi IP) hoặc dải IP nhập tay.
+  const distM = (a, b, c, d) => { const R = 6371000, r = Math.PI / 180; const x = Math.sin(((c - a) * r) / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin(((d - b) * r) / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); };
+  const place = () => {
+    const lat = Number(ctx.setting('shop_lat') || 0), lng = Number(ctx.setting('shop_lng') || 0);
+    const prefixes = (ctx.setting('clock_ip_prefixes') || '').split(',').map((x) => x.trim()).filter(Boolean);
+    return { lat, lng, gps: Boolean(lat && lng), radius: Number(ctx.setting('clock_radius_m') || 150), prefixes };
+  };
+  ctx.clockPlace = place;
+  function onShopWifi(net) {
+    const p = place();
+    if (!net.remote && p.prefixes.some((x) => net.ip.startsWith(x))) return true;
+    const bip = ctx.setting('shop_bridge_ip');
+    return Boolean(bip && net.ip === bip && ctx.now() - Number(ctx.setting('shop_bridge_ip_at') || 0) < 15 * 60_000);
+  }
+  ctx.onShopWifi = onShopWifi;
+  function checkNetwork(net, me, body = {}) {
+    const p = place();
+    if (!p.gps && !p.prefixes.length) return 'không giới hạn';
+    if (onShopWifi(net)) return `wifi quán ${net.ip}`;
+    let why = '';
+    if (p.gps) {
+      const lat = Number(body.lat), lng = Number(body.lng), acc = Math.max(0, Number(body.acc) || 0);
+      if (Number.isFinite(lat) && Number.isFinite(lng) && (lat || lng)) {
+        const d = Math.round(distM(p.lat, p.lng, lat, lng));
+        if (acc > 1000) why = 'Vị trí chưa chính xác (bật Vị trí chính xác cho trình duyệt rồi thử lại).';
+        else if (d <= p.radius + Math.min(acc, 100)) return `GPS cách quán ${d}m`;
+        else why = `Bạn đang cách quán khoảng ${d >= 1000 ? `${Math.round(d / 100) / 10}km` : `${d}m`}.`;
+      } else why = 'Chưa lấy được vị trí: bấm "Cho phép" khi trình duyệt hỏi vị trí, hoặc bắt wifi quán.';
+    }
+    if (me) ctx.clockBlocked?.(me, net);
+    fail(403, `Chỉ chấm công được khi đang ở quán. ${why || 'Kết nối wifi quán rồi bấm lại.'}`.trim());
   }
 
-  r.post('/api/attendance/clock-in', 'staff', ({ me, net }) => {
-    checkNetwork(net, me);
+  r.post('/api/attendance/clock-in', 'staff', ({ me, net, body }) => {
+    const how = checkNetwork(net, me, body || {});
     ctx.autoCloseAttendance();
     const clock = ctx.clock();
     const t = ctx.now();
@@ -84,7 +113,7 @@ export default function (r, ctx) {
       const late = seg && t > seg.start + grace ? Math.round((t - seg.start) / 60_000) : 0;
       const date = seg ? seg.date : clock.businessDate(t);
       const id = Number(db.prepare(`INSERT INTO attendance (staff_id, assignment_id, date, clock_in, late_minutes, note, source) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(me.id, seg?.id ?? null, date, t, late, seg ? '' : 'Ngoài lịch', net.ip).lastInsertRowid);
+        .run(me.id, seg?.id ?? null, date, t, late, seg ? '' : 'Ngoài lịch', how.slice(0, 60)).lastInsertRowid);
       return { id, seg, late };
     });
     if (!result.seg) {
@@ -97,8 +126,8 @@ export default function (r, ctx) {
     return { ...myStatus(me), late_minutes: result.late, scheduled: Boolean(result.seg) };
   });
 
-  r.post('/api/attendance/clock-out', 'staff', ({ me, net }) => {
-    checkNetwork(net, me);
+  r.post('/api/attendance/clock-out', 'staff', ({ me, net, body }) => {
+    checkNetwork(net, me, body || {});
     const open = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id);
     if (!open) fail(409, 'Bạn chưa chấm vào ca');
     // Còn giữ tiền mặt của khách chưa giao thu ngân thì không cho ra ca
