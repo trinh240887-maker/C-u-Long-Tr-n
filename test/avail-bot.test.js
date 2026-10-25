@@ -225,4 +225,12 @@ test('tạo PIN hàng loạt: mỗi người 1 PIN 6 số, đăng nhập đượ
   const lg = await A('POST', '/api/login', { pin: r.list[0].pin });
   assert.equal(lg.status, 200);
   assert.equal(lg.data.must_change_pin ?? lg.data.me?.must_change_pin ?? true, true);
+  // Có SĐT → phải đăng nhập bằng SĐT + PIN
+  await o('POST', '/api/staff', { name: 'Cường', phone: '0901 234 567', pin: '730215' });
+  const C = mk();
+  const noPhone = await C('POST', '/api/login', { pin: '730215' });
+  assert.equal(noPhone.status, 401);
+  assert.match(noPhone.data.error, /Nhập số điện thoại/);
+  assert.equal((await C('POST', '/api/login', { pin: '730215', phone: '0909999999' })).status, 401);
+  assert.equal((await C('POST', '/api/login', { pin: '730215', phone: '0901234567' })).status, 200);
 });

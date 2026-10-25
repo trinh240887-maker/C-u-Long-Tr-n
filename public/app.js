@@ -59,13 +59,16 @@ const canOpen = (me, n) => (Array.isArray(me.pages) ? me.pages.includes(n.path) 
 
 function Login({ onDone }) {
   const [pin, setPin] = useState('');
+  // Số điện thoại = tên đăng nhập (nhớ trên máy cho lần sau)
+  const [phone, setPhone] = useState(() => { try { return localStorage.getItem('login-phone') || ''; } catch { return ''; } });
   const [busy, setBusy] = useState(false);
   const submit = async (e) => {
     e?.preventDefault();
     if (pin.length < 4 || busy) return;
     setBusy(true);
     try {
-      await api('POST', '/api/login', { pin });
+      await api('POST', '/api/login', { pin, phone: phone.trim() || undefined });
+      try { localStorage.setItem('login-phone', phone.trim()); } catch {}
       onDone();
     } catch (err) {
       toast(err.message, true);
@@ -79,10 +82,12 @@ function Login({ onDone }) {
   return html`<div class="login">
     <div class="login-mark">CLT</div>
     <h1>Đăng nhập</h1>
-    <p class="muted">Nhập mã PIN của bạn</p>
+    <p class="muted">Nhập số điện thoại và mã PIN của bạn</p>
     <form onSubmit=${submit}>
+      <input id="phone" class="pin phone-in" type="tel" inputmode="tel" autocomplete="tel" placeholder="Số điện thoại" value=${phone}
+        onInput=${(e) => setPhone(e.target.value.replace(/[^\d+ ]/g, ''))} aria-label="Số điện thoại" />
       <input id="pin" class="pin" type="password" inputmode="numeric" autocomplete="off" value=${pin} maxlength="8"
-        onInput=${(e) => setPin(e.target.value.replace(/\D/g, ''))} aria-label="Mã PIN" />
+        onInput=${(e) => setPin(e.target.value.replace(/\D/g, ''))} aria-label="Mã PIN" placeholder="Mã PIN" />
       <div class="keypad">
         ${['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '→'].map((k) => html`<button type=${k === '→' ? 'submit' : 'button'}
           class=${k === '→' ? 'primary' : ''} disabled=${busy} onClick=${k === '→' ? undefined : () => press(k)}>${k}</button>`)}

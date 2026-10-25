@@ -11,7 +11,8 @@ function BulkPin({ me, staff, teams, onClose }) {
   const flip = (id) => { const n = new Set(sel); n.has(id) ? n.delete(id) : n.add(id); setSel(n); };
   const tname = (id) => teams.find((t) => t.id === id)?.name || 'Chưa có bộ phận';
   const url = location.origin;
-  const msg = (x) => `Chào ${x.name}, mã PIN đăng nhập app quán: ${x.pin}\nVào: ${url}\nLần đầu đăng nhập app bắt đổi PIN mới, nhớ giữ kín.`;
+  const phoneOf = (id) => staff.find((s) => s.id === id)?.phone || '';
+  const msg = (x) => `Chào ${x.name}, tài khoản app quán:\n• Số điện thoại: ${phoneOf(x.id) || '(báo quản lý thêm SĐT)'}\n• Mã PIN: ${x.pin}\nVào: ${url}\nLần đầu đăng nhập app bắt đổi PIN mới, nhớ giữ kín.`;
   const copy = (t) => navigator.clipboard?.writeText(t).then(() => toast('Đã chép'), () => toast('Không chép được, giữ lâu để chép tay', true));
   const run = async () => {
     if (!confirm(`Tạo PIN mới cho ${sel.size} người? PIN cũ của các bạn này sẽ không dùng được nữa.`)) return;
@@ -22,13 +23,13 @@ function BulkPin({ me, staff, teams, onClose }) {
   return html`<${Modal} title="🔑 Tạo mã PIN hàng loạt" onClose=${onClose}><div class="stack">
     ${res ? html`
       <p class="small">Đã tạo <b>${res.length}</b> mã PIN. Gửi <b>RIÊNG</b> cho từng bạn (Zalo cá nhân), không gửi vào nhóm. Đóng ô này là không xem lại được.</p>
-      <button class="primary" onClick=${() => copy(res.map((x) => `${x.name}: ${x.pin}`).join('\n'))}>📋 Chép cả danh sách</button>
-      ${res.map((x) => html`<div class="row"><b class="grow">${x.name}</b><b style="font-size:20px;letter-spacing:2px">${x.pin}</b><button class="small" onClick=${() => copy(msg(x))}>Chép tin gửi</button></div>`)}
+      <button class="primary" onClick=${() => copy(res.map((x) => `${x.name} · SĐT ${phoneOf(x.id) || '?'} · PIN ${x.pin}`).join('\n'))}>📋 Chép cả danh sách</button>
+      ${res.map((x) => html`<div class="row"><b class="grow">${x.name}<br /><small class="muted">${phoneOf(x.id) || 'chưa có SĐT'}</small></b><b style="font-size:20px;letter-spacing:2px">${x.pin}</b><button class="small" onClick=${() => copy(msg(x))}>Chép tin gửi</button></div>`)}
       <button onClick=${onClose}>Xong</button>`
     : html`
-      <p class="small muted">Tick người cần cấp mã. Mặc định đã chọn sẵn các bạn <b>chưa đăng nhập lần nào</b>. Mỗi người được 1 PIN 6 số, lần đầu đăng nhập app bắt đổi PIN riêng.</p>
+      <p class="small muted">Tick người cần cấp mã. Mặc định đã chọn sẵn các bạn <b>chưa đăng nhập lần nào</b>. Mỗi người được 1 PIN 6 số, lần đầu đăng nhập app bắt đổi PIN riêng. Đăng nhập = <b>số điện thoại + PIN</b>, nên ai "chưa có SĐT" thì thêm SĐT trước.</p>
       <div class="row wrap"><button class="small" onClick=${() => setSel(new Set(people.map((p) => p.id)))}>Chọn tất cả</button><button class="small" onClick=${() => setSel(new Set())}>Bỏ chọn</button><span class="small muted">Đã chọn ${sel.size}</span></div>
-      ${groups.map((g) => html`<div class="stack tight"><b class="small">${g.name}</b>${g.list.map((p) => html`<label class="check-row"><input type="checkbox" checked=${sel.has(p.id)} onChange=${() => flip(p.id)} /> ${p.name}${p.first_login ? html` <small class="warn-text">· chưa đăng nhập</small>` : ''}</label>`)}</div>`)}
+      ${groups.map((g) => html`<div class="stack tight"><b class="small">${g.name}</b>${g.list.map((p) => html`<label class="check-row"><input type="checkbox" checked=${sel.has(p.id)} onChange=${() => flip(p.id)} /> ${p.name}${p.first_login ? html` <small class="warn-text">· chưa đăng nhập</small>` : ''}${!p.phone ? html` <small class="bad-text">· chưa có SĐT</small>` : ''}</label>`)}</div>`)}
       <button class="primary" disabled=${!sel.size} onClick=${run}>Tạo PIN cho ${sel.size} người</button>`}
   </div><//>`;
 }

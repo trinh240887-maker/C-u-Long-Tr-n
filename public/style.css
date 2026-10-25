@@ -755,3 +755,4 @@ table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align
 .zcov td { font-weight: 700; cursor: pointer; }
 .zcov td.ok { background: #e6f4ea; color: #1e7b34; }
 .zcov td.short { background: #fde2e2; color: #b42318; }
+.login .phone-in { margin-bottom: 10px; letter-spacing: 1px; } .bad-text { color: var(--bad); }
