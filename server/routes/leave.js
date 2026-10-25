@@ -34,16 +34,13 @@ export default function (r, ctx) {
   }
 
   // ---------- Xin nghỉ ----------
-  r.post('/api/leave', 'staff', ({ me, body }) => {
-    const groupId = String(body.group_id || '');
+  // Tạo đơn xin nghỉ cho 1 ca (dùng chung: màn Xin nghỉ và bot Zalo khi lịch tuần đã duyệt)
+  function createLeave(by, groupId, reason) {
     const info = shiftInfo(groupId);
     if (!info) fail(404, 'Không tìm thấy ca');
     const owner = info.segments[0].staff_id;
-    // Chỉ tự xin nghỉ ca của mình (trưởng ca không xin hộ, chủ quán 24/10); quản lý / chủ vẫn ghi được khi nhân viên báo miệng
-    if (owner !== me.id && rank(me.role) < rank('manager')) fail(403, 'Bạn chỉ xin nghỉ được ca của mình');
     const clock = ctx.clock();
     if (rangeOf(clock, info.segments.at(-1)).end < ctx.now()) fail(400, 'Ca này đã qua');
-    const reason = v.text(body.reason, { name: 'Lý do', max: 300, required: true });
     const id = tx(db, () => {
       if (db.prepare("SELECT 1 FROM leave_requests WHERE group_id = ? AND status IN ('pending','approved')").get(groupId)) fail(409, 'Ca này đã có đơn nghỉ');
       return Number(db.prepare('INSERT INTO leave_requests (staff_id, group_id, date, reason, created_at) VALUES (?, ?, ?, ?, ?)')
@@ -51,13 +48,24 @@ export default function (r, ctx) {
     });
     const person = ctx.staff(owner);
     const urgent = rangeOf(clock, info.segments[0]).start - ctx.now() < 12 * 3600_000;
-    ctx.notify(ctx.leadsOf(info.team_id ?? person.team_id).filter((x) => x !== me.id), {
+    ctx.notify(ctx.leadsOf(info.team_id ?? person.team_id).filter((x) => x !== by?.id), {
       title: `${person.name} xin nghỉ ${shiftLabel(info)}`,
       body: `Lý do: ${reason}\nQuản lý duyệt rồi sắp xếp lại người.`, link: `/nghi`, urgent,
     });
-    ctx.audit(me, 'leave.create', { id, groupId });
+    ctx.audit(by, 'leave.create', { id, groupId });
     ctx.broadcast('leave');
-    return { id };
+    return { id, label: shiftLabel(info) };
+  }
+  ctx.createLeave = createLeave;
+
+  r.post('/api/leave', 'staff', ({ me, body }) => {
+    const groupId = String(body.group_id || '');
+    const info = shiftInfo(groupId);
+    if (!info) fail(404, 'Không tìm thấy ca');
+    // Chỉ tự xin nghỉ ca của mình (trưởng ca không xin hộ, chủ quán 24/10); quản lý / chủ vẫn ghi được khi nhân viên báo miệng
+    if (info.segments[0].staff_id !== me.id && rank(me.role) < rank('manager')) fail(403, 'Bạn chỉ xin nghỉ được ca của mình');
+    const reason = v.text(body.reason, { name: 'Lý do', max: 300, required: true });
+    return { id: createLeave(me, groupId, reason).id };
   });
 
   r.get('/api/leave', 'staff', ({ me, query }) => {

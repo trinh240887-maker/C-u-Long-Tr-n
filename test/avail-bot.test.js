@@ -133,6 +133,20 @@ test('bot đọc tin @bot trong nhóm nhân viên → tự điền lịch rảnh
   assert.deepEqual(ctx.staffGroups().map((g) => [g.id, g.teams.length > 0]), [['grpNV', true], ['grpBep', false]]);
   assert.equal(sent.at(-1).chat, 'grpBep');
   assert.match(sent.at(-1).text, /Cẩm Tú: cả tuần/);
+
+  // Tuần đã duyệt lịch: báo nghỉ ngày có ca → tự tạo đơn xin nghỉ chờ quản lý duyệt, ca vẫn giữ
+  ctx.setSetting('published:2026-10-26', '1');
+  const caT6 = db.prepare("SELECT group_id FROM assignments WHERE staff_id = ? AND date = '2026-10-30'").get(id('Nguyễn Hồng Phúc'));
+  assert.ok(caT6);
+  inbox = [msg('m8', '@Bot Hồng Phúc T6 nghỉ', { id: 'u2', name: 'Hồng Phúc' })];
+  await ctx.zaloBotPoll();
+  assert.match(sent.at(-1).text, /Đã gửi đơn xin nghỉ/);
+  assert.equal(db.prepare("SELECT status FROM leave_requests WHERE group_id = ?").get(caT6.group_id).status, 'pending');
+  assert.ok(db.prepare("SELECT 1 FROM assignments WHERE group_id = ?").get(caT6.group_id), 'ca giữ nguyên tới khi quản lý duyệt');
+  inbox = [msg('m9', '@Bot Hồng Phúc T6 nghỉ', { id: 'u2', name: 'Hồng Phúc' })];
+  await ctx.zaloBotPoll();
+  assert.match(sent.at(-1).text, /đã có đơn nghỉ \(chờ duyệt\)/);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM leave_requests WHERE group_id = ?").get(caT6.group_id).n, 1);
 });
 
 test('bot: người mới báo lịch → hướng dẫn đăng ký, giữ lịch; quản lý duyệt → điền lịch + báo nhóm; người đã nghỉ việc không ghi', async (t) => {

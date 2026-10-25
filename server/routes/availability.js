@@ -302,7 +302,24 @@ export default function (r, ctx) {
     });
     const locked = [];
     for (const ws of weeks) { if (Number(ctx.setting(`published:${ws}`) || 0)) locked.push(ws); else ctx.availToShifts?.(staffId, ws, { id: null }); }
-    return { dates, locked };
+    // Tuần đã duyệt lịch: báo "nghỉ" ngày có ca → tự tạo đơn xin nghỉ (quản lý duyệt); đổi giờ → báo quản lý xếp lại (chủ quán 25/10)
+    const leaves = [], noShift = [], changed = [];
+    for (const d of dates.filter((x) => locked.includes(weekStart(x)))) {
+      const groups = db.prepare('SELECT DISTINCT group_id FROM assignments WHERE staff_id = ? AND date = ?').all(staffId, d).map((x) => x.group_id);
+      if (off.includes(d) && !picks[d]) {
+        if (!groups.length) { noShift.push(d); continue; }
+        for (const g of groups) {
+          const had = db.prepare("SELECT status FROM leave_requests WHERE group_id = ? AND status IN ('pending','approved')").get(g);
+          if (had) { leaves.push({ date: d, label: '', status: had.status }); continue; }
+          try { const r = ctx.createLeave(null, g, `Báo nghỉ qua nhóm Zalo (bot) ${ddmm(d)}`); leaves.push({ date: d, label: r.label, status: 'new' }); } catch { /* ca đã qua */ }
+        }
+      } else changed.push(d);
+    }
+    if (changed.length) {
+      const st = db.prepare('SELECT name, team_id FROM staff WHERE id = ?').get(staffId);
+      ctx.notify(ctx.leadsOf(st?.team_id), { title: `${st?.name} báo đổi giờ (lịch đã duyệt)`, body: `${changed.map((d) => `${dayTxt(d)}: ${(picks[d] || []).join(', ')}`).join(' · ')}. Ca cũ giữ nguyên, quản lý xếp lại nếu đồng ý.`, link: '/lich' });
+    }
+    return { dates, locked, leaves, noShift, changed };
   }
   function describe(picks, off, dates, week) {
     const all = Array.from({ length: 7 }, (_, i) => addDays(week, i));
@@ -401,12 +418,14 @@ export default function (r, ctx) {
     for (const person of p.people) {
       const r = applyBot(person.id, p.picks, p.off);
       if (!r.dates.length) { lines.push(`• ${person.name}: ngày đã qua, không ghi`); continue; }
-      if (r.locked.length) locked = true;
+      if (r.changed.length) locked = true;
       lines.push(`• ${person.name}: ${describe(p.picks, p.off, r.dates, p.week)}`);
+      for (const l of r.leaves) lines.push(l.status === 'new' ? `  📝 Đã gửi đơn xin nghỉ ${l.label} cho quản lý. Chưa duyệt thì vẫn đi làm; duyệt xong app báo bạn.` : `  ${dayTxt(l.date)}: đã có đơn nghỉ (${l.status === 'approved' ? 'đã duyệt' : 'chờ duyệt'})`);
+      if (r.noShift.length) lines.push(`  ${r.noShift.map(dayTxt).join(', ')}: bạn không có ca, ghi nghỉ là xong`);
     }
     ctx.audit(null, 'availability.zalo', { from: u.from.name, staff: p.people.map((x) => x.id), text: u.text.slice(0, 200) });
     ctx.broadcast('availability');
-    return `✅ Đã ghi lịch rảnh:\n${lines.join('\n')}${locked ? '\n(Tuần đã duyệt lịch: quản lý sẽ xếp lại nếu cần)' : ''}`;
+    return `✅ Đã ghi lịch rảnh:\n${lines.join('\n')}${locked ? '\n(Tuần đã duyệt lịch: giờ mới đã báo quản lý, ca cũ giữ nguyên tới khi quản lý xếp lại)' : ''}`;
   }
   ctx.handleBotAvailMsg = handleBotMsg;
   // Nhật ký bot: lần đọc gần nhất + 15 tin gần nhất và bot đã làm gì (Cài đặt → Zalo Bot)
