@@ -50,7 +50,8 @@ export default function (r, ctx) {
   addCol('checklist_items', 'job_scope', "TEXT NOT NULL DEFAULT 'zone'");     // zone = mỗi khu 1 người · shop = cả quán 1 người
   addCol('checklist_items', 'job_qty', "TEXT NOT NULL DEFAULT ''");           // số lượng ghi tay: "200 muỗng"
   addCol('checklist_items', 'job_per_table', 'REAL NOT NULL DEFAULT 0');      // số lượng theo số bàn của khu (vd 1 bếp ga / bàn)
-  addCol('checklist_items', 'fetch_where', "TEXT NOT NULL DEFAULT ''");       // hết đồ thì lấy ở đâu
+  addCol('checklist_items', 'fetch_where', "TEXT NOT NULL DEFAULT ''");
+  addCol('checklist_items', 'job_expect', 'INTEGER NOT NULL DEFAULT 0');      // số phải đủ khi xong (vd 2 khăn); thiếu → ghi vào tên người làm       // hết đồ thì lấy ở đâu
   const sectionOf = (t) => {
     if (t.section) return t.section;
     if (t.zone_name) return `Tổng ${t.zone_name.toLowerCase().startsWith('khu') ? t.zone_name.replace(/^Khu/i, 'khu') : `khu ${t.zone_name}`}`;
@@ -106,15 +107,15 @@ export default function (r, ctx) {
           if (g2.unit !== ing.unit) fail(400, `"${text}": ${g2.name} khác đơn vị (${g2.unit}), không cân chung với ${ing.name} (${ing.unit}) được`);
         }
       } else ingId = null;
-      const job = { minutes: it.job_minutes ? v.int(it.job_minutes, { min: 0, max: 600, name: 'Thời gian chuẩn' }) : 0, scope: it.job_scope === 'shop' ? 'shop' : 'zone',
+      const job = { minutes: it.job_minutes ? v.int(it.job_minutes, { min: 0, max: 600, name: 'Thời gian chuẩn' }) : 0, scope: ['shop', 'each'].includes(it.job_scope) ? it.job_scope : 'zone', expect: it.job_expect ? v.int(it.job_expect, { min: 0, max: 999, name: 'Số phải đủ' }) : 0,
         qty: v.text(it.job_qty, { name: 'Số lượng', max: 40 }), perTable: it.job_per_table ? Number(it.job_per_table) || 0 : 0, fetch: v.text(it.fetch_where, { name: 'Chỗ lấy đồ', max: 80 }) };
       if (job.perTable < 0 || job.perTable > 50) fail(400, `"${text}": số lượng mỗi bàn không hợp lệ`);
       if (it.id && existing.has(Number(it.id))) {
         db.prepare('UPDATE checklist_items SET text = ?, kind = ?, unit = ?, required = ?, photo_required = ?, ingredient_id = ?, store_id = ?, extra_ingredient_ids = ?, sort = ? WHERE id = ?').run(text, kind, unit, required, photo, ingId, storeId, JSON.stringify(extra), i, Number(it.id));
-        db.prepare('UPDATE checklist_items SET job_minutes = ?, job_scope = ?, job_qty = ?, job_per_table = ?, fetch_where = ? WHERE id = ?').run(job.minutes, job.scope, job.qty, job.perTable, job.fetch, Number(it.id));
+        db.prepare('UPDATE checklist_items SET job_minutes = ?, job_scope = ?, job_qty = ?, job_per_table = ?, fetch_where = ?, job_expect = ? WHERE id = ?').run(job.minutes, job.scope, job.qty, job.perTable, job.fetch, job.expect, Number(it.id));
         keep.add(Number(it.id));
       } else {
-        db.prepare('INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, extra_ingredient_ids, sort, job_minutes, job_scope, job_qty, job_per_table, fetch_where) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(templateId, text, kind, unit, required, photo, ingId, storeId, JSON.stringify(extra), i, job.minutes, job.scope, job.qty, job.perTable, job.fetch);
+        db.prepare('INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, extra_ingredient_ids, sort, job_minutes, job_scope, job_qty, job_per_table, fetch_where, job_expect) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(templateId, text, kind, unit, required, photo, ingId, storeId, JSON.stringify(extra), i, job.minutes, job.scope, job.qty, job.perTable, job.fetch, job.expect);
       }
     });
     for (const id of existing) if (!keep.has(id)) db.prepare('DELETE FROM checklist_items WHERE id = ?').run(id);

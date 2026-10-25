@@ -316,11 +316,13 @@ function ChecklistForm({ init, teams, shifts, onClose, allowAll = true }) {
             ${init.id && x.id ? html`<${Samples} samples=${x.samples || []} templateId=${init.id} itemId=${x.id} canEdit=${true} label="Ảnh mẫu" />` : html`<small class="muted">Ảnh mẫu: lưu xong mở lại để thêm</small>`}
           </div>
           ${f.job_mode ? html`<div class="row wrap tight job-fields">
-            <button class=${`chip ${x.job_scope !== 'shop' ? 'on' : ''}`} onClick=${() => item(i, 'job_scope', 'zone')}>Mỗi khu 1 người</button>
+            <button class=${`chip ${!x.job_scope || x.job_scope === 'zone' ? 'on' : ''}`} onClick=${() => item(i, 'job_scope', 'zone')}>Mỗi khu 1 người</button>
             <button class=${`chip ${x.job_scope === 'shop' ? 'on' : ''}`} onClick=${() => item(i, 'job_scope', 'shop')}>Cả quán 1 người</button>
+            <button class=${`chip ${x.job_scope === 'each' ? 'on' : ''}`} onClick=${() => item(i, 'job_scope', 'each')}>Mỗi người tự làm</button>
             <label class="row tight small">⏱<input class="num-in" type="number" inputmode="numeric" min="0" value=${x.job_minutes || ''} placeholder="phút" onInput=${(e) => item(i, 'job_minutes', e.target.value)} aria-label="Thời gian chuẩn (phút)" />phút</label>
             <input class="grow" value=${x.job_qty || ''} placeholder="Số lượng (vd 200 muỗng)" onInput=${(e) => item(i, 'job_qty', e.target.value)} aria-label="Số lượng" />
-            ${x.job_scope !== 'shop' ? html`<label class="row tight small">hoặc mỗi bàn<input class="num-in" type="number" inputmode="decimal" min="0" step="0.5" value=${x.job_per_table || ''} placeholder="0" onInput=${(e) => item(i, 'job_per_table', e.target.value)} aria-label="Số lượng mỗi bàn" /><input class="unit" value=${x.unit || ''} placeholder="bếp, ly…" onInput=${(e) => item(i, 'unit', e.target.value)} /></label>` : null}
+            ${x.job_scope === 'zone' || !x.job_scope ? html`<label class="row tight small">hoặc mỗi bàn<input class="num-in" type="number" inputmode="decimal" min="0" step="0.5" value=${x.job_per_table || ''} placeholder="0" onInput=${(e) => item(i, 'job_per_table', e.target.value)} aria-label="Số lượng mỗi bàn" /><input class="unit" value=${x.unit || ''} placeholder="bếp, ly…" onInput=${(e) => item(i, 'unit', e.target.value)} /></label>` : null}
+            <label class="row tight small">Số phải đủ<input class="num-in" type="number" inputmode="numeric" min="0" value=${x.job_expect || ''} placeholder="—" onInput=${(e) => item(i, 'job_expect', e.target.value)} aria-label="Số phải đủ" /></label>
             <input class="grow" value=${x.fetch_where || ''} placeholder="📦 Hết thì lấy ở đâu (vd Kệ 2 Kho bếp)" onInput=${(e) => item(i, 'fetch_where', e.target.value)} aria-label="Chỗ lấy đồ" />
           </div>` : null}
           <details class="item-more"><summary class="muted small">Tuỳ chọn (kiểu nhập số / chữ, nối kho, thứ tự)</summary><div class="row wrap tight">

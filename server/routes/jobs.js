@@ -16,6 +16,11 @@ const DEFAULT_MIN = 10; // việc chưa đặt thời gian chuẩn tính 10 phú
 
 export default function (r, ctx) {
   const { db } = ctx;
+  // owner_id: việc "mỗi người tự làm" (vd giặt 2 khăn của mình) → 1 thẻ / người; 0 = việc chia (khu / cả quán)
+  // Bảng cũ (chưa có owner_id) → dựng lại để đổi khoá UNIQUE, giữ dữ liệu
+  const JOB_COLS = 'id, date, template_id, item_id, zone_id, staff_id, assigned_by, assigned_at, claimed_at, due_at, done_at, minutes_used, status, late, redo_count, nudged, alerted, photo, checked_by, checked_at, check_note';
+  const oldJobs = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'jobs'").get() && !db.prepare('PRAGMA table_info(jobs)').all().some((c) => c.name === 'owner_id');
+  if (oldJobs) db.exec('DROP INDEX IF EXISTS jobs_by_date; ALTER TABLE jobs RENAME TO jobs_old');
   db.exec(`CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY,
     date TEXT NOT NULL,
@@ -29,7 +34,9 @@ export default function (r, ctx) {
     late INTEGER NOT NULL DEFAULT 0, redo_count INTEGER NOT NULL DEFAULT 0,
     nudged INTEGER NOT NULL DEFAULT 0, alerted INTEGER NOT NULL DEFAULT 0,
     photo TEXT, checked_by INTEGER, checked_at INTEGER, check_note TEXT NOT NULL DEFAULT '',
-    UNIQUE (date, item_id, zone_id)
+    owner_id INTEGER NOT NULL DEFAULT 0,
+    count INTEGER, short INTEGER NOT NULL DEFAULT 0,   -- số đếm được khi xong (vd khăn đã giặt) · thiếu so với số phải đủ
+    UNIQUE (date, item_id, zone_id, owner_id)
   );
   CREATE INDEX IF NOT EXISTS jobs_by_date ON jobs(date);
   CREATE TABLE IF NOT EXISTS job_zone_photos (
@@ -37,6 +44,9 @@ export default function (r, ctx) {
     staff_id INTEGER, file TEXT NOT NULL, at INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS job_checkers (date TEXT NOT NULL, zone_id INTEGER NOT NULL, staff_id INTEGER NOT NULL, PRIMARY KEY (date, zone_id));`);
+
+  if (oldJobs) db.exec(`INSERT INTO jobs (${JOB_COLS}) SELECT ${JOB_COLS} FROM jobs_old; DROP TABLE jobs_old`);
+  const K = (itemId, zoneId, ownerId) => `${itemId}:${zoneId}:${ownerId || 0}`;
 
   const photoDir = path.join(ctx.photoDir || path.join(os.tmpdir(), 'quanly-photos'), 'viec');
   const name = (id) => (id ? db.prepare('SELECT name FROM staff WHERE id = ?').get(id)?.name || '' : '');
@@ -70,10 +80,13 @@ export default function (r, ctx) {
   const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
   // Các thẻ việc cần có của 1 checklist trong ngày: việc "mỗi khu" × từng khu, việc "cả quán" 1 thẻ
-  function slots(t) {
+  function slots(t, date) {
     const zs = t.zone_id ? zonesAll().filter((z) => z.id === t.zone_id) : zonesAll();
     const out = [];
+    const everyone = t.items.some((i) => i.job_scope === 'each') && date ? people(date, t) : [];
     for (const it of t.items) {
+      // Mỗi người tự làm: mọi người có ca hôm đó thuộc các bộ phận của checklist (không theo khung giờ: ai về giờ nào làm giờ đó)
+      if (it.job_scope === 'each') { for (const p of everyone) out.push({ item: it, zone_id: p.zone_id || 0, owner_id: p.id }); continue; }
       if (it.job_scope === 'shop' || !zs.length) out.push({ item: it, zone_id: 0 });
       else for (const z of zs) out.push({ item: it, zone_id: z.id });
     }
@@ -88,17 +101,19 @@ export default function (r, ctx) {
   function suggest(date, t, fixed = []) {
     let ps = people(date, t);
     if (t.job_from != null) ps = ps.filter((p) => inWindow(p, t));
-    if (!ps.length) return slots(t).map((s) => ({ ...s, staff_id: null }));
+    const all = slots(t, date);
+    if (!ps.length) return all.map((s) => ({ ...s, staff_id: s.owner_id || null }));
     if (t.job_from != null) { /* đã lọc theo khung giờ của checklist */ } else if (t.phase === 'close') { const last = Math.max(...ps.map((p) => p.end)); ps = ps.filter((p) => p.end >= last - 90); }
     else { const first = Math.min(...ps.map((p) => p.start)); const early = ps.filter((p) => p.start <= first + 120); if (early.length) ps = early; }
     const first = Math.min(...ps.map((p) => p.start)), last = Math.max(...ps.map((p) => p.end));
     const load = new Map(ps.map((p) => [p.id, 0]));
     for (const f of fixed) if (load.has(f.staff_id)) load.set(f.staff_id, load.get(f.staff_id) + (f.minutes || DEFAULT_MIN));
     const yesterday = new Map(db.prepare('SELECT item_id, zone_id, staff_id FROM jobs WHERE date = ? AND template_id = ?').all(addDays(date, -1), t.id).map((x) => [`${x.item_id}:${x.zone_id}`, x.staff_id]));
-    const fixedKeys = new Set(fixed.map((f) => `${f.item_id}:${f.zone_id}`));
-    const todo = slots(t).filter((s) => !fixedKeys.has(`${s.item.id}:${s.zone_id}`))
-      .sort((a, b) => (b.item.job_minutes || DEFAULT_MIN) - (a.item.job_minutes || DEFAULT_MIN) || (a.zone_id - b.zone_id));
+    const fixedKeys = new Set(fixed.map((f) => K(f.item_id, f.zone_id, f.owner_id)));
+    const todo = all.filter((s) => !fixedKeys.has(K(s.item.id, s.zone_id, s.owner_id)))
+      .sort((a, b) => (b.owner_id ? 1 : 0) - (a.owner_id ? 1 : 0) || (b.item.job_minutes || DEFAULT_MIN) - (a.item.job_minutes || DEFAULT_MIN) || (a.zone_id - b.zone_id));
     return todo.map((s) => {
+      if (s.owner_id) { if (load.has(s.owner_id)) load.set(s.owner_id, load.get(s.owner_id) + (s.item.job_minutes || DEFAULT_MIN)); return { ...s, staff_id: s.owner_id }; }
       // Việc của khu: người trong khu trước; người chưa phân khu (vd tiếp thực) hỗ trợ được; người khu khác không nhận
       const pool = ps.filter((p) => !s.zone_id || p.zone_id === s.zone_id || !p.zone_id);
       if (!pool.length) return { ...s, staff_id: null };
@@ -120,19 +135,24 @@ export default function (r, ctx) {
   function materialize(date, t, { mode = 'fill' } = {}) {
     const rows = db.prepare('SELECT * FROM jobs WHERE date = ? AND template_id = ?').all(date, t.id);
     if (rows.length && mode === 'fill') {
-      const have = new Set(rows.map((x) => `${x.item_id}:${x.zone_id}`));
-      if (slots(t).every((s) => have.has(`${s.item.id}:${s.zone_id}`))) return;
+      const have = new Set(rows.map((x) => K(x.item_id, x.zone_id, x.owner_id)));
+      if (slots(t, date).every((s) => have.has(K(s.item.id, s.zone_id, s.owner_id)))) return;
     }
     const keep = (x) => x.status !== 'todo' || mode === 'fill' || (mode === 'auto' && x.assigned_by != null);
-    const fixed = rows.filter(keep).map((x) => ({ item_id: x.item_id, zone_id: x.zone_id, staff_id: x.staff_id, minutes: t.items.find((i) => i.id === x.item_id)?.job_minutes }));
+    const fixed = rows.filter(keep).map((x) => ({ item_id: x.item_id, zone_id: x.zone_id, owner_id: x.owner_id, staff_id: x.staff_id, minutes: t.items.find((i) => i.id === x.item_id)?.job_minutes }));
     const plan = suggest(date, t, fixed);
     const at = ctx.now();
     tx(db, () => {
+      // Ngày tới: người đã bỏ khỏi lịch → bỏ thẻ "mỗi người tự làm" của họ (chưa bắt đầu)
+      if (mode !== 'fill') {
+        const want = new Set(slots(t, date).filter((x) => x.owner_id).map((x) => K(x.item.id, x.zone_id, x.owner_id)));
+        for (const x of rows) if (x.owner_id && x.status === 'todo' && !want.has(K(x.item_id, x.zone_id, x.owner_id))) db.prepare('DELETE FROM jobs WHERE id = ?').run(x.id);
+      }
       for (const p of plan) {
-        db.prepare(`INSERT INTO jobs (date, template_id, item_id, zone_id, staff_id, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, NULL, ?)
-          ON CONFLICT (date, item_id, zone_id) DO UPDATE SET staff_id = excluded.staff_id, assigned_by = NULL, assigned_at = excluded.assigned_at, nudged = 0
+        db.prepare(`INSERT INTO jobs (date, template_id, item_id, zone_id, owner_id, staff_id, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
+          ON CONFLICT (date, item_id, zone_id, owner_id) DO UPDATE SET staff_id = excluded.staff_id, assigned_by = NULL, assigned_at = excluded.assigned_at, nudged = 0
           WHERE jobs.status = 'todo' AND (? = 'force' OR jobs.assigned_by IS NULL)`)
-          .run(date, t.id, p.item.id, p.zone_id, p.staff_id, at, mode);
+          .run(date, t.id, p.item.id, p.zone_id, p.owner_id || 0, p.staff_id, at, mode);
       }
     });
   }
@@ -165,6 +185,7 @@ export default function (r, ctx) {
       staff_id: j.staff_id, staff_name: name(j.staff_id), status: j.status, claimed_at: j.claimed_at, due_at: j.due_at, done_at: j.done_at,
       minutes_used: j.minutes_used, late: !!j.late, redo_count: j.redo_count, has_photo: !!j.photo, checked_by_name: name(j.checked_by), check_note: j.check_note,
       overdue: j.status === 'doing' && j.due_at && j.due_at < ctx.now(),
+      own: !!j.owner_id, expect: it.job_expect || 0, count: j.count, short: j.short || 0,
     };
   }
 
@@ -179,7 +200,7 @@ export default function (r, ctx) {
     for (const d of days) ensureDay(d);
     const zs = zonesAll();
     return { start, days, templates: jobTemplates().map((t) => {
-      const zoneIds = [...new Set(slots(t).map((x) => x.zone_id))].sort((a, b) => (a || 1e9) - (b || 1e9));
+      const zoneIds = [...new Set(days.flatMap((d) => slots(t, d).map((x) => x.zone_id)))].sort((a, b) => (a || 1e9) - (b || 1e9));
       return {
         id: t.id, title: t.title, phase: t.phase, window: winText(t),
         rows: zoneIds.map((zid) => ({
@@ -287,11 +308,23 @@ export default function (r, ctx) {
     const it = itemOf(j);
     const photo = body.data ? savePhoto(body.data, `j${j.id}`) : null;
     if (it.photo_required && !photo) fail(400, 'Việc này phải chụp ảnh khi xong');
+    // Việc có số phải đủ (vd giặt 2 khăn): nhập số thực tế, thiếu → ghi vào tên người làm (đền)
+    let count = null, short = 0;
+    if (it.job_expect) {
+      if (body.count === undefined || body.count === '' || body.count === null) fail(400, `Nhập số ${it.unit || 'cái'} thực tế (phải đủ ${it.job_expect})`);
+      count = v.int(body.count, { min: 0, max: 9999, name: 'Số lượng' });
+      short = Math.max(0, it.job_expect - count);
+    }
     const at = ctx.now();
     const late = j.due_at && at > j.due_at ? 1 : 0;
-    db.prepare("UPDATE jobs SET status = 'done', done_at = ?, minutes_used = ?, late = MAX(late, ?), photo = COALESCE(?, photo) WHERE id = ?").run(at, Math.max(1, Math.round((at - j.claimed_at) / 60_000)), late, photo, j.id);
+    db.prepare("UPDATE jobs SET status = 'done', done_at = ?, minutes_used = ?, late = MAX(late, ?), photo = COALESCE(?, photo), count = ?, short = ? WHERE id = ?").run(at, Math.max(1, Math.round((at - j.claimed_at) / 60_000)), late, photo, count, short, j.id);
+    if (short) {
+      const ids = [...new Set([...checkerOf(j.date, j.zone_id), ...ctx.managers()])].filter((x) => x !== me.id);
+      ctx.notify(ids, { title: `Thiếu ${short} ${it.unit || ''}: ${it.text}`.replace('  ', ' '), body: `${me.name}: ${count}/${it.job_expect} → ghi vào tên ${me.name} (đền)`, link: '/viec-ca?tab=khu', urgent: true });
+      ctx.audit(me, 'job.short', { id: j.id, short, count });
+    }
     ctx.broadcast('jobs');
-    return { ok: true, late: !!late };
+    return { ok: true, late: !!late, short };
   });
 
   // Người kiểm tra: Đạt / Làm lại (trả về đúng người, đồng hồ chạy lại)
@@ -384,11 +417,11 @@ export default function (r, ctx) {
     const rows = db.prepare(`SELECT j.*, i.job_minutes FROM jobs j JOIN checklist_items i ON i.id = j.item_id WHERE j.date BETWEEN ? AND ? AND j.staff_id IS NOT NULL`).all(from, to);
     const by = new Map();
     for (const j of rows) {
-      const x = by.get(j.staff_id) || { staff_id: j.staff_id, name: name(j.staff_id), total: 0, done: 0, late: 0, redo: 0, missed: 0, used: 0, std: 0 };
+      const x = by.get(j.staff_id) || { staff_id: j.staff_id, name: name(j.staff_id), total: 0, done: 0, late: 0, redo: 0, missed: 0, used: 0, std: 0, short: 0 };
       x.total++;
       if (['done', 'ok'].includes(j.status)) { x.done++; if (j.job_minutes) { x.used += j.minutes_used || 0; x.std += j.job_minutes; } }
       else if (j.date < ctx.today()) x.missed++;
-      x.late += j.late; x.redo += j.redo_count;
+      x.late += j.late; x.redo += j.redo_count; x.short += j.short || 0;
       by.set(j.staff_id, x);
     }
     const staff = [...by.values()].map((x) => ({ ...x, speed: x.std ? Math.round((x.used / x.std) * 100) : null })).sort((a, b) => (b.late + b.redo + b.missed) - (a.late + a.redo + a.missed) || a.name.localeCompare(b.name));
@@ -421,7 +454,7 @@ export default function (r, ctx) {
         // Đã giao mà chưa bấm Nhận: mở ca → 10 phút sau khi chấm công vào; đóng ca → 30 phút trước giờ về
         const att = db.prepare('SELECT clock_in FROM attendance WHERE staff_id = ? AND date = ? ORDER BY id LIMIT 1').get(j.staff_id, date);
         const p = people(date, t).find((x) => x.id === j.staff_id);
-        const due = t.job_from != null ? nowMin >= t.job_from + 10 : t.phase === 'close' ? (p ? nowMin >= p.end - 30 : false) : (att && now > att.clock_in + 10 * 60_000);
+        const due = j.owner_id && t.phase === 'close' ? (p ? nowMin >= p.end - 20 : false) : t.job_from != null ? nowMin >= t.job_from + 10 : t.phase === 'close' ? (p ? nowMin >= p.end - 30 : false) : (att && now > att.clock_in + 10 * 60_000);
         if (due) { db.prepare('UPDATE jobs SET nudged = 1 WHERE id = ?').run(j.id); ctx.notify([j.staff_id], { title: `Việc của bạn: ${it.text}`, body: `${zoneLabel(j.zone_id)} · bấm Nhận rồi làm${it.job_minutes ? ` (chuẩn ${it.job_minutes} phút)` : ''}`, link: '/viec-ca' }); }
       } else {
         // Chưa ai nhận 15 phút sau ca sớm nhất → báo người kiểm tra khu

@@ -21,11 +21,16 @@ function Countdown({ due, now }) {
 
 function JobCard({ j, now, mine }) {
   const [busy, setBusy] = useState(false);
+  const [cnt, setCnt] = useState('');
   const done = async (e) => {
+    if (j.expect && cnt === '') { alert(`Nhập số thực tế trước (phải đủ ${j.expect})`); if (e) e.target.value = ''; return; }
     const data = e ? await pick(e) : null;
     if (e && !data) return;
     setBusy(true);
-    try { await act(() => api('POST', `/api/jobs/${j.id}/done`, data ? { data } : {}), 'Đã báo xong').then((r) => r?.late && alert('Việc này trễ so với thời gian chuẩn, đã ghi lại.')); } finally { setBusy(false); }
+    try {
+      await act(() => api('POST', `/api/jobs/${j.id}/done`, { ...(data ? { data } : {}), ...(j.expect ? { count: cnt } : {}) }), 'Đã báo xong')
+        .then((r) => { if (r?.short) alert(`Thiếu ${r.short} so với ${j.expect}: đã ghi vào tên bạn (đền).`); else if (r?.late) alert('Việc này trễ so với thời gian chuẩn, đã ghi lại.'); });
+    } finally { setBusy(false); }
   };
   const [label, cls] = ST[j.status];
   return html`<div class=${`card tight stack job ${j.overdue ? 'bad' : ''}`}>
@@ -34,6 +39,8 @@ function JobCard({ j, now, mine }) {
     ${j.fetch_where ? html`<small>📦 Hết thì lấy ở: <b>${j.fetch_where}</b></small>` : null}
     ${j.check_note && j.status === 'doing' ? html`<small class="warn-text">↩ ${j.checked_by_name}: ${j.check_note}</small>` : null}
     ${mine && j.status === 'doing' ? html`<div class="row"><${Countdown} due=${j.due_at} now=${now} /></div>` : null}
+    ${mine && j.status === 'doing' && j.expect ? html`<label class="row">Số thực tế (phải đủ <b>${j.expect}</b>)<input class="num-in" type="number" inputmode="numeric" min="0" value=${cnt} onInput=${(e) => setCnt(e.target.value)} /></label>` : null}
+    ${j.count != null ? html`<small class=${j.short ? 'warn-text' : 'muted'}>Đếm: ${j.count}/${j.expect}${j.short ? ` · thiếu ${j.short} (đền)` : ''}</small>` : null}
     ${mine ? html`<div class="row wrap">
       ${j.status === 'todo' ? html`<button class="primary big grow" onClick=${() => act(() => api('POST', `/api/jobs/${j.id}/claim`), 'Đã nhận, bắt đầu tính giờ')}>✋ Nhận việc</button>` : null}
       ${j.status === 'doing' ? (j.photo_required
@@ -72,6 +79,7 @@ function ZoneBoard({ t, z, now, today = true }) {
         ${z.can_check && ['todo', 'doing'].includes(j.status) ? html`<select value=${j.staff_id || ''} onChange=${(e) => act(() => api('PATCH', `/api/jobs/${j.id}`, { staff_id: e.target.value || null }), 'Đã đổi người')}>
           <option value="">(chưa ai)</option>${z.people.map((p) => html`<option value=${p.id}>${p.name}</option>`)}${j.staff_id && !z.people.some((p) => p.id === j.staff_id) ? html`<option value=${j.staff_id}>${j.staff_name}</option>` : null}</select>` : html`<b>${j.staff_name || '(chưa ai)'}</b>`}
         <span class="muted">${j.claimed_at ? `nhận ${hm(j.claimed_at)}` : ''}${j.done_at ? ` · xong ${hm(j.done_at)} (${j.minutes_used}′)` : ''}${j.status === 'doing' && j.due_at ? ` · hạn ${hm(j.due_at)}` : ''}</span>
+        ${j.count != null ? html`<span class=${`pill ${j.short ? 'bad' : 'ok'}`}>${j.count}/${j.expect}${j.short ? ` thiếu ${j.short}` : ''}</span>` : null}
         ${j.late ? html`<span class="pill bad">trễ</span>` : null}${j.redo_count ? html`<span class="pill warn">làm lại ${j.redo_count}</span>` : null}
       </div>
       ${j.has_photo ? html`<a href=${`/api/jobs/${j.id}/photo`} target="_blank"><img class="job-photo" src=${`/api/jobs/${j.id}/photo`} /></a>` : null}
@@ -145,9 +153,9 @@ function Report() {
   const d = useData('/api/jobs/report');
   if (!d.data) return html`<${Loading} state=${d} />`;
   return html`<div class="stack"><h3>7 ngày qua (${d.data.from.slice(5)} → ${d.data.to.slice(5)})</h3>
-    <p class="small muted">Trễ = quá thời gian chuẩn · Làm lại = tổ trưởng trả lại · Bỏ = được giao mà không làm. Tốc độ = phút thực tế / phút chuẩn (dưới 100% là nhanh).</p>
-    <table class="tbl small"><thead><tr><th>Nhân viên</th><th>Xong</th><th>Trễ</th><th>Làm lại</th><th>Bỏ</th><th>Tốc độ</th></tr></thead><tbody>
-      ${d.data.staff.map((x) => html`<tr><td>${x.name}</td><td>${x.done}/${x.total}</td><td class=${x.late ? 'warn-text' : ''}>${x.late}</td><td class=${x.redo ? 'warn-text' : ''}>${x.redo}</td><td class=${x.missed ? 'warn-text' : ''}>${x.missed}</td><td>${x.speed != null ? `${x.speed}%` : '—'}</td></tr>`)}
+    <p class="small muted">Trễ = quá thời gian chuẩn · Làm lại = tổ trưởng trả lại · Bỏ = được giao mà không làm. Thiếu = đếm thiếu so với số phải đủ (vd khăn mất, phải đền). Tốc độ = phút thực tế / phút chuẩn (dưới 100% là nhanh).</p>
+    <table class="tbl small"><thead><tr><th>Nhân viên</th><th>Xong</th><th>Trễ</th><th>Làm lại</th><th>Bỏ</th><th>Thiếu</th><th>Tốc độ</th></tr></thead><tbody>
+      ${d.data.staff.map((x) => html`<tr><td>${x.name}</td><td>${x.done}/${x.total}</td><td class=${x.late ? 'warn-text' : ''}>${x.late}</td><td class=${x.redo ? 'warn-text' : ''}>${x.redo}</td><td class=${x.missed ? 'warn-text' : ''}>${x.missed}</td><td class=${x.short ? 'warn-text' : ''}>${x.short || 0}</td><td>${x.speed != null ? `${x.speed}%` : '—'}</td></tr>`)}
     </tbody></table>
     <h3>Khu xong lúc</h3>${d.data.zones.map((z) => html`<small>${z.date.slice(5)} · ${z.template_title} · ${z.zone_name}: ${z.d}/${z.n}${z.last_done && z.d === z.n ? ` · xong ${hm(z.last_done)}` : ''}</small>`)}
   </div>`;

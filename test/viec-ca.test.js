@@ -134,5 +134,17 @@ test('Việc ca: gợi ý chia việc theo khu (tiếp thực vào sớm hỗ tr
     const tz = (await O('GET', `/api/jobs/board?date=${d}`)).data.templates.find((x) => x.id === tpl.id);
     assert.equal(tz.zones.flatMap((z) => z.jobs).filter((x) => x.title === 'Lau menu').length, 2, d);
   }
+
+  // Mỗi người tự làm + số phải đủ: cuối ca mỗi bạn giặt 2 khăn của mình, thiếu → ghi vào tên (đền)
+  const kh = (await O('POST', '/api/checklist-templates', { title: 'Cuối ca: khăn', team_id: pv, phase: 'close', job_mode: true, job_teams: [pv, Number(tt)], items: [
+    { text: 'Giặt + phơi khăn của mình', job_scope: 'each', job_expect: 2, unit: 'khăn', job_minutes: 10, photo_required: false }] })).data;
+  const kb = (await O('GET', '/api/jobs/board')).data.templates.find((x) => x.id === kh.id);
+  const kj = kb.zones.flatMap((z) => z.jobs);
+  assert.deepEqual(kj.map((x) => x.staff_id).sort(), [lead, a1, b1, sup, eve].sort(), 'mỗi người có ca 1 thẻ');
+  const mineK = kj.find((x) => x.staff_id === b1);
+  await S[b1]('POST', `/api/jobs/${mineK.id}/claim`);
+  assert.equal((await S[b1]('POST', `/api/jobs/${mineK.id}/done`, {})).status, 400); // phải nhập số
+  assert.equal((await S[b1]('POST', `/api/jobs/${mineK.id}/done`, { count: 1 })).data.short, 1);
+  assert.equal((await O('GET', '/api/jobs/report')).data.staff.find((x) => x.staff_id === b1).short, 1);
   void sent;
 });
