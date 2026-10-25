@@ -6,7 +6,8 @@ import { Checklists } from './settings.js';
 // Bật "Giao việc từng người" cho checklist này: bộ phận của checklist + Tiếp thực (nếu có) làm chung → mở Bảng khu để phân việc
 async function toJobs(me, r) {
   const tt = (me.teams || []).find((t) => /tiếp thực|tiep thuc/i.test(t.name));
-  const teams = [...new Set([r.team_id, r.team_id && /phục vụ|phuc vu/i.test(r.team_name) ? tt?.id : null].filter(Boolean))];
+  const pv = r.team_id && /phục vụ|phuc vu/i.test(r.team_name);
+  const teams = [...new Set([r.team_id, pv ? tt?.id : null, pv ? -1 : null].filter(Boolean))];
   if (!confirm(`Chuyển "${r.title}" sang giao việc từng người?\nMỗi việc thành 1 thẻ, app gợi ý ai làm theo khu đã phân, nhân viên bấm Nhận → Xong. Checklist này sẽ không còn hiện ở đây mà nằm ở Việc ca.`)) return;
   const ok = await act(() => api('PATCH', `/api/checklist-templates/${r.template_id}`, { job_mode: true, job_teams: teams }), 'Đã chuyển, mở Bảng khu để phân việc');
   if (ok) navigate('/viec-ca?tab=khu');
@@ -178,7 +179,7 @@ export function ChecklistView({ me }) {
       <${Samples} samples=${r.samples || []} templateId=${r.template_id} canEdit=${!old && canEditTpl(me, r.team_id)} label="Ảnh mẫu khu" />
       <ul class="cklist">${r.items.map((i) => html`<${Item} key=${`${r.run_id}-${i.id}-${i.entry?.done_at || 0}`} run=${r} item=${i} disabled=${old} me=${me} />`)}</ul>
       ${!old && canEditTpl(me, r.team_id) ? html`<${AddItemInline} templateId=${r.template_id} />` : null}
-      ${!old && atLeast(me, 'shift_lead') && r.items.length >= 3 ? html`<button class="job-switch" onClick=${() => toJobs(me, r)}>👥 Chuyển sang giao việc từng người (phân việc cho từng bạn theo khu)</button>` : null}
+      ${!old && atLeast(me, 'shift_lead') && r.items.length >= 3 ? html`<button class="job-switch" onClick=${() => toJobs(me, r)}>👥 Chuyển sang giao việc từng người</button>` : null}
     </section>`) : html`<div class="empty">${sections.length ? `Mục ${curSec} không có checklist ${phase === 'open' ? 'mở ca' : 'đóng ca'}.` : `Hôm nay bạn không có checklist.${atLeast(me, 'manager') ? ' Tạo checklist ở nút Tạo / sửa checklist.' : ''}`}</div>`}
   </div>`;
 }

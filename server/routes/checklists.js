@@ -51,6 +51,7 @@ export default function (r, ctx) {
   addCol('checklist_items', 'job_qty', "TEXT NOT NULL DEFAULT ''");           // số lượng ghi tay: "200 muỗng"
   addCol('checklist_items', 'job_per_table', 'REAL NOT NULL DEFAULT 0');      // số lượng theo số bàn của khu (vd 1 bếp ga / bàn)
   addCol('checklist_items', 'fetch_where', "TEXT NOT NULL DEFAULT ''");
+  addCol('checklist_items', 'job_with', 'INTEGER NOT NULL DEFAULT 0');        // đi kèm việc khác: giao cho đúng người làm việc đó (vd lau chén → giặt khăn lau chén)
   addCol('checklist_items', 'job_expect', 'INTEGER NOT NULL DEFAULT 0');      // số phải đủ khi xong (vd 2 khăn); thiếu → ghi vào tên người làm       // hết đồ thì lấy ở đâu
   const sectionOf = (t) => {
     if (t.section) return t.section;
@@ -84,6 +85,7 @@ export default function (r, ctx) {
     if (items.length > 60) fail(400, 'Tối đa 60 việc trong một checklist');
     const existing = new Set(db.prepare('SELECT id FROM checklist_items WHERE template_id = ?').all(templateId).map((x) => x.id));
     const keep = new Set();
+    const ids = [];
     items.forEach((it, i) => {
       const text = v.text(it.text, { name: 'Tên việc', required: true, max: 120 });
       const kind = v.oneOf(it.kind ?? 'check', ['check', 'number', 'text'], { name: 'Kiểu việc' });
@@ -114,9 +116,19 @@ export default function (r, ctx) {
         db.prepare('UPDATE checklist_items SET text = ?, kind = ?, unit = ?, required = ?, photo_required = ?, ingredient_id = ?, store_id = ?, extra_ingredient_ids = ?, sort = ? WHERE id = ?').run(text, kind, unit, required, photo, ingId, storeId, JSON.stringify(extra), i, Number(it.id));
         db.prepare('UPDATE checklist_items SET job_minutes = ?, job_scope = ?, job_qty = ?, job_per_table = ?, fetch_where = ?, job_expect = ? WHERE id = ?').run(job.minutes, job.scope, job.qty, job.perTable, job.fetch, job.expect, Number(it.id));
         keep.add(Number(it.id));
+        ids[i] = Number(it.id);
       } else {
         db.prepare('INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, ingredient_id, store_id, extra_ingredient_ids, sort, job_minutes, job_scope, job_qty, job_per_table, fetch_where, job_expect) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(templateId, text, kind, unit, required, photo, ingId, storeId, JSON.stringify(extra), i, job.minutes, job.scope, job.qty, job.perTable, job.fetch, job.expect);
+        ids[i] = Number(db.prepare('SELECT last_insert_rowid() AS id').get().id);
       }
+    });
+    // Đi kèm việc: client gửi job_with_idx (vị trí việc chính trong danh sách) hoặc job_with (id)
+    items.forEach((it, i) => {
+      let w = 0;
+      if (it.job_with_idx !== undefined && it.job_with_idx !== null && it.job_with_idx !== '') { const k = Number(it.job_with_idx); if (k !== i && ids[k]) w = ids[k]; }
+      else if (it.job_with && ids.includes(Number(it.job_with)) && Number(it.job_with) !== ids[i]) w = Number(it.job_with);
+      if (w && items[ids.indexOf(w)]?.job_with_idx !== undefined && Number(items[ids.indexOf(w)].job_with_idx) === i) w = 0; // không cho 2 việc kèm nhau vòng tròn
+      db.prepare('UPDATE checklist_items SET job_with = ? WHERE id = ?').run(w, ids[i]);
     });
     for (const id of existing) if (!keep.has(id)) db.prepare('DELETE FROM checklist_items WHERE id = ?').run(id);
   }
@@ -140,7 +152,7 @@ export default function (r, ctx) {
     const section = body.section === undefined ? cur.section ?? '' : v.text(body.section, { name: 'Mục', max: 40 });
     const rules = body.rules === undefined ? cur.rules ?? '' : v.text(body.rules, { name: 'Chế tài', max: 500 });
     const jobMode = body.job_mode === undefined ? cur.job_mode ?? 0 : v.bool(body.job_mode);
-    const jobTeams = body.job_teams === undefined ? cur.job_teams ?? '[]' : JSON.stringify((Array.isArray(body.job_teams) ? body.job_teams : []).map(Number).filter((x) => db.prepare('SELECT 1 FROM teams WHERE id = ?').get(x)));
+    const jobTeams = body.job_teams === undefined ? cur.job_teams ?? '[]' : JSON.stringify((Array.isArray(body.job_teams) ? body.job_teams : []).map(Number).filter((x) => x === -1 || db.prepare('SELECT 1 FROM teams WHERE id = ?').get(x)));
     const hm = (x, label) => { if (x === '' || x == null) return null; const m = /^(\d{1,2}):(\d{2})$/.exec(String(x)); if (!m || +m[1] > 29 || +m[2] > 59) fail(400, `${label} không hợp lệ (vd 14:00)`); return +m[1] * 60 + +m[2]; };
     let jobFrom = body.job_from === undefined ? cur.job_from ?? null : hm(body.job_from, 'Giờ bắt đầu');
     let jobTo = body.job_to === undefined ? cur.job_to ?? null : hm(body.job_to, 'Giờ kết thúc');

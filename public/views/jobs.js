@@ -36,6 +36,7 @@ function JobCard({ j, now, mine }) {
   return html`<div class=${`card tight stack job ${j.overdue ? 'bad' : ''}`}>
     <div class="row"><b class="grow">${j.title}${j.qty ? html` · <span class="muted">${j.qty}</span>` : ''}</b><span class=${`pill ${cls}`}>${j.redo_count && j.status === 'doing' ? 'Làm lại' : label}</span></div>
     <small class="muted">${j.zone_name || ''}${j.minutes ? ` · chuẩn ${j.minutes} phút` : ''}${j.template_title ? ` · ${j.template_title}` : ''}${j.claimed_at ? ` · nhận ${hm(j.claimed_at)}` : ''}${j.done_at ? ` · xong ${hm(j.done_at)} (${j.minutes_used}′)` : ''}</small>
+    ${j.with_title ? html`<small class="muted">↳ làm sau: ${j.with_title}</small>` : null}
     ${j.fetch_where ? html`<small>📦 Hết thì lấy ở: <b>${j.fetch_where}</b></small>` : null}
     ${j.check_note && j.status === 'doing' ? html`<small class="warn-text">↩ ${j.checked_by_name}: ${j.check_note}</small>` : null}
     ${mine && j.status === 'doing' ? html`<div class="row"><${Countdown} due=${j.due_at} now=${now} /></div>` : null}
@@ -117,7 +118,7 @@ function PickChecklist({ me }) {
   const list = d.data.filter((t) => !t.job_mode && t.items.length >= 3);
   const tt = (me.teams || []).find((t) => /tiếp thực|tiep thuc/i.test(t.name));
   const go = (t) => confirm(`Chuyển "${t.title}" sang giao việc từng người?`) && act(() => api('PATCH', `/api/checklist-templates/${t.id}`, {
-    job_mode: true, job_teams: [...new Set([t.team_id, t.team_id && /phục vụ|phuc vu/i.test(t.team_name || '') ? tt?.id : null].filter(Boolean))],
+    job_mode: true, job_teams: [...new Set([t.team_id, ...(t.team_id && /phục vụ|phuc vu/i.test(t.team_name || '') ? [tt?.id, -1] : [])].filter(Boolean))],
     ...(t.phase === 'open' && /phục vụ|phuc vu/i.test(t.team_name || '') ? { job_from: '14:00', job_to: '15:30' } : {}),
   }), 'Đã chuyển');
   return html`<div class="stack"><p>Chọn checklist muốn <b>giao việc từng người</b> (bấm 1 lần là xong):</p>

@@ -65,7 +65,7 @@ export default function (r, ctx) {
       WHERE a.date = ? AND s.active = 1 AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') ORDER BY a.start_min`).all(date);
     const by = new Map();
     for (const a of rows) {
-      if (teams && !teams.includes(a.team_id) && !teams.includes(a.home_team)) continue;
+      if (teams && !teams.includes(a.team_id) && !teams.includes(a.home_team) && !(teams.includes(-1) && a.role === 'shift_lead')) continue; // -1 = trưởng ca cũng làm
       const p = by.get(a.staff_id) || { id: a.staff_id, name: a.name, role: a.role, zone_id: 0, start: a.start_min, end: a.end_min };
       p.start = Math.min(p.start, a.start_min); p.end = Math.max(p.end, a.end_min);
       if (!p.zone_id && a.zone_id) p.zone_id = a.zone_id;
@@ -112,19 +112,34 @@ export default function (r, ctx) {
     const fixedKeys = new Set(fixed.map((f) => K(f.item_id, f.zone_id, f.owner_id)));
     const todo = all.filter((s) => !fixedKeys.has(K(s.item.id, s.zone_id, s.owner_id)))
       .sort((a, b) => (b.owner_id ? 1 : 0) - (a.owner_id ? 1 : 0) || (b.item.job_minutes || DEFAULT_MIN) - (a.item.job_minutes || DEFAULT_MIN) || (a.zone_id - b.zone_id));
+    // Việc đi kèm (vd giặt khăn lau chén) làm sau, giao đúng người làm việc chính cùng khu
+    const withParent = (s) => s.item.job_with && t.items.some((i) => i.id === s.item.job_with);
+    const chosen = new Map(fixed.map((f) => [`${f.item_id}:${f.zone_id}`, f.staff_id]));
+    todo.sort((a, b) => (withParent(a) ? 1 : 0) - (withParent(b) ? 1 : 0));
     return todo.map((s) => {
+      const r = pickOne(s);
+      chosen.set(`${s.item.id}:${s.zone_id}`, r.staff_id);
+      return r;
+    });
+    function pickOne(s) {
+      if (withParent(s) && !s.owner_id) {
+        const sid = chosen.get(`${s.item.job_with}:${s.zone_id}`) ?? null;
+        if (sid && load.has(sid)) load.set(sid, load.get(sid) + (s.item.job_minutes || DEFAULT_MIN));
+        if (sid) return { ...s, staff_id: sid };
+      }
       if (s.owner_id) { if (load.has(s.owner_id)) load.set(s.owner_id, load.get(s.owner_id) + (s.item.job_minutes || DEFAULT_MIN)); return { ...s, staff_id: s.owner_id }; }
       // Việc của khu: người trong khu trước; người chưa phân khu (vd tiếp thực) hỗ trợ được; người khu khác không nhận
       const pool = ps.filter((p) => !s.zone_id || p.zone_id === s.zone_id || !p.zone_id);
       if (!pool.length) return { ...s, staff_id: null };
       const cost = (p) => load.get(p.id)
-        + (s.zone_id && !p.zone_id ? 8 : 0)                                           // người hỗ trợ: sau người của khu
+        + (s.zone_id && !p.zone_id ? 8 : 0)
+        + (p.role === 'shift_lead' ? 10 : 0)                                         // trưởng ca còn đi kiểm → bớt việc                                           // người hỗ trợ: sau người của khu
         + (yesterday.get(`${s.item.id}:${s.zone_id}`) === p.id ? 25 : 0)            // hôm qua làm việc này → đổi người
         + (t.phase === 'close' ? (last - p.end) / 60 * 15 : (p.start - first) / 60 * 15); // mở ca: vào sớm làm trước
       const best = pool.reduce((a, b) => (cost(b) < cost(a) ? b : a));
       load.set(best.id, load.get(best.id) + (s.item.job_minutes || DEFAULT_MIN));
       return { ...s, staff_id: best.id };
-    });
+    }
   }
 
   // Tạo thẻ việc trong ngày (chỉ lần đầu); chia lại thì chỉ đổi việc chưa ai bắt đầu
@@ -185,7 +200,7 @@ export default function (r, ctx) {
       staff_id: j.staff_id, staff_name: name(j.staff_id), status: j.status, claimed_at: j.claimed_at, due_at: j.due_at, done_at: j.done_at,
       minutes_used: j.minutes_used, late: !!j.late, redo_count: j.redo_count, has_photo: !!j.photo, checked_by_name: name(j.checked_by), check_note: j.check_note,
       overdue: j.status === 'doing' && j.due_at && j.due_at < ctx.now(),
-      own: !!j.owner_id, expect: it.job_expect || 0, count: j.count, short: j.short || 0,
+      own: !!j.owner_id, with_title: it.job_with ? (t?.items.find((i) => i.id === it.job_with)?.text || '') : '', expect: it.job_expect || 0, count: j.count, short: j.short || 0,
     };
   }
 
@@ -270,6 +285,9 @@ export default function (r, ctx) {
   const itemOf = (j) => db.prepare('SELECT * FROM checklist_items WHERE id = ?').get(j.item_id);
   const zoneLabel = (zid) => (zid ? db.prepare('SELECT name FROM zones WHERE id = ?').get(zid)?.name || '' : 'cả quán');
 
+  // Việc đi kèm (chưa bắt đầu) theo người làm việc chính
+  const moveKids = (j, sid, by = null) => db.prepare("UPDATE jobs SET staff_id = ?, assigned_by = COALESCE(?, assigned_by), nudged = 0 WHERE date = ? AND zone_id = ? AND owner_id = 0 AND status = 'todo' AND item_id IN (SELECT id FROM checklist_items WHERE job_with = ?)").run(sid, by, j.date, j.zone_id, j.item_id);
+
   // Nhận việc: ghi giờ nhận, bắt đầu đếm thời gian chuẩn
   r.post('/api/jobs/:id/claim', 'staff', ({ me, params }) => {
     const j = getJob(params.id);
@@ -279,6 +297,7 @@ export default function (r, ctx) {
     if (!db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(me.id, j.date) && !isLead(me)) fail(403, 'Bạn không có ca hôm nay');
     const it = itemOf(j), at = ctx.now();
     db.prepare("UPDATE jobs SET staff_id = ?, claimed_at = ?, due_at = ?, status = 'doing' WHERE id = ?").run(me.id, at, it.job_minutes ? at + it.job_minutes * 60_000 : null, j.id);
+    if (!j.staff_id) moveKids(j, me.id);
     ctx.broadcast('jobs');
     return { ok: true, due_at: it.job_minutes ? at + it.job_minutes * 60_000 : null };
   });
@@ -357,6 +376,7 @@ export default function (r, ctx) {
     const sid = body.staff_id ? v.int(body.staff_id, { min: 1, name: 'Người làm' }) : null;
     if (sid && !db.prepare('SELECT 1 FROM staff WHERE id = ? AND active = 1').get(sid)) fail(404, 'Không tìm thấy nhân viên');
     db.prepare("UPDATE jobs SET staff_id = ?, status = 'todo', claimed_at = NULL, due_at = NULL, nudged = 0, alerted = 0, assigned_by = ?, assigned_at = ? WHERE id = ?").run(sid, me.id, ctx.now(), j.id);
+    moveKids(j, sid, me.id);
     if (sid && sid !== me.id) ctx.notify([sid], { title: `Việc mới: ${itemOf(j).text}`, body: `${zoneLabel(j.zone_id)} · ${me.name} giao`, link: '/viec-ca' });
     ctx.broadcast('jobs');
     return { ok: true };

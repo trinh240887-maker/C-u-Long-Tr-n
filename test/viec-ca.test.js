@@ -146,5 +146,26 @@ test('Việc ca: gợi ý chia việc theo khu (tiếp thực vào sớm hỗ tr
   assert.equal((await S[b1]('POST', `/api/jobs/${mineK.id}/done`, {})).status, 400); // phải nhập số
   assert.equal((await S[b1]('POST', `/api/jobs/${mineK.id}/done`, { count: 1 })).data.short, 1);
   assert.equal((await O('GET', '/api/jobs/report')).data.staff.find((x) => x.staff_id === b1).short, 1);
+
+  // Đi kèm việc: giặt khăn lau chén → đúng người lau muỗng của khu; đổi người việc chính → việc kèm theo; trưởng ca cũng làm
+  const sl = await mkStaff('Trưởng ca', 'shift_lead', '637281', null);
+  asg.run('h4', sl, null, tmr, 840, 1380, 2, Date.now());
+  const cur2 = (await O('GET', '/api/checklist-templates')).data.find((x) => x.id === tpl.id);
+  const muong = cur2.items.find((x) => x.text === 'Lau muỗng');
+  assert.equal((await O('PATCH', `/api/checklist-templates/${tpl.id}`, { job_teams: [pv, Number(tt), -1], items: [...cur2.items, { text: 'Giặt khăn lau chén', job_with: muong.id, job_minutes: 5, photo_required: false }] })).status, 200);
+  const kid = (await O('GET', '/api/checklist-templates')).data.find((x) => x.id === tpl.id).items.find((x) => x.text === 'Giặt khăn lau chén');
+  assert.equal(kid.job_with, muong.id);
+  const bt = (await O('GET', `/api/jobs/board?date=${tmr}`)).data.templates.find((x) => x.id === tpl.id);
+  for (const z of bt.zones.filter((z2) => z2.zone_id)) {
+    const m = z.jobs.find((x) => x.title === 'Lau muỗng'), k = z.jobs.find((x) => x.title === 'Giặt khăn lau chén');
+    assert.equal(k.staff_id, m.staff_id, `khu ${z.zone_id}`);
+    assert.equal(k.with_title, 'Lau muỗng');
+  }
+  assert.ok(bt.zones.find((z) => z.zone_id === 2).people.some((x) => x.id === sl), 'trưởng ca có trong danh sách người làm');
+  const mB = bt.zones.find((z) => z.zone_id === 2).jobs.find((x) => x.title === 'Lau muỗng');
+  const newer = mB.staff_id === sl ? b1 : sl;
+  await O('PATCH', `/api/jobs/${mB.id}`, { staff_id: newer });
+  const kB = (await O('GET', `/api/jobs/board?date=${tmr}`)).data.templates.find((x) => x.id === tpl.id).zones.find((z) => z.zone_id === 2).jobs.find((x) => x.title === 'Giặt khăn lau chén');
+  assert.equal(kB.staff_id, newer);
   void sent;
 });
