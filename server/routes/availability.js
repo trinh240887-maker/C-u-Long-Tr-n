@@ -251,28 +251,30 @@ export default function (r, ctx) {
     return groupText(ws, summary(ws).people, g ? g.teams || [] : botTeams());
   };
   // Gửi tin nhắc vào mọi nhóm nhân viên đã chọn bộ phận; trả số nhóm gửi được
-  async function sendGroup(ws, people) {
+  // onlyMissing: nhắc tự động thì nhóm nào đã đủ người báo → không nhắn nữa
+  async function sendGroup(ws, people, { onlyMissing = false } = {}) {
     if (!ctx.zaloBot?.ready()) return 0;
     let n = 0, err = null;
     for (const g of staffGroups()) {
       if (!g.teams?.length) continue; // nhóm chưa chọn bộ phận → không nhắc
+      if (onlyMissing && !people.some((p) => g.teams.includes(p.team_id) && !p.submitted_at)) continue;
       try { await ctx.zaloBot.send(g.id, groupText(ws, people, g.teams)); n++; } catch (e) { err = e; }
     }
     if (!n && err) throw err;
     return n;
   }
-  // Chạy mỗi phút: đến tối thứ 7 (giờ quán) thì bot nhắc 1 lần cho tuần tới
+  // Chạy mỗi phút: tối thứ 5, 6, 7 lúc 20:00 (chủ quán 25/10) bot nhắc người chưa báo lịch tuần tới, mỗi ngày 1 lần, đủ người thì thôi
   ctx.availBotTick = async () => {
     if (ctx.setting('avail_bot_on') === '0') return;
     const c = ctx.clock(), n = ctx.now();
     const date = c.dateOf(n);
-    const dow = Number(ctx.setting('avail_bot_dow') || 6);
-    if (isoWeekday(date) !== dow || c.minuteOf(n) < toMin(ctx.setting('avail_bot_time') || '20:00')) return;
+    const days = String(ctx.setting('avail_bot_days') || '4,5,6').split(',').map(Number);
+    if (!days.includes(isoWeekday(date)) || c.minuteOf(n) < toMin(ctx.setting('avail_bot_time') || '20:00')) return;
     const ws = addDays(weekStart(date), 7);
-    const key = `avail_bot_sent:${ws}`;
+    const key = `avail_bot_sent:${date}`;
     if (ctx.setting(key)) return;
     ctx.setSetting(key, String(n));
-    try { if (await sendGroup(ws, summary(ws).people)) ctx.audit(null, 'availability.bot_remind', { week: ws }); }
+    try { const k = await sendGroup(ws, summary(ws).people, { onlyMissing: true }); if (k) ctx.audit(null, 'availability.bot_remind', { week: ws, groups: k }); }
     catch (e) { ctx.setSetting(key, ''); console.error('Bot nhắc lịch rảnh lỗi:', e.message); }
   };
 

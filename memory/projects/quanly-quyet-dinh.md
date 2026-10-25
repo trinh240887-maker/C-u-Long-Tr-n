@@ -159,3 +159,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 153 | 25/10/2026 | **Bot đọc lịch**: ngày ghi "nghỉ" riêng thắng khoảng ngày (T4 nghỉ + T3-T6 14-23 → T4 nghỉ); "14h,23h" (dấu phẩy) hiểu là 14h-23h |
 | 154 | 25/10/2026 | **Bot đọc thứ**: "T2-T4-T5" (3 thứ nối gạch) = liệt kê; "T3-T6" là khoảng, trừ khi trong tin có ghi riêng T4/T5 thì hiểu là T3, T6 |
 | 155 | 25/10/2026 | **Nhãn sau tên ở Bảng tuần**: cấp bậc (⭐ Tổ trưởng / ⭐ Trưởng ca, lấy từ Vai trò), loại ca (Full ca / Ca gãy / Part-time, ô mới "Loại ca" trong hồ sơ nhân viên, cột staff.work_type), vị trí chính |
+| 156 | 25/10/2026 | **Bot nhắc lịch rảnh tối T5, T6, T7 lúc 20:00** (setting avail_bot_days = 4,5,6): mỗi ngày 1 lần, chỉ nhóm còn người chưa báo; đủ người thì thôi |

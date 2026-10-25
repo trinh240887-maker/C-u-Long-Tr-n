@@ -51,6 +51,17 @@ test('bot nhắc lịch rảnh: tối thứ 7 20h gửi 1 lần vào nhóm nhân
   assert.doesNotMatch(sent[1].text, /Kim/);
   assert.match(sent[2].text, /Thu ngân: Kim/);
   sent.length = 1;
+  // Nhắc tối T5, T6 (chưa đủ) → gửi mỗi ngày 1 lần; đủ người thì thôi
+  ctx.saveStaffGroups([{ id: 'grpNV', name: 'Chung', teams: [pv] }]);
+  now = clock.toEpoch('2026-11-12', 20 * 60 + 1); // T5
+  await ctx.availBotTick(); await ctx.availBotTick();
+  assert.equal(sent.length, 2);
+  const lan = db.prepare("SELECT id FROM staff WHERE name = 'Lan'").get().id;
+  db.prepare('INSERT INTO availability_weeks (staff_id, week_start, submitted_at) VALUES (?, ?, ?)').run(lan, '2026-11-16', now);
+  now = clock.toEpoch('2026-11-13', 20 * 60 + 1); // T6: Lan đã báo → nhóm đủ, không nhắn
+  await ctx.availBotTick();
+  assert.equal(sent.length, 2);
+  sent.length = 1;
   ctx.setSetting('avail_bot_on', '0');
   now = clock.toEpoch('2026-11-14', 20 * 60 + 5);
   await ctx.availBotTick();

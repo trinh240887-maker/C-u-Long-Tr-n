@@ -456,7 +456,7 @@ function StaffGroups({ s }) {
   const toggle = () => act(() => api('PUT', '/api/settings', { avail_bot_on: on ? '0' : '1' }), on ? 'Đã tắt nhắc tự động' : 'Đã bật nhắc tự động').then((r) => r && setOn(!on));
   return html`<section class="card stack">
     <h3>👥 Nhóm nhân viên (báo lịch rảnh)</h3>
-    <p class="small muted">Nhân viên nhắn trong nhóm "@tên bot Tên 14-23" (cả tuần), ngày khác ghi riêng: "@bot Tên 14-23, T7 nghỉ, CN 10-23" → bot tự điền lịch rảnh + tạo ca và trả lời ✅. Tối thứ 7 20:00 bot nhắn vào từng nhóm tên người CHƯA báo của các bộ phận đã chọn cho nhóm đó.</p>
+    <p class="small muted">Nhân viên nhắn trong nhóm "@tên bot Tên 14-23" (cả tuần), ngày khác ghi riêng: "@bot Tên 14-23, T7 nghỉ, CN 10-23" → bot tự điền lịch rảnh + tạo ca và trả lời ✅. Tối thứ 5, 6, 7 lúc 20:00 bot nhắn vào từng nhóm tên người CHƯA báo của các bộ phận đã chọn cho nhóm đó.</p>
     ${!groups.length ? html`<p class="warn-text small">Chưa có nhóm nào.</p>` : null}
     ${groups.map((g) => html`<div class="card tight stack">
       <div class="row wrap"><b class="grow">${g.name}</b>
@@ -468,7 +468,7 @@ function StaffGroups({ s }) {
     </div>`)}
     <ol class="plain steps small"><li>Gửi link mời bot vào nhóm, trưởng nhóm bấm Xác nhận.</li><li>Trong nhóm nhắn "@tên bot" kèm giờ (ví dụ "@bot Tên 14-23"). Bot tự thêm nhóm vào đây; hoặc bấm "Tìm nhóm".</li><li>Chọn bộ phận cho nhóm.</li></ol>
     <div class="row wrap"><button onClick=${find}>Tìm nhóm</button>
-      <button class=${`chip ${on ? 'on' : ''}`} onClick=${toggle}>${on ? '🔔 Tự nhắc tối thứ 7: BẬT' : '🔕 Tự nhắc tối thứ 7: TẮT'}</button></div>
+      <button class=${`chip ${on ? 'on' : ''}`} onClick=${toggle}>${on ? '🔔 Tự nhắc tối T5, T6, T7: BẬT' : '🔕 Tự nhắc tối T5, T6, T7: TẮT'}</button></div>
     ${chats ? (chats.filter((c) => !groups.some((g) => g.id === c.id)).length ? chats.filter((c) => !groups.some((g) => g.id === c.id)).map((c) => html`<button class="tpl-row" onClick=${() => add(c)}><b class="grow">+ ${c.name || '(không tên)'}</b><span class="muted">${c.text ? `"${c.text.slice(0, 30)}"` : ''}</span></button>`)
       : html`<p class="warn-text small">Không thấy nhóm mới. Nhắn @bot trong nhóm rồi bấm lại.</p>`) : null}
     <${BotLog} />
@@ -514,7 +514,7 @@ function BotGroup({ s, kind = 'order' }) {
     ${chats ? (chats.length ? chats.map((c) => html`<button class="tpl-row" onClick=${() => pick(c)}><b class="grow">${c.name || '(không tên)'}</b><span class="muted">${c.type}${c.text ? ` · "${c.text.slice(0, 30)}"` : ''}</span></button>`)
       : html`<p class="warn-text small">Chưa thấy tin nào. Nhắn @bot trong nhóm rồi bấm lại.</p>`) : null}
     ${kind === 'staff' ? html`<${BotTeams} s=${s} /><${BotLog} />` : null}
-    ${kind === 'staff' && grp.id ? html`<button class=${`chip ${on ? 'on' : ''}`} onClick=${toggle}>${on ? '🔔 Tự nhắc tối thứ 7: BẬT' : '🔕 Tự nhắc tối thứ 7: TẮT'}</button>` : null}
+    ${kind === 'staff' && grp.id ? html`<button class=${`chip ${on ? 'on' : ''}`} onClick=${toggle}>${on ? '🔔 Tự nhắc tối T5, T6, T7: BẬT' : '🔕 Tự nhắc tối T5, T6, T7: TẮT'}</button>` : null}
     <p class="small muted">${K.note}</p>
   </section>`;
 }
