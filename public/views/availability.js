@@ -144,11 +144,16 @@ function WeekZones({ ws, staff, teams, map, shifts = [], hours = {}, onClose }) 
   const tOf = (p) => { const v0 = cur[p.id]; return v0 && typeof v0 === 'object' ? v0.t || '' : ''; };
   const pick = (p, zid, tables = '') => act(() => api('POST', '/api/schedule/week-zones', { week: ws, staff_id: p.id, zone_id: zid || undefined, tables_text: tables })).then((r) => r && setCur(r.week_zones));
   const count = (zid) => people.filter((p) => zOf(p) === zid).length;
+  // 1 bạn phục vụ bao nhiêu bàn (chủ quán 25/10: vd 6) → mỗi khu cần = số bàn ÷ số bàn mỗi bạn, làm tròn lên
+  const [per, setPer] = useState(() => { try { return Number(localStorage.getItem('tables-per-waiter')) || 6; } catch { return 6; } });
+  const setPer2 = (n) => { setPer(n); try { localStorage.setItem('tables-per-waiter', String(n)); } catch {} };
+  const need = (z) => Math.max(1, Math.ceil((z.table_count || 0) / per));
   return html`<${Modal} title=${`📍 Phân khu tuần ${fmtDate(ws)} – ${fmtDate(addDays(ws, 6))}`} onClose=${onClose}><div class="stack">
     <p class="small muted">Bấm khu cho từng bạn, áp cho <b>cả tuần</b>. Muốn chia nhỏ thì ghi <b>bàn</b> (vd 1-10, 15, 20-25). Sơ đồ bàn hiện tên người phụ trách từng bàn.</p>
     <p class="small muted">Chỉ <b>Phục vụ</b> chia theo khu. Bếp, Bar, Thu ngân, Tiếp thực phân theo đầu mục công việc (checklist "Ai làm").</p>
-    <div class="chips">${zones.map((z) => html`<span class="pill">${z.name}: ${count(z.id)} người</span>`)}</div>
-    <${ZoneCoverage} ws=${ws} zones=${zones} people=${people} shifts=${shifts} hours=${hours} zOf=${zOf} />
+    <label class="small row">1 bạn phục vụ <input class="num-in" type="number" min="1" max="30" value=${per} onInput=${(e) => setPer2(Number(e.target.value) || 1)} /> bàn</label>
+    <div class="chips">${zones.map((z) => { const n = count(z.id), k = need(z); return html`<span class=${`pill ${n < k ? 'bad' : n > k ? 'warn' : 'ok'}`}>${z.name}: ${n} người · cần ${k}${n < k ? ` (thiếu ${k - n})` : n > k ? ` (dư ${n - k})` : ' ✓'}</span>`; })}</div>
+    <${ZoneCoverage} ws=${ws} zones=${zones} people=${people} shifts=${shifts} hours=${hours} zOf=${zOf} per=${per} />
     ${people.map((p) => { const used = [...new Set(shifts.filter((x) => x.staff_id === p.id && x.zone_name).map((x) => x.zone_name.replace(/^Khu\s*/i, '')))]; return html`<div class="zone-row"><span class="grow"><b>${p.name}</b>
       ${zOf(p) ? html`<br /><input class="tables-in" placeholder="Bàn: vd 1-10 (trống = cả khu)" value=${tOf(p)} onChange=${(e) => pick(p, zOf(p), e.target.value)} />` : null}
       <br /><small class="muted">🗓 ${workDays(p.id, ws, shifts, hours)}</small>
@@ -173,15 +178,12 @@ function workDays(pid, ws, shifts, hours) {
   return `làm ${DOWS.filter((_, i) => on[i]).join(', ')} · nghỉ ${DOWS.filter((_, i) => !on[i]).join(', ')}`;
 }
 // Bảng khu × ngày: mỗi ngày mỗi khu có mấy người đi làm; thiếu thì đỏ, bấm để giao khu riêng ngày đó
-function ZoneCoverage({ ws, zones, people, shifts, hours, zOf }) {
-  // 1 bạn phục vụ bao nhiêu bàn (chủ quán 25/10: vd 6) → mỗi khu cần = số bàn ÷ số bàn mỗi bạn, làm tròn lên
-  const [per, setPer] = useState(() => { try { return Number(localStorage.getItem('tables-per-waiter')) || 6; } catch { return 6; } });
+function ZoneCoverage({ ws, zones, people, shifts, hours, zOf, per }) {
   const need = (z) => Math.max(1, Math.ceil((z.table_count || 0) / per));
   const [open, setOpen] = useState(null);
   const days = DOWS.map((_, i) => addDays(ws, i));
   const zoneOn = (p, date) => { const o = onDay(p.id, date, shifts, hours); return o.on ? (o.zone || zOf(p)) : null; };
   const who = (zid, date) => people.filter((p) => zoneOn(p, date) === zid);
-  const setPer2 = (n) => { setPer(n); try { localStorage.setItem('tables-per-waiter', String(n)); } catch {} };
   const giveDay = (p, date, z) => {
     const x = onDay(p.id, date, shifts, hours).shift;
     if (!x) return toast(`${p.name} chưa có ca ngày này (chỉ có lịch rảnh). Bấm ✅ Duyệt Phục vụ để tạo ca trước.`, true);
@@ -191,8 +193,7 @@ function ZoneCoverage({ ws, zones, people, shifts, hours, zOf }) {
   if (!zones.length) return null;
   const cellOpen = open && zones.find((z) => z.id === open.z);
   return html`<div class="stack tight">
-    <div class="row wrap"><b class="grow">Mỗi ngày mỗi khu có mấy người</b><label class="small row">1 bạn phục vụ <input class="num-in" type="number" min="1" max="30" value=${per} onInput=${(e) => setPer2(Number(e.target.value) || 1)} /> bàn</label></div>
-    <div class="chips">${zones.map((z) => html`<span class="pill">${z.name}: ${z.table_count || 0} bàn → cần <b>${need(z)}</b> người/ngày</span>`)}<span class="pill">Cả quán cần <b>${zones.reduce((a, z) => a + need(z), 0)}</b> người/ngày</span></div>
+    <b>Mỗi ngày mỗi khu có mấy người</b>
     <div class="wk-wrap"><table class="zcov"><thead><tr><th></th>${days.map((d, i) => html`<th>${DOWS[i]}<br /><small>${d.slice(8)}/${d.slice(5, 7)}</small></th>`)}</tr></thead>
       <tbody>${zones.map((z) => html`<tr><th>${z.name.replace(/^Khu\s*/i, 'Khu ')}<br /><small class="muted">${z.table_count || 0} bàn · cần ${need(z)}</small></th>${days.map((d) => { const n = who(z.id, d).length; return html`<td class=${n < need(z) ? 'short' : 'ok'} onClick=${() => setOpen({ z: z.id, d })}>${n}</td>`; })}</tr>`)}
         <tr><th class="muted">Chưa khu</th>${days.map((d) => html`<td class="muted">${people.filter((p) => onDay(p.id, d, shifts, hours).on && !zoneOn(p, d)).length || ''}</td>`)}</tr></tbody></table></div>
