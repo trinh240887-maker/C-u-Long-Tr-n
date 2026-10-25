@@ -24,6 +24,41 @@ function timesOf(line) {
 }
 
 // Các mốc ngày trong tin, kèm vị trí: 24/10 · mai · hôm nay · ngày mốt · T2…T7, CN (của tuần tới) · T2-T6 / T2 đến T6
+// Ngày dạng số, đọc TRƯỚC giờ để "26/10-30/10" không bị hiểu là giờ 10-30:
+// 26/10 · 26/10/2026 · khoảng 26/10-30/10 · 26-30/10 · 31/10-1/11 (gõ nhầm tháng như 26/10-30/11 → hiểu 26/10-30/10)
+function numericDates(n, today) {
+  const out = [];
+  const year = Number(today.slice(0, 4));
+  const iso = (d, mo) => {
+    if (d < 1 || d > 31 || mo < 1 || mo > 12) return null;
+    let x = `${year}-${pad(mo)}-${pad(d)}`;
+    if (x < addDays(today, -60)) x = `${year + 1}-${pad(mo)}-${pad(d)}`;
+    return x;
+  };
+  let text = n;
+  const blankOut = (m) => { text = text.slice(0, m.index) + ' '.repeat(m[0].length) + text.slice(m.index + m[0].length); };
+  const RANGE = /\b(\d{1,2})(?:\s*\/\s*(\d{1,2}))?\s*(?:-|–|—|~|den|toi|>)\s*(\d{1,2})\s*\/\s*(\d{1,2})\b/g;
+  for (const m of [...n.matchAll(RANGE)]) {
+    const from = iso(Number(m[1]), Number(m[2] || m[4]));
+    let to = iso(Number(m[3]), Number(m[4]));
+    if (!from || !to) continue;
+    if (to < from || (Date.parse(to) - Date.parse(from)) / 86400000 > 13) { const alt = iso(Number(m[3]), Number(m[2] || m[4])); if (alt && alt >= from && (Date.parse(alt) - Date.parse(from)) / 86400000 <= 13) to = alt; }
+    const days = [];
+    for (let d = from; d <= to && days.length < 14; d = addDays(d, 1)) days.push(d);
+    if (!days.length) continue;
+    out.push({ pos: m.index, kind: 'date', dates: days });
+    blankOut(m);
+  }
+  for (const m of [...text.matchAll(/\b(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*(\d{2,4}))?\b/g)]) {
+    let x = iso(Number(m[1]), Number(m[2]));
+    if (m[3]) x = `${m[3].length === 2 ? `20${m[3]}` : m[3]}-${pad(Number(m[2]))}-${pad(Number(m[1]))}`;
+    if (!x) continue;
+    out.push({ pos: m.index, kind: 'date', dates: [x] });
+    blankOut(m);
+  }
+  return { tokens: out, text };
+}
+
 function dateTokens(n, today) {
   const out = [];
   const year = Number(today.slice(0, 4));
@@ -103,9 +138,10 @@ export function parseAvailMessage(text, { staff, today, sender }) {
   const week = Array.from({ length: 7 }, (_, i) => addDays(nextWeek, i));
   const add = (dates, times) => { for (const d of dates) for (const r of times) (picks[d] ||= []).includes(r) || picks[d].push(r); };
   // Đọc lần lượt: giờ ghi trước mọi thứ = cả tuần; "T7 nghỉ", "CN 10-23" = ghi riêng ngày đó (chủ quán 25/10)
-  const tokens = [];
-  for (const m of raw.matchAll(TIME)) { const t = timesOf(m[0]); if (t.length) tokens.push({ pos: m.index, kind: 'time', times: t }); }
-  const blank = raw.replace(TIME, (x) => ' '.repeat(x.length));
+  const nd = numericDates(raw, today);
+  const tokens = [...nd.tokens];
+  for (const m of nd.text.matchAll(TIME)) { const t = timesOf(m[0]); if (t.length) tokens.push({ pos: m.index, kind: 'time', times: t }); }
+  const blank = nd.text.replace(TIME, (x) => ' '.repeat(x.length));
   tokens.push(...dateTokens(blank, today));
   for (const m of blank.matchAll(/\b(nghi|ban|khong di|khong lam|off)\b/g)) tokens.push({ pos: m.index, kind: 'off' });
   for (const m of blank.matchAll(/\b(con lai|ngay khac|cac ngay khac|ca tuan)\b/g)) tokens.push({ pos: m.index, kind: 'rest' });
