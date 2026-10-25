@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays } from '../ui.js';
 
-const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['linh', 'Lĩnh hàng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['ls', 'Lịch sử']];
+const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['linh', 'Lĩnh hàng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['ls', 'Lịch sử']];
 const STATUS = { out: ['Hết', 'bad'], low: ['Sắp hết', 'warn'], ok: ['Đủ', 'ok'] };
 const FRESH = { fresh: 'Đồ tươi', chilled: 'Đồ mát', dry: 'Đồ khô/đông' };
 const TR = { requested: ['Chờ kho tổng xuất', 'warn'], sent: ['Đã xuất, chờ khu nhận', 'warn'], received: ['Đã nhận', 'ok'], cancelled: ['Đã huỷ', 'muted'] };
@@ -385,6 +385,51 @@ function History({ me }) {
   </div>`;
 }
 
+// Đồ dùng (chén, dĩa, ly, nồi…): báo vỡ / mất bất cứ lúc nào, kiểm mỗi tuần
+function Utensils({ me }) {
+  const d = useData('/api/utensils/report');
+  const [brk, setBrk] = useState(null);
+  const [counting, setCounting] = useState(null);
+  const [res, setRes] = useState(null);
+  if (!d.data) return html`<${Loading} state=${d} />`;
+  const { items, moves, last_count_at, due } = d.data;
+  const canCount = atLeast(me, 'team_lead');
+  const save = async () => {
+    const r = await act(() => api('POST', '/api/utensils/count', { lines: Object.entries(counting).map(([id, actual]) => ({ utensil_id: Number(id), actual })) }), 'Đã lưu kiểm tuần');
+    if (r) { setRes(r.lines); setCounting(null); }
+  };
+  const label = { break: 'Vỡ', lost: 'Mất', count: 'Kiểm tuần' };
+  return html`<div class="stack">
+    <section class="card stack">
+      <div class="row wrap"><b class="grow">Lần kiểm gần nhất: ${last_count_at ? dt(last_count_at) : 'chưa kiểm'}</b>
+        ${due ? html`<span class="warn-text small">⚠ Đến hạn kiểm tuần</span>` : null}</div>
+      ${canCount && !counting ? html`<button class="primary" onClick=${() => { setRes(null); setCounting({}); }}>📋 Kiểm tuần: đếm đồ dùng</button>` : null}
+      <p class="small muted">Vỡ / mất thì bấm "Báo vỡ" ngay ở món đó. Cuối tuần đếm lại: thiếu mà không ai báo thì app ghi "mất không rõ" và báo chủ.</p>
+    </section>
+    ${!items.length ? html`<p class="muted">Chưa có đồ dùng. Thêm ở Cài đặt → Dụng cụ.</p>` : null}
+    ${res ? html`<section class="card stack"><h3>Kết quả kiểm</h3>${res.map((x) => html`<div class="row"><span class="grow">${x.name}</span><span class=${x.diff < 0 ? 'warn-text' : 'muted'}>sổ ${x.expected} → đếm ${x.actual}${x.diff ? ` (${x.diff > 0 ? '+' : ''}${x.diff})` : ' ✓'}</span></div>`)}</section>` : null}
+    <section class="card stack">
+      ${items.map((u) => html`<div class="row">
+        <span class="grow"><b>${u.name}</b> <span class="muted small">sổ: ${u.on_hand} ${u.unit}</span></span>
+        ${counting ? html`<input class="num-in" type="number" min="0" inputmode="numeric" placeholder="đếm" value=${counting[u.id] ?? ''} onInput=${(e) => setCounting({ ...counting, [u.id]: e.target.value })} />`
+          : html`<button class="small" onClick=${() => setBrk({ u, qty: 1, kind: 'break', who: '', note: '' })}>Báo vỡ / mất</button>`}
+      </div>`)}
+      ${counting ? html`<div class="row end"><button onClick=${() => setCounting(null)}>Huỷ</button><button class="primary" disabled=${!Object.values(counting).some((x) => x !== '')} onClick=${save}>Lưu kiểm tuần</button></div>` : null}
+    </section>
+    ${moves.length ? html`<section class="card stack"><h3>4 tuần gần đây</h3>
+      ${moves.filter((m) => m.type !== 'count' || m.qty).map((m) => html`<div class="small"><b>${label[m.type] || m.type}</b> ${m.name} ${m.qty > 0 ? '+' : ''}${m.qty} ${m.unit} · ${dt(m.at)} · ${m.staff_name}${m.note ? html`<span class="muted"> · ${m.note}</span>` : null}</div>`)}
+    </section>` : null}
+    ${brk ? html`<${Modal} title=${`Báo vỡ / mất: ${brk.u.name}`} onClose=${() => setBrk(null)}>
+      <div class="stack">
+        <div class="row wrap tight">${[['break', 'Vỡ'], ['lost', 'Mất']].map(([k, l]) => html`<button class=${`chip ${brk.kind === k ? 'on' : ''}`} onClick=${() => setBrk({ ...brk, kind: k })}>${l}</button>`)}</div>
+        <${Field} label="Số lượng"><input type="number" min="1" inputmode="numeric" value=${brk.qty} onInput=${(e) => setBrk({ ...brk, qty: e.target.value })} /><//>
+        <${Field} label="Ai làm vỡ (nếu biết)"><input value=${brk.who} onInput=${(e) => setBrk({ ...brk, who: e.target.value })} /><//>
+        <${Field} label="Ghi chú"><input value=${brk.note} placeholder="vd rơi khi bưng, khách làm vỡ…" onInput=${(e) => setBrk({ ...brk, note: e.target.value })} /><//>
+        <div class="row end"><button class="primary" onClick=${async () => { if (await act(() => api('POST', `/api/utensils/${brk.u.id}/break`, brk), 'Đã báo')) setBrk(null); }}>Báo</button></div>
+      </div><//>` : null}
+  </div>`;
+}
+
 export function StockView({ me, query }) {
   const tab = query.get('tab') || 'ton';
   const meta = useData('/api/stock/meta');
@@ -395,6 +440,7 @@ export function StockView({ me, query }) {
     ${!meta.data ? html`<${Loading} state=${meta} />`
       : tab === 'kiem' ? html`<${Count} meta=${meta.data} />`
       : tab === 'linh' ? html`<${Transfers} me=${me} meta=${meta.data} />`
+      : tab === 'dodung' ? html`<${Utensils} me=${me} />`
       : tab === 'dat' ? html`<${Orders} me=${me} meta=${meta.data} />`
       : tab === 'nl' && atLeast(me, 'manager') ? html`<${Setup} meta=${meta.data} />`
       : tab === 'ls' ? html`<${History} me=${me} />`

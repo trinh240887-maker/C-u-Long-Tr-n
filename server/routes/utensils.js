@@ -1,5 +1,6 @@
 import { fail, v } from '../http.js';
 import { tx } from '../db.js';
+import { addDays, isoWeekday } from '../lib/time.js';
 
 // Dụng cụ ăn uống và dự trù số bộ cần chuẩn bị theo số khách cao điểm
 export default function (r, ctx) {
@@ -114,4 +115,87 @@ export default function (r, ctx) {
     for (const [k, val] of Object.entries(body.guests || {})) guests[Number(k)] = Math.round(num(val, 'Số khách', { max: 5000 }));
     return ctx.utensilPlan(guests);
   });
+
+  // ---------- Đồ dùng: báo vỡ / mất + kiểm mỗi tuần (chủ quán 25/10) ----------
+  db.exec(`CREATE TABLE IF NOT EXISTS utensil_moves (
+    id INTEGER PRIMARY KEY, at INTEGER NOT NULL, date TEXT NOT NULL, utensil_id INTEGER NOT NULL REFERENCES utensils(id) ON DELETE CASCADE,
+    type TEXT NOT NULL, qty INTEGER NOT NULL, expected INTEGER, staff_id INTEGER, note TEXT NOT NULL DEFAULT '')`);
+  const get = (id) => db.prepare('SELECT * FROM utensils WHERE id = ?').get(id);
+  const nameOf = (id) => db.prepare('SELECT name FROM staff WHERE id = ?').get(id)?.name || '';
+
+  // Báo vỡ / mất: ai cũng báo được; trừ số đang có, báo quản lý
+  r.post('/api/utensils/:id/break', 'staff', ({ me, params: p, body }) => {
+    const u = get(p.id);
+    if (!u || !u.active) fail(404, 'Không tìm thấy đồ dùng');
+    const qty = Math.round(num(body.qty, 'Số lượng', { min: 1, max: 1000 }));
+    const kind = body.kind === 'lost' ? 'lost' : 'break';
+    const note = v.text(body.note, { name: 'Ghi chú', max: 200 });
+    const who = v.text(body.who, { name: 'Người làm vỡ', max: 60 });
+    tx(db, () => {
+      db.prepare('UPDATE utensils SET on_hand = MAX(0, on_hand - ?) WHERE id = ?').run(qty, u.id);
+      db.prepare('INSERT INTO utensil_moves (at, date, utensil_id, type, qty, staff_id, note) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(ctx.now(), ctx.today(), u.id, kind, -qty, me.id, [who && `Người làm: ${who}`, note].filter(Boolean).join(' · '));
+    });
+    ctx.notify(ctx.managers().filter((x) => x !== me.id), { title: `${kind === 'lost' ? 'Mất' : 'Vỡ'} ${qty} ${u.unit} ${u.name}`, body: `${me.name || ''} báo${who ? ` · người làm: ${who}` : ''}${note ? ` · ${note}` : ''}`, link: '/kho?tab=dodung' });
+    ctx.audit(me, 'utensil.break', { id: u.id, qty, kind });
+    ctx.broadcast('utensils');
+    return { ok: true };
+  });
+
+  // Kiểm tuần: nhập số đếm thực tế; thiếu so với sổ (đã trừ phần báo vỡ) = "mất không rõ"
+  r.post('/api/utensils/count', 'team_lead', ({ me, body }) => {
+    const lines = (Array.isArray(body.lines) ? body.lines : []).filter((l) => l.actual !== '' && l.actual != null);
+    if (!lines.length) fail(400, 'Nhập số đếm cho ít nhất một món');
+    const out = [];
+    tx(db, () => {
+      for (const l of lines) {
+        const u = get(v.int(l.utensil_id, { min: 1, name: 'Đồ dùng' }));
+        if (!u) fail(404, 'Không tìm thấy đồ dùng');
+        const actual = Math.round(num(l.actual, `Số đếm ${u.name}`, { max: 100000 }));
+        const diff = actual - u.on_hand;
+        db.prepare('UPDATE utensils SET on_hand = ? WHERE id = ?').run(actual, u.id);
+        db.prepare('INSERT INTO utensil_moves (at, date, utensil_id, type, qty, expected, staff_id, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(ctx.now(), ctx.today(), u.id, 'count', diff, u.on_hand, me.id, diff < 0 ? 'Mất không rõ (kiểm tuần)' : diff > 0 ? 'Thừa so với sổ' : '');
+        out.push({ utensil_id: u.id, name: u.name, unit: u.unit, expected: u.on_hand, actual, diff });
+      }
+    });
+    ctx.setSetting('utensil_count_at', String(ctx.now()));
+    const missing = out.filter((x) => x.diff < 0);
+    if (missing.length) {
+      ctx.notify(ctx.managers().filter((x) => x !== me.id), {
+        title: `Kiểm đồ dùng: thiếu ${missing.length} món không rõ lý do`,
+        body: `${me.name || ''} kiểm:\n${missing.map((x) => `• ${x.name}: sổ ${x.expected}, đếm ${x.actual} (−${-x.diff})`).join('\n')}`, link: '/kho?tab=dodung',
+      });
+    }
+    ctx.audit(me, 'utensil.count', { n: out.length, missing: missing.length });
+    ctx.broadcast('utensils');
+    return { lines: out };
+  });
+
+  // Tổng hợp: số đang có, vỡ/mất 4 tuần gần nhất, lần kiểm gần nhất
+  r.get('/api/utensils/report', 'staff', () => {
+    const from = addDays(ctx.today(), -28);
+    const moves = db.prepare(`SELECT m.*, u.name, u.unit FROM utensil_moves m JOIN utensils u ON u.id = m.utensil_id WHERE m.date >= ? ORDER BY m.at DESC LIMIT 200`).all(from)
+      .map((m) => ({ ...m, staff_name: nameOf(m.staff_id) }));
+    const at = Number(ctx.setting('utensil_count_at') || 0);
+    return {
+      items: db.prepare('SELECT id, name, unit, on_hand FROM utensils WHERE active = 1 ORDER BY sort, id').all(),
+      moves, last_count_at: at || null, due: !at || ctx.now() - at > 7 * 86_400_000,
+    };
+  });
+
+  // Nhắc kiểm đồ dùng mỗi tuần: Chủ nhật 21:00 (cài được), quá 7 ngày chưa kiểm → nhắc quản lý / trưởng ca
+  ctx.utensilCountTick = () => {
+    const c = ctx.clock(), n = ctx.now();
+    const date = c.dateOf(n);
+    if (isoWeekday(date) !== Number(ctx.setting('utensil_count_dow') || 7) || c.minuteOf(n) < 21 * 60) return;
+    const key = `utensil_remind:${date}`;
+    if (ctx.setting(key)) return;
+    ctx.setSetting(key, '1');
+    const at = Number(ctx.setting('utensil_count_at') || 0);
+    if (at && n - at < 6 * 86_400_000) return;
+    if (!db.prepare('SELECT 1 FROM utensils WHERE active = 1').get()) return;
+    const ids = db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager','shift_lead')").all().map((x) => x.id);
+    ctx.notify(ids, { title: 'Đến hạn kiểm đồ dùng tuần này', body: 'Đếm chén, dĩa, ly, nồi… rồi nhập ở Kho → Đồ dùng → Kiểm tuần.', link: '/kho?tab=dodung', urgent: true });
+  };
 }

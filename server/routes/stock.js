@@ -341,10 +341,22 @@ export default function (r, ctx) {
         } else if (diff > 0) {
           recordMove(db, { at: t, date, type: 'adjust', ingredientId: ing.id, toStore: st.id, qty: diff, ref: `count:${countId}`, staffId: me.id, note: 'Kiểm kho thừa so với sổ' });
         }
-        out.push({ ingredient_id: ing.id, name: ing.name, unit: ing.unit, before, actual, diff });
+        out.push({ ingredient_id: ing.id, name: ing.name, unit: ing.unit, before, actual, diff, lech_cost: diff < 0 && sold ? costOf(ing, -diff) : 0 });
       }
       return { countId, out };
     });
+    // Lệch so với định lượng đã bán quá ngưỡng (mặc định 200.000đ / lần kiểm) → báo chủ + quản lý (chủ quán 25/10)
+    const lech = result.out.filter((x) => x.lech_cost > 0).sort((a, b) => b.lech_cost - a.lech_cost);
+    const lechTotal = lech.reduce((a, x) => a + x.lech_cost, 0);
+    const limit = Number(ctx.setting('stock_diff_alert_vnd') || 200000);
+    if (lech.length && lechTotal >= limit) {
+      const fmt = (n) => `${Math.round(n).toLocaleString('vi-VN')}đ`;
+      ctx.notify(ctx.managers().filter((x) => x !== me.id), {
+        title: `⚠ Lệch kho ${st.name}: −${fmt(lechTotal)}`,
+        body: `${me.name || "Người kiểm"} kiểm lúc ${ctx.clock().fmt(t)}. Thiếu so với số đã bán theo định lượng:\n${lech.slice(0, 6).map((x) => `• ${x.name}: −${Math.round(-x.diff * 1000) / 1000} ${x.unit} ≈ ${fmt(x.lech_cost)}`).join('\n')}`,
+        link: '/kho?tab=ls', urgent: true,
+      });
+    }
     const suggestion = st.kind === 'area' ? transferSuggestion(st) : [];
     const short = suggestion.filter((x) => x.short);
     if (short.length) {
@@ -356,8 +368,25 @@ export default function (r, ctx) {
     }
     ctx.audit(me, 'stock.count', { store: st.id, count: result.countId, lines: result.out.length });
     ctx.broadcast('stock');
-    return { count_id: result.countId, lines: result.out, suggestion };
+    return { count_id: result.countId, lines: result.out, suggestion, lech_total: lechTotal };
   }
+  // Cuối ngày (mặc định 22:30) khu nào có bán theo định lượng mà chưa kiểm hôm nay → nhắc tổ trưởng / trưởng ca 1 lần
+  ctx.stockCountRemindTick = () => {
+    const c = ctx.clock(), n = ctx.now();
+    const at = ctx.setting('stock_count_remind_time') || '22:30';
+    const [h, m] = at.split(':').map(Number);
+    if (c.minuteOf(n) < h * 60 + (m || 0)) return;
+    const date = today();
+    const stores = single() ? [mainStore()].filter(Boolean)
+      : db.prepare(`SELECT * FROM stores WHERE active = 1 AND kind = 'area' AND id IN (SELECT DISTINCT COALESCE(i.home_store_id, -1) FROM menu_recipes r JOIN ingredients i ON i.id = r.ingredient_id)`).all();
+    for (const st of stores) {
+      const key = `count_remind:${date}:${st.id}`;
+      if (ctx.setting(key)) continue;
+      ctx.setSetting(key, '1');
+      if (db.prepare('SELECT 1 FROM stock_counts WHERE store_id = ? AND date = ?').get(st.id, date)) continue;
+      ctx.notify(leadsOfStore(st), { title: `Chưa kiểm nguyên liệu cuối ngày: ${st.name}`, body: 'Cân / đếm nguyên liệu còn lại rồi nhập ở Kho → Kiểm kho (hoặc checklist Đóng ca).', link: '/kho?tab=kiem', urgent: true });
+    }
+  };
   ctx.stockCount = (me, storeId, lines, note) => { const st = storeById(ctx.effectiveStore(storeId)); if (!st) fail(404, 'Không tìm thấy kho'); return doCount(me, st, lines, note); };
   // Huỷ một lần kiểm (nhân viên sửa lại số cân): trả tồn về như chưa kiểm, xoá ghi nhận lệch
   ctx.undoCount = (countId) => {
