@@ -134,18 +134,28 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
     const secure = req.headers['x-forwarded-proto'] === 'https' || req.headers['cf-connecting-ip'] ? '; Secure' : '';
     res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86400}${secure}`);
   };
+  // Chặn đoán PIN. Cả quán dùng chung wifi (chung IP) nên khoá theo IP + SỐ ĐIỆN THOẠI: 1 bạn nhập sai 5 lần chỉ khoá
+  // số của bạn đó 2 phút; cả IP chỉ bị khoá khi sai rất nhiều (30 lần / 10 phút, dấu hiệu dò mã)
   ctx.loginGuard = {
-    check(ip) {
-      const f = failedLogins.get(ip);
-      if (f && f.until > now()) fail(429, `Nhập sai quá nhiều lần. Thử lại sau ${Math.ceil((f.until - now()) / 60000)} phút`);
+    key: (ip, phone) => `${ip}|${phone || ''}`,
+    check(ip, phone) {
+      for (const k of [ctx.loginGuard.key(ip, phone), `${ip}|*`]) {
+        const f = failedLogins.get(k);
+        if (f && f.until > now()) fail(429, `Nhập sai quá nhiều lần. Thử lại sau ${Math.ceil((f.until - now()) / 60000)} phút`);
+      }
     },
-    failed(ip) {
-      const f = failedLogins.get(ip) || { count: 0, until: 0 };
-      f.count++;
-      if (f.count >= 5) { f.until = now() + 5 * 60_000; f.count = 0; }
-      failedLogins.set(ip, f);
+    failed(ip, phone) {
+      const bump = (k, max, lockMs, windowMs) => {
+        let f = failedLogins.get(k);
+        if (!f || (f.first && now() - f.first > windowMs)) f = { count: 0, until: 0, first: now() };
+        f.count++;
+        if (f.count >= max) { f.until = now() + lockMs; f.count = 0; f.first = now(); }
+        failedLogins.set(k, f);
+      };
+      bump(ctx.loginGuard.key(ip, phone), 5, 2 * 60_000, 15 * 60_000);
+      bump(`${ip}|*`, 30, 5 * 60_000, 10 * 60_000);
     },
-    ok(ip) { failedLogins.delete(ip); },
+    ok(ip, phone) { failedLogins.delete(ctx.loginGuard.key(ip, phone)); },
   };
 
   // File giao diện: nén (brotli / gzip) + ETag → lần sau điện thoại chỉ hỏi "có đổi không" (304), không tải lại.

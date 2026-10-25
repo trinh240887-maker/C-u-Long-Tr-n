@@ -22,8 +22,9 @@ export default function (r, ctx) {
   const { db } = ctx;
 
   r.post('/api/login', null, ({ req, res, body, net }) => {
-    ctx.loginGuard.check(net.ip);
     const pin = String(body.pin ?? '');
+    const phone0 = String(body.phone || '').replace(/\D/g, '').replace(/^84/, '0');
+    ctx.loginGuard.check(net.ip, phone0);
     // Chủ quán 25/10: đăng nhập = SỐ ĐIỆN THOẠI + PIN (biết đúng người, không vào nhầm tài khoản).
     // Tài khoản chưa có SĐT (vd chủ quán lúc mới cài) vẫn vào bằng PIN như cũ.
     const digits = (x) => String(x || '').replace(/\D/g, '').replace(/^84/, '0');
@@ -32,10 +33,10 @@ export default function (r, ctx) {
     let st = null;
     if (st0) st = phone ? (digits(st0.phone) === phone ? st0 : null) : (digits(st0.phone).length < 9 ? st0 : null);
     if (!st) {
-      ctx.loginGuard.failed(net.ip);
-      fail(401, st0 && !phone ? 'Nhập số điện thoại của bạn rồi nhập PIN' : phone ? 'Số điện thoại hoặc mã PIN không đúng' : 'Mã PIN không đúng');
+      ctx.loginGuard.failed(net.ip, phone);
+      fail(401, st0 && !phone ? 'Nhập số điện thoại của bạn rồi nhập PIN' : phone ? 'Số điện thoại hoặc mã PIN không đúng. Nếu bạn đã đổi PIN lần đầu, nhập PIN mới; quên PIN thì nhờ quản lý đặt lại' : 'Mã PIN không đúng');
     }
-    ctx.loginGuard.ok(net.ip);
+    ctx.loginGuard.ok(net.ip, phone);
     ctx.login(req, res, st);
     ctx.audit(st, 'login', net.remote ? `từ xa ${net.ip}` : net.ip);
     return { id: st.id, name: st.name, role: st.role };
