@@ -36,7 +36,7 @@ function ClockCard() {
   return html`<section class="card clock">
     <div><div class="eyebrow">${next ? 'Ca tiếp theo' : 'Hôm nay'}</div>
       <div class="big">${next ? `${next.label ? next.label + ' · ' : ''}${next.text}` : 'Chưa có ca sắp tới'}</div>
-      <div class="muted">${next ? dayLabel(next.date, { long: true }) : 'Vẫn chấm công được nếu quản lý gọi đi làm'}</div></div>
+      <div class="muted">${next ? dayLabel(next.date, { long: true }) : 'Chưa có ca thì chưa chấm công được: báo lịch rảnh hoặc nhờ quản lý thêm ca'}</div></div>
     <button class="primary big" onClick=${() => act(async () => {
       const r = await api('POST', '/api/attendance/clock-in', st.data.gps ? await myPlace() : {});
       return r;

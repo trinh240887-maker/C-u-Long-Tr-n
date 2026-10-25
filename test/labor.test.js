@@ -101,6 +101,14 @@ test('năng suất nhân sự: lương/doanh thu theo giờ, giờ thừa ngư�
   assert.equal(far.status, 403);
   assert.match(far.data.error, /cách quán khoảng 1\.\dkm/);
   assert.match((await N('POST', '/api/attendance/clock-in', {})).data.error, /Chưa lấy được vị trí/);
+  // Đúng vị trí nhưng chưa có ca trong lịch → không chấm được (không ca = không công)
+  const noShift = await N('POST', '/api/attendance/clock-in', { lat: 10.7775, lng: 106.7012, acc: 15 });
+  assert.equal(noShift.status, 403);
+  assert.match(noShift.data.error, /chưa có ca trong lịch/);
+  db.prepare("INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES ('gN', ?, ?, '2026-10-26', 600, 1200, 0)").run(ids[1], pv);
+  const early = await N('POST', '/api/attendance/clock-in', { lat: 10.7775, lng: 106.7012, acc: 15 });
+  assert.match(early.data.error, /ca của bạn bắt đầu 10:00, chấm được từ 09:00/);
+  now = at('2026-10-26', '09:05');
   const ok = await N('POST', '/api/attendance/clock-in', { lat: 10.7775, lng: 106.7012, acc: 15 });
   assert.equal(ok.status, 200, JSON.stringify(ok.data));
   assert.match(db.prepare('SELECT source FROM attendance ORDER BY id DESC LIMIT 1').get().source, /^GPS cách quán \d+m/);

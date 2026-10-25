@@ -110,6 +110,13 @@ export default function (r, ctx) {
       const seg = mySegments(me.id, clock.businessDate(t))
         .map((a) => ({ ...a, ...rangeOf(clock, a) }))
         .find((s) => !done.has(s.id) && t >= s.start - early && t < s.end);
+      // Chủ quán 25/10: phải có ca trong lịch (đã báo lịch rảnh / quản lý xếp) mới chấm công được → không ca = không công, không lương.
+      // Quản lý, chủ quán không bị chặn. Tắt được bằng setting clock_require_shift = 0.
+      if (!seg && ctx.setting('clock_require_shift') !== '0' && rank(me.role) < rank('manager')) {
+        const next = mySegments(me.id, clock.businessDate(t)).map((a) => ({ ...a, ...rangeOf(clock, a) })).find((s) => !done.has(s.id) && s.start - early > t);
+        fail(403, next ? `Chưa tới giờ chấm: ca của bạn bắt đầu ${fmtHM(next.start_min)}, chấm được từ ${clock.fmt(next.start - early).slice(0, 5)}.`
+          : 'Bạn chưa có ca trong lịch hôm nay nên chưa chấm công được (không có ca = không tính công, không tính lương). Báo lịch rảnh trước, hoặc nhờ quản lý thêm ca rồi chấm lại.');
+      }
       const late = seg && t > seg.start + grace ? Math.round((t - seg.start) / 60_000) : 0;
       const date = seg ? seg.date : clock.businessDate(t);
       const id = Number(db.prepare(`INSERT INTO attendance (staff_id, assignment_id, date, clock_in, late_minutes, note, source) VALUES (?, ?, ?, ?, ?, ?, ?)`)
