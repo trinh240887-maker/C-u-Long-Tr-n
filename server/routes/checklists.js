@@ -282,7 +282,14 @@ export default function (r, ctx) {
   r.get('/api/checklists', 'staff', ({ me, query }) => {
     const date = query.get('date') || ctx.today();
     if (!isDate(date)) fail(400, 'Ngày không hợp lệ');
-    return { date, runs: dayView(date, myScope(me, date)) };
+    // Checklist đang giao việc từng người: vẫn hiện thẻ tóm tắt (bấm sang Việc ca, thêm việc mới ngay tại đây)
+    const scope = myScope(me, date);
+    const jobs = templates().filter((t) => t.job_mode && (!scope || (!scope.off && (t.team_id === null || scope.teams.has(t.team_id) || (t.job_teams || []).some((x) => scope.teams.has(x)))))).map((t) => {
+      let total = 0, done = 0;
+      try { const c = db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN status IN ('done','ok') THEN 1 ELSE 0 END) AS d FROM jobs WHERE date = ? AND template_id = ?").get(date, t.id); total = c.n; done = c.d || 0; } catch { /* chưa có bảng jobs */ }
+      return { template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t), items: t.items.length, total, done };
+    });
+    return { date, runs: dayView(date, scope), jobs };
   });
 
   // Lượt checklist xong khi mọi việc bắt buộc đã làm và không có việc nào bị chấm "Làm lại"

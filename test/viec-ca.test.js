@@ -47,6 +47,7 @@ test('Việc ca: gợi ý chia việc theo khu (tiếp thực vào sớm hỗ tr
   assert.ok(tpl.id, JSON.stringify(tpl));
   // Checklist giao việc không hiện ở checklist thường
   assert.ok(!(await O('GET', '/api/checklists')).data.runs.some((x) => x.template_id === tpl.id));
+  assert.ok((await O('GET', '/api/checklists')).data.jobs.some((x) => x.template_id === tpl.id), 'vẫn hiện thẻ tóm tắt ở màn Checklist');
 
   const board = (await O('GET', '/api/jobs/board')).data;
   const T = board.templates.find((x) => x.id === tpl.id);

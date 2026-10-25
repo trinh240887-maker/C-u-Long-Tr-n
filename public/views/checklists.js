@@ -155,10 +155,11 @@ export function ChecklistView({ me }) {
   if (manage) return html`<div class="stack"><div class="row between"><h2>Tạo & sửa checklist</h2><button onClick=${() => setManage(false)}>← Về checklist hôm nay</button></div>
     <${Checklists} me=${me} teams=${me.teams} /></div>`;
   // Mục ngang (Bếp, Phục vụ, Thu ngân, Tổng khu A…) × Mở ca / Đóng ca ("Trong ca" gộp vào Mở ca) — chủ quán 24/10
-  const sections = [...new Set(st.data.runs.map((r) => r.section))];
+  const sections = [...new Set([...st.data.runs, ...(st.data.jobs || [])].map((r) => r.section))];
   const curSec = sections.includes(sec) ? sec : sections[0] || '';
   const ph = (r) => (r.phase === 'close' ? 'close' : 'open');
   const runs = st.data.runs.filter((r) => r.section === curSec && ph(r) === phase);
+  const jobCards = (st.data.jobs || []).filter((r) => r.section === curSec && ph(r) === phase);
   const left = (s0, p0) => st.data.runs.filter((r) => r.section === s0 && (!p0 || ph(r) === p0) && r.done < r.total).length;
   return html`<div class="stack">
     <div class="row between wrap">
@@ -171,6 +172,14 @@ export function ChecklistView({ me }) {
     </div>
     ${sections.length ? html`<div class="chips scroll-x sec-tabs">${sections.map((x) => html`<button class=${`chip big ${x === curSec ? 'on' : ''}`} onClick=${() => setSec(x)}>${x}${left(x) ? html` <b class="dotn">${left(x)}</b>` : ''}</button>`)}</div>` : null}
     <div class="tabs">${[['open', 'Mở ca'], ['close', 'Đóng ca']].map(([k, l]) => html`<button class=${phase === k ? 'on' : ''} onClick=${() => setPhase(k)}>${l}${left(curSec, k) ? ` (${left(curSec, k)})` : ''}</button>`)}</div>
+    ${jobCards.map((r) => html`<section class="card job-card">
+      <div class="row between"><div><h3>${r.title}</h3><small class="muted">${r.team_name} · 👥 Giao việc từng người · ${r.items} việc</small></div>
+        <span class=${`pill ${r.total && r.done === r.total ? 'ok' : r.done ? 'warn' : ''}`}>${r.total ? `${r.done}/${r.total}` : '—'}</span></div>
+      <p class="small muted">Mỗi việc đã giao cho từng bạn theo khu. Nhân viên làm ở <b>Việc ca</b> (Nhận → Xong).</p>
+      <div class="row wrap"><${Link} href="/viec-ca" class="btn-link">✋ Việc của tôi<//>${atLeast(me, 'team_lead') ? html`<${Link} href="/viec-ca?tab=khu" class="btn-link">📋 Bảng khu (ai làm gì)<//>` : null}</div>
+      ${!old && canEditTpl(me, r.team_id) ? html`<${AddItemInline} templateId=${r.template_id} />` : null}
+      ${!old && atLeast(me, 'shift_lead') ? html`<button class="link small" onClick=${() => confirm(`Thôi giao việc từng người cho "${r.title}"? Checklist quay về kiểu cũ (ai cũng tick).`) && act(() => api('PATCH', `/api/checklist-templates/${r.template_id}`, { job_mode: false }), 'Đã chuyển về checklist chung')}>↩ Thôi giao việc từng người</button>` : null}
+    </section>`)}
     ${runs.length ? runs.map((r) => html`<section class="card" id=${`run-${r.run_id}`}>
       <div class="row between"><div><h3>${r.title}</h3><small class="muted">${r.team_name}${r.position_name ? ` · ${r.position_name}` : ''}${r.zone_name ? ` · 📍 ${r.zone_name}` : ''} · ${r.shift_name || 'Mọi ca'} · ${PHASE_LABEL[r.phase]}</small></div>
         <span class=${`pill ${r.redo ? 'bad' : r.done === r.total ? 'ok' : r.done ? 'warn' : ''}`}>${r.redo ? `${r.redo} việc làm lại` : r.done === r.total ? 'Xong' : `${r.done}/${r.total}`}</span></div>
@@ -180,6 +189,6 @@ export function ChecklistView({ me }) {
       <ul class="cklist">${r.items.map((i) => html`<${Item} key=${`${r.run_id}-${i.id}-${i.entry?.done_at || 0}`} run=${r} item=${i} disabled=${old} me=${me} />`)}</ul>
       ${!old && canEditTpl(me, r.team_id) ? html`<${AddItemInline} templateId=${r.template_id} />` : null}
       ${!old && atLeast(me, 'shift_lead') && r.items.length >= 2 ? html`<button class="job-switch" onClick=${() => toJobs(me, r)}>👥 Chuyển sang giao việc từng người</button>` : null}
-    </section>`) : html`<div class="empty">${sections.length ? `Mục ${curSec} không có checklist ${phase === 'open' ? 'mở ca' : 'đóng ca'}.` : `Hôm nay bạn không có checklist.${atLeast(me, 'manager') ? ' Tạo checklist ở nút Tạo / sửa checklist.' : ''}`}</div>`}
+    </section>`) : jobCards.length ? null : html`<div class="empty">${sections.length ? `Mục ${curSec} không có checklist ${phase === 'open' ? 'mở ca' : 'đóng ca'}.` : `Hôm nay bạn không có checklist.${atLeast(me, 'manager') ? ' Tạo checklist ở nút Tạo / sửa checklist.' : ''}`}</div>`}
   </div>`;
 }
