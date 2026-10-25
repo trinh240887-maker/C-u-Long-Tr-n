@@ -757,3 +757,13 @@ table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align
 .zcov td.short { background: #fde2e2; color: #b42318; }
 .login .phone-in { margin-bottom: 10px; letter-spacing: 1px; } .bad-text { color: var(--bad); }
 .perm-team { border-top: 1px solid var(--line); padding-top: 8px; }
+
+/* Kho & Tài sản (chứng từ) */
+.wh-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.wh-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 84px; padding: 8px 6px; font-size: 14px; line-height: 1.2; text-align: center; }
+.wh-tile span { font-size: 26px; }
+.wh .num-in { width: 76px; }
+.wh .big { min-height: 52px; font-size: 17px; }
+.qr-sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.qr-tag { border: 1px dashed #999; padding: 6px; display: flex; flex-direction: column; align-items: center; background: #fff; color: #000; break-inside: avoid; }
+@media print { .noprint, header, nav, .topbar, .sidebar { display: none !important; } .qr-tag { border-color: #000; } }

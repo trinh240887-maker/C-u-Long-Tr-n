@@ -278,9 +278,10 @@ export default function (r, ctx) {
     // Mặc định theo loại
     if (type === 'XB' && !from) from = storeByCode('KHO_CHINH')?.id;
     if (type === 'NSX') { from = from || storeByCode('BEP')?.id; to = from; }
+    if (type === 'NTL' && body.kind === 'staff') { from = null; to = to || storeByCode('CAP_PHAT')?.id; }
     if (['XCP', 'XCC'].includes(type) && !from) from = storeByCode('CAP_PHAT')?.id;
     if (type === 'XTN' && !from) from = storeByCode('KHO_CHINH')?.id;
-    if (V.from && !from) fail(400, 'Chọn kho xuất');
+    if (V.from && !from && !(type === 'NTL' && body.kind === 'staff')) fail(400, 'Chọn kho xuất');
     if (V.to && !to && type !== 'XCP') fail(400, 'Chọn kho nhận');
     if (V.count && !from) fail(400, 'Chọn kho kiểm kê');
     let refId = body.ref_id ? v.int(body.ref_id, { min: 1, name: 'Chứng từ gốc' }) : null;
@@ -293,7 +294,7 @@ export default function (r, ctx) {
     }
     if (type === 'NM') for (const l of lines) { const g = ing(l.ingredient_id); if (g.group_code === 'LANH' && (l.temp == null || !l.expires_on)) fail(400, `${g.name}: hàng lạnh cần nhiệt độ khi nhận + hạn dùng`); }
     if (type === 'XCC' && refId) { const xh = db.prepare("SELECT * FROM wh_vouchers WHERE id = ? AND type = 'XH'").get(refId); if (!xh) fail(400, 'Phiếu bể vỡ tham chiếu không đúng'); }
-    if (type === 'XCP') { const t = v.int(body.target_staff_id, { min: 1, name: 'Nhân viên nhận' }); if (!db.prepare('SELECT 1 FROM staff WHERE id = ? AND active = 1').get(t)) fail(404, 'Không tìm thấy nhân viên'); }
+    if (type === 'XCP' || (type === 'NTL' && body.kind === 'staff')) { const t = v.int(body.target_staff_id, { min: 1, name: type === 'XCP' ? 'Nhân viên nhận' : 'Nhân viên trả' }); if (!db.prepare('SELECT 1 FROM staff WHERE id = ? AND active = 1').get(t)) fail(404, 'Không tìm thấy nhân viên'); }
     if (type === 'XCP' && body.kind === 'DOI_CU_LAY_MOI' && !body.note) fail(400, 'Đổi cũ lấy mới: ghi đã thu món cũ nào');
     // Kiểm kê: người giữ kho không được đếm kho mình
     if (V.count && storeById(from)?.owner_id === me.id) fail(403, 'Người giữ kho này không được là người đếm');
@@ -302,7 +303,7 @@ export default function (r, ctx) {
     const id = tx(db, () => {
       const vid = Number(db.prepare(`INSERT INTO wh_vouchers (no, type, date, shift, from_store, to_store, supplier_id, target_staff_id, ref_id, status, note, kind, meta, created_by, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)`).run(nextNo(type), type, ctx.today(), body.shift || shiftNow(), from, to,
-        body.supplier_id ? v.int(body.supplier_id, { min: 1, name: 'NCC' }) : null, type === 'XCP' ? Number(body.target_staff_id) : null, refId,
+        body.supplier_id ? v.int(body.supplier_id, { min: 1, name: 'NCC' }) : null, type === 'XCP' || (type === 'NTL' && body.kind === 'staff') ? Number(body.target_staff_id) : null, refId,
         v.text(body.note, { name: 'Ghi chú', max: 300 }), v.text(body.kind, { name: 'Loại', max: 30 }), JSON.stringify(meta), me.id, ctx.now()).lastInsertRowid);
       writeLines(vid, lines);
       return vid;
@@ -615,7 +616,7 @@ export default function (r, ctx) {
   function holdings(staffId) {
     const rows = db.prepare(`SELECT l.ingredient_id, g.name, g.size, SUM(CASE WHEN v.type = 'XCP' THEN l.qty ELSE -l.qty END) AS qty
       FROM wh_lines l JOIN wh_vouchers v ON v.id = l.voucher_id JOIN ingredients g ON g.id = l.ingredient_id
-      WHERE v.status = 'approved' AND ((v.type = 'XCP' AND v.target_staff_id = ?) OR (v.type = 'NTL' AND v.kind = 'staff' AND v.created_by = ?)) GROUP BY l.ingredient_id`).all(staffId, staffId);
+      WHERE v.status = 'approved' AND v.target_staff_id = ? AND (v.type = 'XCP' OR (v.type = 'NTL' AND v.kind = 'staff')) GROUP BY l.ingredient_id`).all(staffId);
     return rows.filter((x) => x.qty > 1e-9).map((x) => ({ ...x, qty: r3(x.qty) }));
   }
   ctx.whHoldings = holdings;
