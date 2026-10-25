@@ -315,10 +315,20 @@ export default function (r, ctx) {
     return groups.map((g) => `${g.from === g.to ? dayTxt(g.from) : `${DOWS[isoWeekday(g.from)]}–${DOWS[isoWeekday(g.to)]} (${ddmm(g.from)}–${ddmm(g.to)})`} ${g.v}`).join(' · ');
   }
   // Bỏ "@tên bot" khỏi tin (vd "@Bot Cửu Long Trấn" → không hiểu nhầm "Long" là tên nhân viên)
+  // Tên bot có thể là mã (account_name "bot.xxx") khác tên hiện trong nhóm ("Bot Cửu Long Trấn") → bỏ mọi tên đã biết + "Bot <tên quán>"
+  function botNames() {
+    const out = new Set();
+    try { for (const x of JSON.parse(ctx.setting('zalo_bot_names') || '[]')) if (x) out.add(String(x)); } catch { /* cũ */ }
+    if (ctx.setting('zalo_bot_name')) out.add(ctx.setting('zalo_bot_name'));
+    const shop = (ctx.setting('shop_name') || '').trim();
+    if (shop) { out.add(`Bot ${shop}`); out.add(shop); }
+    out.add('Bot Cửu Long Trấn'); out.add('Cửu Long Trấn');
+    return [...out].filter((x) => x.trim().length >= 3).sort((a, b) => b.length - a.length);
+  }
+  ctx.saveBotNames = (me) => { const names = [me?.display_name, me?.account_name, me?.name].filter(Boolean).map((x) => String(x).slice(0, 80)); if (names.length) { ctx.setSetting('zalo_bot_names', JSON.stringify(names)); ctx.setSetting('zalo_bot_name', names[0]); } };
   function stripBotName(text) {
     let t = String(text || '');
-    const name = ctx.setting('zalo_bot_name');
-    if (name) {
+    for (const name of botNames()) {
       const esc = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
       t = t.replace(new RegExp(`@?${esc}`, 'giu'), ' ');
     }
@@ -412,8 +422,8 @@ export default function (r, ctx) {
       if (!list.length) return;
       ctx.zaloBot.remember?.(list);
       // Lấy tên bot 1 lần (để bỏ "@tên bot" khỏi tin)
-      if (!ctx.setting('zalo_bot_name')) {
-        try { const me = await ctx.zaloBot.call('getMe'); const n = me?.account_name || me?.display_name || me?.name; if (n) ctx.setSetting('zalo_bot_name', String(n).slice(0, 80)); } catch { /* bỏ qua */ }
+      if (!ctx.setting('zalo_bot_names')) {
+        try { ctx.saveBotNames(await ctx.zaloBot.call('getMe')); } catch { /* bỏ qua */ }
       }
       // Tin báo giờ từ 1 nhóm chưa có trong danh sách (không phải nhóm đặt hàng) → tự thêm nhóm, báo chủ chọn bộ phận
       for (const u of list) {
@@ -444,8 +454,17 @@ export default function (r, ctx) {
   };
 
   // Danh sách chờ duyệt + duyệt / từ chối (quản lý). Duyệt: tạo tài khoản ở /api/staff rồi gọi /done để liên kết Zalo + điền lịch + báo nhóm
-  r.get('/api/staff-requests', 'manager', () => db.prepare(`SELECT q.*, t.name AS team_name FROM staff_requests q LEFT JOIN teams t ON t.id = q.team_id
-    WHERE q.status = 'pending' ORDER BY q.at DESC`).all());
+  r.get('/api/staff-requests', 'manager', () => {
+    // Yêu cầu cũ bị lấy nhầm tên bot làm tên người ("Cửu Long Trấn") → đọc lại
+    const names = botNames().map((x) => norm(x));
+    for (const q of db.prepare("SELECT * FROM staff_requests WHERE status = 'pending'").all()) {
+      if (!names.includes(norm(q.name))) continue;
+      const f = parseNewStaff(stripBotName(q.raw), { teams: db.prepare('SELECT id, name FROM teams').all(), positions: [] });
+      if (f.name && !names.includes(norm(f.name))) db.prepare('UPDATE staff_requests SET name = ? WHERE id = ?').run(f.name, q.id);
+    }
+    return db.prepare(`SELECT q.*, t.name AS team_name FROM staff_requests q LEFT JOIN teams t ON t.id = q.team_id
+      WHERE q.status = 'pending' ORDER BY q.at DESC`).all();
+  });
   r.post('/api/staff-requests/:id/done', 'manager', async ({ me, params, body }) => {
     const q = db.prepare('SELECT * FROM staff_requests WHERE id = ?').get(params.id);
     if (!q || q.status !== 'pending') fail(404, 'Không tìm thấy yêu cầu');

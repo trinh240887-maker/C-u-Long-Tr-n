@@ -160,7 +160,7 @@ test('bot: người mới báo lịch → hướng dẫn đăng ký, giữ lịc
   inbox = [msg('a1', '@Bot Cửu Long Trấn Trần trung hậu 8h - 12h , 14h - 23h', hau)];
   await ctx.zaloBotPoll();
   assert.match(sent.at(-1).text, /Bạn là người mới/);
-  inbox = [msg('a2', '@Bot NV mới: Trần Trung Hậu, 0901 234 567, Phục vụ, nhân viên', hau)];
+  inbox = [msg('a2', '@Bot Cửu Long Trấn NV mới: Trần Trung Hậu, 0901 234 567, Phục vụ, nhân viên', hau)];
   await ctx.zaloBotPoll();
   assert.match(sent.at(-1).text, /Đã ghi nhân viên mới: Trần Trung Hậu · 0901234567 · Phục vụ · nhân viên/);
   const rq = (await o('GET', '/api/staff-requests')).data;
