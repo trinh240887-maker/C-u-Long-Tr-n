@@ -114,7 +114,8 @@ export function findStaff(text, staff, { single = true } = {}) {
     for (const o of opts) keys.push({ key: o, s, partial: o !== w.join(' ') });
   }
   // Khớp chuỗi dài trước, mỗi đoạn chữ chỉ dùng 1 lần
-  keys.sort((a, b) => b.key.length - a.key.length);
+  keys.sort((a, b) => b.key.length - a.key.length || a.partial - b.partial);
+  const fullOf = new Map(staff.map((s) => [s.id, ` ${norm(s.name).replace(/[^a-z0-9]+/g, ' ').trim()} `]));
   let rest = t;
   const found = new Map();
   for (const { key, s, partial } of keys) {
@@ -122,7 +123,11 @@ export function findStaff(text, staff, { single = true } = {}) {
     const k = ` ${key} `;
     if (!rest.includes(k)) continue;
     const same = keys.filter((x) => x.key === key && !found.has(x.s.id));
-    if (new Set(same.map((x) => x.s.id)).size > 1) continue; // trùng tên → không đoán
+    // Đúng nguyên họ tên của 1 người thì chọn người đó ("Nguyễn Trường Giang" ≠ "Trần Nguyễn Trường Giang")
+    const exact = same.filter((x) => !x.partial);
+    if (new Set(same.map((x) => x.s.id)).size > 1 && !(exact.length === 1 && exact[0].s.id === s.id)) continue; // trùng tên → không đoán
+    // Khớp thiếu họ mà tên đó còn nằm trong họ tên người khác → không đoán (hỏi lại, ghi thêm SĐT)
+    if (partial && staff.some((o) => o.id !== s.id && !found.has(o.id) && fullOf.get(o.id).includes(k))) continue;
     found.set(s.id, partial ? { ...s, _partial: true } : s);
     rest = rest.replace(k, ' ');
   }
@@ -238,6 +243,20 @@ export function parseNewStaff(text, { teams = [], positions = [] } = {}) {
     const ps = positions.find((x) => lc(x.name) === n);
     if (ps && !position) { position = ps; if (!team) team = teams.find((x) => x.id === ps.team_id) || null; continue; }
     if (!name && /[a-zà-ỹđ]/i.test(p) && p.split(/\s+/).length >= 2) name = p.replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  // "Nguyễn Trường Giang Nhân Viên" / "... tổ trưởng" → bỏ chữ chức vụ / bộ phận dính sau tên
+  if (name) {
+    const ROLE_TAIL = /\s+(nhan vien|nv|to truong|truong ca|quan ly|part ?time|full ?ca|ca gay|phuc vu|tiep thuc|thu ngan|tap vu|bep|bar)$/;
+    let w = name.trim().split(/\s+/);
+    for (let guard = 0; guard < 4; guard++) {
+      const n = norm(w.join(' '));
+      const m = ROLE_TAIL.exec(n);
+      if (!m || w.length - m[1].split(' ').length < 2) break;
+      if (/truong ca/.test(m[1])) role = 'shift_lead'; else if (/to truong/.test(m[1])) role = 'team_lead';
+      if (!team) team = teams.find((x) => lc(x.name) === m[1]) || null;
+      w = w.slice(0, w.length - m[1].split(' ').length);
+    }
+    name = w.join(' ');
   }
   if (name) name = name.split(/\s+/).map((w) => w.charAt(0).toLocaleUpperCase('vi') + w.slice(1).toLocaleLowerCase('vi')).join(' ');
   return { name, phone, team_id: team?.id || null, team_name: team?.name || '', position_id: position?.id || null, role };

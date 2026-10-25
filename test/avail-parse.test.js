@@ -51,3 +51,14 @@ test('đọc tin báo lịch: khác họ ("Phan Thành Phát" ↔ Lê Thành Ph�
   assert.equal(parseAvailMessage('@Bot Lê Thành Phát T2-CN 14-23', { staff: st, today: '2026-10-25', sender: null }).people[0]?.name, 'Lê Thành Phát');
   assert.equal(parseAvailMessage('Hồng Phúc 14-23 làm được', { staff: st, today: '2026-10-25', sender: null }).people[0]?.name, 'Nguyễn Hồng Phúc');
 });
+
+test('đọc tin báo lịch: "Nguyễn Trường Giang" chọn đúng người tên đó, không nhầm "Trần Nguyễn Trường Giang"; mơ hồ thì không đoán', async () => {
+  const { parseNewStaff, findStaff } = await import('../server/lib/avail-parse.js');
+  const st = [{ id: 1, name: 'Trần Nguyễn Trường Giang' }, { id: 2, name: 'Nguyễn Trường Giang' }];
+  assert.deepEqual(findStaff('@Bot nguyễn trường giang (T2-CN) 14h-23h', st).map((x) => x.id), [2]);
+  assert.deepEqual(findStaff('Trần Nguyễn Trường Giang 14-23', st).map((x) => x.id), [1]);
+  assert.deepEqual(findStaff('Trường Giang 14-23', st).map((x) => x.id), []); // 2 người cùng "Trường Giang" → hỏi lại
+  // Tên đăng ký dính chữ chức vụ
+  assert.equal(parseNewStaff('@bot NV mới: Nguyễn Trường Giang Nhân Viên, 0901234567, Phục vụ').name, 'Nguyễn Trường Giang');
+  assert.equal(parseNewStaff('@bot NV mới: Lê Văn Tèo tổ trưởng, 0901234568').role, 'team_lead');
+});
