@@ -154,6 +154,7 @@ function WeekZones({ ws, staff, teams, map, shifts = [], hours = {}, onClose }) 
     <label class="small row">1 bạn phục vụ <input class="num-in" type="number" min="1" max="30" value=${per} onInput=${(e) => setPer2(Number(e.target.value) || 1)} /> bàn</label>
     <div class="chips">${zones.map((z) => { const n = count(z.id), k = need(z); return html`<span class=${`pill ${n < k ? 'bad' : n > k ? 'warn' : 'ok'}`}>${z.name}: ${z.table_count || 0} bàn → cần <b>${k}</b> · đã phân ${n}${n < k ? ` (thiếu ${k - n})` : n > k ? ` (dư ${n - k})` : ' ✓'}</span>`; })}
       <span class="pill">Cả quán cần <b>${zones.reduce((a, z) => a + need(z), 0)}</b> người/ngày</span></div>
+    <${ZoneCoverage} ws=${ws} zones=${zones} people=${people} shifts=${shifts} hours=${hours} zOf=${zOf} per=${per} />
     ${people.map((p) => { const used = [...new Set(shifts.filter((x) => x.staff_id === p.id && x.zone_name).map((x) => x.zone_name.replace(/^Khu\s*/i, '')))]; return html`<div class="zone-row"><span class="grow"><b>${p.name}</b>
       ${zOf(p) ? html`<br /><input class="tables-in" placeholder="Bàn: vd 1-10 (trống = cả khu)" value=${tOf(p)} onChange=${(e) => pick(p, zOf(p), e.target.value)} />` : null}
       <br /><small class="muted">🗓 ${workDays(p.id, ws, shifts, hours)}</small>
@@ -197,7 +198,7 @@ function ZoneCoverage({ ws, zones, people, shifts, hours, zOf, per }) {
     <div class="wk-wrap"><table class="zcov"><thead><tr><th></th>${days.map((d, i) => html`<th>${DOWS[i]}<br /><small>${d.slice(8)}/${d.slice(5, 7)}</small></th>`)}</tr></thead>
       <tbody>${zones.map((z) => html`<tr><th>${z.name.replace(/^Khu\s*/i, 'Khu ')}<br /><small class="muted">${z.table_count || 0} bàn · cần ${need(z)}</small></th>${days.map((d) => { const n = who(z.id, d).length; return html`<td class=${n < need(z) ? 'short' : 'ok'} onClick=${() => setOpen({ z: z.id, d })}>${n}</td>`; })}</tr>`)}
         <tr><th class="muted">Chưa khu</th>${days.map((d) => html`<td class="muted">${people.filter((p) => onDay(p.id, d, shifts, hours).on && !zoneOn(p, d)).length || ''}</td>`)}</tr></tbody></table></div>
-    <small class="muted">Số trong ô = số bạn đi làm ở khu đó. Đỏ = ít hơn số cần. Bấm ô để xem ai làm, giao thêm người hoặc chia bàn cho ngày đó.</small>
+    <small class="muted">Số trong ô = số bạn đi làm ở khu đó. Đỏ = ít hơn số cần. Muốn chuyển người riêng 1 ngày: bấm ô của khu CẦN THÊM người, rồi bấm tên bạn ở khu đang dư.</small>
     ${cellOpen ? html`<div class="card tight stack">
       <b>${cellOpen.name} · ${DOWS[days.indexOf(open.d)]} ${open.d.slice(8)}/${open.d.slice(5, 7)} (có ${who(cellOpen.id, open.d).length}/cần ${need(cellOpen)}): ${who(cellOpen.id, open.d).map((p) => p.name).join(', ') || 'chưa có ai'}</b>
       <span class="small">Người làm ngày này ở khu khác / chưa khu (bấm để chuyển vào ${cellOpen.name} riêng ngày này):</span>
