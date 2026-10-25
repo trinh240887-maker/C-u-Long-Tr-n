@@ -570,7 +570,7 @@ const DEFAULT_SETTINGS = {
   labor_target_pct: '25', idle_alert_minutes: '60', labor_report_time: '08:00',  // % lương / doanh thu mục tiêu; khoảng không thao tác đáng chú ý; giờ gửi báo cáo năng suất thứ Hai
   sell_deducts_stock: '1', low_portions_alert: '5', purchase_report_time: '22:00',  // bán món tự trừ kho; còn ≤ N phần thì báo; giờ gửi tổng hợp hàng cần nhập
   supplier_pay_approve_over: '5000000', price_jump_pct: '10', count_tolerance_pct: '3', spot_photos_per_run: '1',  // chi NCC trên mức này cần chủ/quản lý duyệt; giá nhập tăng quá % thì báo
-  table_clear_minutes: '10', wait_call_minutes: '5', wait_big_protect_minutes: '15',  // lấp bàn lúc kín: thời gian dọn, chờ khách vào sau khi mời, giữ bàn ghép cho nhóm đông
+  table_clear_minutes: '0', wait_call_minutes: '5', wait_big_protect_minutes: '15',  // lấp bàn lúc kín: thời gian dọn, chờ khách vào sau khi mời, giữ bàn ghép cho nhóm đông
 };
 
 function seedBase(db, now) {

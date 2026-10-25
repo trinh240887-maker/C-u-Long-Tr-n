@@ -1,7 +1,7 @@
 import { fail } from '../http.js';
 
 // Lấp bàn nhanh lúc kín bàn:
-// - Bàn vừa tính tiền = "chờ dọn" (tối đa table_clear_minutes, mặc định 10′) → có khách chờ thì báo dọn ngay.
+// - Bàn vừa tính tiền = "chờ dọn" (table_clear_minutes, mặc định 0 = trống ngay; >0 mới có chờ dọn) → có khách chờ thì báo dọn ngay.
 // - Xếp khách chờ VỪA CHỖ: nhóm 2 người không phải đứng sau nhóm 8 người; nhóm đông chờ lâu (≥ 15′) thì giữ dồn
 //   các bàn liền nhau sắp trống cho họ.
 // - Có bàn (kể cả đang dọn) → tự gọi nhóm hợp nhất: báo nhân viên "Bàn X → mời ...", nhắn Zalo ZNS cho khách.
@@ -21,10 +21,13 @@ export default function (r, ctx) {
   const MIN = 60_000;
 
   // Bàn đã tính tiền, chưa ai bấm "Đã dọn", chưa quá thời gian dọn, chưa có khách mới
+  // Chủ quán 25/10: thu ngân xác nhận thanh toán là bàn trống bán luôn, không có trạng thái "chờ dọn" (0 phút).
+  if (!ctx.setting('table_clear_off_v1')) { ctx.setSetting('table_clear_minutes', '0'); ctx.setSetting('table_clear_off_v1', '1'); }
   ctx.dirtyTables = () => {
     const now = ctx.now();
-    const clear = num('table_clear_minutes', 10);
+    const clear = Number(ctx.setting('table_clear_minutes') || 0);
     const out = new Map();
+    if (!clear) return out;
     const rows = db.prepare(`SELECT t.table_number AS n, MAX(s.closed_at) AS c FROM session_tables t JOIN table_sessions s ON s.id = t.session_id
       WHERE s.status = 'closed' AND s.closed_at > ? GROUP BY t.table_number`).all(now - clear * MIN);
     for (const x of rows) {

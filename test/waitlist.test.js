@@ -18,6 +18,7 @@ test('kín bàn: chờ dọn, mời nhóm vừa chỗ (nhóm nhỏ không chờ 
   const sent = [];
   const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
   app.ctx.customerNotify = async (x, kind) => { sent.push({ kind, name: x.name, tables: x.tables, queue_no: x.queue_no }); return { ok: true }; };
+  app.ctx.setSetting('table_clear_minutes', '10'); // quán đặt thời gian dọn > 0 thì mới có "chờ dọn"
   const server = http.createServer(app.handler);
   await new Promise((r) => server.listen(0, r));
   t.after(() => new Promise((r) => { app.close(); server.close(r); }));
