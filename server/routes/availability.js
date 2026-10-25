@@ -288,7 +288,11 @@ export default function (r, ctx) {
     const all = Array.from({ length: 7 }, (_, i) => addDays(week, i));
     const txt = (d) => (picks[d] || []).map((r) => r.replace('-', '–')).join(', ');
     if (all.every((d) => dates.includes(d)) && new Set(all.map(txt)).size === 1 && txt(all[0])) return `cả tuần ${ddmm(all[0])}–${ddmm(all[6])}: ${txt(all[0])}`;
-    return dates.map((d) => `${dayTxt(d)} ${off.includes(d) && !picks[d] ? 'nghỉ' : txt(d)}`).join(' · ');
+    // Gộp các ngày liền nhau cùng giờ: "T2–T6 14:00–23:00 · T7 nghỉ · CN 10:00–23:00"
+    const val = (d) => (off.includes(d) && !picks[d] ? 'nghỉ' : txt(d));
+    const groups = [];
+    for (const d of dates) { const g = groups.at(-1); if (g && val(d) === g.v && addDays(g.to, 1) === d) g.to = d; else groups.push({ from: d, to: d, v: val(d) }); }
+    return groups.map((g) => `${g.from === g.to ? dayTxt(g.from) : `${DOWS[isoWeekday(g.from)]}–${DOWS[isoWeekday(g.to)]} (${ddmm(g.from)}–${ddmm(g.to)})`} ${g.v}`).join(' · ');
   }
   // Bỏ "@tên bot" khỏi tin (vd "@Bot Cửu Long Trấn" → không hiểu nhầm "Long" là tên nhân viên)
   function stripBotName(text) {
@@ -310,7 +314,7 @@ export default function (r, ctx) {
       if (m.length === 1) { sender = m[0].id; db.prepare('INSERT OR REPLACE INTO zalo_bot_users (uid, staff_id) VALUES (?, ?)').run(u.from.id, sender); }
     }
     const p = parseAvailMessage(u.text, { staff, today: ctx.today(), sender });
-    const hint = 'Nhắn kiểu: @bot Tên 14h-23h (cả tuần) hoặc @bot Tên T2 14-23, T3 nghỉ';
+    const hint = 'Nhắn kiểu: @bot Tên 14-23 (cả tuần), ngày khác ghi riêng: @bot Tên 14-23, T7 nghỉ, CN 10-23';
     if (!Object.keys(p.picks).length && !p.off.length) return `❓ Chưa đọc được giờ. ${hint}`;
     if (!p.people.length) return `❓ Chưa thấy tên nhân viên (ghi đúng tên như trong app). ${hint}`;
     const lines = [];

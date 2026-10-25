@@ -83,9 +83,15 @@ test('bot đọc tin @bot trong nhóm nhân viên → tự điền lịch rảnh
   assert.match(sent[1].text, /Cẩm Tú: T3 27\/10 nghỉ · T4 28\/10 10:00–14:00, 17:00–22:00/);
   assert.deepEqual(db.prepare('SELECT slot FROM availability WHERE staff_id = ? AND date = ?').all(id('Cẩm Tú'), '2026-10-28').map((x) => x.slot), ['10:00-14:00', '17:00-22:00']);
 
+  // Cả tuần + ngày ghi riêng
+  inbox = [msg('m7', '@Bot Cẩm Tú 14-23, T7 nghỉ, CN 10-23', { id: 'u3', name: 'Cẩm Tú' })];
+  await ctx.zaloBotPoll();
+  assert.match(sent.at(-1).text, /Cẩm Tú: T2–T6 \(26\/10–30\/10\) 14:00–23:00 · T7 31\/10 nghỉ · CN 01\/11 10:00–23:00/);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM availability WHERE staff_id = ? AND date = ?').get(id('Cẩm Tú'), '2026-10-31').n, 0);
+
   inbox = [msg('m3', '@Bot xin chào', { id: 'u3', name: 'Cẩm Tú' })];
   await ctx.zaloBotPoll();
-  assert.match(sent[2].text, /Chưa đọc được giờ/);
+  assert.match(sent.at(-1).text, /Chưa đọc được giờ/);
   // Tên bot có chữ trùng tên nhân viên ("Cửu Long Trấn") → không nhận nhầm
   db.prepare("INSERT INTO staff (name, role, team_id, created_at) VALUES ('Trường Long', 'staff', ?, 0)").run(pv);
   ctx.setSetting('zalo_bot_name', 'Bot Cửu Long Trấn');
