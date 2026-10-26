@@ -55,10 +55,12 @@ function Lines({ lines, setLines, ingredients }) {
       <small class="muted">= ${money(Math.round(qtyNum(l.qty) * num(l.price)))}${l.ordered != null ? ` · đặt ${l.ordered}` : ''}${l.ai ? ' · 📖 máy đọc' : ''}</small>
       ${l.warn ? html`<small class="warn-text">⚠ ${l.warn}</small>` : null}
       ${!l.ingredient_id && (l.name || '').trim() ? (l.create_new
-        ? html`<small class="ok-text">➕ Sẽ tạo mới trong kho: <b>${l.name}</b> (${l.unit || 'cái'}) · <button class="link small" onClick=${() => setLines(lines.map((x, j) => (j === i ? { ...x, create_new: false } : x)))}>bỏ</button></small>`
-        : html`<select onChange=${(e) => { if (e.target.value === 'new') { setLines(lines.map((x, j) => (j === i ? { ...x, create_new: true, warn: '' } : x))); return; } const g = ingredients.find((x) => x.id === Number(e.target.value)); if (g) setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, warn: '' } : x))); }}>
-        <option value="">Là hàng trong kho… (bỏ qua nếu là hàng khác)</option>
-        <option value="new">➕ Tạo mới trong kho: ${l.name}</option>${ingredients.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>`) : null}
+        ? html`<small class="ok-text">✅ Lưu bill sẽ tạo mã mới trong kho: <b>${l.name}</b> (${l.unit || 'cái'}) · <button class="link small" onClick=${() => setLines(lines.map((x, j) => (j === i ? { ...x, create_new: false } : x)))}>bỏ</button></small>`
+        : html`<div class="stack tight">
+          <button class="primary small" onClick=${() => setLines(lines.map((x, j) => (j === i ? { ...x, create_new: true, warn: '' } : x)))}>✅ OK, tạo mã mới "${l.name}" trong kho</button>
+          <select onChange=${(e) => { const g = ingredients.find((x) => x.id === Number(e.target.value)); if (g) setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, warn: '' } : x))); }}>
+            <option value="">…hoặc là hàng có sẵn trong kho (tên khác)</option>${ingredients.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>
+          <small class="muted">Hàng không cần theo dõi kho (ga, đá…) thì để nguyên.</small></div>`) : null}
     </div>`)}
     <div class="row wrap">
       <select onChange=${(e) => { const g = ingredients.find((x) => x.id === Number(e.target.value)); e.target.value = ''; if (g && !lines.some((l) => l.ingredient_id === g.id)) setLines([...lines, { ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, qty: '', price: g.price || '' }]); }}>
@@ -86,7 +88,7 @@ function Receive({ me, meta, advances, onDone }) {
       const r = await api('POST', '/api/purchases/read-bill', { photos: pics });
       const got = r.lines.map((l) => ({ ingredient_id: l.ingredient_id || undefined, name: l.name, unit: l.unit, qty: String(l.qty), price: String(l.price), ai: true,
         bill_qty: l.bill_qty, bill_unit: l.bill_unit, bill_price: l.bill_price, use_unit: l.use_unit, pf: l.pf, factor: l.factor, need_factor: l.need_factor,
-        warn: !l.ingredient_id ? 'Không có trong kho: chọn hàng hoặc để là hàng khác' : l.need_factor ? `Nhập quy đổi: 1 ${l.bill_unit} = bao nhiêu ${l.use_unit}` : '' }));
+        warn: !l.ingredient_id ? 'Chưa có trong kho' : l.need_factor ? `Nhập quy đổi: 1 ${l.bill_unit} = bao nhiêu ${l.use_unit}` : '' }));
       setLines((cur) => (f.po_id ? cur.map((l) => { const g = got.find((x) => x.ingredient_id && x.ingredient_id === l.ingredient_id); return g ? { ...l, qty: g.qty, price: g.price, ai: true, warn: g.warn } : l; }).concat(got.filter((g) => !cur.some((l) => l.ingredient_id && l.ingredient_id === g.ingredient_id))) : got));
       setF((x) => ({ ...x, ...(x.po_id ? {} : { supplier_id: r.supplier_id ? String(r.supplier_id) : '', supplier_name: r.supplier_id ? '' : r.supplier_name }), total: r.total ? String(r.total) : x.total }));
       setReadNote(r.note);
