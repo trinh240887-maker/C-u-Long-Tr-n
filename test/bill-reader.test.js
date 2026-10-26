@@ -75,6 +75,14 @@ test('đọc bill qua app: nhân viên bấm Đọc bill → khớp NCC + hàng 
   const st = (await o('GET', '/api/stock/meta')).data.stores.find((x) => x.kind === 'main').id;
   const sv = await o('POST', '/api/purchases', { store_id: st, supplier_name: 'Swire Coca-Cola', signer_name: 'Phát', photos: [IMG], lines: [{ ingredient_id: ns, qty: 40, price: 34028 }], conversions: [{ ingredient_id: ns, bill_unit: 'Két', factor: 24 }] });
   assert.equal(sv.status, 200, JSON.stringify(sv.data));
+  // Huỷ bill nhập sai → trừ lại hàng đã cộng vào kho
+  const { stockQty } = await import('../server/lib/stock.js');
+  const before = stockQty(db, st, ns);
+  const sv2 = (await o('POST', '/api/purchases', { store_id: st, supplier_name: 'Tạp hoá Hiền', signer_name: 'Phát', photos: [IMG], lines: [{ ingredient_id: ns, qty: 2, price: 34028 }] })).data;
+  assert.ok(stockQty(db, st, ns) > before);
+  assert.equal((await o('POST', `/api/purchases/${sv2.id}/void`, {})).status, 400); // cần lý do
+  assert.equal((await o('POST', `/api/purchases/${sv2.id}/void`, { reason: 'Nhập sai giá' })).data.status, 'void');
+  assert.equal(stockQty(db, st, ns), before);
   rb = (await o('POST', '/api/purchases/read-bill', { photos: [IMG] })).data;
   assert.deepEqual([rb.lines[0].need_factor, rb.lines[0].factor, rb.lines[0].qty, rb.lines[0].price], [false, 24, 40, 34028]); // 20 két × 24 = 480 chai = 40 thùng
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('bill_reader_daily_max', '1')").run();

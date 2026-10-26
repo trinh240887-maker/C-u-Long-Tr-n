@@ -3,7 +3,7 @@ import { html, api, act, useData, Loading, money, hm, dayLabel, addDays, Modal, 
 import { compressImage } from './checklists.js';
 
 // Mua hàng: khu nhận hàng chụp bill NCC (ký nhận) → thu ngân duyệt → công nợ NCC → trả NCC / tạm ứng đi chợ
-const STATUS = { received: ['Chờ thu ngân duyệt', 'warn'], approved: ['Đã duyệt', 'ok'], returned: ['Bị trả lại, cần sửa', 'bad'] };
+const STATUS = { received: ['Chờ thu ngân duyệt', 'warn'], approved: ['Đã duyệt', 'ok'], returned: ['Bị trả lại, cần sửa', 'bad'], void: ['Đã huỷ', 'muted'] };
 const num = (s) => Number(String(s ?? '').replace(/[.\s]/g, '').replace(',', '.')) || 0;
 
 function Photos({ ids }) {
@@ -169,6 +169,7 @@ function BillCard({ b, canApprove, me }) {
       <button onClick=${() => setReason('')}>Trả lại</button></div>` : null}
     ${b.status === 'received' && b.received_by === me.id && me.role !== 'owner' ? html`<small class="muted">Chờ người khác duyệt (người nhận không tự duyệt).</small>` : null}
     ${b.status === 'returned' && b.received_by === me.id ? html`<${FixBill} b=${b} />` : null}
+    ${b.status === 'void' ? html`<p class="small muted">🗑 ${b.return_reason} (${b.returned_by_name})</p>` : (['manager', 'owner'].includes(me.role) || (b.status !== 'approved' && (b.received_by === me.id || canApprove))) ? html`<button class="link small danger-text" onClick=${() => { const r0 = prompt('Huỷ bill này? Hàng sẽ được trừ lại khỏi kho. Lý do:', 'Nhập sai'); if (r0) act(() => api('POST', `/api/purchases/${b.id}/void`, { reason: r0 }), 'Đã huỷ bill'); }}>🗑 Huỷ bill</button>` : null}
     ${reason != null ? html`<${Modal} title="Trả lại bill" onClose=${() => setReason(null)}>
       <${Field} label="Lý do (vd ảnh mờ, sai số lượng, sai tổng)"><input value=${reason} onInput=${(e) => setReason(e.target.value)} /><//>
       <button class="primary" disabled=${!reason} onClick=${async () => { if (await act(() => api('POST', `/api/purchases/${b.id}/return`, { reason }), 'Đã trả lại cho khu sửa')) setReason(null); }}>Trả lại</button><//>` : null}

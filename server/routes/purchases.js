@@ -6,6 +6,7 @@ import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
 import { isDate, addDays } from '../lib/time.js';
 import { makeXlsx } from '../lib/xlsx.js';
+import { takeLots, recordMove } from '../lib/stock.js';
 import { readBill, billReaderReady, billReaderKey } from '../lib/bill-reader.js';
 
 // Hoá đơn mua hàng + công nợ NCC + tạm ứng đi chợ.
@@ -293,6 +294,31 @@ export default function (r, ctx) {
     if (b.received_by) ctx.notify([b.received_by], { title: `Bill ${b.supplier_name} ${vnd(b.total)} bị trả lại`, body: `${reason}. Sửa lại rồi gửi duyệt.`, link: '/mua-hang', urgent: true });
     ctx.audit(me, 'purchase.return', { id: b.id, reason });
     ctx.broadcast('purchases');
+    return load(b.id);
+  });
+
+  // Huỷ bill nhập sai (chủ quán 26/10): trừ lại hàng đã cộng vào kho, bỏ khỏi công nợ / chi két. Không xoá, giữ lịch sử.
+  // Quản lý / chủ huỷ mọi bill; người nhận hoặc thu ngân huỷ được bill CHƯA duyệt.
+  r.post('/api/purchases/:id/void', 'staff', ({ me, params, body }) => {
+    const b = load(params.id);
+    if (b.status === 'void') fail(400, 'Bill đã huỷ');
+    const boss = rank(me.role) >= rank('manager');
+    if (!boss && !(b.status !== 'approved' && (b.received_by === me.id || isCashier(me)))) fail(403, b.status === 'approved' ? 'Bill đã duyệt: chỉ quản lý / chủ quán huỷ được' : 'Chỉ người nhận, thu ngân hoặc quản lý huỷ được');
+    const reason = v.text(body.reason, { name: 'Lý do huỷ', required: true, max: 200 });
+    const at = ctx.now(), date = ctx.today();
+    const store = ctx.effectiveStore ? ctx.effectiveStore(b.store_id) : b.store_id;
+    tx(db, () => {
+      for (const l of db.prepare('SELECT l.*, g.purchase_factor FROM purchase_bill_lines l LEFT JOIN ingredients g ON g.id = l.ingredient_id WHERE l.bill_id = ? AND l.ingredient_id IS NOT NULL').all(b.id)) {
+        const useQty = Math.round(l.qty * (l.purchase_factor || 1) * 1000) / 1000;
+        if (!(useQty > 0)) continue;
+        takeLots(db, { storeId: store, ingredientId: l.ingredient_id, qty: useQty, allowShort: true });
+        recordMove(db, { at, date, type: 'receive', ingredientId: l.ingredient_id, toStore: store, qty: -useQty, cost: -l.amount, ref: `void-bill:${b.id}`, staffId: me.id, note: `Huỷ bill nhập #${b.id}: ${reason}` });
+      }
+      db.prepare("UPDATE purchase_bills SET status = 'void', return_reason = ?, returned_by = ?, returned_at = ? WHERE id = ?").run(`Huỷ: ${reason}`, me.id, at, b.id);
+    });
+    ctx.notify(bosses().filter((x) => x !== me.id), { title: `Huỷ bill nhập ${b.supplier_name} ${vnd(b.total)}`, body: `${me.name}: ${reason}. Hàng đã trừ lại khỏi kho.`, link: '/mua-hang' });
+    ctx.audit(me, 'purchase.void', { id: b.id, reason });
+    ctx.broadcast('purchases'); ctx.broadcast('stock');
     return load(b.id);
   });
 
