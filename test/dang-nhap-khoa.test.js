@@ -17,6 +17,10 @@ test('Đăng nhập: 1 bạn nhập sai 5 lần chỉ khoá số của bạn đ�
   const base = `http://127.0.0.1:${server.address().port}`;
   const call = async (body, cookie = '') => { const res = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) }); return { status: res.status, cookie: (res.headers.get('set-cookie') || '').split(';')[0], data: await res.json() }; };
   const own = await call({ pin: DEFAULT_OWNER_PIN });
+  // Chủ quán chưa có SĐT: gõ SĐT + đúng PIN vẫn vào được, app lưu SĐT cho lần sau
+  const own2 = await call({ phone: '0934030287', pin: DEFAULT_OWNER_PIN });
+  assert.equal(own2.status, 200);
+  assert.equal((await call({ phone: '0934030287', pin: DEFAULT_OWNER_PIN })).status, 200);
   const mk = async (name, phone, pin) => (await fetch(base + '/api/staff', { method: 'POST', headers: { 'content-type': 'application/json', cookie: own.cookie }, body: JSON.stringify({ name, phone, pin, role: 'staff', team_id: 4 }) })).json();
   await mk('Huy', '0384034084', '583920');
   await mk('Lan', '0912000111', '692031');

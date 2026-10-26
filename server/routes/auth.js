@@ -32,6 +32,13 @@ export default function (r, ctx) {
     const st0 = /^\d{4,8}$/.test(pin) ? db.prepare('SELECT * FROM staff WHERE pin_lookup = ? AND active = 1').get(pinLookup(db, pin)) : null;
     let st = null;
     if (st0) st = phone ? (digits(st0.phone) === phone ? st0 : null) : (digits(st0.phone).length < 9 ? st0 : null);
+    // Tài khoản CHƯA có SĐT (vd chủ quán lúc mới cài) mà người đăng nhập gõ SĐT + đúng PIN → cho vào và lưu SĐT đó cho lần sau
+    // (chỉ khi SĐT chưa thuộc người khác) — trước đây báo "sai PIN" dù PIN đúng (chủ quán 26/10)
+    if (st0 && !st && phone && digits(st0.phone).length < 9 && /^0\d{9,10}$/.test(phone)
+      && !db.prepare('SELECT id, phone FROM staff WHERE id != ? AND active = 1').all(st0.id).some((x) => digits(x.phone) === phone)) {
+      db.prepare('UPDATE staff SET phone = ? WHERE id = ?').run(phone, st0.id);
+      st = { ...st0, phone };
+    }
     if (!st) {
       ctx.loginGuard.failed(net.ip, phone);
       fail(401, st0 && !phone ? 'Nhập số điện thoại của bạn rồi nhập PIN' : phone ? 'Số điện thoại hoặc mã PIN không đúng. Nếu bạn đã đổi PIN lần đầu, nhập PIN mới; quên PIN thì nhờ quản lý đặt lại' : 'Mã PIN không đúng');
