@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays } from '../ui.js';
 
-const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['linh', 'Lĩnh hàng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['ls', 'Lịch sử']];
+const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['ls', 'Lịch sử']];
 const STATUS = { out: ['Hết', 'bad'], low: ['Sắp hết', 'warn'], ok: ['Đủ', 'ok'] };
 const FRESH = { fresh: 'Đồ tươi', chilled: 'Đồ mát', dry: 'Đồ khô/đông' };
 const TR = { requested: ['Chờ kho tổng xuất', 'warn'], sent: ['Đã xuất, chờ khu nhận', 'warn'], received: ['Đã nhận', 'ok'], cancelled: ['Đã huỷ', 'muted'] };
@@ -437,6 +437,7 @@ export function StockView({ me, query }) {
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/kho?tab=${k}`)}>${l}</button>`)}</div>
     <button class="primary big" onClick=${() => navigate('/mua-hang?tab=nhan')}>📥 Nhập kho: chụp bill + hàng</button>
+    ${me.role === 'owner' && !me.wh_setup ? html`<button class="link small" onClick=${() => navigate('/kho-tx')}>🚀 Kho mới theo chứng từ (Kho & Tài sản): xem / bắt đầu khi sẵn sàng →</button>` : null}
     ${!meta.data ? html`<${Loading} state=${meta} />`
       : tab === 'kiem' ? html`<${Count} meta=${meta.data} />`
       : tab === 'linh' ? html`<${Transfers} me=${me} meta=${meta.data} />`

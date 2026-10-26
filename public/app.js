@@ -131,7 +131,8 @@ function ChangePin({ me, onDone }) {
 }
 
 function Shell({ me, children, path, online }) {
-  const items = NAV.filter((n) => canOpen(me, n));
+  // Chỉ 1 mục kho trên menu: chưa bật kho mới thì có Kho (chủ quán vào kho mới bằng nút trong Kho); đã chốt tồn kho mới thì nhân viên chỉ thấy Kho & Tài sản
+  const items = NAV.filter((n) => canOpen(me, n) && !(n.path === '/kho-tx' && !me.wh_setup) && !(n.path === '/kho' && me.wh_live && !atLeast(me, 'manager')));
   const main = items.filter((n) => n.main).slice(0, 4);
   const [more, setMore] = useState(false);
   const active = (p) => (p === '/' ? path === '/' : path.startsWith(p));
