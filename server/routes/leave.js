@@ -11,6 +11,7 @@ export default function (r, ctx) {
   // Nghỉ 1 khúc của ca (vd ca 8–12 + 14–23, xin nghỉ 8–12): khúc nghỉ tách thành ca riêng (group mới) để đơn chỉ áp vào khúc đó;
   // từ chối thì gộp lại như cũ. orig_group = ca gốc (chủ quán 25/10)
   if (!db.prepare('PRAGMA table_info(leave_requests)').all().some((c) => c.name === 'orig_group')) db.exec("ALTER TABLE leave_requests ADD COLUMN orig_group TEXT NOT NULL DEFAULT ''");
+  if (!db.prepare('PRAGMA table_info(leave_requests)').all().some((c) => c.name === 'bot_chat')) db.exec("ALTER TABLE leave_requests ADD COLUMN bot_chat TEXT NOT NULL DEFAULT ''"); // đơn xin qua nhóm Zalo → duyệt xong bot báo lại nhóm đó
   function splitOff(groupId, from, to) {
     const segs = groupSegments(db, groupId);
     const hit = segs.filter((x) => x.start_min < to && x.end_min > from);
@@ -57,7 +58,7 @@ export default function (r, ctx) {
 
   // ---------- Xin nghỉ ----------
   // Tạo đơn xin nghỉ cho 1 ca (dùng chung: màn Xin nghỉ và bot Zalo khi lịch tuần đã duyệt)
-  function createLeave(by, groupId0, reason, range = null) {
+  function createLeave(by, groupId0, reason, range = null, { chat = '' } = {}) {
     if (!shiftInfo(groupId0)) fail(404, 'Không tìm thấy ca');
     if (range && db.prepare("SELECT 1 FROM leave_requests WHERE group_id = ? AND status IN ('pending','approved')").get(groupId0)) fail(409, 'Ca này đã có đơn nghỉ');
     const groupId = range ? tx(db, () => splitOff(groupId0, range.from, range.to)) : groupId0;
@@ -68,8 +69,8 @@ export default function (r, ctx) {
     if (rangeOf(clock, info.segments.at(-1)).end < ctx.now()) fail(400, 'Ca này đã qua');
     const id = tx(db, () => {
       if (db.prepare("SELECT 1 FROM leave_requests WHERE group_id = ? AND status IN ('pending','approved')").get(groupId)) fail(409, 'Ca này đã có đơn nghỉ');
-      return Number(db.prepare('INSERT INTO leave_requests (staff_id, group_id, date, reason, created_at, orig_group) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(owner, groupId, info.date, reason, ctx.now(), groupId !== groupId0 ? groupId0 : '').lastInsertRowid);
+      return Number(db.prepare('INSERT INTO leave_requests (staff_id, group_id, date, reason, created_at, orig_group, bot_chat) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(owner, groupId, info.date, reason, ctx.now(), groupId !== groupId0 ? groupId0 : '', String(chat || '')).lastInsertRowid);
     });
     const person = ctx.staff(owner);
     const urgent = rangeOf(clock, info.segments[0]).start - ctx.now() < 12 * 3600_000;
@@ -241,6 +242,14 @@ export default function (r, ctx) {
     });
     if (replacementId) {
       ctx.notify(replacementId, { title: `Bạn có ca mới: ${label}`, body: `Làm thay ${l.staff_name}${info.team_name ? ` (${info.team_name})` : ''}.`, link: '/lich', urgent: true });
+    }
+    // Đơn xin qua nhóm Zalo → bot báo kết quả vào đúng nhóm đó
+    if (l.bot_chat && ctx.zaloBot?.ready?.()) {
+      const rest = l.orig_group ? groupSegments(db, l.orig_group) : [];
+      const restTxt = approve && rest.length ? ` · vẫn làm ${describeGroup(rest)}` : '';
+      const msg = approve ? `✅ Quản lý đã duyệt nghỉ: ${l.staff_name} ${label}${restTxt}${replacementId ? ` · người làm thay: ${ctx.staff(replacementId).name}` : ''}`
+        : `❌ Quản lý chưa duyệt nghỉ: ${l.staff_name} ${label}. Bạn vẫn đi làm ca này${note ? ` (${note})` : ''}`;
+      ctx.zaloBot.send(l.bot_chat, msg).catch((e) => console.error('Bot báo duyệt nghỉ lỗi:', e.message));
     }
     ctx.audit(me, approve ? 'leave.approve' : 'leave.reject', { id: l.id, replacementId });
     ctx.broadcast('leave');

@@ -161,6 +161,21 @@ test('bot đọc tin @bot trong nhóm nhân viên → tự điền lịch rảnh
   assert.equal(lv.orig_group, 'gx');
   assert.deepEqual(db.prepare('SELECT start_min, end_min FROM assignments WHERE group_id = ?').all(lv.group_id).map((x) => [x.start_min, x.end_min]), [[480, 720]]);
   assert.deepEqual(db.prepare("SELECT start_min, end_min FROM assignments WHERE group_id = 'gx'").all().map((x) => [x.start_min, x.end_min]), [[840, 1380]]);
+  assert.equal(lv.bot_chat, 'grpNV');
+  // Quản lý duyệt → bot báo lại đúng nhóm
+  const http = (await import('node:http')).default;
+  const { DEFAULT_OWNER_PIN } = await import('../server/db.js');
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const lg2 = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: DEFAULT_OWNER_PIN }) });
+  const cookie = lg2.headers.get('set-cookie').split(';')[0];
+  const dr = await fetch(`${base}/api/leave/${lv.id}/decide`, { method: 'POST', headers: { 'content-type': 'application/json', cookie }, body: JSON.stringify({ approve: true }) });
+  assert.equal(dr.status, 200, await dr.text());
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(sent.at(-1).chat, 'grpNV');
+  assert.match(sent.at(-1).text, /Quản lý đã duyệt nghỉ: Nguyễn Hồng Phúc .*08:00.*12:00.*vẫn làm 14:00.*23:00/);
+  await new Promise((r) => server.close(r));
 });
 
 test('bot: người mới báo lịch → hướng dẫn đăng ký, giữ lịch; quản lý duyệt → điền lịch + báo nhóm; người đã nghỉ việc không ghi', async (t) => {

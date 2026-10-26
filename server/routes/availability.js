@@ -292,7 +292,7 @@ export default function (r, ctx) {
     for (const c of cuts) { const r = ctx.availRange(c); parts = parts.flatMap(([a, b]) => (r.end <= a || r.start >= b ? [[a, b]] : [[a, r.start], [r.end, b]].filter(([x, y]) => y - x >= 30))); }
     return parts.map(([a, b]) => `${hhmm(a)}-${hhmm(b)}`);
   };
-  function applyBot(staffId, picks, off, offParts = {}) {
+  function applyBot(staffId, picks, off, offParts = {}, { chat = '' } = {}) {
     const today = ctx.today(), from = weekStart(today);
     // Nghỉ 1 khúc: lịch rảnh ngày đó = lịch đang có trừ khúc nghỉ
     picks = { ...picks };
@@ -328,7 +328,7 @@ export default function (r, ctx) {
           for (const g of groups) {
             const segs = db.prepare('SELECT start_min, end_min FROM assignments WHERE group_id = ?').all(g);
             if (!segs.some((x) => x.start_min < r0.end && x.end_min > r0.start)) continue;
-            try { const r = ctx.createLeave(null, g, `Báo nghỉ ${hhmm(r0.start)}–${hhmm(r0.end)} qua nhóm Zalo (bot)`, { from: r0.start, to: r0.end }); leaves.push({ date: d, label: r.label, status: 'new', part: `${hhmm(r0.start)}–${hhmm(r0.end)}` }); }
+            try { const r = ctx.createLeave(null, g, `Báo nghỉ ${hhmm(r0.start)}–${hhmm(r0.end)} qua nhóm Zalo (bot)`, { from: r0.start, to: r0.end }, { chat }); leaves.push({ date: d, label: r.label, status: 'new', part: `${hhmm(r0.start)}–${hhmm(r0.end)}` }); }
             catch (e) { leaves.push({ date: d, label: '', status: /đã có đơn/.test(e.message) ? 'pending' : 'err', err: e.message }); }
           }
         }
@@ -339,7 +339,7 @@ export default function (r, ctx) {
         for (const g of groups) {
           const had = db.prepare("SELECT status FROM leave_requests WHERE group_id = ? AND status IN ('pending','approved')").get(g);
           if (had) { leaves.push({ date: d, label: '', status: had.status }); continue; }
-          try { const r = ctx.createLeave(null, g, `Báo nghỉ qua nhóm Zalo (bot) ${ddmm(d)}`); leaves.push({ date: d, label: r.label, status: 'new' }); } catch { /* ca đã qua */ }
+          try { const r = ctx.createLeave(null, g, `Báo nghỉ qua nhóm Zalo (bot) ${ddmm(d)}`, null, { chat }); leaves.push({ date: d, label: r.label, status: 'new' }); } catch { /* ca đã qua */ }
         }
       } else changed.push(d);
     }
@@ -444,7 +444,7 @@ export default function (r, ctx) {
     const lines = [];
     let locked = false;
     for (const person of p.people) {
-      const r = applyBot(person.id, p.picks, p.off, p.offParts || {});
+      const r = applyBot(person.id, p.picks, p.off, p.offParts || {}, { chat: u.chat.id });
       if (!r.dates.length) { lines.push(`• ${person.name}: ngày đã qua, không ghi`); continue; }
       if (r.changed.length) locked = true;
       const offTxt = Object.entries(p.offParts || {}).map(([d, x]) => `${dayTxt(d)} nghỉ ${x.map((y) => y.replace('-', '–')).join(', ')}`).join(' · ');
