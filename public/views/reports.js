@@ -18,6 +18,24 @@ function presets(today) {
   ];
 }
 
+// Chọn kỳ (chủ quán 26/10): mặc định Hôm nay; các kỳ khác gom vào Tuỳ chọn để không bấm lộn
+function Period({ today, sel, setSel, custom, setCustom }) {
+  const list = presets(today);
+  const [open, setOpen] = useState(false);
+  const cur = list.find((p) => p[0] === sel);
+  const other = sel !== 'today';
+  return html`<div class="stack tight">
+    <div class="chips">
+      <button class=${`chip ${sel === 'today' ? 'on' : ''}`} onClick=${() => { setSel('today'); setOpen(false); }}>Hôm nay</button>
+      <button class=${`chip ${other ? 'on' : ''}`} onClick=${() => setOpen(!open)}>Tuỳ chọn${other ? `: ${cur ? cur[1] : 'chọn ngày'}` : ''} ${open ? '▴' : '▾'}</button></div>
+    ${open ? html`<div class="chips">${list.filter(([id]) => id !== 'today').map(([id, l]) => html`<button class=${`chip ${sel === id ? 'on' : ''}`} onClick=${() => { setSel(id); setOpen(false); }}>${l}</button>`)}
+      ${setCustom ? html`<button class=${`chip ${sel === 'custom' ? 'on' : ''}`} onClick=${() => setSel('custom')}>Chọn ngày</button>` : null}</div>` : null}
+    ${sel === 'custom' && setCustom ? html`<div class="row wrap">
+      <label>Từ <input type="date" value=${custom.from} max=${today} onChange=${(e) => setCustom({ ...custom, from: e.target.value })} /></label>
+      <label>Đến <input type="date" value=${custom.to} max=${today} onChange=${(e) => setCustom({ ...custom, to: e.target.value })} /></label></div>` : null}
+  </div>`;
+}
+
 function Delta({ cur, prev, invert }) {
   if (!prev) return html`<small class="muted">kỳ trước: 0</small>`;
   const p = Math.round(((cur - prev) / prev) * 1000) / 10;
@@ -49,7 +67,7 @@ function DayChart({ days }) {
 function SalesReport({ me }) {
   const today = me.today;
   const list = presets(today);
-  const [sel, setSel] = useState('7d');
+  const [sel, setSel] = useState('today');
   const [custom, setCustom] = useState({ from: addDays(today, -29), to: today });
   const [from, to] = sel === 'custom' ? [custom.from, custom.to] : list.find((p) => p[0] === sel).slice(2);
   const st = useData(`/api/reports/sales?from=${from}&to=${to}`);
@@ -58,11 +76,7 @@ function SalesReport({ me }) {
   const s = x?.summary;
   const p = x?.prev;
   return html`<div class="stack">
-    <div class="chips">${list.map(([id, l]) => html`<button class=${`chip ${sel === id ? 'on' : ''}`} onClick=${() => setSel(id)}>${l}</button>`)}
-      <button class=${`chip ${sel === 'custom' ? 'on' : ''}`} onClick=${() => setSel('custom')}>Tuỳ chọn</button></div>
-    ${sel === 'custom' ? html`<div class="row wrap">
-      <label>Từ <input type="date" value=${custom.from} max=${today} onChange=${(e) => setCustom({ ...custom, from: e.target.value })} /></label>
-      <label>Đến <input type="date" value=${custom.to} max=${today} onChange=${(e) => setCustom({ ...custom, to: e.target.value })} /></label></div>` : null}
+    <${Period} today=${today} sel=${sel} setSel=${setSel} custom=${custom} setCustom=${setCustom} />
     ${!x ? html`<${Loading} state=${st} />` : html`
       <div class="row between wrap"><b>${from === to ? dm(from) : `${dm(from)} – ${dm(to)}`}</b>
         <a class="button" href=${`/api/reports/sales.xlsx?from=${from}&to=${to}`} download>⬇ Xuất Excel</a></div>
@@ -121,8 +135,8 @@ function SalesReport({ me }) {
 // Năng suất & chi phí nhân sự (chủ + quản lý)
 function LaborReport({ me }) {
   const today = me.today;
-  const list = presets(today).filter(([id]) => id !== 'today');
-  const [sel, setSel] = useState('7d');
+  const list = presets(today);
+  const [sel, setSel] = useState('today');
   const [from, to] = list.find((p) => p[0] === sel).slice(2);
   const st = useData(`/api/reports/labor?from=${from}&to=${to}`);
   const x = st.data;
@@ -130,8 +144,8 @@ function LaborReport({ me }) {
   const s = x.summary;
   const bad = s.pct != null && s.pct > x.target;
   return html`<div class="stack">
-    <div class="chips">${list.map(([id, l]) => html`<button class=${`chip ${sel === id ? 'on' : ''}`} onClick=${() => setSel(id)}>${l}</button>`)}</div>
-    <div class="row between wrap"><b>${dm(from)} – ${dm(to)}</b><a class="button" href=${`/api/reports/labor.xlsx?from=${from}&to=${to}`} download>⬇ Xuất Excel</a></div>
+    <${Period} today=${today} sel=${sel} setSel=${setSel} />
+    <div class="row between wrap"><b>${from === to ? dm(from) : `${dm(from)} – ${dm(to)}`}</b><a class="button" href=${`/api/reports/labor.xlsx?from=${from}&to=${to}`} download>⬇ Xuất Excel</a></div>
     <section class="kpis">
       <div class=${`kpi main ${bad ? 'warn' : ''}`}><small>Lương / doanh thu</small><b>${s.pct == null ? '—' : `${s.pct.toLocaleString('vi-VN')}%`}</b><small class=${bad ? 'danger-text' : 'muted'}>mục tiêu ${x.target}% · lương ${money(s.labor_cost)} / doanh thu ${money(s.revenue)}</small></div>
       <div class="kpi"><small>Giờ công</small><b>${s.hours} giờ</b><small class="muted">${s.people} người</small></div>
