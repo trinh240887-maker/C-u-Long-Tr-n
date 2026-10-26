@@ -143,7 +143,7 @@ const GROUPS = [
 const groupOf = (p) => GROUPS.find((g) => g.tabs.some(([x]) => x === p));
 function menuItems(me) {
   // Chỉ 1 mục kho trên menu: chưa bật kho mới thì có Kho (chủ quán vào kho mới bằng nút trong Kho); đã chốt tồn kho mới thì nhân viên chỉ thấy Kho & Tài sản
-  const raw = NAV.filter((n) => canOpen(me, n) && !(n.path === '/kho-tx' && !me.wh_setup) && !(n.path === '/kho' && me.wh_live && !atLeast(me, 'manager')));
+  const raw = NAV.filter((n) => canOpen(me, n) && !(n.path === '/kho-tx' && !me.wh_live) && !(n.path === '/kho' && me.wh_live && !atLeast(me, 'manager')));
   const out = [];
   for (const n of raw) {
     const g = groupOf(n.path);
