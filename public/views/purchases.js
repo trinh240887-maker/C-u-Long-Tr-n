@@ -14,7 +14,8 @@ function Photos({ ids }) {
     ${view ? html`<div class="viewer" onClick=${() => setView(null)}><img src=${`/api/purchases/photo/${view}`} alt="Ảnh bill" /></div>` : null}</div>`;
 }
 
-function PhotoPicker({ photos, setPhotos, first = '📷 Chụp bill NCC (bắt buộc, thấy rõ chữ ký người nhận)', more = '📷 Chụp thêm trang bill', onAdded = null }) {
+// gallery: cho chọn ảnh có sẵn (chỉ quản lý / chủ quán, hoặc ảnh chuyển khoản). Nhân viên nhận hàng phải chụp trực tiếp bill + hàng (chủ quán 26/10)
+function PhotoPicker({ photos, setPhotos, first = '📷 Chụp bill NCC (bắt buộc, thấy rõ chữ ký người nhận)', more = '📷 Chụp thêm trang bill', onAdded = null, gallery = false }) {
   const [busy, setBusy] = useState(false);
   const add = async (e) => {
     const files = [...(e.target.files || [])];
@@ -26,7 +27,7 @@ function PhotoPicker({ photos, setPhotos, first = '📷 Chụp bill NCC (bắt b
     ${photos.length ? html`<div class="thumbs">${photos.map((p, i) => html`<span class="thumb"><img src=${p} alt="Ảnh" /><button class="x" aria-label="Xoá ảnh" onClick=${() => setPhotos(photos.filter((_, k) => k !== i))}>✕</button></span>`)}</div>` : null}
     ${photos.length < 4 ? html`<label class=${`btn-photo ${photos.length ? '' : 'need'}`}><input type="file" accept="image/*" capture="environment" multiple hidden onChange=${add} />
       ${busy ? 'Đang xử lý ảnh…' : photos.length ? more : first}</label>
-      <label class="button small" style="align-self:flex-start">🖼 Chọn ảnh có sẵn (bill NCC gửi qua Zalo)<input type="file" accept="image/*" multiple hidden onChange=${add} /></label>` : null}
+      ${gallery ? html`<label class="button small" style="align-self:flex-start">🖼 Chọn ảnh có sẵn<input type="file" accept="image/*" multiple hidden onChange=${add} /></label>` : null}` : null}
   </div>`;
 }
 
@@ -132,7 +133,7 @@ function Receive({ me, meta, advances, onDone }) {
   const myPos = (pos.data || []).filter((p) => stores.some((s) => s.id === p.store_id));
   return html`<div class="stack">
     <section class="card stack"><h3>1 · Chụp ảnh</h3>
-      <${PhotoPicker} photos=${photos} setPhotos=${setPhotos} onAdded=${onBill} first="📷 Chụp BILL (bắt buộc)" more="📷 Thêm trang bill" />
+      <${PhotoPicker} photos=${photos} setPhotos=${setPhotos} onAdded=${onBill} first="📷 Chụp BILL (bắt buộc)" more="📷 Thêm trang bill" gallery=${['manager', 'owner'].includes(me.role)} />
       <${PhotoPicker} photos=${goods} setPhotos=${setGoods} first="📷 Chụp HÀNG thực nhận (bắt buộc)" more="📷 Thêm ảnh hàng" />
     </section>
     <section class="card stack"><h3>2 · Hàng nhận ${lines.length ? html`<small class="muted">${lines.length} dòng · ${money(sum)}</small>` : null}</h3>
@@ -293,7 +294,7 @@ function PayModal({ s, txns, boss, preset, onClose }) {
     <div class="chips">${[['transfer', 'Chuyển khoản', 'drawer'], ['cash', 'Tiền mặt từ két', 'drawer'], ...(boss ? [['cash', 'Tiền mặt quản lý giữ', 'manager']] : [])].map(([k, l, src]) => html`<button class=${`chip ${f.method === k && (k === 'transfer' || f.source === src) ? 'on' : ''}`} onClick=${() => setF({ ...f, method: k, source: src })}>${l}</button>`)}</div>
     ${f.method === 'transfer' && txns.length ? html`<${Field} label="Giao dịch ngân hàng (tiền ra, SePay báo)"><select value=${f.bank_txn_id} onChange=${(e) => { const t = txns.find((x) => x.id === Number(e.target.value)); setF({ ...f, bank_txn_id: e.target.value, amount: t ? String(t.amount) : f.amount }); }}>
       <option value="">Chưa có / chụp màn hình CK</option>${txns.map((t) => html`<option value=${t.id}>${money(t.amount)} · ${t.content} · ${t.date}</option>`)}</select><//>` : null}
-    ${!f.bank_txn_id ? html`<${PhotoPicker} photos=${photos} setPhotos=${setPhotos} />` : null}
+    ${!f.bank_txn_id ? html`<${PhotoPicker} photos=${photos} setPhotos=${setPhotos} gallery=${true} />` : null}
     <${Field} label="Ghi chú"><input value=${f.note} onInput=${(e) => setF({ ...f, note: e.target.value })} /><//>
     ${!f.bank_txn_id && !photos.length ? html`<small class="warn-text">Chụp ảnh chứng từ (ảnh CK / giấy nhận tiền) để đối chiếu trên phiếu.</small>` : null}
     <button class="primary" disabled=${!f.bank_txn_id && !photos.length} onClick=${async () => { const r = await act(() => api('POST', `/api/suppliers/${s.id}/pay`, { amount: num(f.amount), method: f.method, source: f.source, bill_ids: pick, note: [pick.length ? `Trả phiếu ${pick.map((x) => `#${x}`).join(', ')}` : '', f.note].filter(Boolean).join(' · '), bank_txn_id: f.bank_txn_id ? Number(f.bank_txn_id) : undefined, photo: photos[0] })); if (r) { onClose(); } }}>Ghi khoản trả</button>
