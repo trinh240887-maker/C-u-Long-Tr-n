@@ -104,6 +104,10 @@ export default function (r, ctx) {
       photos: db.prepare("SELECT id FROM purchase_bill_photos WHERE bill_id = ? AND kind = 'bill' ORDER BY id").all(b.id).map((p) => p.id),
       goods_photos: db.prepare("SELECT id FROM purchase_bill_photos WHERE bill_id = ? AND kind = 'goods' ORDER BY id").all(b.id).map((p) => p.id),
       owed: b.status === 'approved' && b.supplier_id && typeof openBills === 'function' ? openBills(b.supplier_id).find((x) => x.id === b.id)?.remaining ?? 0 : null,
+      // Các lần trả cho đúng phiếu này (kèm ảnh chứng từ) để đối chiếu ngay trên phiếu
+      payments: b.supplier_id ? db.prepare("SELECT p.id, p.date, p.amount, p.method, p.source, p.status, p.note, p.photo, p.bill_ids, p.bank_txn_id, c.name AS by_name FROM supplier_payments p LEFT JOIN staff c ON c.id = p.created_by WHERE p.supplier_id = ? AND p.bill_ids LIKE ? AND p.status != 'rejected' ORDER BY p.id")
+        .all(b.supplier_id, `%${b.id}%`).filter((p) => { try { return JSON.parse(p.bill_ids || '[]').map(Number).includes(b.id); } catch { return false; } })
+        .map(({ photo, bill_ids, ...p }) => ({ ...p, has_photo: !!photo })) : [],
     };
   }
 
@@ -457,6 +461,14 @@ export default function (r, ctx) {
     ctx.audit(me, 'supplier.pay', { id, supplier: s.id, amount, method, pending: needOk });
     ctx.broadcast('purchases');
     return { id, status: needOk ? 'pending' : 'done', debt: balance(s.id) };
+  });
+
+  r.get('/api/supplier-payments/:id/photo', 'staff', ({ me, params }) => {
+    if (!isCashier(me)) fail(403, 'Chỉ thu ngân / quản lý');
+    const p = db.prepare('SELECT photo FROM supplier_payments WHERE id = ?').get(params.id);
+    if (!p?.photo) fail(404, 'Không có ảnh');
+    let buf; try { buf = fs.readFileSync(path.join(photoDir, p.photo)); } catch { fail(410, 'Ảnh không còn'); }
+    return { __binary: buf, type: p.photo.endsWith('.png') ? 'image/png' : p.photo.endsWith('.webp') ? 'image/webp' : 'image/jpeg' };
   });
 
   r.post('/api/supplier-payments/:id/approve', 'manager', ({ me, params, body }) => {

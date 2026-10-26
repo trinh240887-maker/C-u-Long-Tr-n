@@ -109,6 +109,8 @@ test('hoá đơn mua: khu nhận + chụp bill + ký nhận → thu ngân (khác
   assert.equal(ob.find((x) => x.id === b2.id).remaining, 1_500_000);
   assert.equal(ob.find((x) => x.id === b1.id).remaining, 4_000_000);
   assert.equal((await ngan('GET', '/api/purchases')).data.bills.find((x) => x.id === b2.id).owed, 1_500_000);
+  const pb = (await ngan('GET', '/api/purchases')).data.bills.find((x) => x.id === b2.id).payments;
+  assert.equal(pb.length, 1); assert.equal(pb[0].amount, 500_000);
   const p2 = (await ngan('POST', `/api/suppliers/${ncc}/pay`, { amount: 5_500_000, method: 'transfer' })).data;
   assert.equal(p2.status, 'pending');
   assert.equal(note(/^Duyệt chi NCC: Sạp thịt/).length, 1);

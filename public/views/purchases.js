@@ -161,6 +161,7 @@ function Receive({ me, meta, advances, onDone }) {
 function BillCard({ b, canApprove, me }) {
   const [reason, setReason] = useState(null);
   const [edit, setEdit] = useState(false);
+  const [payBill, setPayBill] = useState(false);
   const [st, cls] = STATUS[b.status] || [b.status, ''];
   return html`<section class=${`card stack ${b.flags.length && b.status === 'received' ? 'warn-card' : ''}`}>
     <div class="row between wrap"><b>${b.supplier_name} · ${money(b.total)}</b><span class=${`pill ${cls}`}>${st}</span></div>
@@ -172,6 +173,12 @@ function BillCard({ b, canApprove, me }) {
     <details><summary class="small">${b.lines.length} dòng hàng · cộng ${money(b.lines_total)}</summary>
       <table class="list small"><tbody>${b.lines.map((l) => html`<tr><td>${l.name}</td><td class="r">${l.qty} ${l.unit}</td><td class="r">${money(l.price)}</td><td class="r">${money(l.amount)}</td></tr>`)}</tbody></table></details>
     ${b.status === 'returned' ? html`<p class="small danger-text">Trả lại: ${b.return_reason} (${b.returned_by_name})</p>` : null}
+    ${b.paid_now ? html`<small class="muted">Trả tại chỗ ${money(b.paid_now)} (${b.paid_method === 'cash' ? 'tiền mặt' : b.paid_method === 'advance' ? 'tạm ứng' : 'CK'})</small>` : null}
+    ${(b.payments || []).length ? html`<div class="stack tight"><small class="muted">Đã trả cho phiếu này:</small>
+      ${b.payments.map((p) => html`<div class="row wrap tight pay-row">${p.has_photo ? html`<a href=${`/api/supplier-payments/${p.id}/photo`} target="_blank"><img src=${`/api/supplier-payments/${p.id}/photo`} style="width:56px;height:56px;object-fit:cover;border-radius:8px" /></a>` : null}
+        <small><b>${money(p.amount)}</b> · ${p.date.split('-').reverse().join('/')} · ${p.method === 'cash' ? (p.source === 'manager' ? 'TM quản lý giữ' : 'TM từ két') : 'CK'}${p.bank_txn_id ? ' (khớp sao kê)' : ''} · ${p.by_name}${p.status === 'pending' ? ' · ⏳ chờ duyệt' : ''}</small></div>`)}</div>` : null}
+    ${b.status === 'approved' && b.owed > 0 && canApprove ? html`<button class="small primary" onClick=${() => setPayBill(true)}>💵 Trả phiếu này (${money(b.owed)})</button>` : null}
+    ${payBill ? html`<${BillPay} b=${b} onClose=${() => setPayBill(false)} />` : null}
     ${b.status === 'approved' ? html`<small class="muted">Duyệt: ${b.approved_by_name} · ${hm(b.approved_at)}${b.owed != null ? html` · ${b.owed > 0 ? html`<b class="danger-text">còn nợ ${money(b.owed)}</b>` : html`<b class="ok-text">đã trả đủ</b>`}` : ''}</small>` : null}
     ${b.status === 'received' && canApprove && (b.received_by !== me.id || me.role === 'owner') ? html`<div class="row">
       <button class="primary" onClick=${() => act(() => api('POST', `/api/purchases/${b.id}/approve`), 'Đã duyệt, cộng công nợ')}>✓ Đúng, duyệt</button>
@@ -245,10 +252,19 @@ function Debts({ me }) {
   </div>`;
 }
 
-function PayModal({ s, txns, boss, onClose }) {
-  const [f, setF] = useState({ amount: String(s.debt), method: 'transfer', note: '', bank_txn_id: '', source: 'drawer' });
+// Trả đúng 1 phiếu ngay trên phiếu đó: lấy NCC + giao dịch ngân hàng chưa gán rồi mở form trả với phiếu đã chọn sẵn
+function BillPay({ b, onClose }) {
+  const d = useData('/api/suppliers/debts');
+  if (!d.data) return html`<${Modal} title="Trả phiếu" onClose=${onClose}><${Loading} state=${d} /><//>`;
+  const s = d.data.suppliers.find((x) => x.id === b.supplier_id);
+  if (!s) return html`<${Modal} title="Trả phiếu" onClose=${onClose}><p class="muted">Không tìm thấy nhà cung cấp.</p><//>`;
+  return html`<${PayModal} s=${s} txns=${d.data.out_txns} boss=${d.data.is_boss} preset=${b} onClose=${onClose} />`;
+}
+
+function PayModal({ s, txns, boss, preset, onClose }) {
+  const [f, setF] = useState({ amount: String(preset ? preset.owed : s.debt), method: 'transfer', note: '', bank_txn_id: '', source: 'drawer' });
   const [photos, setPhotos] = useState([]);
-  const [pick, setPick] = useState([]);
+  const [pick, setPick] = useState(preset ? [preset.id] : []);
   const open = s.open_bills || [];
   const toggle = (b) => { const nx = pick.includes(b.id) ? pick.filter((x) => x !== b.id) : [...pick, b.id]; setPick(nx); if (nx.length) setF({ ...f, amount: String(open.filter((x) => nx.includes(x.id)).reduce((n, x) => n + x.remaining, 0)) }); };
   return html`<${Modal} title=${`Trả ${s.name}`} onClose=${onClose}>
@@ -261,7 +277,8 @@ function PayModal({ s, txns, boss, onClose }) {
       <option value="">Chưa có / chụp màn hình CK</option>${txns.map((t) => html`<option value=${t.id}>${money(t.amount)} · ${t.content} · ${t.date}</option>`)}</select><//>` : null}
     ${!f.bank_txn_id ? html`<${PhotoPicker} photos=${photos} setPhotos=${setPhotos} />` : null}
     <${Field} label="Ghi chú"><input value=${f.note} onInput=${(e) => setF({ ...f, note: e.target.value })} /><//>
-    <button class="primary" onClick=${async () => { const r = await act(() => api('POST', `/api/suppliers/${s.id}/pay`, { amount: num(f.amount), method: f.method, source: f.source, bill_ids: pick, note: [pick.length ? `Trả phiếu ${pick.map((x) => `#${x}`).join(', ')}` : '', f.note].filter(Boolean).join(' · '), bank_txn_id: f.bank_txn_id ? Number(f.bank_txn_id) : undefined, photo: photos[0] })); if (r) { onClose(); } }}>Ghi khoản trả</button>
+    ${!f.bank_txn_id && !photos.length ? html`<small class="warn-text">Chụp ảnh chứng từ (ảnh CK / giấy nhận tiền) để đối chiếu trên phiếu.</small>` : null}
+    <button class="primary" disabled=${!f.bank_txn_id && !photos.length} onClick=${async () => { const r = await act(() => api('POST', `/api/suppliers/${s.id}/pay`, { amount: num(f.amount), method: f.method, source: f.source, bill_ids: pick, note: [pick.length ? `Trả phiếu ${pick.map((x) => `#${x}`).join(', ')}` : '', f.note].filter(Boolean).join(' · '), bank_txn_id: f.bank_txn_id ? Number(f.bank_txn_id) : undefined, photo: photos[0] })); if (r) { onClose(); } }}>Ghi khoản trả</button>
   <//>`;
 }
 
