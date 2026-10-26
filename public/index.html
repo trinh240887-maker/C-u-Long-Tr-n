@@ -20,5 +20,14 @@
   <p id="boot">Đang mở app…</p>
   <noscript>Cần bật JavaScript để dùng app.</noscript>
   <script type="module" src="/app.js"></script>
+  <script>
+    // Server đang khởi động lại (đẩy code) → file app tải hụt, màn hình kẹt "Đang mở app…": báo + tự tải lại
+    setTimeout(function () {
+      if (document.getElementById('root').childNodes.length) return;
+      var b = document.getElementById('boot');
+      b.innerHTML = 'Mạng chậm hoặc app đang cập nhật…<br><br><button onclick="location.reload()" style="font-size:18px;padding:12px 24px;border-radius:12px;border:0;background:#7c2d12;color:#fff">Tải lại</button><br><small>Tự tải lại sau 10 giây</small>';
+      setTimeout(function () { if (!document.getElementById('root').childNodes.length) location.reload(); }, 10000);
+    }, 8000);
+  </script>
 </body>
 </html>
