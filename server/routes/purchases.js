@@ -178,7 +178,16 @@ export default function (r, ctx) {
     if (paidNow > total) fail(400, 'Số đã trả lớn hơn tổng bill');
     if (paidMethod === 'cash' && !isCashier(me)) fail(403, 'Trả tiền mặt tại chỗ: thu ngân bấm, hoặc chọn "ghi nợ"');
     const date = ctx.today();
+    const created = [];
     const id = tx(db, () => {
+      // Hàng chưa có trong kho mà người nhận chọn "Tạo mới trong kho" → tạo nguyên liệu theo tên / đơn vị / giá trên bill (chủ quán 26/10)
+      for (const l of lines) {
+        if (l.ingredient_id || !l.raw?.create_new) continue;
+        const unit = (l.unit || '').trim() || 'cái';
+        const ex = db.prepare('SELECT id, purchase_unit, unit FROM ingredients WHERE lower(name) = lower(?) AND active = 1').get(l.name);
+        l.ingredient_id = ex ? ex.id : Number(db.prepare("INSERT INTO ingredients (name, unit, freshness, home_store_id, purchase_unit, purchase_factor, price) VALUES (?, ?, 'dry', ?, ?, 1, ?)").run(l.name, unit, storeId, unit, l.price).lastInsertRowid);
+        if (ex) l.unit = ex.purchase_unit || ex.unit; else created.push(l.name);
+      }
       const { oldPrice } = ctx.stockReceive(me, { poId, storeId, lines: lines.filter((l) => l.ingredient_id).map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, price: l.price, expires_on: l.raw.expires_on })) });
       const flags = flagsOf({ total, lines, po, oldPrice });
       const id = Number(db.prepare(`INSERT INTO purchase_bills (supplier_id, supplier_name, store_id, po_id, date, total, lines_total, paid_now, paid_method, advance_id, signer_name, note, flags, received_by, received_at)
@@ -197,6 +206,11 @@ export default function (r, ctx) {
       return id;
     });
     const b = load(id);
+    if (created.length) {
+      ctx.audit(me, 'ingredient.create_from_bill', { bill: id, names: created });
+      ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager')").all().map((x) => x.id).filter((x) => x !== me.id),
+        { title: `Nguyên liệu mới từ bill: ${created.join(', ')}`, body: `${me.name} tạo khi nhập bill ${b.supplier_name}. Kiểm tra quy đổi (Kho → ⚖ Quy đổi) và khu chính.`, link: '/kho?tab=quydoi' });
+    }
     ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Hoá đơn mua chờ duyệt: ${b.supplier_name} ${vnd(total)}`, body: `${b.store_name || ''} · nhận bởi ${me.name}, ký ${signer}${b.flags.length ? ` · ${b.flags.length} điểm cần xem` : ''}`, link: '/mua-hang', urgent: b.flags.length > 0 });
     ctx.audit(me, 'purchase.receive', { id, total, supplier: b.supplier_name });
     ctx.broadcast('purchases');

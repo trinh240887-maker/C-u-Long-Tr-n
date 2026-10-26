@@ -166,4 +166,11 @@ test('hoá đơn mua: khu nhận + chụp bill + ký nhận → thu ngân (khác
   assert.equal((await ngan('GET', '/api/purchases')).data.bills.length, 6);
   assert.equal((await mai('GET', '/api/purchases')).data.bills.length, 0);
   assert.equal(app.ctx.purchaseDay(D).bills.n, 6);
+  // Hàng chưa có trong kho: người nhận chọn "Tạo mới trong kho" → tạo nguyên liệu theo tên / đơn vị / giá bill, hàng vào kho, báo chủ quán
+  const rNew = await tai('POST', '/api/purchases', { store_id: lau.id, supplier_id: ncc, signer_name: 'Lê Thanh Phát', total: 610000, photos: [IMG], lines: [{ name: 'Tương ớt', unit: 'thùng', qty: 2, price: 305000, create_new: true }] });
+  assert.equal(rNew.status, 200, JSON.stringify(rNew.data));
+  const tuong = db.prepare("SELECT * FROM ingredients WHERE name = 'Tương ớt'").get();
+  assert.ok(tuong && tuong.unit === 'thùng' && tuong.price === 305000 && tuong.home_store_id === lau.id);
+  assert.equal(stockOf(tuong.id, lau.id), 2);
+  assert.ok(note(/Nguyên liệu mới từ bill: Tương ớt/).length);
 });

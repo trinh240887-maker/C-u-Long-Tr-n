@@ -54,8 +54,11 @@ function Lines({ lines, setLines, ingredients }) {
       </div>` : null}
       <small class="muted">= ${money(Math.round(qtyNum(l.qty) * num(l.price)))}${l.ordered != null ? ` · đặt ${l.ordered}` : ''}${l.ai ? ' · 📖 máy đọc' : ''}</small>
       ${l.warn ? html`<small class="warn-text">⚠ ${l.warn}</small>` : null}
-      ${l.ai && !l.ingredient_id ? html`<select onChange=${(e) => { const g = ingredients.find((x) => x.id === Number(e.target.value)); if (g) setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, warn: '' } : x))); }}>
-        <option value="">Là hàng trong kho… (bỏ qua nếu là hàng khác)</option>${ingredients.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>` : null}
+      ${!l.ingredient_id && (l.name || '').trim() ? (l.create_new
+        ? html`<small class="ok-text">➕ Sẽ tạo mới trong kho: <b>${l.name}</b> (${l.unit || 'cái'}) · <button class="link small" onClick=${() => setLines(lines.map((x, j) => (j === i ? { ...x, create_new: false } : x)))}>bỏ</button></small>`
+        : html`<select onChange=${(e) => { if (e.target.value === 'new') { setLines(lines.map((x, j) => (j === i ? { ...x, create_new: true, warn: '' } : x))); return; } const g = ingredients.find((x) => x.id === Number(e.target.value)); if (g) setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, warn: '' } : x))); }}>
+        <option value="">Là hàng trong kho… (bỏ qua nếu là hàng khác)</option>
+        <option value="new">➕ Tạo mới trong kho: ${l.name}</option>${ingredients.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>`) : null}
     </div>`)}
     <div class="row wrap">
       <select onChange=${(e) => { const g = ingredients.find((x) => x.id === Number(e.target.value)); e.target.value = ''; if (g && !lines.some((l) => l.ingredient_id === g.id)) setLines([...lines, { ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, qty: '', price: g.price || '' }]); }}>
@@ -113,7 +116,7 @@ function Receive({ me, meta, advances, onDone }) {
       ...f, store_id: Number(f.store_id), po_id: f.po_id ? Number(f.po_id) : undefined, supplier_id: f.supplier_id ? Number(f.supplier_id) : undefined,
       advance_id: f.advance_id ? Number(f.advance_id) : undefined, paid_method: f.advance_id ? undefined : f.paid_method,
       total: f.total === '' ? undefined : num(f.total), photos, goods_photos: goods,
-      lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: qtyNum(l.qty), price: num(l.price) })),
+      lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: qtyNum(l.qty), price: num(l.price), create_new: !l.ingredient_id && !!l.create_new })),
       conversions: lines.filter((l) => l.ingredient_id && l.conv_new && l.factor && l.bill_unit).map((l) => ({ ingredient_id: l.ingredient_id, bill_unit: l.bill_unit, factor: l.factor })),
     }), 'Đã nhập kho. Thu ngân sẽ duyệt công nợ');
     if (r) { setLines([]); setPhotos([]); setGoods([]); setF({ ...f, po_id: '', supplier_id: '', supplier_name: '', total: '', signer_name: me.name, note: '', advance_id: '', paid_method: '' }); onDone(); }
