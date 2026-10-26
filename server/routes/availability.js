@@ -1,4 +1,6 @@
+import crypto from 'node:crypto';
 import { fail, v } from '../http.js';
+import { validatePin } from './auth.js';
 import { tx, rank } from '../db.js';
 import { isDate, addDays, weekStart, isoWeekday } from '../lib/time.js';
 import { allowedPages } from '../lib/perms.js';
@@ -502,6 +504,13 @@ export default function (r, ctx) {
         const key = `${u.chat.id}:${u.id || `${u.from.id}:${u.date}:${u.text}`}`;
         const fresh = db.prepare('INSERT OR IGNORE INTO zalo_bot_msgs (key, at) VALUES (?, ?)').run(key, ctx.now()).changes > 0;
         if (!fresh) continue;
+        // Nhân viên mới nhắn riêng "PIN" cho bot → bot trả lời riêng mã đăng nhập (chủ quán 26/10). Không bao giờ gửi mã vào nhóm.
+        if (/^\s*(@\S+\s+)?(mã\s*)?pin\s*$/i.test(u.text)) {
+          const reply = pinReply(u);
+          logMsg(u, reply.log);
+          if (reply.text) await ctx.zaloBot.send(u.chat.id, reply.text).catch((e) => console.error('Bot trả lời lỗi:', e.message));
+          continue;
+        }
         if (!groupOf(u.chat.id)) { logMsg(u, staffGroups().length ? 'Bỏ qua: không phải nhóm nhân viên' : 'Bỏ qua: chưa chọn nhóm nhân viên'); continue; }
         if (u.date && ctx.now() - u.date > 2 * 86_400_000) { logMsg(u, 'Bỏ qua: tin cũ hơn 2 ngày'); continue; }
         let reply;
@@ -515,6 +524,29 @@ export default function (r, ctx) {
       if (!/Chưa dán token/.test(e.message)) console.error('Bot đọc tin lỗi:', e.message);
     } finally { polling = false; }
   };
+
+  // Mã PIN qua tin nhắn riêng: chỉ tài khoản Zalo đã gắn với nhân viên (lúc duyệt, tên Zalo khớp), chỉ khi chưa tự đặt PIN, 10 phút / lần
+  function pinReply(u) {
+    const isGroup = !!groupOf(u.chat.id) || /group/i.test(u.chat.type || '') || u.chat.id === ctx.setting('zalo_bot_group_id');
+    if (isGroup) return { text: 'Để giữ bí mật, nhắn riêng cho bot chữ PIN (không nhắn trong nhóm).', log: 'PIN: nhắc nhắn riêng' };
+    // Chỉ tài khoản Zalo chính chủ đã tự nhắn đăng ký "NV mới" và được quản lý duyệt (tên Zalo khớp) trong 14 ngày — không dựa vào gắn theo tên khi báo lịch
+    const link = u.from.id ? db.prepare(`SELECT q.staff_id FROM staff_requests q JOIN zalo_bot_users z ON z.uid = q.from_uid AND z.staff_id = q.staff_id
+      WHERE q.from_uid = ? AND q.status = 'approved' AND q.decided_at > ? ORDER BY q.decided_at DESC LIMIT 1`).get(u.from.id, ctx.now() - 14 * 86_400_000) : null;
+    const st = link ? db.prepare('SELECT id, name, phone, role, active, must_change_pin FROM staff WHERE id = ?').get(link.staff_id) : null;
+    if (!st || !st.active || st.role === 'owner') return { text: 'Bot chỉ gửi mã cho người mới tự đăng ký qua bot và đã được duyệt. Nhờ quản lý gửi mã giúp.', log: 'PIN: không phải người mới đã duyệt' };
+    if (!st.must_change_pin) return { text: `${st.name} đã tự đặt PIN rồi. Quên PIN thì nhờ quản lý cấp lại.`, log: 'PIN: đã tự đặt, không cấp' };
+    const key = `pin_dm:${st.id}`;
+    if (Number(ctx.setting(key) || 0) > ctx.now() - 10 * 60_000) return { text: 'Bot vừa gửi mã cho bạn, xem tin phía trên (10 phút mới xin lại được).', log: 'PIN: chờ 10 phút' };
+    let pin = '', lookup = null;
+    for (let k = 0; k < 20 && !lookup; k++) { pin = String(crypto.randomInt(100000, 1000000)); try { lookup = validatePin(db, pin, st.role, st.id); } catch { lookup = null; } }
+    if (!lookup) return { text: 'Chưa tạo được mã, thử lại sau ít phút.', log: 'PIN: lỗi tạo mã' };
+    db.prepare('UPDATE staff SET pin_lookup = ?, must_change_pin = 1 WHERE id = ?').run(lookup, st.id);
+    db.prepare('DELETE FROM sessions WHERE staff_id = ?').run(st.id);
+    ctx.setSetting(key, String(ctx.now()));
+    ctx.audit({ id: st.id, role: 'staff', name: st.name }, 'staff.pin_by_bot', { staff: st.id });
+    const url = ctx.setting('public_url') || 'https://cuulongtran.up.railway.app';
+    return { text: `🔑 ${st.name}\nĐăng nhập: ${url}\n${st.phone ? `SĐT: ${st.phone}\n` : ''}Mã PIN: ${pin}\nLần đầu vào app sẽ bắt đổi PIN mới. Không gửi mã này cho ai.`, log: `PIN: đã gửi riêng cho ${st.name}` };
+  }
 
   // Danh sách chờ duyệt + duyệt / từ chối (quản lý). Duyệt: tạo tài khoản ở /api/staff rồi gọi /done để liên kết Zalo + điền lịch + báo nhóm
   r.get('/api/staff-requests', 'manager', () => {
@@ -535,14 +567,15 @@ export default function (r, ctx) {
     if (!st) fail(404, 'Không tìm thấy nhân viên vừa tạo');
     db.prepare("UPDATE staff_requests SET status = 'approved', staff_id = ?, decided_by = ?, decided_at = ? WHERE id = ?").run(st.id, me.id, ctx.now(), q.id);
     // Liên kết Zalo người nhắn ↔ nhân viên mới chỉ khi chính bạn ấy nhắn (tên Zalo khớp), tránh trưởng ca đăng ký hộ bị gắn nhầm
-    if (q.from_uid && findStaff(q.from_name, [st]).length && !db.prepare('SELECT 1 FROM zalo_bot_users WHERE uid = ?').get(q.from_uid)) db.prepare('INSERT INTO zalo_bot_users (uid, staff_id) VALUES (?, ?)').run(q.from_uid, st.id);
+    const linked = !!(q.from_uid && findStaff(q.from_name, [st]).length);
+    if (linked && !db.prepare('SELECT 1 FROM zalo_bot_users WHERE uid = ?').get(q.from_uid)) db.prepare('INSERT INTO zalo_bot_users (uid, staff_id) VALUES (?, ?)').run(q.from_uid, st.id);
     let extra = '';
     if (q.avail_text) {
       const p = parseAvailMessage(q.avail_text, { staff: [st], today: ctx.today(), sender: st.id });
       if (Object.keys(p.picks).length || p.off.length) { const r = applyBot(st.id, p.picks, p.off); if (r.dates.length) extra = `\nĐã điền lịch bạn báo trước: ${describe(p.picks, p.off, r.dates, p.week)}`; }
       ctx.broadcast('availability');
     }
-    if (q.chat_id && ctx.zaloBot?.ready()) await ctx.zaloBot.send(q.chat_id, `✅ Đã thêm ${st.name} vào danh sách nhân viên.${extra}\nTừ giờ báo lịch: @bot ${st.name} 14-23`).catch(() => {});
+    if (q.chat_id && ctx.zaloBot?.ready()) await ctx.zaloBot.send(q.chat_id, `✅ Đã thêm ${st.name} vào danh sách nhân viên.${extra}\nTừ giờ báo lịch: @bot ${st.name} 14-23${linked ? `\n🔑 ${st.name}: nhắn RIÊNG cho bot chữ PIN để nhận mã đăng nhập app.` : ''}`).catch(() => {});
     ctx.audit(me, 'staff_request.approve', { id: q.id, staff: st.id });
     ctx.broadcast('staff');
     return { ok: true };

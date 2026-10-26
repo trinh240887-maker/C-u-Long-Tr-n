@@ -217,6 +217,26 @@ test('bot: người mới báo lịch → hướng dẫn đăng ký, giữ lịc
   inbox = [msg('a3', '@Bot T2 nghỉ', hau)];
   await ctx.zaloBotPoll();
   assert.match(sent.at(-1).text, /Trần Trung Hậu: T2 26\/10 nghỉ/);
+  // Mã PIN: nhắn "PIN" trong nhóm → chỉ nhắc nhắn riêng (không có mã); nhắn riêng → bot trả lời riêng mã mới, đăng nhập được
+  db.prepare('UPDATE staff SET must_change_pin = 1 WHERE id = ?').run(st.id);
+  inbox = [msg('p1', '@Bot PIN', hau)];
+  await ctx.zaloBotPoll();
+  assert.equal(sent.at(-1).chat, 'g');
+  assert.doesNotMatch(sent.at(-1).text, /\d{6}/);
+  inbox = [{ id: 'p2', date: now, chat: { id: 'uHau', type: 'PRIVATE', name: 'Hậu' }, from: hau, text: 'PIN' }];
+  await ctx.zaloBotPoll();
+  assert.equal(sent.at(-1).chat, 'uHau');
+  const pin = /Mã PIN: (\d{6})/.exec(sent.at(-1).text)?.[1];
+  assert.ok(pin, sent.at(-1).text);
+  const lg = await fetch(base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: '0901234567', pin }) });
+  assert.equal(lg.status, 200);
+  // Xin lại ngay → chờ 10 phút; người khác nhắn PIN → không có mã
+  inbox = [{ id: 'p3', date: now, chat: { id: 'uHau', type: 'PRIVATE', name: 'Hậu' }, from: hau, text: 'pin' }];
+  await ctx.zaloBotPoll();
+  assert.match(sent.at(-1).text, /10 phút/);
+  inbox = [{ id: 'p4', date: now, chat: { id: 'uX', type: 'PRIVATE', name: 'Lạ' }, from: { id: 'uX', name: 'Trần Trung Hậu' }, text: 'PIN' }];
+  await ctx.zaloBotPoll();
+  assert.doesNotMatch(sent.at(-1).text, /\d{6}/);
 
   // Duyệt lịch từng bộ phận: tạo ca theo lịch rảnh + bot gửi bảng lịch vào nhóm có bộ phận đó
   ctx.saveStaffGroups([{ id: 'g', name: 'Chung', teams: [pv] }]);
