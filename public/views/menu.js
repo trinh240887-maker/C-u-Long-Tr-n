@@ -90,6 +90,7 @@ export function MenuView({ me }) {
   const kitsD = useData('/api/utensils');
   const ingD = useData(atLeast(me, 'manager') ? '/api/stock/meta' : null);
   const [cat, setCat] = useState('');
+  const [noRecipe, setNoRecipe] = useState(false); // lọc món chưa có định lượng (chủ quán 26/10)
   const [q, setQ] = useState('');
   const [edit, setEdit] = useState(null);
   const [tab, setTab] = useState('mon');
@@ -99,7 +100,8 @@ export function MenuView({ me }) {
   const manager = atLeast(me, 'manager');
   const stName = (id) => m.stations.find((s) => s.id === id)?.name || '';
   const catOrder = (id) => { const k = m.categories.findIndex((c) => c.id === id); return k < 0 ? 999 : k; };
-  const items = m.items.filter((i) => (!cat || i.category_id === Number(cat)) && (!q || i.name.toLowerCase().includes(q.toLowerCase())) && (manager || i.active))
+  const missing = m.items.filter((i) => i.active && !i.recipe.length);
+  const items = m.items.filter((i) => (!noRecipe || (i.active && !i.recipe.length)) && (!cat || i.category_id === Number(cat)) && (!q || i.name.toLowerCase().includes(q.toLowerCase())) && (manager || i.active))
     .sort((a, b) => catOrder(a.category_id) - catOrder(b.category_id) || a.sort - b.sort || a.id - b.id);
   const catName = (id) => m.categories.find((c) => c.id === id)?.name || 'Chưa có danh mục';
   const soldOut = m.items.filter((i) => i.sold_out && i.active);
@@ -114,6 +116,7 @@ export function MenuView({ me }) {
         ${manager ? html`<button class="primary" onClick=${() => setEdit({ category_id: cat ? Number(cat) : '' })}>+ Thêm món</button>` : null}
       </div>
     </div>
+    ${manager && missing.length ? html`<button class=${`chip ${noRecipe ? 'on' : ''}`} style="align-self:flex-start" onClick=${() => setNoRecipe(!noRecipe)}>⚠ ${missing.length} món chưa có định lượng${noRecipe ? ' · bỏ lọc' : ' · xem'}</button>` : null}
     <div class="chips"><button class=${`chip ${!cat ? 'on' : ''}`} onClick=${() => setCat('')}>Tất cả <small>${m.items.filter((i) => i.active).length}</small></button>
       ${m.categories.map((c) => html`<button class=${`chip ${cat === String(c.id) ? 'on' : ''} ${c.active ? '' : 'off'}`} onClick=${() => setCat(String(c.id))}>${c.name} <small>${m.items.filter((i) => i.category_id === c.id && i.active).length}</small></button>`)}</div>
     ${manager ? html`<div class="row"><input class="grow" placeholder="Danh mục mới" value=${newCat} onInput=${(e) => setNewCat(e.target.value)} />
@@ -121,7 +124,7 @@ export function MenuView({ me }) {
     <section class="card menu-list">
       ${items.map((i, k) => html`${!cat && (k === 0 || items[k - 1].category_id !== i.category_id) ? html`<div class="menu-cat">${catName(i.category_id)}</div>` : null}<div class=${`menu-row ${i.active ? '' : 'off'} ${i.sold_out ? 'soldout' : ''}`} key=${i.id}>
         <button class="grow menu-main" disabled=${!manager} onClick=${() => setEdit(i)}>
-          <b>${i.name}</b> ${!i.active ? html`<span class="pill muted">Ẩn</span>` : null}${i.sold_out ? html`<span class="pill bad">Hết</span>` : null}
+          <b>${i.name}</b> ${!i.active ? html`<span class="pill muted">Ẩn</span>` : null}${manager && i.active && !i.recipe.length ? html`<span class="pill warn">chưa định lượng</span>` : null}${i.sold_out ? html`<span class="pill bad">Hết</span>` : null}
           <br /><small class="muted">${i.description}${i.description ? ' · ' : ''}${i.parts.length ? i.parts.map((p) => stName(p.station_id)).filter((x, k, a) => a.indexOf(x) === k).join(' + ') : stName(i.station_id) || 'không in'}${i.options.length ? ` · ${[...new Set(i.options.map((o) => o.group_name))].join(', ')}` : ''}${i.recipe.length ? ` · ${i.recipe.length} NL` : ''}</small>
         </button>
         <b class="num">${vnd(i.price)}</b>
