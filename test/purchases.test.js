@@ -173,4 +173,8 @@ test('hoá đơn mua: khu nhận + chụp bill + ký nhận → thu ngân (khác
   assert.ok(tuong && tuong.unit === 'thùng' && tuong.price === 305000 && tuong.home_store_id === lau.id);
   assert.equal(stockOf(tuong.id, lau.id), 2);
   assert.ok(note(/Nguyên liệu mới từ bill: Tương ớt/).length);
+  // Nhiều ảnh lớn (3 ảnh bill + 3 ảnh hàng ~1 MB) không bị "Dữ liệu gửi lên quá lớn"
+  const BIG = `data:image/jpeg;base64,${Buffer.alloc(1_000_000, 9).toString('base64')}`;
+  const rBig = await tai('POST', '/api/purchases', { store_id: lau.id, supplier_id: ncc, signer_name: 'Lê Thanh Phát', total: 280000, photos: [BIG, BIG, BIG], goods_photos: [BIG, BIG, BIG], lines: [{ ingredient_id: bo, qty: 1, price: 280000 }] });
+  assert.equal(rBig.status, 200, JSON.stringify(rBig.data));
 });
