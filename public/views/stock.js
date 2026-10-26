@@ -475,33 +475,42 @@ export function StockView({ me, query }) {
 }
 
 // ⚖ Quy đổi (chủ quán 26/10): 1 bảng mọi nguyên liệu — mua theo gì (trên bill) → dùng / bán theo gì (định lượng, kiểm kho)
+const PACK_UNITS = /^(gói|goi|thùng|thung|bao|hộp|hop|chai|lốc|loc|két|ket|túi|tui|can|hũ|hu|bịch|bich|xô|xo|khay|bó|bo|vỉ|vi|cuộn|cuon|bình|binh|keg|block|lô|lo)$/i;
+// ⚖ Quy đổi (chủ quán 26/10): mua theo gì → dùng theo gì; app chỉ ra món cần quy đổi
 function Conversions({ meta }) {
   const al = useData('/api/stock/unit-aliases');
+  const ru = useData('/api/stock/recipe-use');
   const [q, setQ] = useState('');
-  const [only, setOnly] = useState(false);
+  const [only, setOnly] = useState(true);
   const [draft, setDraft] = useState({});
-  const ings = meta.ingredients.filter((g) => g.active !== 0 && g.active !== false);
   const same = (g) => !g.purchase_unit || g.purchase_unit === g.unit;
-  const list = ings.filter((g) => (!only || same(g)) && (!q || g.name.toLowerCase().includes(q.toLowerCase())));
+  const uses = (id) => (ru.data || []).filter((x) => x.ingredient_id === id);
+  // Lý do cần quy đổi (null = không cần)
+  const need = (g) => {
+    if (!same(g)) return null;
+    const frac = !/^(kg|g|gr|gram|lạng|lit|lít|l|ml|cl)$/i.test((g.unit || '').trim()) && uses(g.id).find((x) => x.qty % 1 !== 0);
+    if (frac) return `món "${frac.item}" trừ ${String(frac.qty).replace('.', ',')} ${g.unit}/phần`;
+    if (PACK_UNITS.test((g.unit || '').trim())) return `đang tính theo ${g.unit}: bán lẻ thì nhập 1 ${g.unit} = bao nhiêu`;
+    return null;
+  };
+  const ings = meta.ingredients.filter((g) => g.active !== 0 && g.active !== false).map((g) => ({ ...g, why: need(g) }))
+    .sort((a, b) => (a.why ? 0 : 1) - (b.why ? 0 : 1) || a.name.localeCompare(b.name, 'vi'));
+  const nNeed = ings.filter((g) => g.why).length;
+  const list = ings.filter((g) => (!only || !nNeed || g.why || draft[g.id]) && (!q || g.name.toLowerCase().includes(q.toLowerCase())));
   const val = (g, k) => draft[g.id]?.[k] ?? g[k] ?? '';
   const set = (g, k, x) => setDraft({ ...draft, [g.id]: { ...draft[g.id], [k]: x } });
   const save = async (g) => {
-    const d = draft[g.id];
-    const body = { unit: val(g, 'unit').trim(), purchase_unit: val(g, 'purchase_unit').trim(), purchase_factor: String(val(g, 'purchase_factor')).replace(',', '.') };
+    const body = { unit: String(val(g, 'unit')).trim(), purchase_unit: String(val(g, 'purchase_unit')).trim(), purchase_factor: String(val(g, 'purchase_factor')).replace(',', '.') };
     if (await act(() => api('PATCH', `/api/stock/ingredients/${g.id}`, body), `Đã lưu ${g.name}`)) { const n = { ...draft }; delete n[g.id]; setDraft(n); }
-    void d;
   };
   const aliases = (id) => (al.data || []).filter((a) => a.ingredient_id === id);
   return html`<div class="stack">
-    <section class="card stack">
-      <b>Mua theo gì → dùng theo gì</b>
-      <p class="small muted">Đơn vị mua = đơn vị trên bill (gói, thùng, kg). Đơn vị dùng = đơn vị bán, ghi định lượng và kiểm kho (vắt, lon, g). Người nhận hàng nhập theo bill, kho tự đổi ra đơn vị dùng.</p>
-      <div class="row wrap"><input id="qd-q" class="grow" placeholder="Tìm nguyên liệu" value=${q} onInput=${(e) => setQ(e.target.value)} />
-        <button class=${`chip ${only ? 'on' : ''}`} onClick=${() => setOnly(!only)}>Mua = dùng cùng đơn vị (${ings.filter(same).length})</button></div>
-    </section>
+    <div class="row wrap"><input id="qd-q" class="grow" placeholder="Tìm nguyên liệu" value=${q} onInput=${(e) => setQ(e.target.value)} />
+      ${nNeed ? html`<button class=${`chip ${only ? 'on' : ''}`} onClick=${() => setOnly(!only)}>⚠ Cần quy đổi (${nNeed})${only ? ' · xem tất cả' : ''}</button>` : html`<span class="pill ok">✓ Không còn món cần quy đổi</span>`}</div>
     <section class="card stack">
       ${list.map((g) => { const dirty = !!draft[g.id]; const f = Number(String(val(g, 'purchase_factor')).replace(',', '.')) || 1; return html`<div class="stack tight" style="border-bottom:1px solid var(--line, #eee);padding-bottom:10px">
-        <div class="row between"><b>${g.name}</b>${same(g) && !dirty ? html`<span class="pill muted">cùng đơn vị</span>` : html`<small class="ok-text">1 ${val(g, 'purchase_unit') || '?'} = ${f.toLocaleString('vi-VN')} ${val(g, 'unit')}</small>`}</div>
+        <div class="row between"><b>${g.name}</b>${g.why && !dirty ? html`<span class="pill warn">⚠ Cần quy đổi</span>` : same(g) && !dirty ? html`<span class="pill muted">cùng đơn vị</span>` : html`<small class="ok-text">1 ${val(g, 'purchase_unit') || '?'} = ${f.toLocaleString('vi-VN')} ${val(g, 'unit')}</small>`}</div>
+        ${g.why && !dirty ? html`<small class="warn-text">${g.why}</small>` : null}
         <div class="row wrap tight" style="align-items:center">
           <span class="small">1</span>
           <input id=${`qd-pu-${g.id}`} style="width:6em" placeholder="gói" aria-label="Đơn vị mua" value=${val(g, 'purchase_unit')} onInput=${(e) => set(g, 'purchase_unit', e.target.value)} />

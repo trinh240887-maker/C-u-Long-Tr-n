@@ -296,6 +296,8 @@ export default function (r, ctx) {
 
   // Đơn vị trên bill đã học (vd bill ghi "thùng" = 150 vắt) → hiện ở Kho → ⚖ Quy đổi
   r.get('/api/stock/unit-aliases', 'manager', () => db.prepare('SELECT ingredient_id, bill_unit, factor FROM unit_aliases ORDER BY ingredient_id').all());
+  // Món ăn dùng nguyên liệu nào, bao nhiêu / phần → Quy đổi đánh dấu "cần quy đổi" (vd trừ 0,2 gói / phần)
+  r.get('/api/stock/recipe-use', 'manager', () => db.prepare('SELECT r.ingredient_id, r.qty, m.name AS item FROM menu_recipes r JOIN menu_items m ON m.id = r.item_id WHERE m.active = 1 ORDER BY m.name').all());
   r.delete('/api/stock/unit-aliases', 'manager', ({ me, query }) => {
     db.prepare('DELETE FROM unit_aliases WHERE ingredient_id = ? AND bill_unit = ?').run(Number(query.get('ingredient_id')), String(query.get('bill_unit') || ''));
     ctx.audit(me, 'unit_alias.delete', { ingredient_id: query.get('ingredient_id'), bill_unit: query.get('bill_unit') });
