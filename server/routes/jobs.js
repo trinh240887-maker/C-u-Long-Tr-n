@@ -456,6 +456,13 @@ export default function (r, ctx) {
     return { from, to, staff, zones };
   });
 
+  // Chủ quán 26/10: nạp xong 12 việc mở ca → chia lại việc hôm nay + 6 ngày tới (1 lần)
+  if (ctx.setting('mo_ca_pv_split')) {
+    const t = jobTemplates().find((x) => x.id === Number(ctx.setting('mo_ca_pv_split')));
+    ctx.setSetting('mo_ca_pv_split', '');
+    if (t) for (let i = 0; i < 7; i++) materialize(addDays(ctx.today(), i), t, { mode: 'force' });
+  }
+
   // ---------- Nhắc giờ (mỗi phút) ----------
   ctx.jobsTick = () => {
     const date = ctx.today(), now = ctx.now(), c = ctx.clock();

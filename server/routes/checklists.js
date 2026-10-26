@@ -53,6 +53,49 @@ export default function (r, ctx) {
   addCol('checklist_items', 'fetch_where', "TEXT NOT NULL DEFAULT ''");
   addCol('checklist_items', 'job_with', 'INTEGER NOT NULL DEFAULT 0');        // đi kèm việc khác: giao cho đúng người làm việc đó (vd lau chén → giặt khăn lau chén)
   addCol('checklist_items', 'job_expect', 'INTEGER NOT NULL DEFAULT 0');      // số phải đủ khi xong (vd 2 khăn); thiếu → ghi vào tên người làm       // hết đồ thì lấy ở đâu
+  // Chủ quán 26/10: 12 việc mở ca chung Phục vụ + Tiếp thực (14:00–15:30), giao từng người; làm 1 lần
+  if (!ctx.setting('mo_ca_pv_v1')) {
+    const team = (n) => db.prepare('SELECT id FROM teams WHERE name = ?').get(n)?.id;
+    const pv = team('Phục vụ'), tt = team('Tiếp thực');
+    const TASKS = [
+      ['Lau dụng cụ ăn uống', 'zone', 20, 1, 0, '', /lau.*(dụng cụ|chén|muỗng|ly)/i],
+      ['Sắp bàn, kéo dù (bảo vệ cũng có thể làm)', 'zone', 15, 1, 0, '', /setup bàn|sắp bàn|dù/i],
+      ['Rửa sàn xi măng', 'shop', 20, 1, 0, '', /sàn|sân/i],
+      ['Chuẩn bị combo (bếp gas, tương ớt, tương cà, muỗng, đũa, tăm, giấy)', 'zone', 20, 1, 1, 'combo', /bếp lẩu|bình gas|combo|tương/i],
+      ['Chuẩn bị sọt rác', 'zone', 5, 0, 0, '', /rác/i],
+      ['Phân chia muỗng đũa dự trù', 'zone', 10, 0, 0, '', /muỗng đũa|đũa/i],
+      ['Chuẩn bị quạt các khu', 'zone', 5, 0, 0, '', /quạt/i],
+      ['Kiểm tra gas, giấy, hộp mang về, bọc dự trù', 'shop', 10, 0, 0, '', /hộp|mang về|bọc/i],
+      ['Kiểm tra nhà vệ sinh', 'shop', 5, 1, 0, '', /vệ sinh|wc/i],
+      ['Chuẩn bị chén để khách tự lấy', 'zone', 10, 1, 0, '', /chén.*tự lấy|tự lấy/i],
+      ['Bố trí quầy nước chấm tự pha', 'shop', 15, 1, 0, '', /nước chấm/i],
+      ['Chuẩn bị khay đựng đồ ăn xong của khách các khu', 'zone', 5, 0, 0, '', /khay/i],
+    ];
+    if (pv) {
+      let t = db.prepare("SELECT id FROM checklist_templates WHERE active = 1 AND title LIKE 'Mở ca phục vụ%' ORDER BY id").get()
+        || db.prepare("SELECT id FROM checklist_templates WHERE active = 1 AND team_id = ? AND phase = 'open' AND zone_id IS NULL ORDER BY id").get(pv);
+      tx(db, () => {
+        if (!t) t = { id: Number(db.prepare("INSERT INTO checklist_templates (team_id, phase, title, sort) VALUES (?, 'open', 'Mở ca phục vụ', 0)").run(pv).lastInsertRowid) };
+        db.prepare('UPDATE checklist_templates SET job_mode = 1, job_teams = ?, job_from = 840, job_to = 930 WHERE id = ?')
+          .run(JSON.stringify([pv, tt, -1].filter(Boolean)), t.id);
+        const old = db.prepare('SELECT id, text FROM checklist_items WHERE template_id = ? ORDER BY sort, id').all(t.id);
+        const used = new Set();
+        TASKS.forEach(([text, scope, min, photo, per, unit, re], i) => {
+          const hit = old.find((o) => !used.has(o.id) && re.test(o.text)); // giữ ảnh mẫu của việc cũ giống
+          const v = [text, scope, min, photo, per, unit, i];
+          if (hit) {
+            used.add(hit.id);
+            db.prepare("UPDATE checklist_items SET text = ?, kind = 'check', job_scope = ?, job_minutes = ?, photo_required = ?, job_per_table = ?, unit = ?, sort = ?, required = 1, job_qty = '', job_with = 0, job_expect = 0 WHERE id = ?").run(...v, hit.id);
+          } else {
+            db.prepare("INSERT INTO checklist_items (template_id, text, kind, job_scope, job_minutes, photo_required, job_per_table, unit, sort, required) VALUES (?, ?, 'check', ?, ?, ?, ?, ?, ?, 1)").run(t.id, ...v);
+          }
+        });
+        for (const o of old) if (!used.has(o.id)) db.prepare('DELETE FROM checklist_items WHERE id = ?').run(o.id);
+      });
+      ctx.setSetting('mo_ca_pv_split', String(t.id)); // jobs.js chia việc lại 1 lần
+    }
+    ctx.setSetting('mo_ca_pv_v1', '1');
+  }
   const sectionOf = (t) => {
     if (t.section) return t.section;
     if (t.zone_name) return `Tổng ${t.zone_name.toLowerCase().startsWith('khu') ? t.zone_name.replace(/^Khu/i, 'khu') : `khu ${t.zone_name}`}`;
