@@ -62,3 +62,13 @@ test('đọc tin báo lịch: "Nguyễn Trường Giang" chọn đúng người 
   assert.equal(parseNewStaff('@bot NV mới: Nguyễn Trường Giang Nhân Viên, 0901234567, Phục vụ').name, 'Nguyễn Trường Giang');
   assert.equal(parseNewStaff('@bot NV mới: Lê Văn Tèo tổ trưởng, 0901234568').role, 'team_lead');
 });
+
+test('đọc tin báo lịch: danh sách thứ chung 1 giờ ("T2, T5, T6, T7, CN 14h-22h") → thứ không ghi = nghỉ; sửa từng ngày thì giữ ngày khác', () => {
+  const st = [{ id: 1, name: 'Nguyễn Lê Thành Nhân' }, { id: 2, name: 'Cẩm Tú' }];
+  const a = parseAvailMessage('Nguyễn Lê Thành Nhân T2, T5, T6, T7, CN 14h-22h.', { staff: st, today: '2026-10-25', sender: null });
+  assert.deepEqual(Object.keys(a.picks).sort(), ['2026-10-26', '2026-10-29', '2026-10-30', '2026-10-31', '2026-11-01']);
+  assert.deepEqual(a.off.sort(), ['2026-10-27', '2026-10-28']);
+  const b = parseAvailMessage('Cẩm Tú T3 nghỉ\nT4 10-14', { staff: st, today: '2026-10-25', sender: null });
+  assert.deepEqual(b.off, ['2026-10-27']);
+  assert.deepEqual(Object.keys(b.picks), ['2026-10-28']);
+});

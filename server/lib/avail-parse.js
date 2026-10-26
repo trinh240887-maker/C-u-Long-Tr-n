@@ -95,7 +95,7 @@ function dateTokens(n, today) {
       for (let d = x.items[0]; d <= x.items[1]; d = addDays(d, 1)) span.push(d);
       dates = span.slice(1, -1).some((d) => single.has(d)) ? x.items : span;
     }
-    out.push({ pos: x.pos, kind: 'date', dates });
+    out.push({ pos: x.pos, kind: 'date', dates, dow: true });
   }
   return out;
 }
@@ -180,6 +180,7 @@ export function parseAvailMessage(text, { staff, today, sender }) {
       // "off ngày 26/10 8h-12h", "nghỉ T7": chữ nghỉ đứng TRƯỚC ngày vẫn thuộc ngày đó
       if (cur.times.length || (cur.off && cur.dates.length)) { cur = { dates: [], times: [], off: false }; segs.push(cur); }
       cur.dates.push(...t.dates);
+      if (t.dow) cur.dow = true; else cur.num = true;
     } else if (t.kind === 'rest') { cur = { dates: [], times: [], off: false }; segs.push(cur); }
     else if (t.kind === 'time') cur.times.push(...t.times);
     else cur.off = true;
@@ -202,6 +203,11 @@ export function parseAvailMessage(text, { staff, today, sender }) {
   // Chữ còn lại sau khi bỏ giờ, ngày, từ khoá: có ≥ 2 chữ mà không khớp ai = có thể là tên người chưa có trong app
   const STOP = new Set(['nghi', 'ban', 'off', 'khong', 'di', 'lam', 'con', 'lai', 'ngay', 'khac', 'cac', 'ca', 'tuan', 'thu', 'cn', 'chu', 'nhat', 'mai', 'hom', 'nay', 'toi', 'mot', 'den', 'h', 'g', 'gio', 'va', 'tu', 'full', 'gay', 'chinh', 'sang', 'chieu', 'dem', 'phuc', 'vu', 'tiep', 'thuc', 'bep', 'bar', 'thu', 'ngan', 'tap', 'truong', 'to', 'nhan', 'vien', 'pv', 'tt', 'nv', 'oi', 'a', 'e', 'em', 'anh', 'chi', 'nhe', 'nha', 'xin', 'bao', 'lich', 'ranh']);
   const left = blank.replace(/\b(?:t|thu|th)\s*[2-7]\b/g, ' ').replace(/[^a-z\s]/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !STOP.has(w));
+  // Báo cả tuần bằng danh sách thứ dùng chung 1 giờ ("T2, T5, T6, T7, CN 14h-22h") → các thứ KHÔNG nhắc = nghỉ (chủ quán 26/10).
+  // Sửa từng ngày riêng ("T3 nghỉ, T4 10-14") thì giữ nguyên ngày khác.
+  const listSeg = segs.some((x) => x.dow && !x.num && x.dates.length >= 2 && (x.times.length || base.times.length)) || (base.times.length && dated.filter((x) => x.dow && !x.times.length && !x.off).flatMap((x) => x.dates).length >= 2);
+  const anyRest = tokens.some((x) => x.kind === 'rest') || segs.some((x) => x.num);
+  if (listSeg && !anyRest) for (const d of week) if (!picks[d] && !off.has(d)) off.add(d);
   // Ngày ghi "nghỉ" riêng thắng khoảng ngày ("T4 nghỉ, T5 nghỉ, T3-T6 14-23" → T4, T5 nghỉ)
   for (const d of off) delete picks[d];
   // Khớp chỉ bằng 1 chữ cuối ("Hậu") mà trong tin còn chữ tên khác ("Trần Trung Hậu") → là người khác, không đoán (chủ quán 25/10)

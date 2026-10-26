@@ -238,7 +238,8 @@ export default function (r, ctx) {
     const missing = people.filter((p) => !p.submitted_at);
     const head = `📅 Lịch rảnh tuần ${ddmm(ws)}–${ddmm(addDays(ws, 6))}`;
     const base = (ctx.setting('public_url') || '').replace(/\/$/, '');
-    const link = base ? `\nVào app báo lịch: ${base}/ranh?week=${ws}` : '\nHoặc nhắn trong nhóm: @bot Tên 14-23 (cả tuần), ngày khác ghi riêng: T7 nghỉ, CN 10-23';
+    const how = `\n👉 Mọi người báo lịch rảnh TUẦN SAU, từ ${ddmm(ws)} đến ${ddmm(addDays(ws, 6))}, để bot ghi nhận. Nhắn: @bot Họ tên 14-23 (cả tuần); ngày khác ghi riêng: T7 nghỉ, CN 10-23; chỉ làm vài ngày: T2, T5, CN 14-22 (ngày không ghi = nghỉ).`;
+    const link = `${how}${base ? `\nHoặc vào app: ${base}/ranh?week=${ws}` : ''}`;
     if (!missing.length) return `${head}: ✅ đã báo đủ (${people.length} người). Cảm ơn mọi người!`;
     const byTeam = new Map();
     for (const p of missing) { const k = p.team_name || 'Khác'; byTeam.set(k, [...(byTeam.get(k) || []), p.name]); }
@@ -452,6 +453,17 @@ export default function (r, ctx) {
       lines.push(`• ${person.name}: ${[main, offTxt].filter(Boolean).join(' · ')}`);
       for (const l of r.leaves) lines.push(l.status === 'new' ? `  📝 Đã gửi đơn xin nghỉ ${l.label}${l.part ? ' (phần còn lại của ca vẫn làm)' : ''} cho quản lý. Chưa duyệt thì vẫn đi làm; duyệt xong app báo bạn.` : l.status === 'err' ? `  ${dayTxt(l.date)}: ${l.err}` : `  ${dayTxt(l.date)}: đã có đơn nghỉ (${l.status === 'approved' ? 'đã duyệt' : 'chờ duyệt'})`);
       if (r.noShift.length) lines.push(`  ${r.noShift.map(dayTxt).join(', ')}: bạn không có ca, ghi nghỉ là xong`);
+      // Ghi cho TUẦN SAU trong khi tuần này đã có lịch → nói rõ để bạn khỏi tưởng đã đổi lịch tuần này (chủ quán 26/10)
+      const today = ctx.today(), ws = weekStart(today);
+      if (r.dates.every((d) => weekStart(d) > ws)) {
+        const cur = db.prepare(`SELECT date, start_min, end_min FROM assignments a WHERE staff_id = ? AND date BETWEEN ? AND ?
+          AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') ORDER BY date, start_min`).all(person.id, today, addDays(ws, 6));
+        if (cur.length) {
+          const by = new Map();
+          for (const c of cur) by.set(c.date, [...(by.get(c.date) || []), `${String(Math.floor(c.start_min / 60)).padStart(2, '0')}${c.start_min % 60 ? ':' + String(c.start_min % 60).padStart(2, '0') : ''}–${String(Math.floor(c.end_min / 60) % 24).padStart(2, '0')}${c.end_min % 60 ? ':' + String(c.end_min % 60).padStart(2, '0') : ''}`]);
+          lines.push(`  ℹ️ Bot ghi cho TUẦN SAU (${ddmm(addDays(ws, 7))}–${ddmm(addDays(ws, 13))}). Tuần này bạn đã có lịch${Number(ctx.setting(`published:${ws}`) || 0) ? ' đã duyệt' : ''}: ${[...by].map(([d, x]) => `${dayTxt(d)} ${x.join(' + ')}`).join(', ')}. Muốn đổi tuần này: ghi ngày cụ thể, vd "${ddmm(addDays(today, 1))} nghỉ" hoặc "${ddmm(addDays(today, 1))} 18-23".`);
+        }
+      }
     }
     ctx.audit(null, 'availability.zalo', { from: u.from.name, staff: p.people.map((x) => x.id), text: u.text.slice(0, 200) });
     ctx.broadcast('availability');
