@@ -220,6 +220,7 @@ export default function (r, ctx) {
     });
     const b = load(id);
     notifyCreated(me, created, b);
+    if (po && ctx.poReceivedReport) ctx.poReceivedReport(ctx.loadPo(po.id), lines, me).catch(() => {}); // bot báo đủ / thiếu vào nhóm Zalo của đơn
     ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Hoá đơn mua chờ duyệt: ${b.supplier_name} ${vnd(total)}`, body: `${b.store_name || ''} · nhận bởi ${me.name}, ký ${signer}${b.flags.length ? ` · ${b.flags.length} điểm cần xem` : ''}`, link: '/mua-hang', urgent: b.flags.length > 0 });
     ctx.audit(me, 'purchase.receive', { id, total, supplier: b.supplier_name });
     ctx.broadcast('purchases');

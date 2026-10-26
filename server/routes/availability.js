@@ -492,7 +492,7 @@ export default function (r, ctx) {
       }
       // Tin báo giờ từ 1 nhóm chưa có trong danh sách (không phải nhóm đặt hàng) → tự thêm nhóm, báo chủ chọn bộ phận
       for (const u of list) {
-        if (groupOf(u.chat.id) || !/group/i.test(u.chat.type || 'group') || u.chat.id === ctx.setting('zalo_bot_group_id')) continue;
+        if (groupOf(u.chat.id) || !/group/i.test(u.chat.type || 'group') || u.chat.id === ctx.setting('zalo_bot_group_id') || ctx.supplierGroupOf?.(u.chat.id)) continue;
         if (!/\d{1,2}\s*(?:h|g|:\d\d)?\s*[-–]\s*\d{1,2}/.test(u.text)) continue;
         const first = !staffGroups().length;
         saveGroups([...staffGroups(), { id: u.chat.id, name: u.chat.name || 'Nhóm nhân viên', teams: first ? botTeams() : [] }]);
@@ -510,6 +510,12 @@ export default function (r, ctx) {
           logMsg(u, reply.log);
           if (reply.text) await ctx.zaloBot.send(u.chat.id, reply.text).catch((e) => console.error('Bot trả lời lỗi:', e.message));
           continue;
+        }
+        // Nhóm Zalo của nhà cung cấp: "@bot thăn 10kg, bắp 5kg" → đơn chờ nhận (server/routes/zalo-orders.js)
+        if (!groupOf(u.chat.id) && ctx.zaloOrderMsg) {
+          let reply = null;
+          try { reply = ctx.zaloOrderMsg(u, stripBotName(u.text)); } catch (e) { reply = `⚠ Lỗi khi ghi đơn: ${e.message}`; }
+          if (reply) { logMsg(u, reply.split('\n')[0]); await ctx.zaloBot.send(u.chat.id, reply).catch((e) => console.error('Bot trả lời lỗi:', e.message)); continue; }
         }
         if (!groupOf(u.chat.id)) { logMsg(u, staffGroups().length ? 'Bỏ qua: không phải nhóm nhân viên' : 'Bỏ qua: chưa chọn nhóm nhân viên'); continue; }
         if (u.date && ctx.now() - u.date > 2 * 86_400_000) { logMsg(u, 'Bỏ qua: tin cũ hơn 2 ngày'); continue; }

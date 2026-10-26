@@ -436,7 +436,7 @@ function Keys({ s, me, only }) {
       <p class="small"><b>Bước 1:</b> dán Token bot (chuỗi dài dạng 123456789:AbCd…, không phải ID bot) rồi bấm Lưu token.</p>
       <${Field} label="Token Zalo Bot" hint=${s.zalo_bot_token ? `Đã lưu (${s.zalo_bot_token}). Dán token mới để đổi.` : 'Chưa có.'}><input id="k-zbot" type="password" autocomplete="off" disabled=${!owner} value=${f.zalo_bot_token} onInput=${(e) => setF({ ...f, zalo_bot_token: e.target.value })} /><//>
       <div class="row end"><button class="primary" disabled=${!owner || !f.zalo_bot_token} onClick=${() => save('zalo_bot_token', 'Đã lưu token Zalo Bot')}>Lưu token</button></div>
-      ${owner ? html`<${BotGroup} s=${s} kind="order" /><${StaffGroups} s=${s} />` : html`<p class="warn-text small">Đăng nhập bằng tài khoản chủ quán để cài bot.</p>`}
+      ${owner ? html`<${BotGroup} s=${s} kind="order" /><${StaffGroups} s=${s} /><${SupplierGroups} />` : html`<p class="warn-text small">Đăng nhập bằng tài khoản chủ quán để cài bot.</p>`}
     </section>` : null}
   </div>`;
 }
@@ -462,6 +462,23 @@ function BotLog() {
       ${d.raw ? html`<details><summary class="muted">Dữ liệu gốc (gửi Claude nếu cần)</summary><code style="word-break:break-all">${d.raw}</code></details>` : null}
     </div>` : null}
   </div>`;
+}
+
+// Nhóm Zalo của từng nhà cung cấp (chủ quán 26/10): nhắn "@bot thăn 10kg, bắp 5kg" trong nhóm → đơn chờ nhận; nhận hàng → bot báo đủ / thiếu
+function SupplierGroups() {
+  const d = useData('/api/zalo-bot/supplier-groups');
+  if (!d.data) return html`<${Loading} state=${d} />`;
+  const { groups, suppliers } = d.data;
+  return html`<section class="card stack">
+    <b>🛒 Nhóm nhà cung cấp</b>
+    <small class="muted">Thêm bot vào nhóm Zalo của từng NCC. Đặt hàng: nhắn <b>@bot thăn bò 10kg, bắp hoa 5kg</b> → bot ghi đơn chờ nhận. Nhận hàng theo đơn → bot báo đủ / thiếu vào nhóm. Nhắn <b>@bot đơn</b> để xem 3 đơn gần nhất. Nhóm tự hiện ở đây sau tin đặt hàng đầu tiên; tên nhóm có tên NCC thì tự gắn.</small>
+    ${groups.length ? groups.map((g) => html`<div class="row wrap tight">
+      <span class="grow">${g.name}</span>
+      <select class="auto" value=${g.supplier_id || ''} onChange=${(e) => act(() => api('PUT', '/api/zalo-bot/supplier-groups', { id: g.id, supplier_id: e.target.value || null }), 'Đã gắn NCC')}>
+        <option value="">(chưa gắn NCC)</option>${suppliers.map((x) => html`<option value=${x.id}>${x.name}</option>`)}</select>
+      <button class="small link" onClick=${() => act(() => api('PUT', '/api/zalo-bot/supplier-groups', { id: g.id, remove: true }), 'Đã bỏ nhóm')}>Bỏ</button></div>`)
+    : html`<p class="muted small">Chưa có nhóm. Thêm bot vào nhóm NCC rồi nhắn 1 đơn @bot.</p>`}
+  </section>`;
 }
 
 // Nhóm nhân viên (có thể nhiều nhóm: nhóm chung, nhóm Bếp…): bot đọc tin @bot báo lịch rảnh + tối thứ 7 nhắc người chưa báo của bộ phận đã chọn

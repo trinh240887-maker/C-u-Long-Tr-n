@@ -168,7 +168,7 @@ test('luồng kho: nhập kho, lĩnh hàng, kiểm kho cuối ca, gợi ý đặ
   assert.match(approved.text, /Bò bắp: 10 kg/);
   await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual(env.botSent.map((x) => x.chat), ['g123']); // duyệt xong tự gửi vào nhóm Zalo
-  assert.equal(env.botSent[0].text, approved.text);
+  assert.equal(env.botSent[0].text, `${approved.text}\n⏳ Hàng CHƯA nhận. Khi nhận, bot báo đủ / thiếu ở đây; công nợ ghi theo số thực nhận.`);
   assert.match(approved.text, /Giao trước 8h/);
   const before = ok(await o.get('/api/stock/overview')).items.find((x) => x.id === bo).stock[main.id];
   ok(await o.post(`/api/stock/po/${po.id}/receive`, { lines: [{ ingredient_id: bo, qty: 9.5, price: 290000 }] }));

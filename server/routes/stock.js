@@ -660,9 +660,11 @@ export default function (r, ctx) {
       .run(me.id, ctx.now(), me.id, ctx.now(), po.id);
     const done = loadPo(po.id);
     // Gửi nội dung đơn cho người giữ kho và người lập/gửi đơn; có nhóm Zalo Bot thì tự gửi vào nhóm (lỗi thì báo, vẫn còn nút sao chép)
-    const gid = ctx.setting('zalo_bot_group_id');
+    // Gửi vào nhóm Zalo riêng của NCC nếu đã gắn (bot báo đủ / thiếu lại đúng nhóm này khi nhận), không thì nhóm đặt hàng chung
+    const gid = ctx.supplierGroupFor?.(po.supplier_id)?.id || ctx.setting('zalo_bot_group_id');
+    if (gid) db.prepare('UPDATE purchase_orders SET zalo_chat = ? WHERE id = ?').run(String(gid), po.id);
     if (gid && ctx.zaloBot?.ready()) {
-      ctx.zaloBot.send(gid, done.text)
+      ctx.zaloBot.send(gid, `${done.text}\n⏳ Hàng CHƯA nhận. Khi nhận, bot báo đủ / thiếu ở đây; công nợ ghi theo số thực nhận.`)
         .then(() => ctx.audit(me, 'po.zalo_group', po.id))
         .catch((e) => ctx.notify([me.id], { title: `Chưa gửi được đơn #${po.id} vào nhóm Zalo`, body: `${e.message}. Bấm "Chép nội dung gửi Zalo" để gửi tay.`, link: '/kho?tab=dat' }));
     }
