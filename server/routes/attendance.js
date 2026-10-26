@@ -213,6 +213,11 @@ export default function (r, ctx) {
         fail(403, next ? `Chưa tới giờ chấm: ca của bạn bắt đầu ${fmtHM(next.start_min)}, chấm được từ ${clock.fmt(next.start - early).slice(0, 5)}.`
           : 'Bạn chưa có ca trong lịch hôm nay nên chưa chấm công được (không có ca = không tính công, không tính lương). Báo lịch rảnh trước, hoặc nhờ quản lý thêm ca rồi chấm lại.');
       }
+      // Vừa chấm ra xong lại bấm "Chấm vào" (bấm 2 lần) → không tạo lượt Ngoài lịch 1 phút (chủ quán 26/10)
+      if (!seg && !body?.confirm) {
+        const last = db.prepare('SELECT clock_out FROM attendance WHERE staff_id = ? AND clock_out IS NOT NULL ORDER BY clock_out DESC LIMIT 1').get(me.id);
+        if (last && t - last.clock_out < 10 * 60_000) fail(409, `Bạn vừa chấm ra lúc ${clock.fmt(last.clock_out).slice(0, 5)}. Ca sau chưa tới giờ nên chưa chấm vào được.`);
+      }
       const late = seg && t > seg.start + grace ? Math.round((t - seg.start) / 60_000) : 0;
       const date = seg ? seg.date : clock.businessDate(t);
       const id = Number(db.prepare(`INSERT INTO attendance (staff_id, assignment_id, date, clock_in, late_minutes, note, source, device_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)

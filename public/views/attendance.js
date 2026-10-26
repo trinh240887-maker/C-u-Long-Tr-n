@@ -50,7 +50,15 @@ export function groupByTeam(rows) {
   }
   return [...out.values()].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'vi')).map((g) => {
     g.rows.sort((a, b) => a.staff_name.localeCompare(b.staff_name, 'vi') || a.clock_in - b.clock_in);
-    return { ...g, working: g.rows.filter((r) => !r.clock_out).length, late: g.rows.filter((r) => r.late_minutes).length };
+    // Mỗi người 1 khối / ngày: các ca (sáng, chiều…) xếp dưới tên, cộng tổng giờ tính lương (chủ quán 26/10)
+    const people = [];
+    for (const r of g.rows) {
+      let p = people.find((x) => x.staff_id === r.staff_id);
+      if (!p) people.push(p = { staff_id: r.staff_id, staff_name: r.staff_name, team_name: r.team_name, rows: [] });
+      p.rows.push(r);
+    }
+    for (const p of people) p.paid = p.rows.reduce((a, r) => a + (r.paid_minutes || 0), 0);
+    return { ...g, people, working: people.filter((p) => p.rows.some((r) => !r.clock_out)).length, late: people.filter((p) => p.rows.some((r) => r.late_minutes)).length };
   });
 }
 
@@ -70,14 +78,17 @@ function Records({ me }) {
       <button onClick=${() => setEdit({})}>+ Thêm tay</button>
     </div>
     ${!st.data ? html`<${Loading} state=${st} />` : st.data.length ? html`<div class="table-wrap"><table class="list">
-      <thead><tr><th>Nhân viên</th><th>Ca</th><th>Vào</th><th>Ra</th><th class="r">Giờ tính lương</th><th>Ghi chú</th></tr></thead>
-      <tbody>${groupByTeam(st.data).map((g) => [html`<tr class="att-group"><td colspan="6" style=${`background:${g.color};color:#fff;font-weight:700;padding:8px 12px`}>
-          ${g.name.toUpperCase()} · ${g.rows.length} người${g.working ? ` · ${g.working} đang làm` : ''}${g.late ? ` · ${g.late} trễ` : ''}</td></tr>`, ...g.rows.map((r) => {
+      <thead><tr><th>Nhân viên</th><th>Ca</th><th>Vào</th><th>Ra</th><th class="r">Giờ tính</th><th class="r">Tổng giờ ngày</th><th>Ghi chú</th></tr></thead>
+      <tbody>${groupByTeam(st.data).map((g) => [html`<tr class="att-group"><td colspan="7" style=${`background:${g.color};color:#fff;font-weight:700;padding:8px 12px`}>
+          ${g.name.toUpperCase()} · ${g.people.length} người${g.working ? ` · ${g.working} đang làm` : ''}${g.late ? ` · ${g.late} trễ` : ''}</td></tr>`, ...g.people.flatMap((pp) => pp.rows.map((r, idx) => {
         const mins = r.clock_out ? Math.round((r.clock_out - r.clock_in) / 60000) : null;
         const fmt = (m) => `${String(Math.floor((m % 1440) / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-        return html`<tr class="click" onClick=${() => setEdit(r)}>
-          <td><b>${r.staff_name}</b><br /><small class="muted">${r.team_name || ''}</small></td>
-          <td>${r.start_min != null ? `${fmt(r.start_min)}–${fmt(r.end_min)}` : html`<span class="pill warn">Ngoài lịch</span>`}</td>
+        const n = pp.rows.length;
+        const top = idx === 0 ? 'border-top:2px solid var(--line, #ddd)' : 'border-top:1px dashed var(--line, #e5e5e5)';
+        return html`<tr class="click" style=${top} onClick=${() => setEdit(r)}>
+          ${idx === 0 ? html`<td rowspan=${n} style="vertical-align:top"><b>${pp.staff_name}</b><br /><small class="muted">${pp.team_name || ''}${n > 1 ? ` · ${n} lượt` : ''}</small></td>` : null}
+          <td>${r.start_min != null ? html`<b>${fmt(r.start_min)}–${fmt(r.end_min)}</b>` : html`<span class="pill warn">Ngoài lịch</span>`}
+            ${mins != null && mins < 5 ? html`<br /><span class="pill bad">bấm nhầm? ${mins}′</span>` : null}</td>
           <td>${hm(r.clock_in)}${r.late_minutes ? html` <span class="pill warn">trễ ${r.late_minutes}′</span>` : null}
             ${r.late_photo ? html`<br /><a class="small" href=${`/api/attendance/${r.id}/late-photo`} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}>📷 ảnh nón + khăn</a>` : null}</td>
           <td>${r.clock_out ? dt(r.clock_out) : html`<span class="pill ok">Đang làm</span>`}${r.auto_closed ? html` <span class="pill bad">tự đóng</span>` : null}</td>
@@ -87,9 +98,10 @@ function Records({ me }) {
               <div class="row end tight" onClick=${(e) => e.stopPropagation()}>${r.ot_status === 'approved'
                 ? html`<button class="small" onClick=${() => act(() => api('POST', `/api/attendance/${r.id}/overtime`, { approve: false }), 'Đã bỏ phần tính thêm')}>Bỏ tính thêm</button>`
                 : html`<button class="small" onClick=${() => act(() => api('POST', `/api/attendance/${r.id}/overtime`, { approve: true }), 'Đã tính thêm vào lương')}>Tính thêm ${r.ot_minutes}′</button>`}</div>` : null}</td>
+          ${idx === 0 ? html`<td rowspan=${n} class="r num" style="vertical-align:top"><b style="font-size:1.1em">${pp.paid ? hours(pp.paid) : '—'}</b>${n > 1 ? html`<br /><small class="muted">cả ngày</small>` : null}</td>` : null}
           <td><small>${r.note}${r.edited_by_name ? ` (sửa: ${r.edited_by_name})` : ''}</small></td>
         </tr>`;
-      })])}</tbody></table></div>` : html`<div class="empty">Chưa có ai chấm công ngày này.</div>`}
+      }))])}</tbody></table></div>` : html`<div class="empty">Chưa có ai chấm công ngày này.</div>`}
     ${edit && staff.data ? html`<${RecordForm} init=${edit} staff=${staff.data.filter((s) => s.active)} canDelete=${atLeast(me, 'manager')} onClose=${() => setEdit(null)} />` : null}
   </div>`;
 }
