@@ -28,12 +28,12 @@ test('chống chấm công hộ: mỗi người 1 điện thoại; máy của ng
   assert.equal((await B('POST', '/api/attendance/clock-in')).status, 200);
   // B cầm máy A chấm hộ cho B → chặn (máy đã gắn cho A)
   const BonA = mk('phoneA-123456'); await BonA('POST', '/api/login', { pin: '715284' });
-  await B('POST', '/api/attendance/clock-out');
+  await B('POST', '/api/attendance/clock-out', { confirm: true });
   const r1 = await BonA('POST', '/api/attendance/clock-in');
   assert.equal(r1.status, 403); assert.match(r1.data.error, /máy chấm công của Bạn A/);
   assert.ok(db.prepare("SELECT 1 FROM notifications WHERE title LIKE '%Nghi chấm công hộ%'").get());
   // A đổi điện thoại mới → chặn, quản lý "Cho đổi máy" → chấm được
-  await A('POST', '/api/attendance/clock-out');
+  await A('POST', '/api/attendance/clock-out', { confirm: true });
   const Anew = mk('phoneA-new-999'); await Anew('POST', '/api/login', { pin: '481937' });
   assert.equal((await Anew('POST', '/api/attendance/clock-in')).status, 403);
   assert.equal((await O('GET', '/api/staff')).data.find((x) => x.id === a).device_pending, true);
@@ -41,6 +41,6 @@ test('chống chấm công hộ: mỗi người 1 điện thoại; máy của ng
   assert.equal((await Anew('POST', '/api/attendance/clock-in')).status, 200);
   // Chấm vào máy đúng, chấm ra trên link / trình duyệt khác → vẫn cho ra (chỉ báo tổ trưởng)
   const Aweb = mk('phoneA-zalo-777'); await Aweb('POST', '/api/login', { pin: '481937' });
-  assert.equal((await Aweb('POST', '/api/attendance/clock-out')).status, 200);
+  assert.equal((await Aweb('POST', '/api/attendance/clock-out', { confirm: true })).status, 200);
   void b;
 });

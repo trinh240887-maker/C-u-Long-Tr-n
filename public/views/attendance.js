@@ -31,6 +31,29 @@ function RecordForm({ init, staff, onClose, canDelete }) {
   <//>`;
 }
 
+// Chia bảng chấm công theo bộ phận (chủ quán 26/10): Bếp, Phục vụ, Thu ngân, Bar, Tiếp thực… mỗi nhóm 1 dải màu
+const GROUPS = [
+  [/bếp|steak|lẩu|nướng|topping|thái tay/i, 'Bếp', '#d9480f'],
+  [/phục vụ/i, 'Phục vụ', '#1971c2'],
+  [/thu ngân/i, 'Thu ngân', '#2f9e44'],
+  [/bar|pha chế/i, 'Bar', '#7048e8'],
+  [/tiếp thực/i, 'Tiếp thực', '#0c8599'],
+  [/tạp vụ|bảo vệ/i, 'Tạp vụ', '#5c677d'],
+];
+export function groupByTeam(rows) {
+  const out = new Map();
+  for (const r of rows) {
+    const i = GROUPS.findIndex(([re]) => re.test(r.team_name || ''));
+    const key = i >= 0 ? GROUPS[i][1] : (r.team_name || 'Chưa có bộ phận');
+    if (!out.has(key)) out.set(key, { name: key, color: i >= 0 ? GROUPS[i][2] : '#868e96', order: i >= 0 ? i : 99, rows: [] });
+    out.get(key).rows.push(r);
+  }
+  return [...out.values()].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'vi')).map((g) => {
+    g.rows.sort((a, b) => a.staff_name.localeCompare(b.staff_name, 'vi') || a.clock_in - b.clock_in);
+    return { ...g, working: g.rows.filter((r) => !r.clock_out).length, late: g.rows.filter((r) => r.late_minutes).length };
+  });
+}
+
 function Records({ me }) {
   const [date, setDate] = useState(me.today);
   const st = useData(`/api/attendance?from=${date}&to=${date}`);
@@ -48,7 +71,8 @@ function Records({ me }) {
     </div>
     ${!st.data ? html`<${Loading} state=${st} />` : st.data.length ? html`<div class="table-wrap"><table class="list">
       <thead><tr><th>Nhân viên</th><th>Ca</th><th>Vào</th><th>Ra</th><th class="r">Giờ tính lương</th><th>Ghi chú</th></tr></thead>
-      <tbody>${st.data.map((r) => {
+      <tbody>${groupByTeam(st.data).map((g) => [html`<tr class="att-group"><td colspan="6" style=${`background:${g.color};color:#fff;font-weight:700;padding:8px 12px`}>
+          ${g.name.toUpperCase()} · ${g.rows.length} người${g.working ? ` · ${g.working} đang làm` : ''}${g.late ? ` · ${g.late} trễ` : ''}</td></tr>`, ...g.rows.map((r) => {
         const mins = r.clock_out ? Math.round((r.clock_out - r.clock_in) / 60000) : null;
         const fmt = (m) => `${String(Math.floor((m % 1440) / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
         return html`<tr class="click" onClick=${() => setEdit(r)}>
@@ -65,7 +89,7 @@ function Records({ me }) {
                 : html`<button class="small" onClick=${() => act(() => api('POST', `/api/attendance/${r.id}/overtime`, { approve: true }), 'Đã tính thêm vào lương')}>Tính thêm ${r.ot_minutes}′</button>`}</div>` : null}</td>
           <td><small>${r.note}${r.edited_by_name ? ` (sửa: ${r.edited_by_name})` : ''}</small></td>
         </tr>`;
-      })}</tbody></table></div>` : html`<div class="empty">Chưa có ai chấm công ngày này.</div>`}
+      })])}</tbody></table></div>` : html`<div class="empty">Chưa có ai chấm công ngày này.</div>`}
     ${edit && staff.data ? html`<${RecordForm} init=${edit} staff=${staff.data.filter((s) => s.active)} canDelete=${atLeast(me, 'manager')} onClose=${() => setEdit(null)} />` : null}
   </div>`;
 }

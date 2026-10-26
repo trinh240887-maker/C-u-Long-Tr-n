@@ -112,7 +112,7 @@ test('năng suất nhân sự: lương/doanh thu theo giờ, giờ thừa ngư�
   const ok = await N('POST', '/api/attendance/clock-in', { lat: 10.7775, lng: 106.7012, acc: 15 });
   assert.equal(ok.status, 200, JSON.stringify(ok.data));
   assert.match(db.prepare('SELECT source FROM attendance ORDER BY id DESC LIMIT 1').get().source, /^GPS cách quán \d+m/);
-  assert.equal((await N('POST', '/api/attendance/clock-out', { lat: 10.7769, lng: 106.7009, acc: 10 })).status, 200);
+  assert.equal((await N('POST', '/api/attendance/clock-out', { lat: 10.7769, lng: 106.7009, acc: 10, confirm: true })).status, 200);
   await o('PUT', '/api/settings', { clock_ip_prefixes: net.ip, shop_lat: '', shop_lng: '' });
   assert.equal((await N('GET', '/api/attendance/network')).data.allowed, true);
 });

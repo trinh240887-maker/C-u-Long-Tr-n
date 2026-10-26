@@ -1,6 +1,6 @@
 import { compressImage } from './checklists.js';
 import { useState, useEffect } from 'preact/hooks';
-import { html, api, act, useData, Link, Modal, Field, hm, dt, dayLabel, PHASE_LABEL, ago } from '../ui.js';
+import { html, api, act, useData, Link, Modal, Field, Confirm, hm, dt, dayLabel, PHASE_LABEL, ago } from '../ui.js';
 import { MyCashCard } from './pay.js';
 import { PendingBookCard } from './daybook.js';
 import { MyJobsCard } from './jobs.js';
@@ -23,9 +23,11 @@ export function LeaveForm({ shift, onClose }) {
 function ClockCard() {
   const st = useData('/api/attendance/me');
   const [now, setNow] = useState(Date.now());
+  const [ask, setAsk] = useState(false);
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
   if (!st.data) return html`<section class="card clock"><p class="muted">${st.error || 'Đang tải…'}</p></section>`;
-  const { open, next } = st.data;
+  const { open, next, undo_out: undo } = st.data;
+  const out = async () => act(async () => api('POST', '/api/attendance/clock-out', { ...(st.data.gps ? await myPlace() : {}), confirm: true }), 'Đã chấm ra ca');
   if (open) {
     const mins = Math.round((now - open.clock_in) / 60000);
     return html`<section class="card clock on">
@@ -33,10 +35,15 @@ function ClockCard() {
         <div class="big">Vào lúc ${hm(open.clock_in)}</div>
         <div class="muted">${Math.floor(mins / 60)} giờ ${mins % 60} phút${open.late_minutes ? ` · trễ ${open.late_minutes} phút` : ''}${open.note ? ` · ${open.note}` : ''}</div></div>
       ${open.need_photo ? html`<${LatePhoto} late=${open.late_minutes} />` : null}
-      <button class="solid danger big" onClick=${() => act(async () => api('POST', '/api/attendance/clock-out', st.data.gps ? await myPlace() : {}), 'Đã chấm ra ca')}>Chấm ra</button>
+      <button class="solid danger big" onClick=${() => setAsk(true)}>Chấm ra</button>
+      ${ask ? html`<${Confirm} danger yes="Chấm ra" onClose=${() => setAsk(false)} onYes=${() => { setAsk(false); out(); }}
+        text=${`Chấm ra lúc ${hm(now)}?${mins < 10 ? ` Bạn vừa chấm vào ${mins} phút trước.` : ''} Chỉ bấm khi đã hết ca, về sớm sẽ bị trừ lương.`} />` : null}
     </section>`;
   }
   return html`<section class="card clock">
+    ${undo ? html`<div class="card tight stack" style="border:2px solid var(--danger, #c92a2a)"><b>Bạn vừa chấm ra lúc ${hm(undo.clock_out)}</b>
+      <small class="muted">Lỡ bấm nhầm khi đang làm? Huỷ để tiếp tục ca (trong 30 phút).</small>
+      <button class="primary big" onClick=${() => act(() => api('POST', '/api/attendance/undo-out', {}), 'Đã huỷ chấm ra, tiếp tục ca')}>↩ Huỷ chấm ra, tiếp tục ca</button></div>` : null}
     <div><div class="eyebrow">${next ? 'Ca tiếp theo' : 'Hôm nay'}</div>
       <div class="big">${next ? `${next.label ? next.label + ' · ' : ''}${next.text}` : 'Chưa có ca sắp tới'}</div>
       <div class="muted">${next ? dayLabel(next.date, { long: true }) : 'Chưa có ca thì chưa chấm công được: báo lịch rảnh hoặc nhờ quản lý thêm ca'}</div></div>

@@ -127,6 +127,15 @@ export default function (r, ctx) {
     }
   };
 
+  // Lỡ bấm chấm ra (chủ quán 26/10: bấm 2 lần liền → vừa vào đã ra): trong 30 phút, ra trước giờ hết ca → tự huỷ được
+  const UNDO_MS = 30 * 60_000;
+  function undoable(staffId) {
+    const a = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND clock_out IS NOT NULL ORDER BY clock_out DESC LIMIT 1').get(staffId);
+    if (!a || ctx.now() - a.clock_out > UNDO_MS) return null;
+    const seg = segOf(a.assignment_id);
+    if (seg && a.clock_out >= rangeOf(ctx.clock(), seg).end) return null;
+    return a;
+  }
   function myStatus(me) {
     ctx.autoCloseAttendance();
     const clock = ctx.clock();
@@ -136,7 +145,9 @@ export default function (r, ctx) {
     const done = new Set(db.prepare('SELECT assignment_id FROM attendance WHERE staff_id = ? AND assignment_id IS NOT NULL AND clock_in > ?')
       .all(me.id, t - 3 * 86_400_000).map((x) => x.assignment_id));
     const next = segs.find((s) => s.end > t && !done.has(s.id)) || null;
+    const last = open ? null : undoable(me.id);
     return {
+      undo_out: last ? { id: last.id, clock_in: last.clock_in, clock_out: last.clock_out } : null,
       open: open ? { ...open, need_photo: open.late_minutes > 0 && !open.late_photo && needLatePhoto(me.id) } : null,
       next: next ? { id: next.id, date: next.date, label: next.label, start: next.start, end: next.end, text: `${fmtHM(next.start_min)}–${fmtHM(next.end_min)}` } : null,
       ip_restricted: Boolean(ctx.setting('clock_ip_prefixes')) || place().gps,
@@ -248,6 +259,8 @@ export default function (r, ctx) {
     checkDevice(me, deviceOf(req, res), { out: true });
     const open = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id);
     if (!open) fail(409, 'Bạn chưa chấm vào ca');
+    const since = Math.round((ctx.now() - open.clock_in) / 60_000);
+    if (since < 10 && !body?.confirm) fail(409, `Bạn vừa chấm vào ${since} phút trước. Chắc chắn chấm ra?`);
     // Còn giữ tiền mặt của khách chưa giao thu ngân thì không cho ra ca
     const held = ctx.cashHeldBy ? ctx.cashHeldBy(me.id) : 0;
     if (held) fail(409, `Còn ${held.toLocaleString('vi-VN')}đ tiền mặt bạn thu chưa được thu ngân xác nhận. Đưa tiền cho thu ngân bấm xác nhận rồi chấm ra.`);
@@ -258,6 +271,17 @@ export default function (r, ctx) {
     const grace = num('late_grace_minutes', 5);
     if (p.early_minutes > grace) ctx.notify(ctx.leadsOf(me.team_id).filter((id) => id !== me.id), { title: `${me.name} về sớm ${p.early_minutes} phút`, body: `Chấm ra lúc ${ctx.clock().fmt(outAt)}. Giờ về sớm bị trừ lương.`, link: '/cham-cong' });
     ctx.audit(me, 'clock.out', open.id);
+    ctx.broadcast('attendance');
+    return myStatus(me);
+  });
+
+  r.post('/api/attendance/undo-out', 'staff', ({ me }) => {
+    if (db.prepare('SELECT 1 FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id)) fail(409, 'Bạn đang trong ca');
+    const a = undoable(me.id);
+    if (!a) fail(409, 'Quá 30 phút hoặc đã hết ca: nhờ trưởng ca / quản lý sửa ở Chấm công');
+    db.prepare("UPDATE attendance SET clock_out = NULL, ot_status = '', note = TRIM(note || ' · huỷ chấm ra nhầm') WHERE id = ?").run(a.id);
+    ctx.notify(ctx.leadsOf(me.team_id).filter((id) => id !== me.id), { title: `${me.name} huỷ chấm ra nhầm`, body: `Đã chấm ra lúc ${ctx.clock().fmt(a.clock_out)}, giờ tiếp tục ca.`, link: '/cham-cong' });
+    ctx.audit(me, 'clock.undo_out', a.id);
     ctx.broadcast('attendance');
     return myStatus(me);
   });
