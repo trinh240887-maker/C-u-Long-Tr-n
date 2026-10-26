@@ -391,8 +391,15 @@ function Utensils({ me }) {
   const [brk, setBrk] = useState(null);
   const [counting, setCounting] = useState(null);
   const [res, setRes] = useState(null);
+  const [adding, setAdding] = useState(null);
+  const [edit, setEdit] = useState(null);
   if (!d.data) return html`<${Loading} state=${d} />`;
   const { items, moves, last_count_at, due } = d.data;
+  const boss = atLeast(me, 'manager');
+  const addAll = async () => {
+    const r = await act(() => api('POST', '/api/utensils/bulk', { text: adding }));
+    if (r) { setAdding(null); toast(`Thêm ${r.added.length} món${r.updated.length ? ` · ghi số ${r.updated.length} món` : ''}${r.kept.length ? ` · ${r.kept.length} món đã có, giữ số cũ` : ''}`); }
+  };
   const canCount = atLeast(me, 'team_lead');
   const save = async () => {
     const r = await act(() => api('POST', '/api/utensils/count', { lines: Object.entries(counting).map(([id, actual]) => ({ utensil_id: Number(id), actual })) }), 'Đã lưu kiểm tuần');
@@ -406,19 +413,35 @@ function Utensils({ me }) {
       ${canCount && !counting ? html`<button class="primary" onClick=${() => { setRes(null); setCounting({}); }}>📋 Kiểm tuần: đếm đồ dùng</button>` : null}
       <p class="small muted">Vỡ / mất thì bấm "Báo vỡ" ngay ở món đó. Cuối tuần đếm lại: thiếu mà không ai báo thì app ghi "mất không rõ" và báo chủ.</p>
     </section>
-    ${!items.length ? html`<p class="muted">Chưa có đồ dùng. Thêm ở Cài đặt → Dụng cụ.</p>` : null}
+    ${boss ? html`<button class="primary big" onClick=${() => setAdding('')}>➕ Thêm đồ dùng</button>` : null}
+    ${!items.length ? html`<p class="muted">Chưa có đồ dùng.${boss ? ' Bấm ➕ Thêm đồ dùng.' : ''}</p>` : null}
     ${res ? html`<section class="card stack"><h3>Kết quả kiểm</h3>${res.map((x) => html`<div class="row"><span class="grow">${x.name}</span><span class=${x.diff < 0 ? 'warn-text' : 'muted'}>sổ ${x.expected} → đếm ${x.actual}${x.diff ? ` (${x.diff > 0 ? '+' : ''}${x.diff})` : ' ✓'}</span></div>`)}</section>` : null}
     <section class="card stack">
       ${items.map((u) => html`<div class="row">
         <span class="grow"><b>${u.name}</b> <span class="muted small">sổ: ${u.on_hand} ${u.unit}</span></span>
         ${counting ? html`<input class="num-in" type="number" min="0" inputmode="numeric" placeholder="đếm" value=${counting[u.id] ?? ''} onInput=${(e) => setCounting({ ...counting, [u.id]: e.target.value })} />`
-          : html`<button class="small" onClick=${() => setBrk({ u, qty: 1, kind: 'break', who: '', note: '' })}>Báo vỡ / mất</button>`}
+          : html`${boss ? html`<button class="small icon" aria-label="Sửa" onClick=${() => setEdit({ ...u })}>✏️</button>` : null}<button class="small" onClick=${() => setBrk({ u, qty: 1, kind: 'break', who: '', note: '' })}>Báo vỡ / mất</button>`}
       </div>`)}
       ${counting ? html`<div class="row end"><button onClick=${() => setCounting(null)}>Huỷ</button><button class="primary" disabled=${!Object.values(counting).some((x) => x !== '')} onClick=${save}>Lưu kiểm tuần</button></div>` : null}
     </section>
     ${moves.length ? html`<section class="card stack"><h3>4 tuần gần đây</h3>
       ${moves.filter((m) => m.type !== 'count' || m.qty).map((m) => html`<div class="small"><b>${label[m.type] || m.type}</b> ${m.name} ${m.qty > 0 ? '+' : ''}${m.qty} ${m.unit} · ${dt(m.at)} · ${m.staff_name}${m.note ? html`<span class="muted"> · ${m.note}</span>` : null}</div>`)}
     </section>` : null}
+    ${adding != null ? html`<${Modal} title="➕ Thêm đồ dùng" onClose=${() => setAdding(null)}>
+      <div class="stack">
+        <p class="small muted">Mỗi dòng 1 món: <b>tên, số đang có, đơn vị</b>. Dán cả danh sách được.</p>
+        <textarea id="ut-bulk" rows="9" placeholder=${'Ly bia 120 cái\nKhay inox 30\nBếp gas mini 100 cái\nKẹp gắp 40 cái\nThớt 6 cái'} value=${adding} onInput=${(e) => setAdding(e.target.value)}></textarea>
+        <small class="muted">Món đã có mà sổ đang 0 thì ghi số mới; món đã có số thì giữ nguyên (đổi số bằng Kiểm tuần hoặc ✏️).</small>
+        <div class="row end"><button onClick=${() => setAdding(null)}>Thôi</button><button class="primary" disabled=${!adding.trim()} onClick=${addAll}>Thêm ${adding.split('\n').filter((x) => x.trim()).length || ''} món</button></div>
+      </div><//>` : null}
+    ${edit ? html`<${Modal} title=${`Sửa: ${edit.name}`} onClose=${() => setEdit(null)}>
+      <div class="stack">
+        <${Field} label="Tên"><input id="ut-name" value=${edit.name} onInput=${(e) => setEdit({ ...edit, name: e.target.value })} /><//>
+        <div class="row"><${Field} label="Số đang có"><input id="ut-qty" type="number" min="0" inputmode="numeric" value=${edit.on_hand} onInput=${(e) => setEdit({ ...edit, on_hand: e.target.value })} /><//>
+          <${Field} label="Đơn vị"><input id="ut-unit" value=${edit.unit} onInput=${(e) => setEdit({ ...edit, unit: e.target.value })} /><//></div>
+        <div class="row between"><button class="danger" onClick=${async () => { if (await act(() => api('PATCH', `/api/utensils/${edit.id}`, { active: false }), 'Đã ẩn món')) setEdit(null); }}>Bỏ món này</button>
+          <button class="primary" onClick=${async () => { if (await act(() => api('PATCH', `/api/utensils/${edit.id}`, { name: edit.name, unit: edit.unit, on_hand: edit.on_hand }), 'Đã lưu')) setEdit(null); }}>Lưu</button></div>
+      </div><//>` : null}
     ${brk ? html`<${Modal} title=${`Báo vỡ / mất: ${brk.u.name}`} onClose=${() => setBrk(null)}>
       <div class="stack">
         <div class="row wrap tight">${[['break', 'Vỡ'], ['lost', 'Mất']].map(([k, l]) => html`<button class=${`chip ${brk.kind === k ? 'on' : ''}`} onClick=${() => setBrk({ ...brk, kind: k })}>${l}</button>`)}</div>

@@ -36,6 +36,39 @@ export default function (r, ctx) {
     return { id };
   });
 
+  // Thêm nhiều đồ dùng 1 lần (chủ quán 26/10): mỗi dòng "Tên số đơn-vị", vd "Ly bia 120 cái", "Khay inox 30"
+  // Món đã có mà sổ đang 0 → ghi số đang có; sổ đã có số thì giữ nguyên (đổi số qua Kiểm tuần để không che mất mát)
+  r.post('/api/utensils/bulk', 'manager', ({ me, body }) => {
+    const lines = String(body.text || '').split(/\r?\n/).map((x) => x.replace(/^[\s\-•*+\d.)]*(?=\D)/, '').trim()).filter(Boolean);
+    if (!lines.length) fail(400, 'Nhập mỗi dòng 1 món, vd: Ly bia 120 cái');
+    if (lines.length > 200) fail(400, 'Tối đa 200 dòng mỗi lần');
+    const out = { added: [], updated: [], kept: [] };
+    tx(db, () => {
+      let sort = db.prepare('SELECT COALESCE(MAX(sort), -1) + 1 AS s FROM utensils').get().s;
+      for (const line of lines) {
+        const m = /^(.*?)[\s:,-]+(\d+)\s*([^\d\s][^\d]{0,11})?$/u.exec(line);
+        const name = (m ? m[1] : line).trim().slice(0, 40);
+        if (!name) continue;
+        const qty = m ? Number(m[2]) : 0;
+        const unit = (m?.[3] || '').trim().slice(0, 12) || 'cái';
+        const cur = db.prepare('SELECT * FROM utensils WHERE lower(name) = lower(?)').get(name);
+        if (!cur) {
+          db.prepare('INSERT INTO utensils (name, unit, on_hand, sort) VALUES (?, ?, ?, ?)').run(name, unit, qty, sort++);
+          out.added.push(name);
+        } else if (!cur.on_hand && qty) {
+          db.prepare('UPDATE utensils SET on_hand = ?, unit = ?, active = 1 WHERE id = ?').run(qty, m?.[3] ? unit : cur.unit, cur.id);
+          out.updated.push(name);
+        } else {
+          if (!cur.active) db.prepare('UPDATE utensils SET active = 1 WHERE id = ?').run(cur.id);
+          out.kept.push(name);
+        }
+      }
+    });
+    ctx.audit(me, 'utensil.bulk', out);
+    ctx.broadcast('utensils');
+    return out;
+  });
+
   r.patch('/api/utensils/:id', 'manager', ({ me, params: p, body }) => {
     const u = db.prepare('SELECT * FROM utensils WHERE id = ?').get(p.id);
     if (!u) fail(404, 'Không tìm thấy dụng cụ');
