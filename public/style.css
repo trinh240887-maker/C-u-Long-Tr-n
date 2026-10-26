@@ -789,3 +789,8 @@ table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align
 .role-tag.r-manager, .role-tag.r-owner { background: #7f1d1d; }
 .role-tag.r-team_lead { background: #1d4ed8; }
 .role-tag.r-help { background: #e5e7eb; color: #374151; }
+
+/* Thanh tab của nhóm mục gộp (Việc, Lịch ca, Thu ngân, Máy in, Nhân viên) */
+.group-tabs { margin-bottom: 12px; }
+.group-tabs a { display: inline-flex; align-items: center; min-height: 38px; padding: 6px 14px; border-radius: 9px; color: var(--muted); text-decoration: none; white-space: nowrap; font-weight: 600; }
+.group-tabs a.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }

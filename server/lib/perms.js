@@ -32,7 +32,7 @@ export const PAGES = [
   { path: '/bao-cao', label: 'Báo cáo doanh thu & nhân sự', role: 'manager', api: [['/api/reports', 'all']] },
   { path: '/khuyen-mai', label: 'Khuyến mãi', role: 'staff', teamsDefault: /^(phục vụ|phuc vu|thu ngân|thu ngan)$/i, api: [['/api/promotions', 'w']] },
   { path: '/may-in', label: 'Máy in', role: 'shift_lead', api: [['/api/print/settings', 'all'], ['/api/print/test', 'all'], ['/api/print/retry', 'all'], ['/api/print/status', 'all'], ['/api/kitchen-stations', 'w']] },
-  { path: '/nghi', label: 'Nghỉ & thay ca', role: 'staff', api: [['/api/leave', 'all'], ['/api/offers', 'all']] },
+  { path: '/nghi', label: 'Báo nghỉ', role: 'staff', api: [['/api/leave', 'all'], ['/api/offers', 'all']] },
   { path: '/cham-cong', label: 'Chấm công', role: 'shift_lead', api: [['/api/timesheet', 'all']] },
   { path: '/nhan-vien', label: 'Nhân viên', role: 'manager', api: [['/api/staff', 'w']] },
   { path: '/so-do', label: 'Sơ đồ tổ chức', role: 'staff', api: [['/api/org', 'all']] },

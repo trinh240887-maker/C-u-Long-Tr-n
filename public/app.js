@@ -52,7 +52,7 @@ const NAV = [
   { path: '/bao-cao', label: 'Báo cáo doanh thu & nhân sự', icon: '📈', role: 'manager' },
   { path: '/khuyen-mai', label: 'Khuyến mãi', icon: '🎁', role: 'staff' },
   { path: '/may-in', label: 'Máy in', icon: '⎙', role: 'shift_lead' },
-  { path: '/nghi', label: 'Nghỉ & thay ca', icon: '⇄', role: 'staff' },
+  { path: '/nghi', label: 'Báo nghỉ', icon: '⇄', role: 'staff' },
   { path: '/cham-cong', label: 'Chấm công', icon: '⏱', role: 'shift_lead' },
   { path: '/nhan-vien', label: 'Nhân viên', icon: '☺', role: 'manager' },
   { path: '/so-do', label: 'Sơ đồ tổ chức', icon: '⌗', role: 'staff' },
@@ -132,12 +132,43 @@ function ChangePin({ me, onDone }) {
   </div>`;
 }
 
-function Shell({ me, children, path, online }) {
+// Gộp mục cùng chức năng (chủ quán 26/10): menu hiện 1 mục / nhóm, vào trong có thanh tab. Đường dẫn cũ vẫn dùng được
+const GROUPS = [
+  { label: 'Việc', icon: '✋', tabs: [['/viec-ca', 'Việc ca'], ['/viec', 'Việc giao lẻ'], ['/duyet-anh', 'Duyệt ảnh']] },
+  { label: 'Lịch ca', icon: '▤', tabs: [['/lich', 'Lịch ca'], ['/ranh', 'Lịch rảnh & xếp ca'], ['/nghi', 'Báo nghỉ']] },
+  { label: 'Thu ngân', icon: '₫', tabs: [['/thu-ngan', 'Hôm nay'], ['/chi', 'Phiếu chi'], ['/duyet-so', 'Duyệt sổ']] },
+  { label: 'Máy in', icon: '⎙', tabs: [['/may-in', 'Máy in'], ['/phieu-bep', 'Phiếu bếp (máy in hỏng)']] },
+  { label: 'Nhân viên', icon: '☺', tabs: [['/nhan-vien', 'Nhân viên'], ['/so-do', 'Sơ đồ tổ chức']] },
+];
+const groupOf = (p) => GROUPS.find((g) => g.tabs.some(([x]) => x === p));
+function menuItems(me) {
   // Chỉ 1 mục kho trên menu: chưa bật kho mới thì có Kho (chủ quán vào kho mới bằng nút trong Kho); đã chốt tồn kho mới thì nhân viên chỉ thấy Kho & Tài sản
-  const items = NAV.filter((n) => canOpen(me, n) && !(n.path === '/kho-tx' && !me.wh_setup) && !(n.path === '/kho' && me.wh_live && !atLeast(me, 'manager')));
+  const raw = NAV.filter((n) => canOpen(me, n) && !(n.path === '/kho-tx' && !me.wh_setup) && !(n.path === '/kho' && me.wh_live && !atLeast(me, 'manager')));
+  const out = [];
+  for (const n of raw) {
+    const g = groupOf(n.path);
+    if (!g) { out.push(n); continue; }
+    if (out.some((x) => x.group === g)) continue;
+    const allowed = g.tabs.map(([p]) => raw.find((r) => r.path === p)).filter(Boolean);
+    const many = allowed.length > 1;
+    out.push({ ...allowed[0], label: many ? g.label : allowed[0].label, icon: many ? g.icon : allowed[0].icon, group: g, paths: allowed.map((x) => x.path), main: allowed.some((x) => x.main) });
+  }
+  return out;
+}
+function GroupTabs({ me, path }) {
+  const g = groupOf(path);
+  if (!g) return null;
+  const tabs = g.tabs.filter(([p]) => { const n = NAV.find((x) => x.path === p); return n && canOpen(me, n); });
+  if (tabs.length < 2) return null;
+  return html`<div class="tabs scroll group-tabs">${tabs.map(([p, l]) => html`<${Link} href=${p} class=${path === p ? 'on' : ''}>${l}<//>`)}</div>`;
+}
+
+function Shell({ me, children, path, online }) {
+  const items = menuItems(me);
   const main = items.filter((n) => n.main).slice(0, 4);
   const [more, setMore] = useState(false);
-  const active = (p) => (p === '/' ? path === '/' : path.startsWith(p));
+  const isOn = (n) => (n.paths ? n.paths.includes(path) : n.path === '/' ? path === '/' : path === n.path || path.startsWith(`${n.path}/`));
+  const active = (p) => { const n = items.find((x) => x.path === p); return n ? isOn(n) : path === p; };
   useEffect(() => setMore(false), [path]);
   return html`<div class="shell">
     <aside class="side">
@@ -149,7 +180,7 @@ function Shell({ me, children, path, online }) {
     <div class="main">
       <header class="top">
         <span class="mark">CLT</span>
-        <b class="grow">${items.find((n) => active(n.path))?.label || ''}</b>
+        <b class="grow">${items.find((n) => isOn(n))?.label || ''}</b>
         <span class=${`conn ${online ? '' : 'off'}`} title=${online ? 'Đang đồng bộ' : 'Mất kết nối'}></span>
         <${Link} href="/ho-so" class="who">${me.name}${me.unread ? html`<b class="dotn">${me.unread}</b>` : null}<//>
       </header>
@@ -157,7 +188,7 @@ function Shell({ me, children, path, online }) {
         <button class="small" onClick=${() => window.__DEMO__.reset()}>Làm lại từ đầu</button>
         <button class="small" onClick=${async () => { await api('POST', '/api/logout'); window.dispatchEvent(new Event('auth:lost')); }}>Đổi tài khoản</button></div>` : null}
       ${!online ? html`<div class="banner">Mất kết nối tới máy chủ của quán. Đang thử kết nối lại…</div>` : null}
-      <main class="content">${children}</main>
+      <main class="content"><${GroupTabs} me=${me} path=${path} />${children}</main>
     </div>
     <nav class="tabbar">
       ${main.map((n) => html`<${Link} href=${n.path} class=${active(n.path) ? 'on' : ''}><i>${n.icon}</i><span>${n.label}</span><//>`)}
