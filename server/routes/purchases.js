@@ -294,6 +294,14 @@ export default function (r, ctx) {
     };
   });
 
+  // Đơn vị trên bill đã học (vd bill ghi "thùng" = 150 vắt) → hiện ở Kho → ⚖ Quy đổi
+  r.get('/api/stock/unit-aliases', 'manager', () => db.prepare('SELECT ingredient_id, bill_unit, factor FROM unit_aliases ORDER BY ingredient_id').all());
+  r.delete('/api/stock/unit-aliases', 'manager', ({ me, query }) => {
+    db.prepare('DELETE FROM unit_aliases WHERE ingredient_id = ? AND bill_unit = ?').run(Number(query.get('ingredient_id')), String(query.get('bill_unit') || ''));
+    ctx.audit(me, 'unit_alias.delete', { ingredient_id: query.get('ingredient_id'), bill_unit: query.get('bill_unit') });
+    return { ok: true };
+  });
+
   r.get('/api/purchases/photo/:id', 'staff', ({ params }) => {
     const p = db.prepare('SELECT * FROM purchase_bill_photos WHERE id = ?').get(params.id);
     if (!p) fail(404, 'Không tìm thấy ảnh');

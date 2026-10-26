@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays } from '../ui.js';
 
-const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['ls', 'Lịch sử']];
+const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['quydoi', '⚖ Quy đổi', 'manager'], ['ls', 'Lịch sử']];
 const STATUS = { out: ['Hết', 'bad'], low: ['Sắp hết', 'warn'], ok: ['Đủ', 'ok'] };
 const FRESH = { fresh: 'Đồ tươi', chilled: 'Đồ mát', dry: 'Đồ khô/đông' };
 const TR = { requested: ['Chờ kho tổng xuất', 'warn'], sent: ['Đã xuất, chờ khu nhận', 'warn'], received: ['Đã nhận', 'ok'], cancelled: ['Đã huỷ', 'muted'] };
@@ -467,8 +467,52 @@ export function StockView({ me, query }) {
       : tab === 'dodung' ? html`<${Utensils} me=${me} />`
       : tab === 'dat' ? html`<${Orders} me=${me} meta=${meta.data} />`
       : tab === 'nl' && atLeast(me, 'manager') ? html`<${Setup} meta=${meta.data} />`
+      : tab === 'quydoi' && atLeast(me, 'manager') ? html`<${Conversions} meta=${meta.data} />`
       : tab === 'ls' ? html`<${History} me=${me} />`
       : tab === 'nxt' && atLeast(me, 'manager') ? html`<${Nxt} />`
       : html`<${Overview} />`}
+  </div>`;
+}
+
+// ⚖ Quy đổi (chủ quán 26/10): 1 bảng mọi nguyên liệu — mua theo gì (trên bill) → dùng / bán theo gì (định lượng, kiểm kho)
+function Conversions({ meta }) {
+  const al = useData('/api/stock/unit-aliases');
+  const [q, setQ] = useState('');
+  const [only, setOnly] = useState(false);
+  const [draft, setDraft] = useState({});
+  const ings = meta.ingredients.filter((g) => g.active !== 0 && g.active !== false);
+  const same = (g) => !g.purchase_unit || g.purchase_unit === g.unit;
+  const list = ings.filter((g) => (!only || same(g)) && (!q || g.name.toLowerCase().includes(q.toLowerCase())));
+  const val = (g, k) => draft[g.id]?.[k] ?? g[k] ?? '';
+  const set = (g, k, x) => setDraft({ ...draft, [g.id]: { ...draft[g.id], [k]: x } });
+  const save = async (g) => {
+    const d = draft[g.id];
+    const body = { unit: val(g, 'unit').trim(), purchase_unit: val(g, 'purchase_unit').trim(), purchase_factor: String(val(g, 'purchase_factor')).replace(',', '.') };
+    if (await act(() => api('PATCH', `/api/stock/ingredients/${g.id}`, body), `Đã lưu ${g.name}`)) { const n = { ...draft }; delete n[g.id]; setDraft(n); }
+    void d;
+  };
+  const aliases = (id) => (al.data || []).filter((a) => a.ingredient_id === id);
+  return html`<div class="stack">
+    <section class="card stack">
+      <b>Mua theo gì → dùng theo gì</b>
+      <p class="small muted">Đơn vị mua = đơn vị trên bill (gói, thùng, kg). Đơn vị dùng = đơn vị bán, ghi định lượng và kiểm kho (vắt, lon, g). Người nhận hàng nhập theo bill, kho tự đổi ra đơn vị dùng.</p>
+      <div class="row wrap"><input id="qd-q" class="grow" placeholder="Tìm nguyên liệu" value=${q} onInput=${(e) => setQ(e.target.value)} />
+        <button class=${`chip ${only ? 'on' : ''}`} onClick=${() => setOnly(!only)}>Mua = dùng cùng đơn vị (${ings.filter(same).length})</button></div>
+    </section>
+    <section class="card stack">
+      ${list.map((g) => { const dirty = !!draft[g.id]; const f = Number(String(val(g, 'purchase_factor')).replace(',', '.')) || 1; return html`<div class="stack tight" style="border-bottom:1px solid var(--line, #eee);padding-bottom:10px">
+        <div class="row between"><b>${g.name}</b>${same(g) && !dirty ? html`<span class="pill muted">cùng đơn vị</span>` : html`<small class="ok-text">1 ${val(g, 'purchase_unit') || '?'} = ${f.toLocaleString('vi-VN')} ${val(g, 'unit')}</small>`}</div>
+        <div class="row wrap tight" style="align-items:center">
+          <span class="small">1</span>
+          <input id=${`qd-pu-${g.id}`} style="width:6em" placeholder="gói" aria-label="Đơn vị mua" value=${val(g, 'purchase_unit')} onInput=${(e) => set(g, 'purchase_unit', e.target.value)} />
+          <span class="small">=</span>
+          <input id=${`qd-f-${g.id}`} style="width:6em" inputmode="decimal" aria-label="Bằng bao nhiêu" value=${val(g, 'purchase_factor')} onInput=${(e) => set(g, 'purchase_factor', e.target.value)} />
+          <input id=${`qd-u-${g.id}`} style="width:6em" placeholder="vắt" aria-label="Đơn vị dùng" value=${val(g, 'unit')} onInput=${(e) => set(g, 'unit', e.target.value)} />
+          ${dirty ? html`<button class="primary small" onClick=${() => save(g)}>Lưu</button>` : null}
+        </div>
+        ${aliases(g.id).length ? html`<small class="muted">Bill ghi khác đã học: ${aliases(g.id).map((a) => html`<span class="pill muted" style="margin-right:4px">1 ${a.bill_unit} = ${a.factor} ${g.unit} <button class="link small" aria-label="Xoá" onClick=${() => act(() => api('DELETE', `/api/stock/unit-aliases?ingredient_id=${g.id}&bill_unit=${encodeURIComponent(a.bill_unit)}`), 'Đã xoá')}>✕</button></span>`)}</small>` : null}
+      </div>`; })}
+      ${!list.length ? html`<p class="muted">Không có nguyên liệu.</p>` : null}
+    </section>
   </div>`;
 }
