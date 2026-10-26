@@ -25,7 +25,8 @@ function PhotoPicker({ photos, setPhotos, first = '📷 Chụp bill NCC (bắt b
   return html`<div class="stack">
     ${photos.length ? html`<div class="thumbs">${photos.map((p, i) => html`<span class="thumb"><img src=${p} alt="Ảnh" /><button class="x" aria-label="Xoá ảnh" onClick=${() => setPhotos(photos.filter((_, k) => k !== i))}>✕</button></span>`)}</div>` : null}
     ${photos.length < 4 ? html`<label class=${`btn-photo ${photos.length ? '' : 'need'}`}><input type="file" accept="image/*" capture="environment" multiple hidden onChange=${add} />
-      ${busy ? 'Đang xử lý ảnh…' : photos.length ? more : first}</label>` : null}
+      ${busy ? 'Đang xử lý ảnh…' : photos.length ? more : first}</label>
+      <label class="button small" style="align-self:flex-start">🖼 Chọn ảnh có sẵn (bill NCC gửi qua Zalo)<input type="file" accept="image/*" multiple hidden onChange=${add} /></label>` : null}
   </div>`;
 }
 
