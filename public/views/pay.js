@@ -294,6 +294,8 @@ export function CashierView({ me }) {
       <div class="row"><button class="icon" onClick=${() => setDate(addDays(date, -1))}>‹</button><b>${dayLabel(date, { long: true })}</b><button class="icon" onClick=${() => setDate(addDays(date, 1))}>›</button></div>
       ${locked ? html`<span class="pill ok">Đã chốt · ${d.closing.by_name} ${hm(d.closing.confirmed_at)}</span>` : null}
     </div>
+    <div class="card row wrap between tip-strip"><span>Doanh thu <b class="num">${money(s.net)}</b> <small class="muted">(${s.bills} bill)</small></span>
+      <span>💰 Tip hôm nay <b class="num">${money((s.tip_cash || 0) + (s.tip_transfer || 0))}</b> <small class="muted">TM ${money(s.tip_cash || 0)} · CK ${money(s.tip_transfer || 0)}</small></span></div>
     ${d.open_tables ? html`<p class="muted small">Đang còn ${d.open_tables} bàn chưa tính tiền.</p>` : null}
     ${!locked ? html`<${WaitingTables} me=${me} />` : null}
 
