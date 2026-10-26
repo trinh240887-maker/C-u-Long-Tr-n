@@ -178,7 +178,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
     let data = await readFile(file);
     if (path.basename(file) === 'index.html') {
       // Mỗi bản code có tiền tố /v/<mã>/ riêng: điện thoại (Safari) không dùng lại file giao diện cũ.
-      // Import tương đối trong app.js tự đi theo tiền tố; importmap + css + modulepreload sửa ở đây.
+      // Import tương đối (không dùng importmap: Safari iOS < 16.4 không hỗ trợ) tự đi theo tiền tố; css + modulepreload sửa ở đây.
       const V = `/v/${version}`;
       const html = String(data)
         .replace('src="/app.js"', `src="${V}/app.js"`).replace('href="/style.css"', `href="${V}/style.css"`)

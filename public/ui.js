@@ -1,6 +1,6 @@
-import { h } from 'preact';
-import { useState, useEffect, useRef } from 'preact/hooks';
-import htm from 'htm';
+import { h } from './vendor/preact.js';
+import { useState, useEffect, useRef } from './vendor/hooks.js';
+import htm from './vendor/htm.js';
 
 export const html = htm.bind(h);
 export const TZ = 'Asia/Ho_Chi_Minh';

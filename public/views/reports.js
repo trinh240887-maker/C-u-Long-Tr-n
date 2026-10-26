@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, useData, Loading, money, addDays, navigate } from '../ui.js';
 import { MoneyNow } from './expenses.js';
 

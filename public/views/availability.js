@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect } from '../vendor/hooks.js';
 import { HourCoverage } from './schedule.js';
 import { html, api, act, useData, Loading, Modal, dt, dayLabel, addDays, atLeast, navigate, toast } from '../ui.js';
 

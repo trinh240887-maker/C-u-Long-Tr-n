@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Modal, Field, Loading, dayLabel, ago, atLeast } from '../ui.js';
 
 const STATUS = { pending: ['Chờ duyệt', 'warn'], approved: ['Đã duyệt', 'ok'], rejected: ['Không duyệt', 'bad'], cancelled: ['Đã huỷ', 'muted'] };

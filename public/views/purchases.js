@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, money, hm, dayLabel, addDays, Modal, Field, navigate, toast } from '../ui.js';
 import { compressImage } from './checklists.js';
 

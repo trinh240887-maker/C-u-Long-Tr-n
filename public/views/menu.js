@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, Modal, Field, money, atLeast } from '../ui.js';
 
 const vnd = (n) => money(n);

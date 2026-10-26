@@ -1,5 +1,5 @@
 import { compressImage } from './checklists.js';
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect } from '../vendor/hooks.js';
 import { html, api, act, useData, Link, Modal, Field, Confirm, hm, dt, dayLabel, PHASE_LABEL, ago } from '../ui.js';
 import { MyCashCard } from './pay.js';
 import { PendingBookCard } from './daybook.js';

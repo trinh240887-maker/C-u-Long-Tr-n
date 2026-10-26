@@ -1,5 +1,5 @@
 // Việc ca: mỗi việc 1 thẻ, người được giao bấm Nhận → Xong (+ảnh); tổ trưởng khu kiểm Đạt / Làm lại (chủ quán 25/10)
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, hm, navigate, addDays } from '../ui.js';
 import { compressImage } from './checklists.js';
 

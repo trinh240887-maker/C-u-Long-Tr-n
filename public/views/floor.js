@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, Link, hm, atLeast, navigate, toast } from '../ui.js';
 
 const mins = (from, now) => Math.max(0, Math.round((now - from) / 60_000));

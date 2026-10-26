@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Modal, Field, Loading, dt, atLeast, ago } from '../ui.js';
 
 const PRI = { 1: ['Gấp', 'bad'], 2: ['Thường', ''], 3: ['Thấp', 'muted'] };

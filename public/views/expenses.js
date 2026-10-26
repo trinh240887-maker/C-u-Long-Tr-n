@@ -1,5 +1,5 @@
 // Phiếu chi: thu ngân chi từ két · quản lý chi tiền đã kết · chi chuyển khoản (chủ quán 26/10)
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, Modal, Field, money, dt, navigate, addDays } from '../ui.js';
 import { compressImage } from './checklists.js';
 

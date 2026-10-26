@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect } from '../vendor/hooks.js';
 import { html, api, act, useData, Field, ago, toast } from '../ui.js';
 
 export function Profile({ me, reloadMe }) {

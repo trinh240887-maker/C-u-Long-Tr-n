@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, money, hm, dayLabel, Field, navigate } from '../ui.js';
 import { DenomForm, DenomView, CashPhotos } from './pay.js';
 

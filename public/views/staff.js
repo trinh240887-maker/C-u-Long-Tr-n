@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Modal, Field, Loading, money, ROLE_LABEL, atLeast, navigate, toast } from '../ui.js';
 
 const ROLES = ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'];

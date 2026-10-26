@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, Modal, Field, money, hm, atLeast, addDays, dayLabel, toast, bump } from '../ui.js';
 import qrcode from '../vendor/qrcode.js';
 import { compressImage } from './checklists.js';

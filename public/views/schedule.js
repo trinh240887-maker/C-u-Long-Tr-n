@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { PlanBoard } from './availability.js';
 import { LeaveForm } from './home.js';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, dayLabel, addDays, atLeast, navigate, Link } from '../ui.js';

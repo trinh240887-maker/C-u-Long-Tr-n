@@ -1,5 +1,5 @@
 // Kho & Tài sản theo chứng từ (spec chủ quán 25/10). Mỗi vai trò chỉ thấy nút của mình; dùng tốt trên điện thoại ~380px.
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, Modal, Field, navigate, toast, dt, money, atLeast } from '../ui.js';
 import { compressImage } from './checklists.js';
 import qrcode from '../vendor/qrcode.js';

@@ -1,5 +1,5 @@
-import { render } from 'preact';
-import { useState, useEffect } from 'preact/hooks';
+import { render } from './vendor/preact.js';
+import { useState, useEffect } from './vendor/hooks.js';
 import { html, api, bump, useRoute, Link, Toaster, toast, atLeast, useLive } from './ui.js';
 import { Home } from './views/home.js';
 import { Dashboard } from './views/dashboard.js';
@@ -271,3 +271,4 @@ function App() {
 const root = document.getElementById('root');
 root.textContent = '';
 render(html`<${App} /><${Toaster} />`, root);
+try { sessionStorage.removeItem('clt_retry'); } catch { /* bỏ qua */ }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, Modal, Field, dayLabel, addDays, navigate, atLeast } from '../ui.js';
 import { QR } from './pay.js';
 

@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, hm, dt, dayLabel, addDays, hours, money, localInput, atLeast, navigate } from '../ui.js';
 
 function RecordForm({ init, staff, onClose, canDelete }) {

@@ -10,9 +10,6 @@
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/style.css">
-  <script type="importmap">
-    { "imports": { "preact": "/vendor/preact.js", "preact/hooks": "/vendor/hooks.js", "htm": "/vendor/htm.js" } }
-  </script>
   <style>#boot{font:16px system-ui;text-align:center;margin-top:40vh;color:#7c2d12}#root:not(:empty)~#boot{display:none}</style>
 </head>
 <body>
@@ -23,6 +20,8 @@
     // Server đang khởi động lại (đẩy code) → file app tải hụt, màn hình kẹt "Đang mở app…": báo + tự tải lại
     function cltRetry(sec) {
       if (document.getElementById('root').childNodes.length) return;
+      var n = 0; try { n = Number(sessionStorage.getItem('clt_retry') || 0); sessionStorage.setItem('clt_retry', n + 1); } catch (e) {}
+      if (n >= 3) { try { sessionStorage.removeItem('clt_retry'); } catch (e) {} document.getElementById('boot').innerHTML = 'Không mở được app trên máy này.<br>Thử: tắt hẳn trình duyệt rồi mở lại, đổi wifi / 4G, hoặc cập nhật iOS (Cài đặt → Cài đặt chung → Cập nhật phần mềm).<br><br><button onclick="location.reload()" style="font-size:18px;padding:12px 24px;border-radius:12px;border:0;background:#7c2d12;color:#fff">Thử lại</button>'; return; }
       document.getElementById('boot').innerHTML = 'App đang cập nhật, tự mở lại sau ' + sec + ' giây…<br><br><button onclick="location.reload()" style="font-size:18px;padding:12px 24px;border-radius:12px;border:0;background:#7c2d12;color:#fff">Tải lại ngay</button>';
       setTimeout(function () { if (!document.getElementById('root').childNodes.length) location.reload(); }, sec * 1000);
     }

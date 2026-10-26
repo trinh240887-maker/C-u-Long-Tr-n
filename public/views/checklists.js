@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, api, act, toast, useData, Loading, hm, dayLabel, addDays, PHASE_LABEL, atLeast, Link, navigate } from '../ui.js';
 import { Checklists } from './settings.js';
 

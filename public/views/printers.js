@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, hm, atLeast } from '../ui.js';
 
 const KIND = { new: 'Phiếu mới', add: 'Gọi thêm', cancel: 'Huỷ món', redo: 'Làm lại', remind: 'Nhắc món' };
