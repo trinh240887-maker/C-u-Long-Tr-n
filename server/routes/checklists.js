@@ -96,6 +96,17 @@ export default function (r, ctx) {
     }
     ctx.setSetting('mo_ca_pv_v1', '1');
   }
+  // Chủ quán 26/10: người chuẩn bị combo lau luôn dụng cụ ăn uống (2 việc riêng, cùng 1 người)
+  if (!ctx.setting('mo_ca_pv_v2')) {
+    const t = db.prepare("SELECT id FROM checklist_templates WHERE active = 1 AND title LIKE 'Mở ca phục vụ%' ORDER BY id").get();
+    const it = (re) => t && db.prepare('SELECT id, text FROM checklist_items WHERE template_id = ?').all(t.id).find((x) => re.test(x.text));
+    const lau = it(/^Lau dụng cụ ăn uống/i), combo = it(/combo/i);
+    if (lau && combo) {
+      db.prepare('UPDATE checklist_items SET job_with = ? WHERE id = ?').run(combo.id, lau.id);
+      ctx.setSetting('mo_ca_pv_split', String(t.id));
+    }
+    ctx.setSetting('mo_ca_pv_v2', '1');
+  }
   const sectionOf = (t) => {
     if (t.section) return t.section;
     if (t.zone_name) return `Tổng ${t.zone_name.toLowerCase().startsWith('khu') ? t.zone_name.replace(/^Khu/i, 'khu') : `khu ${t.zone_name}`}`;

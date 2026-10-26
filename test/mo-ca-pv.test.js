@@ -23,6 +23,7 @@ test('Mở ca phục vụ: nạp 12 việc chung Phục vụ + Tiếp thực, gi
     assert.equal(items[0].job_scope, 'zone');
     assert.equal(items.find((i) => /chén để khách/.test(i.text)).job_scope, 'zone');
     assert.equal(items.find((i) => /combo/.test(i.text)).job_per_table, 1);
+    assert.equal(items[0].job_with, items.find((i) => /combo/.test(i.text)).id); // người làm combo lau luôn
     assert.equal(app.ctx.setting('mo_ca_pv_v1'), '1');
   } finally { app.close(); }
 });
