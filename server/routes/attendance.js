@@ -22,6 +22,47 @@ export default function (r, ctx) {
   // Vào trễ: bạn Phục vụ / Tiếp thực tự chụp ảnh nón + khăn khi chấm vào (tổ trưởng đã chụp ảnh chung các bạn vào đúng ca)
   if (!db.prepare('PRAGMA table_info(attendance)').all().some((x) => x.name === 'late_photo')) db.exec("ALTER TABLE attendance ADD COLUMN late_photo TEXT NOT NULL DEFAULT ''");
   const photoDir = ctx.photoDir || path.join(os.tmpdir(), 'quanly-photos');
+
+  // ---------- Chống chấm công hộ (chủ quán 26/10) ----------
+  // 1. Mỗi tài khoản gắn 1 điện thoại: lần chấm đầu tiên ghi nhớ máy; máy khác → chặn, báo quản lý "Cho đổi máy".
+  // 2. 1 điện thoại chỉ chấm cho 1 người: máy đã gắn / đã chấm cho người khác hôm nay → chặn, báo chủ quán ngay.
+  // Mã máy: cookie "did" (máy chủ đặt, 2 năm) + localStorage gửi kèm header X-Device (lỡ xoá 1 trong 2 vẫn nhận ra).
+  // Quản lý / chủ quán không bị khoá. Tắt được: setting clock_device_lock = 0.
+  const colsOf = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  if (!colsOf('staff').includes('device_id')) db.exec("ALTER TABLE staff ADD COLUMN device_id TEXT NOT NULL DEFAULT ''; ALTER TABLE staff ADD COLUMN device_pending TEXT NOT NULL DEFAULT ''; ALTER TABLE staff ADD COLUMN device_at INTEGER");
+  if (!colsOf('attendance').includes('device_id')) db.exec("ALTER TABLE attendance ADD COLUMN device_id TEXT NOT NULL DEFAULT ''");
+  const DEV = /^[A-Za-z0-9_-]{8,64}$/;
+  function deviceOf(req, res) {
+    const ck = /(?:^|;\s*)did=([^;]+)/.exec(req.headers.cookie || '')?.[1] || '';
+    const hd = String(req.headers['x-device'] || '');
+    const id = DEV.test(ck) ? ck : DEV.test(hd) ? hd : '';
+    if (!id) return ''; // máy không gửi mã (bản app cũ chưa tải lại) → không khoá
+    if (id !== ck) {
+      const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+      const prev = res.getHeader('Set-Cookie');
+      res.setHeader('Set-Cookie', [...(prev ? [].concat(prev) : []), `did=${id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${2 * 365 * 86400}${secure}`]);
+    }
+    return id;
+  }
+  function checkDevice(me, dev) {
+    if (!dev || rank(me.role) >= rank('manager') || ctx.setting('clock_device_lock') === '0') return;
+    const date = ctx.today();
+    const owner = db.prepare('SELECT id, name FROM staff WHERE device_id = ? AND id != ? AND active = 1').get(dev, me.id)
+      || db.prepare('SELECT s.id, s.name FROM attendance a JOIN staff s ON s.id = a.staff_id WHERE a.device_id = ? AND a.date = ? AND a.staff_id != ? LIMIT 1').get(dev, date, me.id);
+    if (owner) {
+      ctx.notify([...new Set([...ctx.managers(), ...ctx.leadsOf(me.team_id)])].filter((x) => x !== me.id), { title: `⚠ Nghi chấm công hộ: máy của ${owner.name} vừa chấm cho ${me.name}`, body: `Lúc ${ctx.clock().fmt(ctx.now())}. App đã chặn.`, link: '/cham-cong', urgent: true });
+      ctx.audit(me, 'clock.device_shared', { other: owner.id });
+      fail(403, `Điện thoại này là máy chấm công của ${owner.name}. Mỗi người chấm trên điện thoại của chính mình.`);
+    }
+    const st = db.prepare('SELECT device_id FROM staff WHERE id = ?').get(me.id);
+    if (!st.device_id) { db.prepare("UPDATE staff SET device_id = ?, device_pending = '', device_at = ? WHERE id = ?").run(dev, ctx.now(), me.id); return; }
+    if (st.device_id !== dev) {
+      db.prepare('UPDATE staff SET device_pending = ? WHERE id = ?').run(dev, me.id);
+      ctx.notify(ctx.leadsOf(me.team_id).filter((x) => x !== me.id), { title: `${me.name} chấm công từ điện thoại lạ`, body: 'Nếu bạn ấy đổi máy thật: Nhân viên → sửa bạn đó → "Cho đổi máy".', link: '/nhan-vien', urgent: true });
+      ctx.audit(me, 'clock.device_new', {});
+      fail(403, 'Đây không phải điện thoại đã đăng ký chấm công của bạn. Nếu bạn đổi máy (hoặc đổi trình duyệt Zalo ↔ Safari), nhờ quản lý bấm "Cho đổi máy" rồi chấm lại.');
+    }
+  }
   const LATE_PHOTO_TEAMS = /^(phục vụ|phuc vu|tiếp thực|tiep thuc)$/i;
   const needLatePhoto = (staffId) => {
     const t = db.prepare('SELECT t.name FROM staff s JOIN teams t ON t.id = s.team_id WHERE s.id = ?').get(staffId);
@@ -133,8 +174,10 @@ export default function (r, ctx) {
     fail(403, `Chỉ chấm công được khi đang ở quán. ${why || 'Kết nối wifi quán rồi bấm lại.'}`.trim());
   }
 
-  r.post('/api/attendance/clock-in', 'staff', ({ me, net, body }) => {
+  r.post('/api/attendance/clock-in', 'staff', ({ req, res, me, net, body }) => {
     const how = checkNetwork(net, me, body || {});
+    const dev = deviceOf(req, res);
+    checkDevice(me, dev);
     ctx.autoCloseAttendance();
     const clock = ctx.clock();
     const t = ctx.now();
@@ -155,8 +198,8 @@ export default function (r, ctx) {
       }
       const late = seg && t > seg.start + grace ? Math.round((t - seg.start) / 60_000) : 0;
       const date = seg ? seg.date : clock.businessDate(t);
-      const id = Number(db.prepare(`INSERT INTO attendance (staff_id, assignment_id, date, clock_in, late_minutes, note, source) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(me.id, seg?.id ?? null, date, t, late, seg ? '' : 'Ngoài lịch', how.slice(0, 60)).lastInsertRowid);
+      const id = Number(db.prepare(`INSERT INTO attendance (staff_id, assignment_id, date, clock_in, late_minutes, note, source, device_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(me.id, seg?.id ?? null, date, t, late, seg ? '' : 'Ngoài lịch', how.slice(0, 60), dev).lastInsertRowid);
       return { id, seg, late };
     });
     if (!result.seg) {
@@ -194,8 +237,9 @@ export default function (r, ctx) {
     return { __binary: buf, type: a.late_photo.endsWith('.png') ? 'image/png' : a.late_photo.endsWith('.webp') ? 'image/webp' : 'image/jpeg' };
   });
 
-  r.post('/api/attendance/clock-out', 'staff', ({ me, net, body }) => {
+  r.post('/api/attendance/clock-out', 'staff', ({ req, res, me, net, body }) => {
     checkNetwork(net, me, body || {});
+    checkDevice(me, deviceOf(req, res));
     const open = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id);
     if (!open) fail(409, 'Bạn chưa chấm vào ca');
     // Còn giữ tiền mặt của khách chưa giao thu ngân thì không cho ra ca

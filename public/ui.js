@@ -7,8 +7,18 @@ export const TZ = 'Asia/Ho_Chi_Minh';
 
 // ---------- Gọi máy chủ ----------
 export class ApiError extends Error { constructor(msg, status) { super(msg); this.status = status; } }
+// Mã điện thoại (chống chấm công hộ): tạo 1 lần, lưu trong máy, gửi kèm mọi yêu cầu
+function deviceId() {
+  try {
+    let d = localStorage.getItem('clt_device');
+    if (!d) { d = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9_-]/g, ''); localStorage.setItem('clt_device', d); }
+    return d;
+  } catch { return ''; }
+}
 export async function api(method, url, body) {
   const opts = { method, headers: {} };
+  const dev = deviceId();
+  if (dev) opts.headers['X-Device'] = dev;
   if (method !== 'GET') {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body ?? {});

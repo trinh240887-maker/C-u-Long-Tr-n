@@ -51,6 +51,7 @@ export default function (r, ctx) {
       active: !!s.active, zalo_linked: !!s.zalo_user_id, weekly_limit_hours: s.weekly_limit_hours,
       position_id: s.position_id ?? null, position_name: s.position_name || '', work_type: s.work_type || '',
       first_login: canSeePay ? !!s.must_change_pin : undefined,
+      ...(canSeePay ? { device_set: !!s.device_id, device_pending: !!s.device_pending, device_at: s.device_at || null } : {}),
       skills: skills.filter((k) => k.staff_id === s.id).map(({ team_id, level }) => ({ team_id, level })),
       pskills: pskills.filter((k) => k.staff_id === s.id).map(({ position_id, level }) => ({ position_id, level })),
       ...(canSeePay ? { pay_type: s.pay_type, pay_rate: s.pay_rate, zalo_user_id: s.zalo_user_id } : {}),
@@ -58,6 +59,18 @@ export default function (r, ctx) {
   }
 
   r.get('/api/staff', 'staff', ({ me, query }) => listStaff(me, { includeInactive: query.get('all') === '1' && rank(me.role) >= rank('manager') }));
+
+  // Máy chấm công: "Cho đổi máy" (nhận máy mới bạn ấy vừa thử chấm) hoặc "Gỡ máy" (lần chấm sau gắn máy mới)
+  r.post('/api/staff/:id/device', 'manager', ({ me, params, body }) => {
+    const st = db.prepare('SELECT * FROM staff WHERE id = ?').get(params.id);
+    if (!st) fail(404, 'Không tìm thấy nhân viên');
+    if (body.action === 'allow' && st.device_pending) db.prepare("UPDATE staff SET device_id = device_pending, device_pending = '', device_at = ? WHERE id = ?").run(ctx.now(), st.id);
+    else db.prepare("UPDATE staff SET device_id = '', device_pending = '', device_at = NULL WHERE id = ?").run(st.id);
+    ctx.audit(me, 'staff.device', { id: st.id, action: body.action || 'reset' });
+    if (st.id !== me.id) ctx.notify([st.id], { title: 'Quản lý đã cho đổi máy chấm công', body: 'Bạn chấm công lại trên điện thoại mới được rồi.', link: '/' });
+    ctx.broadcast('staff');
+    return { ok: true };
+  });
 
   function canManage(me, role) {
     if (me.role === 'owner') return true;

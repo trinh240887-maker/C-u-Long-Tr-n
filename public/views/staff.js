@@ -117,6 +117,11 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
       <${Field} label="Tối đa giờ/tuần" hint="Dùng khi gợi ý người làm thay"><input id="st-limit" type="number" min="1" max="100" value=${f.weekly_limit_hours} onInput=${(e) => set('weekly_limit_hours', e.target.value)} /><//>
       <${Field} label=${isNew ? 'Mã PIN đăng nhập' : 'Đặt lại mã PIN (để trống nếu giữ nguyên)'} hint=${`${needPin}–8 chữ số. Nhân viên sẽ phải đổi PIN khi đăng nhập lần đầu.`}>
         <input id="st-pin" inputmode="numeric" value=${f.pin} maxlength="8" onInput=${(e) => set('pin', e.target.value.replace(/\D/g, ''))} /><//>
+      ${!isNew && init.device_set !== undefined ? html`<div class="field"><span>📱 Điện thoại chấm công</span>
+        <div class="row wrap tight">${init.device_pending ? html`<b class="warn-text small">Vừa thử chấm từ máy khác</b>` : html`<small class="muted">${init.device_set ? `Đã gắn 1 máy${init.device_at ? ` từ ${new Date(init.device_at).toLocaleDateString('vi-VN')}` : ''}` : 'Chưa gắn (lần chấm đầu tiên sẽ gắn máy)'}</small>`}
+          ${init.device_pending ? html`<button class="small primary" onClick=${() => act(() => api('POST', `/api/staff/${init.id}/device`, { action: 'allow' }), 'Đã cho đổi máy')}>Cho đổi máy</button>` : null}
+          ${init.device_set || init.device_pending ? html`<button class="small" onClick=${() => confirm('Gỡ máy chấm công? Lần chấm sau sẽ gắn máy mới.') && act(() => api('POST', `/api/staff/${init.id}/device`, { action: 'reset' }), 'Đã gỡ máy')}>Gỡ máy</button>` : null}</div>
+        <small class="muted">Mỗi bạn chấm công trên 1 điện thoại của mình; máy khác hoặc máy của người khác sẽ bị chặn.</small></div>` : null}
     </div>
     <div class="field"><span>Vị trí khác đã được đào tạo (để xếp xoay vị trí, làm thay khi thiếu người)</span>
       <div class="skills">${skillRows.map((r) => html`<div class="skill" key=${r.key}>
