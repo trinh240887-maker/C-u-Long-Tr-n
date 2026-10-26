@@ -93,6 +93,26 @@ export default function (r, ctx) {
     });
   }
 
+  // Hàng chưa có trong kho mà người nhận chọn "Tạo mới trong kho" → tạo nguyên liệu theo tên / đơn vị / giá trên bill (chủ quán 26/10).
+  // Lần sau bill ghi đúng tên đó thì máy đọc tự nhận ra.
+  function createNew(lines, storeId) {
+    const made = [];
+    for (const l of lines) {
+      if (l.ingredient_id || !l.raw?.create_new) continue;
+      const unit = (l.unit || '').trim() || 'cái';
+      const ex = db.prepare('SELECT id, purchase_unit, unit FROM ingredients WHERE lower(name) = lower(?) AND active = 1').get(l.name);
+      l.ingredient_id = ex ? ex.id : Number(db.prepare("INSERT INTO ingredients (name, unit, freshness, home_store_id, purchase_unit, purchase_factor, price) VALUES (?, ?, 'dry', ?, ?, 1, ?)").run(l.name, unit, storeId, unit, l.price).lastInsertRowid);
+      if (ex) l.unit = ex.purchase_unit || ex.unit; else made.push(l.name);
+    }
+    return made;
+  }
+  const notifyCreated = (me, names, b) => {
+    if (!names.length) return;
+    ctx.audit(me, 'ingredient.create_from_bill', { bill: b.id, names });
+    ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager')").all().map((x) => x.id).filter((x) => x !== me.id),
+      { title: `Nguyên liệu mới từ bill: ${names.join(', ')}`, body: `${me.name} tạo khi nhập bill ${b.supplier_name}. Kiểm tra quy đổi (Kho → ⚖ Quy đổi) và khu chính.`, link: '/kho?tab=quydoi' });
+  };
+
   function load(id) {
     const b = db.prepare(`SELECT b.*, st.name AS store_name, rb.name AS received_by_name, ab.name AS approved_by_name, tb.name AS returned_by_name, s.name AS sup_name
       FROM purchase_bills b LEFT JOIN stores st ON st.id = b.store_id LEFT JOIN staff rb ON rb.id = b.received_by LEFT JOIN staff ab ON ab.id = b.approved_by
@@ -180,14 +200,7 @@ export default function (r, ctx) {
     const date = ctx.today();
     const created = [];
     const id = tx(db, () => {
-      // Hàng chưa có trong kho mà người nhận chọn "Tạo mới trong kho" → tạo nguyên liệu theo tên / đơn vị / giá trên bill (chủ quán 26/10)
-      for (const l of lines) {
-        if (l.ingredient_id || !l.raw?.create_new) continue;
-        const unit = (l.unit || '').trim() || 'cái';
-        const ex = db.prepare('SELECT id, purchase_unit, unit FROM ingredients WHERE lower(name) = lower(?) AND active = 1').get(l.name);
-        l.ingredient_id = ex ? ex.id : Number(db.prepare("INSERT INTO ingredients (name, unit, freshness, home_store_id, purchase_unit, purchase_factor, price) VALUES (?, ?, 'dry', ?, ?, 1, ?)").run(l.name, unit, storeId, unit, l.price).lastInsertRowid);
-        if (ex) l.unit = ex.purchase_unit || ex.unit; else created.push(l.name);
-      }
+      created.push(...createNew(lines, storeId));
       const { oldPrice } = ctx.stockReceive(me, { poId, storeId, lines: lines.filter((l) => l.ingredient_id).map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, price: l.price, expires_on: l.raw.expires_on })) });
       const flags = flagsOf({ total, lines, po, oldPrice });
       const id = Number(db.prepare(`INSERT INTO purchase_bills (supplier_id, supplier_name, store_id, po_id, date, total, lines_total, paid_now, paid_method, advance_id, signer_name, note, flags, received_by, received_at)
@@ -206,11 +219,7 @@ export default function (r, ctx) {
       return id;
     });
     const b = load(id);
-    if (created.length) {
-      ctx.audit(me, 'ingredient.create_from_bill', { bill: id, names: created });
-      ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager')").all().map((x) => x.id).filter((x) => x !== me.id),
-        { title: `Nguyên liệu mới từ bill: ${created.join(', ')}`, body: `${me.name} tạo khi nhập bill ${b.supplier_name}. Kiểm tra quy đổi (Kho → ⚖ Quy đổi) và khu chính.`, link: '/kho?tab=quydoi' });
-    }
+    notifyCreated(me, created, b);
     ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Hoá đơn mua chờ duyệt: ${b.supplier_name} ${vnd(total)}`, body: `${b.store_name || ''} · nhận bởi ${me.name}, ký ${signer}${b.flags.length ? ` · ${b.flags.length} điểm cần xem` : ''}`, link: '/mua-hang', urgent: b.flags.length > 0 });
     ctx.audit(me, 'purchase.receive', { id, total, supplier: b.supplier_name });
     ctx.broadcast('purchases');
@@ -223,11 +232,14 @@ export default function (r, ctx) {
     // Sửa bill: người nhận sửa bill bị trả lại; thu ngân / trưởng ca trở lên sửa ngay trong mục duyệt (chủ quán 26/10)
     if (b.status === 'returned') { if (b.received_by !== me.id && rank(me.role) < rank('shift_lead')) fail(403, 'Người nhận hàng sửa lại'); }
     else if (b.status === 'received') { if (!isCashier(me)) fail(403, 'Thu ngân / trưởng ca trở lên mới sửa bill đang chờ duyệt'); }
-    else fail(400, b.status === 'approved' ? 'Bill đã duyệt: huỷ bill rồi nhập lại' : 'Bill này không sửa được');
+    else if (b.status === 'approved') { if (rank(me.role) < rank('manager')) fail(403, 'Bill đã duyệt: quản lý / chủ quán mới sửa được'); } // chủ quán 26/10: gắn dòng "hàng khác" vào kho
+    else fail(400, 'Bill này không sửa được');
     const lines = body.lines ? readLines(body.lines) : null;
+    let created = [];
     const total = body.total === undefined ? b.total : money(body.total, 'Tổng tiền bill');
     tx(db, () => {
       if (lines) {
+        created = createNew(lines, b.store_id);
         // Kho đã cộng theo số cũ lúc gửi bill → cộng / trừ phần chênh theo số mới
         const old = db.prepare('SELECT l.*, g.purchase_factor FROM purchase_bill_lines l LEFT JOIN ingredients g ON g.id = l.ingredient_id WHERE l.bill_id = ?').all(b.id);
         const store = ctx.effectiveStore ? ctx.effectiveStore(b.store_id) : b.store_id;
@@ -251,11 +263,12 @@ export default function (r, ctx) {
       for (const ph of Array.isArray(body.photos) ? body.photos.slice(0, 4) : []) savePhoto(b.id, ph, me);
       const ls = db.prepare('SELECT * FROM purchase_bill_lines WHERE bill_id = ?').all(b.id);
       const flags = flagsOf({ total, lines: ls, po: null, oldPrice: new Map(ls.filter((l) => l.old_price != null).map((l) => [l.ingredient_id, l.old_price])) });
-      db.prepare("UPDATE purchase_bills SET total = ?, lines_total = ?, signer_name = ?, note = ?, flags = ?, status = 'received' WHERE id = ?")
+      db.prepare(`UPDATE purchase_bills SET total = ?, lines_total = ?, signer_name = ?, note = ?, flags = ?, status = ${b.status === 'approved' ? "'approved'" : "'received'"} WHERE id = ?`)
         .run(total, ls.reduce((n, l) => n + l.amount, 0), body.signer_name ? v.text(body.signer_name, { name: 'Tên người ký', max: 60 }) : b.signer_name, body.note === undefined ? b.note : v.text(body.note, { max: 200 }), JSON.stringify(flags), b.id);
     });
-    ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Bill mua đã sửa, duyệt lại: ${b.supplier_name} ${vnd(total)}`, link: '/mua-hang' });
-    ctx.audit(me, 'purchase.fix', { id: b.id, total });
+    notifyCreated(me, created, b);
+    if (b.status !== 'approved') ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Bill mua đã sửa, duyệt lại: ${b.supplier_name} ${vnd(total)}`, link: '/mua-hang' });
+    ctx.audit(me, 'purchase.fix', { id: b.id, total, was: b.status });
     ctx.broadcast('purchases');
     return load(b.id);
   });

@@ -177,4 +177,16 @@ test('hoá đơn mua: khu nhận + chụp bill + ký nhận → thu ngân (khác
   const BIG = `data:image/jpeg;base64,${Buffer.alloc(1_000_000, 9).toString('base64')}`;
   const rBig = await tai('POST', '/api/purchases', { store_id: lau.id, supplier_id: ncc, signer_name: 'Lê Thanh Phát', total: 280000, photos: [BIG, BIG, BIG], goods_photos: [BIG, BIG, BIG], lines: [{ ingredient_id: bo, qty: 1, price: 280000 }] });
   assert.equal(rBig.status, 200, JSON.stringify(rBig.data));
+  // Bill đã duyệt có dòng "hàng khác" (Gas): chủ quán sửa bill → tạo mã Gas trong kho, cộng kho, bill vẫn đã duyệt
+  const rGas = await tai('POST', '/api/purchases', { store_id: lau.id, supplier_id: ncc, signer_name: 'Gia Phong', total: 1_200_000, photos: [IMG], lines: [{ name: 'Gas', unit: 'bình', qty: 3, price: 400000 }] });
+  assert.equal(rGas.status, 200);
+  assert.equal((await ngan('POST', `/api/purchases/${rGas.data.id}/approve`)).status, 200);
+  assert.equal((await tai('PATCH', `/api/purchases/${rGas.data.id}`, { lines: [{ name: 'Gas', unit: 'bình', qty: 3, price: 400000, create_new: true }] })).status, 403);
+  const gasFix = await o('PATCH', `/api/purchases/${rGas.data.id}`, { lines: [{ name: 'Gas', unit: 'bình', qty: 3, price: 400000, create_new: true }] });
+  assert.equal(gasFix.status, 200, JSON.stringify(gasFix.data));
+  assert.equal(gasFix.data.status, 'approved');
+  const gasIng = db.prepare("SELECT * FROM ingredients WHERE name = 'Gas'").get();
+  assert.ok(gasIng && gasIng.unit === 'bình');
+  assert.equal(stockOf(gasIng.id, lau.id), 3);
+  assert.equal(gasFix.data.lines[0].ingredient_id, gasIng.id);
 });
