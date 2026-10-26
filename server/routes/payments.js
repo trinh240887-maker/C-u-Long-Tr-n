@@ -1,4 +1,5 @@
 import { fail, v } from '../http.js';
+import { addDays as addD } from '../lib/time.js';
 import { tx, rank, pinLookup } from '../db.js';
 import { billQR } from '../lib/vietqr.js';
 import { billBytes, refundBytes } from '../lib/escpos.js';
@@ -479,7 +480,16 @@ export default function (r, ctx) {
   });
 
   // ---------- Thu ngân: doanh thu ngày, tiền mặt, đối soát chuyển khoản, bất thường ----------
-  function day(date) {
+  // Số dư đầu ngày gối đầu (chủ quán 26/10): chỉ nhập 1 lần; ngày sau tự lấy số dư cuối ngày hôm trước
+  // (số thật nếu đã ghi, chưa ghi thì số "phải có" của hôm trước). Ngược tối đa 40 ngày.
+  function carriedOpening(date, depth = 0) {
+    const prev = addD(date, -1);
+    if (depth > 40 || !db.prepare('SELECT 1 FROM bank_day WHERE date <= ? AND (opening IS NOT NULL OR closing IS NOT NULL) LIMIT 1').get(prev)) return null;
+    const row = db.prepare('SELECT opening, closing FROM bank_day WHERE date = ?').get(prev);
+    if (row?.closing != null) return row.closing;
+    return day(prev, depth + 1).bank.expected;
+  }
+  function day(date, depth = 0) {
     const bills = db.prepare(`SELECT s.id, s.bill_no, s.opened_at, s.closed_at, s.closed_by, s.pay_method, s.paid_total, s.cash_amount, s.transfer_amount, s.reconcile_status, s.reconcile_note,
         s.cash_status, s.handover_id, s.tip_cash, s.tip_transfer, s.overpay, s.overpay_status, c.name AS closed_by_name, json_extract(s.bill_snapshot, '$.discount') AS discount
       FROM table_sessions s LEFT JOIN staff c ON c.id = s.closed_by WHERE s.status = 'closed' AND s.closed_date = ? ORDER BY s.closed_at`).all(date)
@@ -510,9 +520,11 @@ export default function (r, ctx) {
     const ckOutNcc = db.prepare("SELECT COALESCE(SUM(amount), 0) AS n FROM supplier_payments WHERE date = ? AND method = 'transfer' AND status = 'done'").get(date)?.n || 0;
     const ckOutBill = db.prepare("SELECT COALESCE(SUM(paid_now), 0) AS n FROM purchase_bills WHERE date = ? AND paid_method = 'transfer' AND status != 'void'").get(date)?.n || 0;
     const ckOut = ckOutNcc + ckOutBill + sum(bills.filter((b) => b.overpay_status === 'refunded'), 'overpay');
-    const bankExpected = bk?.opening != null ? bk.opening + ckIn - ckOut + (bk.other_in || 0) - (bk.other_out || 0) : null;
+    const carried = bk?.opening != null ? null : carriedOpening(date, depth);
+    const opening = bk?.opening ?? carried;
+    const bankExpected = opening != null ? opening + ckIn - ckOut + (bk?.other_in || 0) - (bk?.other_out || 0) : null;
     const bank = {
-      opening: bk?.opening ?? null, closing: bk?.closing ?? null, other_in: bk?.other_in || 0, other_out: bk?.other_out || 0, note: bk?.note || '', by_name: bk?.by_name || '', at: bk?.at || null,
+      opening, carried: bk?.opening == null && carried != null, closing: bk?.closing ?? null, other_in: bk?.other_in || 0, other_out: bk?.other_out || 0, note: bk?.note || '', by_name: bk?.by_name || '', at: bk?.at || null,
       ck_in: ckIn, ck_out: ckOut, ck_out_ncc: ckOutNcc + ckOutBill, expected: bankExpected,
       diff: bk?.closing != null && bankExpected != null ? bk.closing - bankExpected : null,
       suggested_opening: db.prepare('SELECT closing FROM bank_day WHERE date < ? AND closing IS NOT NULL ORDER BY date DESC LIMIT 1').get(date)?.closing ?? null,

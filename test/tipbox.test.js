@@ -65,6 +65,10 @@ test('thùng tip: tip CK + tip TM ra khỏi két, chốt ngày tự ghi sổ, đ
   assert.ok(d.anomalies.some((a) => a.level === 'warn' && /Số dư tài khoản lệch \+920đ.*phí \/ lãi/.test(a.text)), JSON.stringify(d.anomalies));
   bk = await o('POST', '/api/payments/bank-balance', { date: D, other_in: 920, note: 'Lãi không kỳ hạn' });
   assert.equal(bk.data.bank.diff, 0);
+  // Ngày hôm sau: số dư đầu ngày tự gối đầu = số dư cuối ngày hôm trước, không phải nhập lại
+  const D2 = (await import('../server/lib/time.js')).addDays(D, 1);
+  const nx = (await o('GET', `/api/payments?date=${D2}`)).data.bank;
+  assert.equal(nx.opening, 9796826 + ckIn + 920); assert.equal(nx.carried, true);
 
   // Chốt ngày → sổ thùng tip có 35.000đ
   await o('POST', '/api/payments/reconcile', { ids: [b1.sid, b2.sid], status: 'confirmed' });

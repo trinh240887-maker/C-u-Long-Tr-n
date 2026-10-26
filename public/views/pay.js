@@ -379,20 +379,20 @@ export function CashierView({ me }) {
 
 // Đối soát số dư tài khoản ngân hàng: đầu ngày + CK vào − chi CK ± khác = phải có, so với số dư thật trên app ngân hàng
 function BankBalance({ date, bank: b, locked }) {
-  const [f, setF] = useState({ opening: b.opening ?? b.suggested_opening ?? '', closing: b.closing ?? '', other_in: b.other_in || '', other_out: b.other_out || '', note: b.note || '' });
+  const [f, setF] = useState({ opening: b.carried ? '' : b.opening ?? '', closing: b.closing ?? '', other_in: b.other_in || '', other_out: b.other_out || '', note: b.note || '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const save = () => act(() => api('POST', '/api/payments/bank-balance', { date, ...f }), 'Đã ghi số dư');
   return html`<section class=${`card stack ${b.diff ? 'warn-card' : ''}`}>
     <b>6. Số dư tài khoản ngân hàng</b>
     <p class="muted small">Mở app ngân hàng xem số dư lúc mở ca và lúc chốt. App tự cộng tiền CK đã nhận, trừ tiền trả NCC bằng CK.</p>
-    <div class="row between"><span>Số dư đầu ngày</span><b class="num">${b.opening == null ? '—' : money(b.opening)}</b></div>
+    <div class="row between"><span>Số dư đầu ngày${b.carried ? html` <small class="muted">(gối đầu từ cuối ngày hôm trước)</small>` : ''}</span><b class="num">${b.opening == null ? '—' : money(b.opening)}</b></div>
     <div class="row between"><span>+ CK vào (bill + tip CK + CK dư)</span><b class="num">${money(b.ck_in)}</b></div>
     <div class="row between"><span>− Chi bằng CK (trả NCC${b.ck_out > b.ck_out_ncc ? ', hoàn khách' : ''})</span><b class="num">${money(b.ck_out)}</b></div>
     ${b.other_in || b.other_out ? html`<div class="row between"><span>± Khác (nộp tiền mặt, lãi, phí…)${b.note ? ` · ${b.note}` : ''}</span><b class="num">${money((b.other_in || 0) - (b.other_out || 0))}</b></div>` : null}
     <div class="row between total"><b>Phải có</b><b class="num">${b.expected == null ? '—' : money(b.expected)}</b></div>
     ${b.closing != null ? html`<div class="row between"><span>Số dư thật</span><b class=${`num ${b.diff ? 'danger-text' : 'ok-text'}`}>${money(b.closing)}${b.diff ? ` (lệch ${b.diff > 0 ? '+' : ''}${money(b.diff)})` : ' ✓ khớp'}</b></div>` : null}
     ${!locked ? html`<div class="form-grid">
-      <${Field} label="Số dư đầu ngày"><input inputmode="numeric" value=${f.opening} onInput=${set('opening')} /><//>
+      ${b.opening == null || !b.carried ? html`<${Field} label="Số dư đầu ngày" hint="Chỉ nhập lần đầu; các ngày sau app tự lấy số dư cuối ngày hôm trước"><input inputmode="numeric" value=${f.opening} onInput=${set('opening')} /><//>` : null}
       <${Field} label="Số dư cuối ngày (thật)"><input inputmode="numeric" value=${f.closing} onInput=${set('closing')} /><//>
     </div>
     <details open=${!!(b.other_in || b.other_out || b.diff)}><summary class="small">Có khoản khác (nộp tiền mặt vào TK, lãi, phí, rút tiền…)</summary><div class="form-grid">
