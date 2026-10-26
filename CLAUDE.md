@@ -41,7 +41,7 @@ Công cụ import đơn 1688 nằm riêng ở repo `trinh240887-maker/dathangsi`
 - Deploy cloud: `Dockerfile`, `railway.json` (Volume `/data`).
 
 ## Link
-- **App thật:** https://c-u-long-tr-n-production.up.railway.app (Railway, cổng 8080, tự deploy khi push `main`)
+- **App thật:** https://cuulongtran.up.railway.app (đổi tên 26/10; tên cũ c-u-long-tr-n-production.up.railway.app) (Railway, cổng 8080, tự deploy khi push `main`). Đang thêm tên miền riêng cuulongtran.com
 - Quy trình vận hành (chủ quán ghi ý kiến): https://claude.ai/artifact/HUtvNcqYj2RJdfWJ5vjUUm
 - Bản chạy thử: https://claude.ai/artifact/4BLaeEpr4EZzDJGroCDHNa (riêng tư)
 - Repo: `trinh240887-maker/C-u-Long-Tr-n` (nhánh chính `main`)
