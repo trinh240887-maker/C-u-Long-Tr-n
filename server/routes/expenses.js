@@ -157,5 +157,23 @@ export default function (r, ctx) {
     return { ok: true, holding: holding() };
   });
 
+  // Tiền hiện có (chủ quán 26/10): tiền mặt quản lý đang giữ (thu ngân nộp mỗi ngày) + số dư tài khoản → cổ đông biết quán đang có bao nhiêu, chi từ đây
+  r.get('/api/money/now', 'manager', () => {
+    const h = holding();
+    const date = ctx.today();
+    let bank = { balance: null, date, entered: false };
+    try {
+      const b = ctx.payDay(date).bank;
+      bank = { balance: b.closing ?? b.expected, date, entered: b.closing != null, opening: b.opening, ck_in: b.ck_in, ck_out: b.ck_out };
+    } catch { /* chưa có số dư */ }
+    const from = addDays(date, -30);
+    const exp = db.prepare("SELECT id, date, amount, source, category, note, status, created_by, created_at FROM expenses WHERE source IN ('manager','bank') AND status IN ('done','pending') AND date >= ? ORDER BY date DESC, id DESC").all(from)
+      .map((e) => ({ kind: 'expense', id: e.id, date: e.date, amount: e.amount, from: e.source === 'bank' ? 'bank' : 'cash', what: `${e.category} · ${e.note}`, by: name(e.created_by), status: e.status, at: e.created_at }));
+    const ncc = db.prepare("SELECT p.id, p.date, p.amount, p.method, p.created_at, s.name AS supplier FROM supplier_payments p JOIN suppliers s ON s.id = p.supplier_id WHERE p.status = 'done' AND p.date >= ? AND (p.method = 'transfer' OR (p.method = 'cash' AND p.source = 'manager')) ORDER BY p.date DESC").all(from)
+      .map((p) => ({ kind: 'ncc', id: p.id, date: p.date, amount: p.amount, from: p.method === 'transfer' ? 'bank' : 'cash', what: `Trả NCC ${p.supplier}`, status: 'done', at: p.created_at || 0 }));
+    const recent = [...exp, ...ncc].sort((a, b) => b.date.localeCompare(a.date) || (b.at || 0) - (a.at || 0)).slice(0, 40);
+    return { holding: h, bank, total: h.total + (bank.balance || 0), recent };
+  });
+
   void addDays;
 }

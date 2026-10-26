@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { html, useData, Loading, money, addDays, navigate } from '../ui.js';
+import { MoneyNow } from './expenses.js';
 
 // GĐ4 Báo cáo doanh thu: chọn kỳ → tổng quan so kỳ trước, theo ngày / giờ / thứ / khu, món bán chạy / ế, khuyến mãi, nhân viên, xuất Excel
 const dm = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
@@ -158,7 +159,7 @@ function LaborReport({ me }) {
 export function ReportsView({ me, query }) {
   const tab = query?.get('tab') || 'doanhthu';
   return html`<div class="stack">
-    <div class="tabs">${[['doanhthu', 'Doanh thu'], ['nhansu', 'Nhân sự']].map(([k0, l]) => html`<button class=${tab === k0 ? 'on' : ''} onClick=${() => navigate(`/bao-cao?tab=${k0}`)}>${l}</button>`)}</div>
-    ${tab === 'nhansu' ? html`<${LaborReport} me=${me} />` : html`<${SalesReport} me=${me} />`}
+    <div class="tabs">${[['doanhthu', 'Doanh thu'], ['nhansu', 'Nhân sự'], ['tien', '💰 Tiền hiện có']].map(([k0, l]) => html`<button class=${tab === k0 ? 'on' : ''} onClick=${() => navigate(`/bao-cao?tab=${k0}`)}>${l}</button>`)}</div>
+    ${tab === 'nhansu' ? html`<${LaborReport} me=${me} />` : tab === 'tien' ? html`<${MoneyNow} me=${me} />` : html`<${SalesReport} me=${me} />`}
   </div>`;
 }
