@@ -172,7 +172,7 @@ function BillCard({ b, canApprove, me }) {
     <details><summary class="small">${b.lines.length} dòng hàng · cộng ${money(b.lines_total)}</summary>
       <table class="list small"><tbody>${b.lines.map((l) => html`<tr><td>${l.name}</td><td class="r">${l.qty} ${l.unit}</td><td class="r">${money(l.price)}</td><td class="r">${money(l.amount)}</td></tr>`)}</tbody></table></details>
     ${b.status === 'returned' ? html`<p class="small danger-text">Trả lại: ${b.return_reason} (${b.returned_by_name})</p>` : null}
-    ${b.status === 'approved' ? html`<small class="muted">Duyệt: ${b.approved_by_name} · ${hm(b.approved_at)}</small>` : null}
+    ${b.status === 'approved' ? html`<small class="muted">Duyệt: ${b.approved_by_name} · ${hm(b.approved_at)}${b.owed != null ? html` · ${b.owed > 0 ? html`<b class="danger-text">còn nợ ${money(b.owed)}</b>` : html`<b class="ok-text">đã trả đủ</b>`}` : ''}</small>` : null}
     ${b.status === 'received' && canApprove && (b.received_by !== me.id || me.role === 'owner') ? html`<div class="row">
       <button class="primary" onClick=${() => act(() => api('POST', `/api/purchases/${b.id}/approve`), 'Đã duyệt, cộng công nợ')}>✓ Đúng, duyệt</button>
       <button onClick=${() => setEdit(true)}>✏️ Sửa</button>
@@ -236,6 +236,7 @@ function Debts({ me }) {
     ${[...d.suppliers].sort((a, b) => b.debt - a.debt).map((s) => html`<section class="card stack">
       <div class="row between"><b>${s.name}</b><b class=${s.debt > 0 ? 'danger-text' : 'muted'}>${money(s.debt)}</b></div>
       <small class="muted">${s.last_bill ? `Lần mua cuối ${dayLabel(s.last_bill)}` : 'Chưa mua'}${s.pending.n ? ` · ${s.pending.n} bill chưa duyệt ${money(s.pending.t)}` : ''}</small>
+      ${(s.open_bills || []).length ? html`<small>Phiếu còn nợ: ${s.open_bills.map((b) => `#${b.id} (${b.date.slice(8)}/${b.date.slice(5, 7)}) ${money(b.remaining)}`).join(' · ')}</small>` : null}
       <div class="row">
         <button class="small" onClick=${() => setStmt(s)}>Sổ nợ</button>
         ${s.debt > 0 ? html`<button class="small primary" onClick=${() => setPay(s)}>Trả</button>` : null}</div></section>`)}
@@ -247,15 +248,20 @@ function Debts({ me }) {
 function PayModal({ s, txns, boss, onClose }) {
   const [f, setF] = useState({ amount: String(s.debt), method: 'transfer', note: '', bank_txn_id: '', source: 'drawer' });
   const [photos, setPhotos] = useState([]);
+  const [pick, setPick] = useState([]);
+  const open = s.open_bills || [];
+  const toggle = (b) => { const nx = pick.includes(b.id) ? pick.filter((x) => x !== b.id) : [...pick, b.id]; setPick(nx); if (nx.length) setF({ ...f, amount: String(open.filter((x) => nx.includes(x.id)).reduce((n, x) => n + x.remaining, 0)) }); };
   return html`<${Modal} title=${`Trả ${s.name}`} onClose=${onClose}>
-    <p class="small">Còn nợ <b>${money(s.debt)}</b></p>
+    <p class="small">Còn nợ <b>${money(s.debt)}</b>${open.length ? ` · ${open.length} phiếu chưa trả đủ` : ''}</p>
+    ${open.length ? html`<div class="stack tight"><small class="muted">Trả cho phiếu nào (tick để tự cộng số tiền; không tick = trừ phiếu cũ nhất trước):</small>
+      ${open.map((b) => html`<label class="check-row"><input type="checkbox" checked=${pick.includes(b.id)} onChange=${() => toggle(b)} /> Phiếu #${b.id} · ${b.date.split('-').reverse().join('/')} · tổng ${money(b.total)} · <b>còn ${money(b.remaining)}</b></label>`)}</div>` : null}
     <${Field} label="Số tiền"><input inputmode="numeric" value=${f.amount} onInput=${(e) => setF({ ...f, amount: e.target.value })} /><//>
     <div class="chips">${[['transfer', 'Chuyển khoản', 'drawer'], ['cash', 'Tiền mặt từ két', 'drawer'], ...(boss ? [['cash', 'Tiền mặt quản lý giữ', 'manager']] : [])].map(([k, l, src]) => html`<button class=${`chip ${f.method === k && (k === 'transfer' || f.source === src) ? 'on' : ''}`} onClick=${() => setF({ ...f, method: k, source: src })}>${l}</button>`)}</div>
     ${f.method === 'transfer' && txns.length ? html`<${Field} label="Giao dịch ngân hàng (tiền ra, SePay báo)"><select value=${f.bank_txn_id} onChange=${(e) => { const t = txns.find((x) => x.id === Number(e.target.value)); setF({ ...f, bank_txn_id: e.target.value, amount: t ? String(t.amount) : f.amount }); }}>
       <option value="">Chưa có / chụp màn hình CK</option>${txns.map((t) => html`<option value=${t.id}>${money(t.amount)} · ${t.content} · ${t.date}</option>`)}</select><//>` : null}
     ${!f.bank_txn_id ? html`<${PhotoPicker} photos=${photos} setPhotos=${setPhotos} />` : null}
     <${Field} label="Ghi chú"><input value=${f.note} onInput=${(e) => setF({ ...f, note: e.target.value })} /><//>
-    <button class="primary" onClick=${async () => { const r = await act(() => api('POST', `/api/suppliers/${s.id}/pay`, { amount: num(f.amount), method: f.method, source: f.source, note: f.note, bank_txn_id: f.bank_txn_id ? Number(f.bank_txn_id) : undefined, photo: photos[0] })); if (r) { onClose(); } }}>Ghi khoản trả</button>
+    <button class="primary" onClick=${async () => { const r = await act(() => api('POST', `/api/suppliers/${s.id}/pay`, { amount: num(f.amount), method: f.method, source: f.source, bill_ids: pick, note: [pick.length ? `Trả phiếu ${pick.map((x) => `#${x}`).join(', ')}` : '', f.note].filter(Boolean).join(' · '), bank_txn_id: f.bank_txn_id ? Number(f.bank_txn_id) : undefined, photo: photos[0] })); if (r) { onClose(); } }}>Ghi khoản trả</button>
   <//>`;
 }
 

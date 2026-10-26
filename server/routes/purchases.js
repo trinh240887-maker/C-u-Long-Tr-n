@@ -103,6 +103,7 @@ export default function (r, ctx) {
       lines: db.prepare('SELECT * FROM purchase_bill_lines WHERE bill_id = ? ORDER BY id').all(b.id),
       photos: db.prepare("SELECT id FROM purchase_bill_photos WHERE bill_id = ? AND kind = 'bill' ORDER BY id").all(b.id).map((p) => p.id),
       goods_photos: db.prepare("SELECT id FROM purchase_bill_photos WHERE bill_id = ? AND kind = 'goods' ORDER BY id").all(b.id).map((p) => p.id),
+      owed: b.status === 'approved' && b.supplier_id && typeof openBills === 'function' ? openBills(b.supplier_id).find((x) => x.id === b.id)?.remaining ?? 0 : null,
     };
   }
 
@@ -356,11 +357,26 @@ export default function (r, ctx) {
     return bills.t - bills.p - pays;
   }
   ctx.supplierBalance = balance;
+  // Nợ theo TỪNG PHIẾU (chủ quán 26/10): mỗi lần trả trừ vào phiếu được chọn trước, phần dư trừ phiếu cũ nhất
+  if (!db.prepare('PRAGMA table_info(supplier_payments)').all().some((c) => c.name === 'bill_ids')) db.exec("ALTER TABLE supplier_payments ADD COLUMN bill_ids TEXT NOT NULL DEFAULT '[]'");
+  function openBills(supplierId) {
+    const bills = db.prepare("SELECT id, date, total, paid_now FROM purchase_bills WHERE supplier_id = ? AND status = 'approved' ORDER BY date, id").all(supplierId)
+      .map((b) => ({ ...b, remaining: Math.max(0, b.total - b.paid_now) }));
+    const byId = new Map(bills.map((b) => [b.id, b]));
+    for (const p of db.prepare("SELECT amount, bill_ids FROM supplier_payments WHERE supplier_id = ? AND status = 'done' ORDER BY date, id").all(supplierId)) {
+      let amt = p.amount;
+      let ids = []; try { ids = JSON.parse(p.bill_ids || '[]'); } catch { /* cũ */ }
+      for (const id of ids) { const b = byId.get(Number(id)); if (!b || amt <= 0) continue; const t = Math.min(amt, b.remaining); b.remaining -= t; amt -= t; }
+      for (const b of bills) { if (amt <= 0) break; const t = Math.min(amt, b.remaining); b.remaining -= t; amt -= t; }
+    }
+    return bills;
+  }
+  ctx.supplierOpenBills = openBills;
 
   r.get('/api/suppliers/debts', 'staff', ({ me }) => {
     if (!isCashier(me)) fail(403, 'Chỉ thu ngân / quản lý');
     const rows = db.prepare('SELECT id, name, phone FROM suppliers WHERE active = 1 ORDER BY name').all().map((s) => ({
-      ...s, debt: balance(s.id),
+      ...s, debt: balance(s.id), open_bills: openBills(s.id).filter((b) => b.remaining > 0),
       pending: db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(total - paid_now), 0) AS t FROM purchase_bills WHERE supplier_id = ? AND status IN ('received','returned')").get(s.id),
       last_bill: db.prepare("SELECT MAX(date) AS d FROM purchase_bills WHERE supplier_id = ?").get(s.id).d,
     }));
@@ -427,8 +443,11 @@ export default function (r, ctx) {
       fs.writeFileSync(path.join(photoDir, photo), Buffer.from(m[2], 'base64'));
     }
     const id = tx(db, () => {
-      const id = Number(db.prepare('INSERT INTO supplier_payments (supplier_id, amount, method, date, note, photo, bank_txn_id, status, created_by, created_at, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      const billIds = (Array.isArray(body.bill_ids) ? body.bill_ids : []).map(Number).filter((x) => Number.isInteger(x) && x > 0).slice(0, 100);
+      const id0 = Number(db.prepare('INSERT INTO supplier_payments (supplier_id, amount, method, date, note, photo, bank_txn_id, status, created_by, created_at, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(s.id, amount, method, ctx.today(), v.text(body.note, { max: 200 }), photo, bankTxn?.id ?? null, needOk ? 'pending' : 'done', me.id, ctx.now(), needOk ? null : me.id, needOk ? null : ctx.now()).lastInsertRowid);
+      const id = id0;
+      if (billIds.length) db.prepare('UPDATE supplier_payments SET bill_ids = ? WHERE id = ?').run(JSON.stringify(billIds), id);
       // Tiền mặt lấy từ két (thu ngân) hay tiền quản lý giữ (chỉ quản lý / chủ chọn được)
       if (method === 'cash' && body.source === 'manager' && isBoss(me)) db.prepare("UPDATE supplier_payments SET source = 'manager' WHERE id = ?").run(id);
       if (bankTxn) db.prepare("UPDATE bank_txns SET status = 'supplier', note = ?, handled_by = ? WHERE id = ?").run(`Trả NCC ${s.name} (chi #${id})`, me.id, bankTxn.id);

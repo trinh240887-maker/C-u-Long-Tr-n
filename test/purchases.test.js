@@ -101,9 +101,14 @@ test('hoá đơn mua: khu nhận + chụp bill + ký nhận → thu ngân (khác
 
   // Trả NCC: trả quá nợ bị chặn; ≤ 5 triệu thu ngân trả luôn; > 5 triệu chờ chủ duyệt
   assert.equal((await ngan('POST', `/api/suppliers/${ncc}/pay`, { amount: 7_000_000, method: 'cash' })).status, 400);
-  const p1 = (await ngan('POST', `/api/suppliers/${ncc}/pay`, { amount: 500_000, method: 'cash', note: 'Trả bớt' })).data;
+  const p1 = (await ngan('POST', `/api/suppliers/${ncc}/pay`, { amount: 500_000, method: 'cash', note: 'Trả bớt', bill_ids: [b2.id] })).data;
   assert.equal(p1.status, 'done');
   assert.equal(p1.debt, 5_500_000);
+  // Trả theo phiếu: 500k trừ vào phiếu b2 được chọn, phiếu b1 (cũ hơn) vẫn nợ đủ
+  const ob = (await ngan('GET', '/api/suppliers/debts')).data.suppliers.find((x) => x.id === ncc).open_bills;
+  assert.equal(ob.find((x) => x.id === b2.id).remaining, 1_500_000);
+  assert.equal(ob.find((x) => x.id === b1.id).remaining, 4_000_000);
+  assert.equal((await ngan('GET', '/api/purchases')).data.bills.find((x) => x.id === b2.id).owed, 1_500_000);
   const p2 = (await ngan('POST', `/api/suppliers/${ncc}/pay`, { amount: 5_500_000, method: 'transfer' })).data;
   assert.equal(p2.status, 'pending');
   assert.equal(note(/^Duyệt chi NCC: Sạp thịt/).length, 1);
