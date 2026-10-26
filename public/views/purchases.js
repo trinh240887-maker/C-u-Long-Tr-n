@@ -90,7 +90,11 @@ function Receive({ me, meta, advances, onDone }) {
         bill_qty: l.bill_qty, bill_unit: l.bill_unit, bill_price: l.bill_price, use_unit: l.use_unit, pf: l.pf, factor: l.factor, need_factor: l.need_factor,
         warn: !l.ingredient_id ? 'Chưa có trong kho' : l.need_factor ? `Nhập quy đổi: 1 ${l.bill_unit} = bao nhiêu ${l.use_unit}` : '' }));
       setLines((cur) => (f.po_id ? cur.map((l) => { const g = got.find((x) => x.ingredient_id && x.ingredient_id === l.ingredient_id); return g ? { ...l, qty: g.qty, price: g.price, ai: true, warn: g.warn } : l; }).concat(got.filter((g) => !cur.some((l) => l.ingredient_id && l.ingredient_id === g.ingredient_id))) : got));
-      setF((x) => ({ ...x, ...(x.po_id ? {} : { supplier_id: r.supplier_id ? String(r.supplier_id) : '', supplier_name: r.supplier_id ? '' : r.supplier_name }), total: r.total ? String(r.total) : x.total }));
+      // Khu nhận tự chọn theo "khu chính" của các mặt hàng trên bill (vd nước ngọt → Bar, gas → Bếp) (chủ quán 26/10)
+      const votes = new Map();
+      for (const l of got) { const g = l.ingredient_id && meta.ingredients.find((x) => x.id === l.ingredient_id); if (g?.home_store_id && stores.some((s0) => s0.id === g.home_store_id)) votes.set(g.home_store_id, (votes.get(g.home_store_id) || 0) + 1); }
+      const best = [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+      setF((x) => ({ ...x, ...(x.po_id ? {} : { supplier_id: r.supplier_id ? String(r.supplier_id) : '', supplier_name: r.supplier_id ? '' : r.supplier_name, ...(best ? { store_id: best } : {}) }), total: r.total ? String(r.total) : x.total }));
       setReadNote(r.note);
       toast(`Đã đọc ${got.length} dòng: xem lại số lượng, giá rồi bấm Xác nhận`);
     } catch (e) { act(() => Promise.reject(e)); } finally { setReading(false); }
@@ -142,11 +146,11 @@ function Receive({ me, meta, advances, onDone }) {
           <option value="">Nơi khác (ghi tên) / đi chợ</option>${meta.suppliers.filter((s) => s.active).map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
         ${!f.supplier_id ? html`<${Field} label="Tên nơi bán"><input value=${f.supplier_name} placeholder="vd Vựa rau Bé Thùy" onInput=${(e) => set('supplier_name', e.target.value)} /><//>` : null}` : null}
       <${Lines} lines=${lines} setLines=${setLines} ingredients=${meta.ingredients} />
+      ${stores.length > 1 && !f.po_id ? html`<${Field} label="Khu nhận"><select value=${f.store_id} onChange=${(e) => set('store_id', e.target.value)}>${stores.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>` : null}
     </section>
     <section class="card stack">
-      <button class="link-btn" onClick=${() => setMore(!more)}><b>${more ? '▾' : '▸'} Thêm</b> <small class="muted">(khu nhận, tổng bill, người ký, thanh toán, ghi chú)</small></button>
+      <button class="link-btn" onClick=${() => setMore(!more)}><b>${more ? '▾' : '▸'} Thêm</b> <small class="muted">(tổng bill, người ký, thanh toán, ghi chú)</small></button>
       ${more ? html`
-        ${stores.length > 1 && !f.po_id ? html`<${Field} label="Khu nhận"><select value=${f.store_id} onChange=${(e) => set('store_id', e.target.value)}>${stores.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>` : null}
         <${Field} label="Tổng tiền ghi trên bill" hint=${`Cộng các dòng: ${money(sum)}. Để trống = lấy số cộng.`}><input inputmode="numeric" value=${f.total} placeholder=${String(sum || '')} onInput=${(e) => set('total', e.target.value)} /><//>
         <${Field} label="Người ký nhận trên bill"><input value=${f.signer_name} onInput=${(e) => set('signer_name', e.target.value)} /><//>
         <${Field} label="Thanh toán"><div class="chips">
