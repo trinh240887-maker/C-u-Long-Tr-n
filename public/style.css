@@ -794,3 +794,5 @@ table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align
 .group-tabs { margin-bottom: 12px; }
 .group-tabs a { display: inline-flex; align-items: center; min-height: 38px; padding: 6px 14px; border-radius: 9px; color: var(--muted); text-decoration: none; white-space: nowrap; font-weight: 600; }
 .group-tabs a.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+.edit-line { border-bottom: 1px solid var(--line, #eee); padding: 6px 0; }
+.num-in.wide { width: 110px; }

@@ -6,7 +6,7 @@ import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
 import { isDate, addDays } from '../lib/time.js';
 import { makeXlsx } from '../lib/xlsx.js';
-import { takeLots, recordMove } from '../lib/stock.js';
+import { takeLots, recordMove, addLot } from '../lib/stock.js';
 import { readBill, billReaderReady, billReaderKey } from '../lib/bill-reader.js';
 
 // Hoá đơn mua hàng + công nợ NCC + tạm ứng đi chợ.
@@ -60,6 +60,7 @@ export default function (r, ctx) {
   const r3 = (x) => Math.round(x * 1000) / 1000;
   const vnd = (n) => `${Number(n || 0).toLocaleString('vi-VN')}đ`;
   const money = (x, name, { min = 0 } = {}) => v.int(Number(String(x ?? '').replace(/[.,\s]/g, '') || 0), { min, max: 2_000_000_000, name });
+  if (!db.prepare('PRAGMA table_info(purchase_bill_lines)').all().some((c) => c.name === 'old_price')) db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN old_price INTEGER'); // giá trước khi nhập bill này (huỷ bill thì trả lại)
   const isCashier = (me) => rank(me.role) >= rank('shift_lead') || !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id);
   const isBoss = (me) => rank(me.role) >= rank('manager');
   const cashiers = () => db.prepare("SELECT id FROM staff WHERE active = 1 AND (role IN ('owner','manager','shift_lead') OR team_id IN (SELECT id FROM teams WHERE name = 'Thu ngân'))").all().map((x) => x.id);
@@ -172,8 +173,8 @@ export default function (r, ctx) {
       const id = Number(db.prepare(`INSERT INTO purchase_bills (supplier_id, supplier_name, store_id, po_id, date, total, lines_total, paid_now, paid_method, advance_id, signer_name, note, flags, received_by, received_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(supplierId, supplierName, storeId, poId, date, total, lines.reduce((n, l) => n + l.amount, 0), paidNow, paidMethod, advanceId,
         signer, v.text(body.note, { name: 'Ghi chú', max: 200 }), JSON.stringify(flags), me.id, ctx.now()).lastInsertRowid);
-      const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount) VALUES (?, ?, ?, ?, ?, ?, ?)');
-      for (const l of lines) add.run(id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount);
+      const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const l of lines) add.run(id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, l.ingredient_id ? oldPrice.get(l.ingredient_id) ?? null : null);
       for (const ph of photos) savePhoto(id, ph, me);
       for (const ph of goodsPhotos) savePhoto(id, ph, me, 'goods');
       // Nhớ quy đổi nhân viên vừa nhập (1 két = 24 chai) cho lần đọc bill sau
@@ -194,19 +195,37 @@ export default function (r, ctx) {
   // Khu sửa lại bill bị trả lại (chỉ tiền / ảnh / tên ký; số kho sửa bằng kiểm kho)
   r.patch('/api/purchases/:id', 'staff', ({ me, params, body }) => {
     const b = load(params.id);
-    if (b.status !== 'returned') fail(400, 'Chỉ sửa bill bị thu ngân trả lại');
-    if (b.received_by !== me.id && rank(me.role) < rank('shift_lead')) fail(403, 'Người nhận hàng sửa lại');
+    // Sửa bill: người nhận sửa bill bị trả lại; thu ngân / trưởng ca trở lên sửa ngay trong mục duyệt (chủ quán 26/10)
+    if (b.status === 'returned') { if (b.received_by !== me.id && rank(me.role) < rank('shift_lead')) fail(403, 'Người nhận hàng sửa lại'); }
+    else if (b.status === 'received') { if (!isCashier(me)) fail(403, 'Thu ngân / trưởng ca trở lên mới sửa bill đang chờ duyệt'); }
+    else fail(400, b.status === 'approved' ? 'Bill đã duyệt: huỷ bill rồi nhập lại' : 'Bill này không sửa được');
     const lines = body.lines ? readLines(body.lines) : null;
     const total = body.total === undefined ? b.total : money(body.total, 'Tổng tiền bill');
     tx(db, () => {
       if (lines) {
+        // Kho đã cộng theo số cũ lúc gửi bill → cộng / trừ phần chênh theo số mới
+        const old = db.prepare('SELECT l.*, g.purchase_factor FROM purchase_bill_lines l LEFT JOIN ingredients g ON g.id = l.ingredient_id WHERE l.bill_id = ?').all(b.id);
+        const store = ctx.effectiveStore ? ctx.effectiveStore(b.store_id) : b.store_id;
+        const sumBy = (arr) => arr.filter((l) => l.ingredient_id).reduce((m, l) => m.set(l.ingredient_id, (m.get(l.ingredient_id) || 0) + l.qty), new Map());
+        const before = sumBy(old), after = sumBy(lines);
+        const at = ctx.now(), date = ctx.today();
+        for (const id of new Set([...before.keys(), ...after.keys()])) {
+          const g = db.prepare('SELECT * FROM ingredients WHERE id = ?').get(id);
+          const d = Math.round(((after.get(id) || 0) - (before.get(id) || 0)) * (g?.purchase_factor || 1) * 1000) / 1000;
+          if (!d) continue;
+          if (d > 0) addLot(db, { storeId: store, ingredientId: id, qty: d, expiresOn: g?.shelf_days > 0 ? addDays(date, g.shelf_days) : null, at });
+          else takeLots(db, { storeId: store, ingredientId: id, qty: -d, allowShort: true });
+          recordMove(db, { at, date, type: 'receive', ingredientId: id, toStore: store, qty: d, cost: 0, ref: `fix-bill:${b.id}`, staffId: me.id, note: `Sửa bill nhập #${b.id}` });
+        }
+        for (const l of lines) if (l.ingredient_id && l.price > 0) db.prepare('UPDATE ingredients SET price = ? WHERE id = ?').run(l.price, l.ingredient_id);
+        const oldPrice = new Map(old.map((l) => [l.ingredient_id, l.old_price]));
         db.prepare('DELETE FROM purchase_bill_lines WHERE bill_id = ?').run(b.id);
-        const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount) VALUES (?, ?, ?, ?, ?, ?, ?)');
-        for (const l of lines) add.run(b.id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount);
+        const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        for (const l of lines) add.run(b.id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, oldPrice.get(l.ingredient_id) ?? null);
       }
       for (const ph of Array.isArray(body.photos) ? body.photos.slice(0, 4) : []) savePhoto(b.id, ph, me);
       const ls = db.prepare('SELECT * FROM purchase_bill_lines WHERE bill_id = ?').all(b.id);
-      const flags = flagsOf({ total, lines: ls, po: null });
+      const flags = flagsOf({ total, lines: ls, po: null, oldPrice: new Map(ls.filter((l) => l.old_price != null).map((l) => [l.ingredient_id, l.old_price])) });
       db.prepare("UPDATE purchase_bills SET total = ?, lines_total = ?, signer_name = ?, note = ?, flags = ?, status = 'received' WHERE id = ?")
         .run(total, ls.reduce((n, l) => n + l.amount, 0), body.signer_name ? v.text(body.signer_name, { name: 'Tên người ký', max: 60 }) : b.signer_name, body.note === undefined ? b.note : v.text(body.note, { max: 200 }), JSON.stringify(flags), b.id);
     });
@@ -313,6 +332,8 @@ export default function (r, ctx) {
         if (!(useQty > 0)) continue;
         takeLots(db, { storeId: store, ingredientId: l.ingredient_id, qty: useQty, allowShort: true });
         recordMove(db, { at, date, type: 'receive', ingredientId: l.ingredient_id, toStore: store, qty: -useQty, cost: -l.amount, ref: `void-bill:${b.id}`, staffId: me.id, note: `Huỷ bill nhập #${b.id}: ${reason}` });
+        // Giá nhập đang là giá của bill sai → trả về giá trước đó
+        if (l.old_price != null) db.prepare('UPDATE ingredients SET price = ? WHERE id = ? AND price = ?').run(l.old_price, l.ingredient_id, l.price);
       }
       db.prepare("UPDATE purchase_bills SET status = 'void', return_reason = ?, returned_by = ?, returned_at = ? WHERE id = ?").run(`Huỷ: ${reason}`, me.id, at, b.id);
     });

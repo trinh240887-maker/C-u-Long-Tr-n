@@ -152,6 +152,7 @@ function Receive({ me, meta, advances, onDone }) {
 
 function BillCard({ b, canApprove, me }) {
   const [reason, setReason] = useState(null);
+  const [edit, setEdit] = useState(false);
   const [st, cls] = STATUS[b.status] || [b.status, ''];
   return html`<section class=${`card stack ${b.flags.length && b.status === 'received' ? 'warn-card' : ''}`}>
     <div class="row between wrap"><b>${b.supplier_name} · ${money(b.total)}</b><span class=${`pill ${cls}`}>${st}</span></div>
@@ -166,7 +167,10 @@ function BillCard({ b, canApprove, me }) {
     ${b.status === 'approved' ? html`<small class="muted">Duyệt: ${b.approved_by_name} · ${hm(b.approved_at)}</small>` : null}
     ${b.status === 'received' && canApprove && (b.received_by !== me.id || me.role === 'owner') ? html`<div class="row">
       <button class="primary" onClick=${() => act(() => api('POST', `/api/purchases/${b.id}/approve`), 'Đã duyệt, cộng công nợ')}>✓ Đúng, duyệt</button>
+      <button onClick=${() => setEdit(true)}>✏️ Sửa</button>
       <button onClick=${() => setReason('')}>Trả lại</button></div>` : null}
+    ${b.status === 'returned' && (b.received_by === me.id || canApprove) ? html`<button class="small" onClick=${() => setEdit(true)}>✏️ Sửa từng dòng</button>` : null}
+    ${edit ? html`<${EditBill} b=${b} onClose=${() => setEdit(false)} />` : null}
     ${b.status === 'received' && b.received_by === me.id && me.role !== 'owner' ? html`<small class="muted">Chờ người khác duyệt (người nhận không tự duyệt).</small>` : null}
     ${b.status === 'returned' && b.received_by === me.id ? html`<${FixBill} b=${b} />` : null}
     ${b.status === 'void' ? html`<p class="small muted">🗑 ${b.return_reason} (${b.returned_by_name})</p>` : (['manager', 'owner'].includes(me.role) || (b.status !== 'approved' && (b.received_by === me.id || canApprove))) ? html`<button class="link small danger-text" onClick=${() => { const r0 = prompt('Huỷ bill này? Hàng sẽ được trừ lại khỏi kho. Lý do:', 'Nhập sai'); if (r0) act(() => api('POST', `/api/purchases/${b.id}/void`, { reason: r0 }), 'Đã huỷ bill'); }}>🗑 Huỷ bill</button>` : null}
@@ -174,6 +178,30 @@ function BillCard({ b, canApprove, me }) {
       <${Field} label="Lý do (vd ảnh mờ, sai số lượng, sai tổng)"><input value=${reason} onInput=${(e) => setReason(e.target.value)} /><//>
       <button class="primary" disabled=${!reason} onClick=${async () => { if (await act(() => api('POST', `/api/purchases/${b.id}/return`, { reason }), 'Đã trả lại cho khu sửa')) setReason(null); }}>Trả lại</button><//>` : null}
   </section>`;
+}
+
+// Sửa bill: sửa từng dòng (số lượng, đơn giá) + tổng; kho tự cộng / trừ phần chênh
+function EditBill({ b, onClose }) {
+  const [lines, setLines] = useState(b.lines.map((l) => ({ ...l, qty: String(l.qty), price: String(l.price) })));
+  const [total, setTotal] = useState(String(b.total));
+  const set = (i, k, v0) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: v0 } : l)));
+  const sum = lines.reduce((n, l) => n + Math.round((Number(String(l.qty).replace(',', '.')) || 0) * (num(l.price) || 0)), 0);
+  const save = async () => {
+    const r = await act(() => api('PATCH', `/api/purchases/${b.id}`, { total: num(total), lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: String(l.qty).replace(',', '.'), price: num(l.price) })) }), 'Đã sửa bill');
+    if (r) onClose();
+  };
+  return html`<${Modal} title=${`Sửa bill ${b.supplier_name}`} onClose=${onClose} wide>
+    <div class="stack">
+      <small class="muted">Sửa số lượng / đơn giá cho đúng ảnh bill (số lẻ dùng dấu phẩy, vd 28,1). Kho tự cộng / trừ phần chênh.</small>
+      ${lines.map((l, i) => html`<div class="row wrap tight edit-line"><b class="grow">${l.name}</b>
+        <label class="row tight small"><input class="num-in" inputmode="decimal" value=${l.qty} onInput=${(e) => set(i, 'qty', e.target.value)} /> ${l.unit}</label>
+        <label class="row tight small">× <input class="num-in wide" inputmode="numeric" value=${l.price} onInput=${(e) => set(i, 'price', e.target.value)} />đ</label>
+        <small class="muted">= ${money(Math.round((Number(String(l.qty).replace(',', '.')) || 0) * (num(l.price) || 0)))}</small></div>`)}
+      <div class="row between"><span>Cộng các dòng</span><b class="num">${money(sum)}</b></div>
+      <${Field} label="Tổng tiền trên bill"><input inputmode="numeric" value=${total} onInput=${(e) => setTotal(e.target.value)} /><//>
+      ${sum !== num(total) ? html`<small class="warn-text">Cộng các dòng khác tổng bill ${money(Math.abs(sum - num(total)))}</small>` : html`<small class="ok-text">✓ Khớp tổng bill</small>`}
+      <button class="primary big" onClick=${save}>Lưu</button>
+    </div><//>`;
 }
 
 function FixBill({ b }) {

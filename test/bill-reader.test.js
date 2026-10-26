@@ -78,11 +78,22 @@ test('đọc bill qua app: nhân viên bấm Đọc bill → khớp NCC + hàng 
   // Huỷ bill nhập sai → trừ lại hàng đã cộng vào kho
   const { stockQty } = await import('../server/lib/stock.js');
   const before = stockQty(db, st, ns);
-  const sv2 = (await o('POST', '/api/purchases', { store_id: st, supplier_name: 'Tạp hoá Hiền', signer_name: 'Phát', photos: [IMG], lines: [{ ingredient_id: ns, qty: 2, price: 34028 }] })).data;
+  const priceBefore = db.prepare('SELECT price FROM ingredients WHERE id = ?').get(ns).price;
+  const sv2 = (await o('POST', '/api/purchases', { store_id: st, supplier_name: 'Tạp hoá Hiền', signer_name: 'Phát', photos: [IMG], lines: [{ ingredient_id: ns, qty: 2, price: 99000 }] })).data;
+  assert.equal(db.prepare('SELECT price FROM ingredients WHERE id = ?').get(ns).price, 99000);
   assert.ok(stockQty(db, st, ns) > before);
   assert.equal((await o('POST', `/api/purchases/${sv2.id}/void`, {})).status, 400); // cần lý do
   assert.equal((await o('POST', `/api/purchases/${sv2.id}/void`, { reason: 'Nhập sai giá' })).data.status, 'void');
   assert.equal(stockQty(db, st, ns), before);
+  assert.equal(db.prepare('SELECT price FROM ingredients WHERE id = ?').get(ns).price, priceBefore, 'huỷ bill → giá nhập trả về như cũ');
+  // Sửa bill trong mục duyệt: nhập nhầm 281 → sửa 28,1 → kho trừ lại phần chênh
+  const sv3 = (await o('POST', '/api/purchases', { store_id: st, supplier_name: 'Sạp thịt', signer_name: 'Phát', photos: [IMG], lines: [{ ingredient_id: ns, qty: 30, price: 34028 }] })).data;
+  const mid = stockQty(db, st, ns);
+  const fx = await o('PATCH', `/api/purchases/${sv3.id}`, { total: 102084, lines: [{ ingredient_id: ns, qty: '3', price: 34028 }] });
+  assert.equal(fx.status, 200, JSON.stringify(fx.data));
+  const f = db.prepare('SELECT purchase_factor FROM ingredients WHERE id = ?').get(ns).purchase_factor || 1;
+  assert.equal(Math.round((mid - stockQty(db, st, ns)) * 1000) / 1000, 27 * f);
+  assert.equal(fx.data.status, 'received');
   rb = (await o('POST', '/api/purchases/read-bill', { photos: [IMG] })).data;
   assert.deepEqual([rb.lines[0].need_factor, rb.lines[0].factor, rb.lines[0].qty, rb.lines[0].price], [false, 24, 40, 34028]); // 20 két × 24 = 480 chai = 40 thùng
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('bill_reader_daily_max', '1')").run();
