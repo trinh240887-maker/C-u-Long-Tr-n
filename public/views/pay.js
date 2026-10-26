@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { html, api, act, useData, Loading, Modal, Field, money, hm, atLeast, addDays, dayLabel, toast, bump } from '../ui.js';
 import qrcode from '../vendor/qrcode.js';
 import { compressImage } from './checklists.js';
+import { ExpenseForm } from './expenses.js';
 
 const num = (s) => Number(String(s ?? '').replace(/[^\d]/g, '')) || 0;
 const METHOD = { cash: 'Tiền mặt', transfer: 'Chuyển khoản', mixed: 'TM + CK' };
@@ -266,6 +267,7 @@ function SepayCard() {
 export function CashierView({ me }) {
   const [date, setDate] = useState(me.today);
   const [sel, setSel] = useState({});
+  const [chi, setChi] = useState(false);
   const st = useData(`/api/payments?date=${date}`);
   if (!st.data) return html`<${Loading} state=${st} />`;
   const d = st.data;
@@ -342,8 +344,9 @@ export function CashierView({ me }) {
     </section>
 
     <section class="card stack">
-      <b>5. Đếm két cuối ngày</b>
-      <div class="row between"><span>Phải có = đầu ngày ${money(s.opening ?? 0)} + thu tiền mặt ${money(s.cash_direct + s.handed_in)} − hoàn ${money(s.refund_cash)}${s.cash_out ? ` − chi NCC / tạm ứng ${money(s.cash_out)}` : ''}${s.tip_to_box ? ` − tip bỏ thùng ${money(s.tip_to_box)}` : ''}</span><b class="num">${s.drawer_expected == null ? '—' : money(s.drawer_expected)}</b></div>
+      <div class="row between"><b>5. Đếm két cuối ngày</b>${!locked ? html`<button class="small" onClick=${() => setChi(true)}>➖ Chi từ két</button>` : null}</div>
+      ${chi ? html`<${ExpenseForm} source="drawer" onClose=${() => setChi(false)} />` : null}
+      <div class="row between"><span>Phải có = đầu ngày ${money(s.opening ?? 0)} + thu tiền mặt ${money(s.cash_direct + s.handed_in)} − hoàn ${money(s.refund_cash)}${s.cash_out ? ` − chi từ két (phiếu chi, NCC, tạm ứng) ${money(s.cash_out)}` : ''}${s.tip_to_box ? ` − tip bỏ thùng ${money(s.tip_to_box)}` : ''}</span><b class="num">${s.drawer_expected == null ? '—' : money(s.drawer_expected)}</b></div>
       ${s.tip_to_box ? html`<div class="warn-text small">Trước khi đếm két: bỏ <b>${money(s.tip_to_box)}</b> vào thùng tip (tip TM ${money(s.tip_box_cash)} + tip CK ${money(s.tip_box_ck)} lấy tiền mặt bỏ vào). Chốt ngày app tự ghi phiếu chi két → thùng tip.</div>` : null}
       ${s.drawer_counted != null ? html`<div class="row between"><span>Đếm được</span><b class=${`num ${s.drawer_diff ? 'danger-text' : 'ok-text'}`}>${money(s.drawer_counted)}${s.drawer_diff ? ` (lệch ${money(s.drawer_diff)})` : ' ✓ khớp'}</b></div>` : null}
       ${!locked ? html`<${DrawerClose} date=${date} d=${d} />` : d.drawer?.denoms ? html`<${DenomView} denoms=${JSON.parse(d.drawer.denoms)} />` : null}

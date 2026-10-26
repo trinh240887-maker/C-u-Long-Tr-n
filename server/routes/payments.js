@@ -519,7 +519,8 @@ export default function (r, ctx) {
       + sum(bills.filter((b) => b.overpay && b.overpay_status !== 'tip'), 'overpay');
     const ckOutNcc = db.prepare("SELECT COALESCE(SUM(amount), 0) AS n FROM supplier_payments WHERE date = ? AND method = 'transfer' AND status = 'done'").get(date)?.n || 0;
     const ckOutBill = db.prepare("SELECT COALESCE(SUM(paid_now), 0) AS n FROM purchase_bills WHERE date = ? AND paid_method = 'transfer' AND status != 'void'").get(date)?.n || 0;
-    const ckOut = ckOutNcc + ckOutBill + sum(bills.filter((b) => b.overpay_status === 'refunded'), 'overpay');
+    const ckOutExp = ctx.expenseBankOut ? ctx.expenseBankOut(date) : 0; // phiếu chi chuyển khoản
+    const ckOut = ckOutNcc + ckOutBill + ckOutExp + sum(bills.filter((b) => b.overpay_status === 'refunded'), 'overpay');
     const carried = bk?.opening != null ? null : carriedOpening(date, depth);
     const opening = bk?.opening ?? carried;
     const bankExpected = opening != null ? opening + ckIn - ckOut + (bk?.other_in || 0) - (bk?.other_out || 0) : null;

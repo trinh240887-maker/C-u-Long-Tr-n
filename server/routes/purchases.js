@@ -376,6 +376,8 @@ export default function (r, ctx) {
     const id = tx(db, () => {
       const id = Number(db.prepare('INSERT INTO supplier_payments (supplier_id, amount, method, date, note, photo, bank_txn_id, status, created_by, created_at, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(s.id, amount, method, ctx.today(), v.text(body.note, { max: 200 }), photo, bankTxn?.id ?? null, needOk ? 'pending' : 'done', me.id, ctx.now(), needOk ? null : me.id, needOk ? null : ctx.now()).lastInsertRowid);
+      // Tiền mặt lấy từ két (thu ngân) hay tiền quản lý giữ (chỉ quản lý / chủ chọn được)
+      if (method === 'cash' && body.source === 'manager' && isBoss(me)) db.prepare("UPDATE supplier_payments SET source = 'manager' WHERE id = ?").run(id);
       if (bankTxn) db.prepare("UPDATE bank_txns SET status = 'supplier', note = ?, handled_by = ? WHERE id = ?").run(`Trả NCC ${s.name} (chi #${id})`, me.id, bankTxn.id);
       return id;
     });

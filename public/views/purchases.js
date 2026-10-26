@@ -202,23 +202,23 @@ function Debts({ me }) {
       <div class="row">
         <button class="small" onClick=${() => setStmt(s)}>Sổ nợ</button>
         ${s.debt > 0 ? html`<button class="small primary" onClick=${() => setPay(s)}>Trả</button>` : null}</div></section>`)}
-    ${pay ? html`<${PayModal} s=${pay} txns=${d.out_txns} onClose=${() => setPay(null)} />` : null}
+    ${pay ? html`<${PayModal} s=${pay} txns=${d.out_txns} boss=${d.is_boss} onClose=${() => setPay(null)} />` : null}
     ${stmt ? html`<${Statement} s=${stmt} onClose=${() => setStmt(null)} />` : null}
   </div>`;
 }
 
-function PayModal({ s, txns, onClose }) {
-  const [f, setF] = useState({ amount: String(s.debt), method: 'transfer', note: '', bank_txn_id: '' });
+function PayModal({ s, txns, boss, onClose }) {
+  const [f, setF] = useState({ amount: String(s.debt), method: 'transfer', note: '', bank_txn_id: '', source: 'drawer' });
   const [photos, setPhotos] = useState([]);
   return html`<${Modal} title=${`Trả ${s.name}`} onClose=${onClose}>
     <p class="small">Còn nợ <b>${money(s.debt)}</b></p>
     <${Field} label="Số tiền"><input inputmode="numeric" value=${f.amount} onInput=${(e) => setF({ ...f, amount: e.target.value })} /><//>
-    <div class="chips">${[['transfer', 'Chuyển khoản'], ['cash', 'Tiền mặt từ két']].map(([k, l]) => html`<button class=${`chip ${f.method === k ? 'on' : ''}`} onClick=${() => setF({ ...f, method: k })}>${l}</button>`)}</div>
+    <div class="chips">${[['transfer', 'Chuyển khoản', 'drawer'], ['cash', 'Tiền mặt từ két', 'drawer'], ...(boss ? [['cash', 'Tiền mặt quản lý giữ', 'manager']] : [])].map(([k, l, src]) => html`<button class=${`chip ${f.method === k && (k === 'transfer' || f.source === src) ? 'on' : ''}`} onClick=${() => setF({ ...f, method: k, source: src })}>${l}</button>`)}</div>
     ${f.method === 'transfer' && txns.length ? html`<${Field} label="Giao dịch ngân hàng (tiền ra, SePay báo)"><select value=${f.bank_txn_id} onChange=${(e) => { const t = txns.find((x) => x.id === Number(e.target.value)); setF({ ...f, bank_txn_id: e.target.value, amount: t ? String(t.amount) : f.amount }); }}>
       <option value="">Chưa có / chụp màn hình CK</option>${txns.map((t) => html`<option value=${t.id}>${money(t.amount)} · ${t.content} · ${t.date}</option>`)}</select><//>` : null}
     ${!f.bank_txn_id ? html`<${PhotoPicker} photos=${photos} setPhotos=${setPhotos} />` : null}
     <${Field} label="Ghi chú"><input value=${f.note} onInput=${(e) => setF({ ...f, note: e.target.value })} /><//>
-    <button class="primary" onClick=${async () => { const r = await act(() => api('POST', `/api/suppliers/${s.id}/pay`, { amount: num(f.amount), method: f.method, note: f.note, bank_txn_id: f.bank_txn_id ? Number(f.bank_txn_id) : undefined, photo: photos[0] })); if (r) { onClose(); } }}>Ghi khoản trả</button>
+    <button class="primary" onClick=${async () => { const r = await act(() => api('POST', `/api/suppliers/${s.id}/pay`, { amount: num(f.amount), method: f.method, source: f.source, note: f.note, bank_txn_id: f.bank_txn_id ? Number(f.bank_txn_id) : undefined, photo: photos[0] })); if (r) { onClose(); } }}>Ghi khoản trả</button>
   <//>`;
 }
 
