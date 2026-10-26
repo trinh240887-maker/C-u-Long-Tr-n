@@ -5,7 +5,8 @@ import { fail, v } from '../http.js';
 import { parseOffset, parseHM } from '../lib/time.js';
 import { runBackup, listBackups } from '../backup.js';
 import { readStatic } from '../lib/vietqr.js';
-import { loadPerms, ROLES_EDITABLE, PAGES } from '../lib/perms.js';
+import { loadPerms, ROLES_EDITABLE, PAGES, actsOf } from '../lib/perms.js';
+import { ACT_GROUPS, ACTS, loadUserActs } from '../lib/acts.js';
 
 const SECRET_KEYS = ['zalo_secret_key', 'zalo_access_token', 'zalo_refresh_token', 'anthropic_api_key', 'zalo_bot_token'];
 const OWNER_ONLY = ['anthropic_api_key', 'zalo_bot_token', 'zalo_bot_group_id', 'zalo_bot_group_name', 'zalo_bot_staff_group_id', 'zalo_bot_staff_group_name', 'avail_bot_on', 'avail_bot_teams']; // mã tốn tiền / điều khiển bot: chỉ chủ quán dán
@@ -146,6 +147,38 @@ export default function (r, ctx) {
     ctx.audit(me, 'perm.update', Object.keys(out).length);
     ctx.broadcast('me');
     return permView();
+  });
+
+  // ---------- Quyền chi tiết từng người (chủ quán 26/10) ----------
+  const actView = (staffId) => {
+    const st = db.prepare('SELECT id, name, role, team_id FROM staff WHERE id = ? AND active = 1').get(staffId);
+    if (!st) fail(404, 'Không tìm thấy nhân viên');
+    const { acts, defaults, overrides } = actsOf(ctx, st);
+    return {
+      staff: { ...st, team_name: st.team_id ? db.prepare('SELECT name FROM teams WHERE id = ?').get(st.team_id)?.name || '' : '' },
+      owner: st.role === 'owner',
+      groups: ACT_GROUPS.map((g) => ({ name: g.name, acts: g.acts.map((a) => ({ key: a.key, label: a.label, on: acts[a.key], def: defaults[a.key], custom: typeof overrides[a.key] === 'boolean' })) })),
+    };
+  };
+  r.get('/api/permissions/acts', 'owner', ({ query }) => actView(v.int(query.get('staff_id'), { min: 1, name: 'Nhân viên' })));
+  r.put('/api/permissions/acts', 'owner', ({ me, body }) => {
+    const staffId = v.int(body.staff_id, { min: 1, name: 'Nhân viên' });
+    const st = db.prepare('SELECT id, role FROM staff WHERE id = ? AND active = 1').get(staffId);
+    if (!st) fail(404, 'Không tìm thấy nhân viên');
+    if (st.role === 'owner') fail(400, 'Chủ quán luôn có mọi quyền');
+    const all = loadUserActs(ctx);
+    const cur = { ...(all[String(staffId)] || {}) };
+    const valid = new Set(ACTS.map((a) => a.key));
+    for (const [k, val] of Object.entries(body.overrides || {})) {
+      if (!valid.has(k)) continue;
+      if (val === null) delete cur[k]; else cur[k] = !!val;
+    }
+    if (body.reset) for (const k of Object.keys(cur)) delete cur[k];
+    if (Object.keys(cur).length) all[String(staffId)] = cur; else delete all[String(staffId)];
+    ctx.setSetting('perm_user', JSON.stringify(all));
+    ctx.audit(me, 'perm.user', { staff_id: staffId, n: Object.keys(cur).length });
+    ctx.broadcast('me');
+    return actView(staffId);
   });
 
   // ---------- Zalo Bot: kiểm tra, tìm nhóm, gửi thử (chủ quán) ----------

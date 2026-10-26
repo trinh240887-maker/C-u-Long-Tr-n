@@ -599,6 +599,67 @@ function Audit() {
     <tbody>${st.data.map((a) => html`<tr><td>${dt(a.at)}</td><td>${a.staff_name || '—'}</td><td><code>${a.action}</code></td><td><small class="muted">${a.detail.slice(0, 120)}</small></td></tr>`)}</tbody></table></div></section>`;
 }
 
+// Quyền chi tiết TỪNG NGƯỜI (chủ quán 26/10): chọn 1 người → tick từng việc trong từng mục
+function ActsFor({ id, staff, onDone }) {
+  const d = useData(`/api/permissions/acts?staff_id=${id}`);
+  const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (d.data) setDraft(Object.fromEntries(d.data.groups.flatMap((g) => g.acts.map((a) => [a.key, a.on])))); }, [d.data]);
+  if (!d.data || !draft) return html`<${Loading} state=${d} />`;
+  const x = d.data;
+  if (x.owner) return html`<p class="muted">Chủ quán luôn có mọi quyền.</p>`;
+  const all = x.groups.flatMap((g) => g.acts);
+  const changed = all.filter((a) => draft[a.key] !== a.on).length;
+  const save = async () => {
+    setBusy(true);
+    try { await act(() => api('PUT', '/api/permissions/acts', { staff_id: id, overrides: Object.fromEntries(all.map((a) => [a.key, draft[a.key] === a.def ? null : draft[a.key]])) }), `Đã lưu quyền của ${x.staff.name}`); } finally { setBusy(false); }
+  };
+  const copyFrom = async (otherId) => {
+    if (!otherId) return;
+    const o = await api('GET', `/api/permissions/acts?staff_id=${otherId}`);
+    setDraft(Object.fromEntries(o.groups.flatMap((g) => g.acts.map((a) => [a.key, a.on]))));
+    toast('Đã chép, bấm Lưu để áp dụng');
+  };
+  const setGroup = (g, val) => setDraft({ ...draft, ...Object.fromEntries(g.acts.map((a) => [a.key, val])) });
+  return html`<div class="stack">
+    <div class="row wrap between"><span><b>${x.staff.name}</b> <small class="muted">${ROLE_SHORT[x.staff.role] || x.staff.role}${x.staff.team_name ? ` · ${x.staff.team_name}` : ''}</small></span>
+      <select id="acts-copy" class="auto" onChange=${(e) => { copyFrom(Number(e.target.value)); e.target.value = ''; }}>
+        <option value="">Chép quyền từ người khác…</option>${staff.filter((s) => s.id !== id).map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select></div>
+    <small class="muted">☑ = được làm. Ô có dấu <b>•</b> là bạn đã chỉnh riêng cho người này (khác mặc định theo chức vụ / bộ phận).</small>
+    ${x.groups.map((g) => { const on = g.acts.filter((a) => draft[a.key]).length; return html`<details class="card stack" open=${on > 0 && on < g.acts.length}>
+      <summary class="row between"><b>${g.name}</b><small class="muted">${on}/${g.acts.length}</small></summary>
+      <div class="row wrap tight"><button class="small" onClick=${() => setGroup(g, true)}>Bật hết</button><button class="small" onClick=${() => setGroup(g, false)}>Tắt hết</button><button class="small link" onClick=${() => setDraft({ ...draft, ...Object.fromEntries(g.acts.map((a) => [a.key, a.def])) })}>Mặc định</button></div>
+      ${g.acts.map((a) => html`<label class="row tight" style=${draft[a.key] !== a.on ? 'background:var(--warn-bg, #fff4d6);border-radius:6px' : ''}>
+        <input type="checkbox" id=${`act-${a.key}`} checked=${!!draft[a.key]} onChange=${(e) => setDraft({ ...draft, [a.key]: e.target.checked })} />
+        <span class="grow">${a.label}${(draft[a.key] !== a.def) ? html` <b class="warn-text">•</b>` : null}</span></label>`)}
+    </details>`; })}
+    <div class="row wrap end" style="position:sticky;bottom:0;background:var(--bg, #fff);padding:8px 0">
+      <button class="link small" onClick=${async () => { if (await act(() => api('PUT', '/api/permissions/acts', { staff_id: id, reset: true }), 'Đã về mặc định')) setDraft(null); }}>↺ Về hết mặc định</button>
+      <button class="primary" disabled=${busy || !changed} onClick=${save}>${changed ? `Lưu ${changed} thay đổi` : 'Đã lưu'}</button></div>
+  </div>`;
+}
+function UserActs({ staffId }) {
+  const st = useData('/api/staff');
+  const [id, setId] = useState(staffId || '');
+  const [q, setQ] = useState('');
+  if (!st.data) return html`<${Loading} state=${st} />`;
+  const staff = st.data.filter((s) => s.active && s.role !== 'owner').sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  const list = staff.filter((s) => !q || s.name.toLowerCase().includes(q.toLowerCase()));
+  return html`<div class="stack">
+    <div class="row wrap"><input id="acts-q" class="grow" placeholder="Tìm người" value=${q} onInput=${(e) => setQ(e.target.value)} />
+      <select id="acts-who" class="grow" value=${id} onChange=${(e) => setId(Number(e.target.value) || '')}>
+        <option value="">Chọn người để phân quyền…</option>${list.map((s) => html`<option value=${s.id}>${s.name}${s.team_name ? ` · ${s.team_name}` : ''}</option>`)}</select></div>
+    ${id ? html`<${ActsFor} key=${id} id=${id} staff=${staff} />` : html`<p class="muted">Chọn 1 người: hiện mọi việc trong từng mục để tick bật / tắt riêng cho người đó.</p>`}
+  </div>`;
+}
+function PermTabs({ staffId }) {
+  const [mode, setMode] = useState('nguoi');
+  return html`<div class="stack">
+    <div class="tabs"><button class=${mode === 'nguoi' ? 'on' : ''} onClick=${() => setMode('nguoi')}>👤 Theo từng người</button><button class=${mode === 'muc' ? 'on' : ''} onClick=${() => setMode('muc')}>📋 Theo mục</button></div>
+    ${mode === 'nguoi' ? html`<${UserActs} staffId=${staffId} />` : html`<${Perms} staffId=${staffId} />`}
+  </div>`;
+}
+
 // Phân quyền từng mục: tick vai trò được thấy, cấp / chặn riêng từng người. Chủ quán luôn thấy hết.
 const ROLE_SHORT = { staff: 'Nhân viên', team_lead: 'Tổ trưởng', shift_lead: 'Trưởng ca', manager: 'Quản lý' };
 const ROLE_ABBR = { staff: 'NV', team_lead: 'TT', shift_lead: 'TC', manager: 'QL' };
@@ -682,7 +743,7 @@ export function SettingsView({ me, query }) {
       : tab === 'checklist' ? html`<${Checklists} me=${me} teams=${me.teams} />`
       : tab === 'ketnoi' ? html`<${Keys} s=${st.data} me=${me} only="claude" />`
       : tab === 'bot' ? html`<${Keys} s=${st.data} me=${me} only="bot" />`
-      : tab === 'quyen' ? (me.role === 'owner' ? html`<${Perms} staffId=${Number(query.get('staff')) || null} />` : html`<p class="warn-text">Chỉ chủ quán phân quyền.</p>`)
+      : tab === 'quyen' ? (me.role === 'owner' ? html`<${PermTabs} staffId=${Number(query.get('staff')) || null} />` : html`<p class="warn-text">Chỉ chủ quán phân quyền.</p>`)
       : tab === 'zalo' ? html`<${Zalo} s=${st.data} />`
       : tab === 'saoluu' ? html`<${Backups} s=${st.data} />`
       : html`<${Audit} />`}

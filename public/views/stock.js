@@ -1,5 +1,5 @@
 import { useState, useEffect } from '../vendor/hooks.js';
-import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays } from '../ui.js';
+import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays, can } from '../ui.js';
 
 const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['quydoi', '⚖ Quy đổi', 'manager'], ['ls', 'Lịch sử']];
 const STATUS = { out: ['Hết', 'bad'], low: ['Sắp hết', 'warn'], ok: ['Đủ', 'ok'] };
@@ -456,7 +456,8 @@ function Utensils({ me }) {
 export function StockView({ me, query }) {
   const tab = query.get('tab') || 'ton';
   const meta = useData('/api/stock/meta');
-  const tabs = TABS.filter(([, , role]) => !role || atLeast(me, role));
+  const TAB_ACT = { ton: 'kho.xem', nxt: 'kho.nxt', kiem: 'kho.kiem', linh: 'kho.linh', dat: 'kho.dathang', nl: 'kho.nguyenlieu', quydoi: 'kho.nguyenlieu', ls: 'kho.xem' };
+  const tabs = TABS.filter(([k, , role]) => (TAB_ACT[k] && me.acts?.[TAB_ACT[k]] === true) || ((!role || atLeast(me, role)) && (!TAB_ACT[k] || can(me, TAB_ACT[k]))));
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/kho?tab=${k}`)}>${l}</button>`)}</div>
     <button class="primary big" onClick=${() => navigate('/mua-hang?tab=nhan')}>📥 Nhập kho: chụp bill + hàng</button>

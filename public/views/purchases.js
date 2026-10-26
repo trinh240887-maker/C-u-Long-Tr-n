@@ -1,5 +1,5 @@
 import { useState } from '../vendor/hooks.js';
-import { html, api, act, useData, Loading, money, hm, dayLabel, addDays, Modal, Field, navigate, toast } from '../ui.js';
+import { html, api, act, useData, Loading, money, hm, dayLabel, addDays, Modal, Field, navigate, toast, can as canAct } from '../ui.js';
 import { compressImage } from './checklists.js';
 
 // Mua hàng: khu nhận hàng chụp bill NCC (ký nhận) → thu ngân duyệt → công nợ NCC → trả NCC / tạm ứng đi chợ
@@ -189,16 +189,16 @@ function BillCard({ b, canApprove, me }) {
     ${b.status === 'approved' && b.owed > 0 && canApprove ? html`<button class="small primary" onClick=${() => setPayBill(true)}>💵 Trả phiếu này (${money(b.owed)})</button>` : null}
     ${payBill ? html`<${BillPay} b=${b} onClose=${() => setPayBill(false)} />` : null}
     ${b.status === 'approved' ? html`<small class="muted">Duyệt: ${b.approved_by_name} · ${hm(b.approved_at)}${b.owed != null ? html` · ${b.owed > 0 ? html`<b class="danger-text">còn nợ ${money(b.owed)}</b>` : html`<b class="ok-text">đã trả đủ</b>`}` : ''}</small>` : null}
-    ${b.status === 'received' && canApprove && (b.received_by !== me.id || me.role === 'owner') ? html`<div class="row">
+    ${b.status === 'received' && canApprove && canAct(me, 'mh.duyet') && (b.received_by !== me.id || me.role === 'owner') ? html`<div class="row">
       <button class="primary" onClick=${() => act(() => api('POST', `/api/purchases/${b.id}/approve`), 'Đã duyệt, cộng công nợ')}>✓ Đúng, duyệt</button>
       <button onClick=${() => setEdit(true)}>✏️ Sửa</button>
       <button onClick=${() => setReason('')}>Trả lại</button></div>` : null}
     ${b.status === 'returned' && (b.received_by === me.id || canApprove) ? html`<button class="small" onClick=${() => setEdit(true)}>✏️ Sửa từng dòng</button>` : null}
-    ${b.status === 'approved' && ['manager', 'owner'].includes(me.role) ? html`<button class="small" onClick=${() => setEdit(true)}>✏️ Sửa bill${b.lines.some((l) => !l.ingredient_id) ? ' / gắn hàng vào kho' : ''}</button>` : null}
+    ${b.status === 'approved' && (['manager', 'owner'].includes(me.role) || me.acts?.['mh.sua'] === true) && canAct(me, 'mh.sua') ? html`<button class="small" onClick=${() => setEdit(true)}>✏️ Sửa bill${b.lines.some((l) => !l.ingredient_id) ? ' / gắn hàng vào kho' : ''}</button>` : null}
     ${edit ? html`<${EditBill} b=${b} onClose=${() => setEdit(false)} />` : null}
     ${b.status === 'received' && b.received_by === me.id && me.role !== 'owner' ? html`<small class="muted">Chờ người khác duyệt (người nhận không tự duyệt).</small>` : null}
     ${b.status === 'returned' && b.received_by === me.id ? html`<${FixBill} b=${b} />` : null}
-    ${b.status === 'void' ? html`<p class="small muted">🗑 ${b.return_reason} (${b.returned_by_name})</p>` : (['manager', 'owner'].includes(me.role) || (b.status !== 'approved' && (b.received_by === me.id || canApprove))) ? html`<button class="link small danger-text" onClick=${() => { const r0 = prompt('Huỷ bill này? Hàng sẽ được trừ lại khỏi kho. Lý do:', 'Nhập sai'); if (r0) act(() => api('POST', `/api/purchases/${b.id}/void`, { reason: r0 }), 'Đã huỷ bill'); }}>🗑 Huỷ bill</button>` : null}
+    ${b.status === 'void' ? html`<p class="small muted">🗑 ${b.return_reason} (${b.returned_by_name})</p>` : !canAct(me, 'mh.huy') ? null : (['manager', 'owner'].includes(me.role) || me.acts?.['mh.huy'] === true || (b.status !== 'approved' && (b.received_by === me.id || canApprove))) ? html`<button class="link small danger-text" onClick=${() => { const r0 = prompt('Huỷ bill này? Hàng sẽ được trừ lại khỏi kho. Lý do:', 'Nhập sai'); if (r0) act(() => api('POST', `/api/purchases/${b.id}/void`, { reason: r0 }), 'Đã huỷ bill'); }}>🗑 Huỷ bill</button>` : null}
     ${reason != null ? html`<${Modal} title="Trả lại bill" onClose=${() => setReason(null)}>
       <${Field} label="Lý do (vd ảnh mờ, sai số lượng, sai tổng)"><input value=${reason} onInput=${(e) => setReason(e.target.value)} /><//>
       <button class="primary" disabled=${!reason} onClick=${async () => { if (await act(() => api('POST', `/api/purchases/${b.id}/return`, { reason }), 'Đã trả lại cho khu sửa')) setReason(null); }}>Trả lại</button><//>` : null}
@@ -345,20 +345,20 @@ export function PurchasesView({ me, query }) {
   const meta0 = useData('/api/stock/meta');
   const list = useData('/api/purchases');
   const advances = useData('/api/advances');
-  const tab = query.get('tab') || 'nhan';
+  const tab = query.get('tab') || (canAct(me, 'mh.nhap') ? 'nhan' : 'lichsu');
   if (!meta0.data || !list.data) return html`<${Loading} state=${meta0.data ? list : meta0} />`;
   const L = list.data;
-  const isCashier = L.can_approve;
+  const isCashier = L.can_approve && canAct(me, 'mh.duyet');
   const meta = { ...meta0.data, is_cashier: isCashier, bill_reader: !!L.bill_reader };
   const waiting = L.bills.filter((b) => b.status === 'received');
   const mineReturned = L.bills.filter((b) => b.status === 'returned' && b.received_by === me.id);
   // Công nợ NCC / Tạm ứng: theo Phân quyền (chủ quán tick từng người)
   const can = (k) => (Array.isArray(me.pages) ? me.pages.includes(`/mua-hang#${k}`) : k === 'congno' ? isCashier : true);
-  const tabs = [['nhan', '📥 Nhập kho'], ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ['lichsu', 'Bill đã nhận'], ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : [])];
+  const tabs = [...(canAct(me, 'mh.nhap') ? [['nhan', '📥 Nhập kho']] : []), ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ['lichsu', 'Bill đã nhận'], ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : [])];
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/mua-hang?tab=${k}`)}>${l}</button>`)}</div>
     ${mineReturned.length && tab !== 'lichsu' ? html`<section class="card warn-card small">${mineReturned.length} bill bạn nhận bị thu ngân trả lại. <button class="small" onClick=${() => navigate('/mua-hang?tab=lichsu')}>Xem & sửa</button></section>` : null}
-    ${tab === 'nhan' ? html`<${Receive} me=${me} meta=${meta} advances=${advances} onDone=${() => navigate('/mua-hang?tab=lichsu')} />` : null}
+    ${tab === 'nhan' && canAct(me, 'mh.nhap') ? html`<${Receive} me=${me} meta=${meta} advances=${advances} onDone=${() => navigate('/mua-hang?tab=lichsu')} />` : null}
     ${tab === 'duyet' ? (waiting.length ? html`<p class="small muted">So ảnh bill với số khu nhập: số lượng, đơn giá, tổng, chữ ký người nhận. Dòng đỏ = app thấy lệch.</p>${waiting.map((b) => html`<${BillCard} key=${b.id} b=${b} canApprove=${isCashier} me=${me} />`)}` : html`<div class="empty">Không có bill chờ duyệt.</div>`) : null}
     ${tab === 'lichsu' ? (L.bills.length ? L.bills.map((b) => html`<${BillCard} key=${b.id} b=${b} canApprove=${isCashier} me=${me} />`) : html`<div class="empty">Chưa có bill trong 30 ngày.</div>`) : null}
     ${tab === 'congno' && can('congno') ? html`<${Debts} me=${me} />` : null}

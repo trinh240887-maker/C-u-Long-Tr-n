@@ -1,6 +1,6 @@
 // Phiếu chi: thu ngân chi từ két · quản lý chi tiền đã kết · chi chuyển khoản (chủ quán 26/10)
 import { useState } from '../vendor/hooks.js';
-import { html, api, act, useData, Loading, Modal, Field, money, dt, navigate, addDays } from '../ui.js';
+import { html, api, act, useData, Loading, Modal, Field, money, dt, navigate, addDays, can } from '../ui.js';
 import { compressImage } from './checklists.js';
 
 const first = (d) => `${d.slice(0, 8)}01`;
@@ -61,7 +61,7 @@ export function ExpensesView({ me }) {
         ${open === e.id ? html`<a href=${`/api/expenses/${e.id}/photo`} target="_blank"><img src=${`/api/expenses/${e.id}/photo`} style="max-width:100%;max-height:260px;border-radius:8px" /></a>
           <small class="muted">Ghi lúc ${dt(e.created_at)}${e.approved_by_name ? ` · duyệt: ${e.approved_by_name}` : ''}${e.decision_note ? ` · ${e.decision_note}` : ''}</small>` : null}
         <div class="row wrap">
-          ${e.status === 'pending' && ['shift_lead', 'manager', 'owner'].includes(me.role) && e.created_by !== me.id ? html`<button class="small primary" onClick=${() => act(() => api('POST', `/api/expenses/${e.id}/approve`, {}), 'Đã duyệt')}>✅ Duyệt</button>
+          ${e.status === 'pending' && (['shift_lead', 'manager', 'owner'].includes(me.role) || me.acts?.['chi.duyet'] === true) && can(me, 'chi.duyet') && e.created_by !== me.id ? html`<button class="small primary" onClick=${() => act(() => api('POST', `/api/expenses/${e.id}/approve`, {}), 'Đã duyệt')}>✅ Duyệt</button>
             <button class="small" onClick=${() => { const n = prompt('Lý do từ chối?'); if (n != null) act(() => api('POST', `/api/expenses/${e.id}/approve`, { reject: true, note: n }), 'Đã từ chối'); }}>Từ chối</button>` : null}
           ${['done', 'pending'].includes(e.status) && (boss || (e.created_by === me.id && e.date === me.today)) ? html`<button class="small link" onClick=${() => { const n = prompt('Huỷ phiếu chi này? Lý do:', 'Ghi nhầm'); if (n != null) act(() => api('POST', `/api/expenses/${e.id}/void`, { note: n }), 'Đã huỷ'); }}>Huỷ phiếu</button>` : null}
         </div></div>`; }) : html`<p class="muted">Chưa có phiếu chi.</p>`}

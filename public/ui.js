@@ -176,3 +176,6 @@ export const ROLE_LABEL = { owner: 'Chủ', manager: 'Quản lý', shift_lead: '
 const RANK = ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'];
 export const atLeast = (me, role) => RANK.indexOf(me?.role) >= RANK.indexOf(role);
 export const PHASE_LABEL = { open: 'Mở ca', during: 'Trong ca', close: 'Đóng ca' };
+
+// Quyền chi tiết từng người (Cài đặt → Phân quyền → Theo từng người): false = chủ quán tắt riêng
+export const can = (me, key) => !(me && me.acts && me.acts[key] === false);

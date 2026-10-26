@@ -1,4 +1,4 @@
-import { allowedPages } from '../lib/perms.js';
+import { allowedPages, actsOf } from '../lib/perms.js';
 import crypto from 'node:crypto';
 import { fail } from '../http.js';
 import { pinLookup, rank, ROLE_LABEL } from '../db.js';
@@ -62,7 +62,7 @@ export default function (r, ctx) {
     return {
       id: me.id, name: me.name, role: me.role, role_label: ROLE_LABEL[me.role], team, skills,
       must_change_pin: !!me.must_change_pin, zalo_linked: !!me.zalo_user_id, unread,
-      shop_name: ctx.setting('shop_name'), today: ctx.today(), pages: allowedPages(ctx, me),
+      shop_name: ctx.setting('shop_name'), today: ctx.today(), pages: allowedPages(ctx, me), acts: actsOf(ctx, me).acts,
       wh_setup: !!ctx.setting('wh_stores_v1'), wh_live: ctx.setting('wh_live') === '1', // kho mới: chưa bật thì menu chỉ có 1 mục Kho
       teams: db.prepare('SELECT id, name, min_staff FROM teams WHERE active = 1 ORDER BY sort, id').all(),
     };

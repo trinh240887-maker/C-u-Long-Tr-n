@@ -3,6 +3,7 @@
 // api: các đường API riêng của mục đó (w = chỉ lệnh ghi, all = cả xem) → bị chặn nếu không có quyền,
 // và được nâng quyền (tối đa Quản lý) khi chủ quán cấp riêng cho người thấp hơn.
 import { rank } from '../db.js';
+import { ACTS, matchAct, overridesOf, defaultAct, actByKey } from './acts.js';
 
 export const ROLES_EDITABLE = ['staff', 'team_lead', 'shift_lead', 'manager'];
 export const PAGES = [
@@ -68,14 +69,51 @@ export function canSee(page, me, teamName) {
   return !!(page.team && teamName === page.team);
 }
 
+const teamOf = (ctx, me) => (me.team_id ? ctx.db.prepare('SELECT name FROM teams WHERE id = ?').get(me.team_id)?.name : null);
+
+// Quyền chi tiết của 1 người: { key: true/false } (mặc định + phần chủ quán tick riêng)
+export function actsOf(ctx, me, pages = loadPerms(ctx)) {
+  const team = teamOf(ctx, me);
+  const ov = me.role === 'owner' ? {} : overridesOf(ctx, me.id);
+  const see = new Map(pages.map((p) => [p.path, canSee(p, me, team)]));
+  const out = {}, def = {};
+  for (const a of ACTS) { def[a.key] = defaultAct(a, me, see.get(a.page), team); out[a.key] = typeof ov[a.key] === 'boolean' ? ov[a.key] : def[a.key]; }
+  return { acts: out, defaults: def, overrides: ov };
+}
+export function can(ctx, me, key) {
+  if (!me) return false;
+  if (me.role === 'owner') return true;
+  const ov = overridesOf(ctx, me.id)[key];
+  if (typeof ov === 'boolean') return ov;
+  const a = actByKey(key);
+  if (!a) return true;
+  const page = loadPerms(ctx).find((p) => p.path === a.page);
+  const team = teamOf(ctx, me);
+  return defaultAct(a, me, page ? canSee(page, me, team) : true, team);
+}
+
 export function allowedPages(ctx, me) {
-  const team = me.team_id ? ctx.db.prepare('SELECT name FROM teams WHERE id = ?').get(me.team_id)?.name : null;
-  return loadPerms(ctx).filter((p) => canSee(p, me, team)).map((p) => p.path);
+  const team = teamOf(ctx, me);
+  const ov = me.role === 'owner' ? {} : overridesOf(ctx, me.id);
+  return loadPerms(ctx).filter((p) => {
+    if (p.fixed || me.role === 'owner') return true;
+    const acts = ACTS.filter((a) => a.page === p.path);
+    if (acts.some((a) => ov[a.key] === true)) return true; // được cấp riêng 1 việc trong mục → thấy mục
+    if (!canSee(p, me, team)) return false;
+    return !(acts.length && acts.every((a) => ov[a.key] === false)); // tắt hết mọi việc trong mục → ẩn mục
+  }).map((p) => p.path);
 }
 
 // Kiểm 1 lệnh API: trả 'deny' (chặn), tên vai trò để nâng quyền (người thấp hơn mặc định của mục được chủ quán cấp) hoặc null (như cũ)
 export function apiGate(ctx, me, method, pathname) {
   if (!me || me.role === 'owner') return null;
+  // Quyền chi tiết từng người (chủ quán tick riêng) thắng quy định theo mục
+  const act = matchAct(method, pathname);
+  if (act) {
+    const ov = overridesOf(ctx, me.id)[act.key];
+    if (ov === false) return 'deny';
+    if (ov === true) return rank(me.role) < rank(act.role) ? act.role : null;
+  }
   const write = method !== 'GET';
   let pages = null;
   for (const p of PAGES) {

@@ -11,6 +11,7 @@ import crypto from 'node:crypto';
 import { fail, v } from '../http.js';
 import { rank } from '../db.js';
 import { isDate, addDays } from '../lib/time.js';
+import { can } from '../lib/perms.js';
 
 export const DEFAULT_CATEGORIES = ['Nguyên liệu mua lẻ', 'Gas / đá', 'Vận chuyển / ship', 'Sửa chữa', 'Điện / nước / internet', 'Đồ dùng / vật dụng', 'Lương / thưởng / tạm ứng', 'Khác'];
 const SOURCES = { drawer: 'Tiền mặt từ két (thu ngân)', manager: 'Tiền mặt quản lý giữ (đã kết)', bank: 'Chuyển khoản từ tài khoản quán' };
@@ -70,12 +71,12 @@ export default function (r, ctx) {
 
   r.get('/api/expenses/meta', 'staff', ({ me }) => {
     if (!isCashier(me)) fail(403, 'Chỉ thu ngân / quản lý');
-    return { categories: categories(), sources: Object.entries(SOURCES).filter(([k]) => k === 'drawer' || isBoss(me)).map(([k, n]) => ({ key: k, name: n })), approve_over: approveOver(), is_boss: isBoss(me) };
+    return { categories: categories(), sources: Object.entries(SOURCES).filter(([k]) => k === 'drawer' || can(ctx, me, 'chi.quanly')).map(([k, n]) => ({ key: k, name: n })), approve_over: approveOver(), is_boss: isBoss(me) };
   });
 
   r.post('/api/expenses', 'staff', ({ me, body }) => {
     const source = v.oneOf(body.source, Object.keys(SOURCES), { name: 'Nguồn tiền' });
-    if (source === 'drawer' ? !isCashier(me) : !isBoss(me)) fail(403, source === 'drawer' ? 'Chỉ thu ngân / trưởng ca chi từ két' : 'Chỉ quản lý / chủ quán chi tiền đã kết hoặc chuyển khoản');
+    if (source === 'drawer' ? !isCashier(me) : !can(ctx, me, 'chi.quanly')) fail(403, source === 'drawer' ? 'Chỉ thu ngân / trưởng ca chi từ két' : 'Chỉ quản lý / chủ quán chi tiền đã kết hoặc chuyển khoản');
     const amount = v.int(Number(String(body.amount ?? '').replace(/[.,\s]/g, '')), { min: 1000, max: 1_000_000_000, name: 'Số tiền' });
     const category = v.text(body.category, { name: 'Loại chi', max: 40 }) || 'Khác';
     const note = v.text(body.note, { name: 'Nội dung', max: 200, required: true });
