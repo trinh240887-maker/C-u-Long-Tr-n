@@ -38,7 +38,7 @@ test('chống chấm công hộ: mỗi người 1 điện thoại; máy của ng
   assert.equal((await Anew('POST', '/api/attendance/clock-in')).status, 403);
   assert.equal((await O('GET', '/api/staff')).data.find((x) => x.id === a).device_pending, true);
   assert.equal((await O('POST', `/api/staff/${a}/device`, { action: 'allow' })).status, 200);
-  assert.equal((await Anew('POST', '/api/attendance/clock-in')).status, 200);
+  assert.equal((await Anew('POST', '/api/attendance/clock-in', { confirm: true })).status, 200);
   // Chấm vào máy đúng, chấm ra trên link / trình duyệt khác → vẫn cho ra (chỉ báo tổ trưởng)
   const Aweb = mk('phoneA-zalo-777'); await Aweb('POST', '/api/login', { pin: '481937' });
   assert.equal((await Aweb('POST', '/api/attendance/clock-out', { confirm: true })).status, 200);
