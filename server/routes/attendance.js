@@ -44,7 +44,12 @@ export default function (r, ctx) {
     }
     return id;
   }
-  function checkDevice(me, dev) {
+  // Chủ quán 26/10: đổi tên web (link mới) → mọi điện thoại thành "máy mới"; xoá đăng ký máy cũ 1 lần, lần chấm tới tự đăng ký lại
+  if (!ctx.setting('device_reset_domain_v1')) {
+    db.exec("UPDATE staff SET device_id = '', device_pending = ''");
+    ctx.setSetting('device_reset_domain_v1', '1');
+  }
+  function checkDevice(me, dev, { out = false } = {}) {
     if (!dev || rank(me.role) >= rank('manager') || ctx.setting('clock_device_lock') === '0') return;
     const date = ctx.today();
     const owner = db.prepare('SELECT id, name FROM staff WHERE device_id = ? AND id != ? AND active = 1').get(dev, me.id)
@@ -59,7 +64,8 @@ export default function (r, ctx) {
     if (st.device_id !== dev) {
       db.prepare('UPDATE staff SET device_pending = ? WHERE id = ?').run(dev, me.id);
       ctx.notify(ctx.leadsOf(me.team_id).filter((x) => x !== me.id), { title: `${me.name} chấm công từ điện thoại lạ`, body: 'Nếu bạn ấy đổi máy thật: Nhân viên → sửa bạn đó → "Cho đổi máy".', link: '/nhan-vien', urgent: true });
-      ctx.audit(me, 'clock.device_new', {});
+      ctx.audit(me, 'clock.device_new', { out });
+      if (out) return; // chấm ra: không chặn (đã chấm vào trên máy đúng), chỉ báo tổ trưởng
       fail(403, 'Đây không phải điện thoại đã đăng ký chấm công của bạn. Nếu bạn đổi máy (hoặc đổi trình duyệt Zalo ↔ Safari), nhờ quản lý bấm "Cho đổi máy" rồi chấm lại.');
     }
   }
@@ -239,7 +245,7 @@ export default function (r, ctx) {
 
   r.post('/api/attendance/clock-out', 'staff', ({ req, res, me, net, body }) => {
     checkNetwork(net, me, body || {});
-    checkDevice(me, deviceOf(req, res));
+    checkDevice(me, deviceOf(req, res), { out: true });
     const open = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id);
     if (!open) fail(409, 'Bạn chưa chấm vào ca');
     // Còn giữ tiền mặt của khách chưa giao thu ngân thì không cho ra ca
