@@ -10,6 +10,10 @@ import { runBackup } from './server/backup.js';
 import { fork } from 'node:child_process';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+// Chủ quán 26/10 22:29 "máy chủ dừng phản hồi": 1 lỗi bất ngờ (vd gọi Zalo / ngân hàng lỗi mạng) không được làm sập cả app → ghi log, chạy tiếp
+process.on('unhandledRejection', (e) => console.error('[lỗi chưa bắt - promise]', e?.stack || e));
+process.on('uncaughtException', (e) => console.error('[lỗi chưa bắt]', e?.stack || e));
 const port = Number(process.env.PORT || 3000);
 const dataDir = process.env.DATA_DIR || path.join(here, 'data');
 const backupDir = process.env.BACKUP_DIR || path.join(dataDir, 'backups');
