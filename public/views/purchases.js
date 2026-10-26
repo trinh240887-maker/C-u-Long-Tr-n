@@ -4,7 +4,9 @@ import { compressImage } from './checklists.js';
 
 // Mua hàng: khu nhận hàng chụp bill NCC (ký nhận) → thu ngân duyệt → công nợ NCC → trả NCC / tạm ứng đi chợ
 const STATUS = { received: ['Chờ thu ngân duyệt', 'warn'], approved: ['Đã duyệt', 'ok'], returned: ['Bị trả lại, cần sửa', 'bad'], void: ['Đã huỷ', 'muted'] };
-const num = (s) => Number(String(s ?? '').replace(/[.\s]/g, '').replace(',', '.')) || 0;
+const num = (s) => Number(String(s ?? '').replace(/[.\s]/g, '').replace(',', '.')) || 0; // tiền: dấu chấm = ngăn nghìn
+// Số lượng: dấu chấm hay dấu phẩy đều là số lẻ (28.1 / 28,1 = 28,1 kg). Trước đây dùng num() → 28.1 thành 281 (lỗi 26/10)
+const qtyNum = (s) => Number(String(s ?? '').replace(/\s/g, '').replace(',', '.')) || 0;
 
 function Photos({ ids }) {
   const [view, setView] = useState(null);
@@ -48,9 +50,9 @@ function Lines({ lines, setLines, ingredients }) {
       ${l.ingredient_id && l.bill_unit && (l.need_factor || (l.factor && l.factor !== 1)) ? html`<div class="conv">
         <small>Bill: <b>${l.bill_qty} ${l.bill_unit}</b> × ${money(l.bill_price)}</small>
         <label class="row tight">1 ${l.bill_unit} = <input inputmode="decimal" style="width:5em" value=${l.factor ?? ''} placeholder="?" onInput=${(e) => convert(i, e.target.value)} /> ${l.use_unit}</label>
-        ${l.factor ? html`<small class="ok-text">→ ${l.qty} ${l.unit}${l.pf > 1 ? ` (= ${Math.round(num(l.qty) * l.pf * 1000) / 1000} ${l.use_unit})` : ''} · <b>1 ${l.use_unit} = ${money(Math.round(num(l.price) / (l.pf || 1)))}</b></small>` : null}
+        ${l.factor ? html`<small class="ok-text">→ ${l.qty} ${l.unit}${l.pf > 1 ? ` (= ${Math.round(qtyNum(l.qty) * l.pf * 1000) / 1000} ${l.use_unit})` : ''} · <b>1 ${l.use_unit} = ${money(Math.round(num(l.price) / (l.pf || 1)))}</b></small>` : null}
       </div>` : null}
-      <small class="muted">= ${money(Math.round(num(l.qty) * num(l.price)))}${l.ordered != null ? ` · đặt ${l.ordered}` : ''}${l.ai ? ' · 📖 máy đọc' : ''}</small>
+      <small class="muted">= ${money(Math.round(qtyNum(l.qty) * num(l.price)))}${l.ordered != null ? ` · đặt ${l.ordered}` : ''}${l.ai ? ' · 📖 máy đọc' : ''}</small>
       ${l.warn ? html`<small class="warn-text">⚠ ${l.warn}</small>` : null}
       ${l.ai && !l.ingredient_id ? html`<select onChange=${(e) => { const g = ingredients.find((x) => x.id === Number(e.target.value)); if (g) setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, warn: '' } : x))); }}>
         <option value="">Là hàng trong kho… (bỏ qua nếu là hàng khác)</option>${ingredients.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>` : null}
@@ -96,16 +98,22 @@ function Receive({ me, meta, advances, onDone }) {
     setF({ ...f, po_id: id, store_id: po?.store_id || f.store_id, supplier_id: po?.supplier_id || '' });
     setLines(po ? po.lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.purchase_unit || l.unit, qty: String(l.qty), price: String(l.price), ordered: l.qty })) : []);
   };
-  const sum = lines.reduce((n, l) => n + Math.round(num(l.qty) * num(l.price)), 0);
+  const sum = lines.reduce((n, l) => n + Math.round(qtyNum(l.qty) * num(l.price)), 0);
   const warns = lines.filter((l) => l.warn).length;
   const needConv = lines.filter((l) => l.need_factor).length;
   const ready = photos.length && goods.length && lines.length && !needConv && (f.supplier_id || f.supplier_name || f.po_id) && f.signer_name;
   const save = async () => {
-    const r = await act(() => api('POST', '/api/purchases', {
+    const tot = f.total === '' ? sum : num(f.total);
+    let confirm_mismatch = false;
+    if (f.total !== '' && Math.abs(sum - tot) > Math.max(50000, tot * 0.05)) {
+      if (!confirm(`Cộng các dòng ${money(sum)} lệch tổng bill ${money(tot)}${tot && sum / tot >= 8 ? ` (gấp ~${Math.round(sum / tot)} lần, có thể mất dấu phẩy ở số lượng, vd 28,1 kg)` : ''}.\n\nBấm OK nếu vẫn đúng như bill, Huỷ để sửa lại.`)) return;
+      confirm_mismatch = true;
+    }
+    const r = await act(() => api('POST', '/api/purchases', { confirm_mismatch,
       ...f, store_id: Number(f.store_id), po_id: f.po_id ? Number(f.po_id) : undefined, supplier_id: f.supplier_id ? Number(f.supplier_id) : undefined,
       advance_id: f.advance_id ? Number(f.advance_id) : undefined, paid_method: f.advance_id ? undefined : f.paid_method,
       total: f.total === '' ? undefined : num(f.total), photos, goods_photos: goods,
-      lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: num(l.qty), price: num(l.price) })),
+      lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: qtyNum(l.qty), price: num(l.price) })),
       conversions: lines.filter((l) => l.ingredient_id && l.conv_new && l.factor && l.bill_unit).map((l) => ({ ingredient_id: l.ingredient_id, bill_unit: l.bill_unit, factor: l.factor })),
     }), 'Đã nhập kho. Thu ngân sẽ duyệt công nợ');
     if (r) { setLines([]); setPhotos([]); setGoods([]); setF({ ...f, po_id: '', supplier_id: '', supplier_name: '', total: '', signer_name: me.name, note: '', advance_id: '', paid_method: '' }); onDone(); }

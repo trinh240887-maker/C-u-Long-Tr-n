@@ -91,10 +91,12 @@ test('hoá đơn mua: khu nhận + chụp bill + ký nhận → thu ngân (khác
 
   // Bill 2: giá tăng bất thường + tổng bill khác cộng dòng → cảnh báo
   now += 3600_000;
-  const b2 = (await tai('POST', '/api/purchases', { store_id: lau.id, supplier_id: ncc, signer_name: 'Phát', photos: [IMG], total: 2_000_000, lines: [{ ingredient_id: gau, qty: 5, price: 300000 }] })).data;
+  const b2 = (await tai('POST', '/api/purchases', { store_id: lau.id, supplier_id: ncc, signer_name: 'Phát', photos: [IMG], total: 2_000_000, confirm_mismatch: true, lines: [{ ingredient_id: gau, qty: 5, price: 300000 }] })).data;
   assert.equal(b2.flags.length, 2, JSON.stringify(b2.flags));
   assert.match(b2.flags.join(' | '), /giá tăng 25%/);
   assert.match(b2.flags.join(' | '), /khác cộng các dòng/);
+  // Lệch mà chưa xác nhận → chặn (vd mất dấu phẩy 28,1 → 281)
+  assert.equal((await tai('POST', '/api/purchases', { store_id: lau.id, supplier_id: ncc, signer_name: 'Phát', photos: [IMG], total: 300_000, lines: [{ ingredient_id: gau, qty: 281, price: 10000 }] })).status, 409);
   await ngan('POST', `/api/purchases/${b2.id}/approve`);
 
   // Trả NCC: trả quá nợ bị chặn; ≤ 5 triệu thu ngân trả luôn; > 5 triệu chờ chủ duyệt

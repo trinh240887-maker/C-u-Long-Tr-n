@@ -19,13 +19,14 @@ const SCHEMA = {
       type: 'array',
       items: {
         type: 'object', additionalProperties: false,
-        required: ['ingredient_id', 'name', 'unit', 'qty', 'price'],
+        required: ['ingredient_id', 'name', 'unit', 'qty', 'price', 'amount'],
         properties: {
           ingredient_id: { anyOf: [{ type: 'integer' }, { type: 'null' }], description: 'id hàng trong kho nếu cùng loại hàng, null nếu không có trong danh sách' },
           name: { type: 'string', description: 'Tên hàng như trên bill' },
           unit: { type: 'string', description: 'Đơn vị trên bill (kg, bịch, thùng…)' },
           qty: { type: 'number', description: 'Số lượng theo đơn vị trên bill' },
           price: { type: 'integer', description: 'Đơn giá 1 đơn vị (VNĐ). Không có đơn giá thì thành tiền chia số lượng' },
+          amount: { type: 'integer', description: 'Thành tiền của dòng ghi trên bill (VNĐ), 0 nếu bill không ghi' },
         },
       },
     },
@@ -35,7 +36,8 @@ const SCHEMA = {
 const SYSTEM = `Bạn đọc ảnh hoá đơn / phiếu giao hàng của nhà cung cấp cho một nhà hàng ở Việt Nam (lẩu bò, steak). Bill thường viết tay, có thể nhiều trang.
 Nhiệm vụ: chép lại từng dòng hàng trên bill, không bỏ dòng, không bịa dòng.
 - Số tiền là VNĐ số nguyên. Bill viết tay hay ghi tắt nghìn đồng (vd "280" hoặc "280k" = 280.000); dùng tổng tiền và thành tiền từng dòng để suy ra cho đúng.
-- Số lượng giữ theo đơn vị ghi trên bill (vd 5,2 kg → 5.2).
+- Số lượng giữ theo đơn vị ghi trên bill (vd 5,2 kg → 5.2). Bill Việt Nam viết số lẻ bằng DẤU PHẨY hoặc dấu chấm nhỏ ("28,1" / "28.1" = 28.1 kg), đừng bỏ dấu (28,1 KHÔNG phải 281).
+- Kiểm tra lại: số lượng × đơn giá phải ≈ thành tiền từng dòng, và cộng các dòng ≈ tổng bill. Lệch khoảng 10 hay 100 lần thường là đọc sót dấu phẩy ở số lượng → sửa lại cho khớp.
 - ingredient_id: chọn trong DANH SÁCH KHO bên dưới nếu dòng đó là cùng loại hàng (tên gần giống, viết tắt, không dấu đều được). Không chắc thì để null, đừng đoán bừa.
 - Chỗ nào mờ / không chắc thì vẫn ghi số đọc được và nêu trong note.`;
 
@@ -90,7 +92,18 @@ export async function readBill(photos, ingredients, { fetchImpl = globalThis.fet
   let out;
   try { out = JSON.parse(text); } catch { throw new Error('Không đọc được kết quả, thử lại'); }
   const ids = new Set(ingredients.map((g) => g.id));
-  out.lines = (out.lines || []).map((l) => ({ ...l, ingredient_id: ids.has(l.ingredient_id) ? l.ingredient_id : null, qty: Number(l.qty) || 0, price: Math.max(0, Math.round(Number(l.price) || 0)) }));
+  const fixed = [];
+  out.lines = (out.lines || []).map((l) => {
+    let qty = Number(l.qty) || 0;
+    const price = Math.max(0, Math.round(Number(l.price) || 0)), amount = Math.max(0, Math.round(Number(l.amount) || 0));
+    // Lưới an toàn: số lượng gấp 10 / 100 / 1000 lần so với thành tiền ÷ đơn giá → mất dấu phẩy thập phân, sửa theo thành tiền
+    if (qty > 0 && price > 0 && amount > 0) {
+      const q = amount / price;
+      for (const k of [10, 100, 1000]) if (Math.abs(qty / (q * k) - 1) < 0.03) { fixed.push(`${l.name}: ${qty} → ${Math.round(q * 1000) / 1000}`); qty = Math.round(q * 1000) / 1000; break; }
+    }
+    return { ...l, ingredient_id: ids.has(l.ingredient_id) ? l.ingredient_id : null, qty, price, amount };
+  });
+  if (fixed.length) out.note = [out.note, `App sửa số lượng theo thành tiền (nghi mất dấu phẩy): ${fixed.join('; ')}`].filter(Boolean).join(' · ');
   out.usage = r.data.usage || null;
   return out;
 }

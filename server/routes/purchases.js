@@ -155,6 +155,12 @@ export default function (r, ctx) {
         .concat(lines.filter((l) => !l.ingredient_id || !po.lines.some((pl) => pl.ingredient_id === l.ingredient_id)));
     }
     const total = body.total === undefined || body.total === '' ? lines.reduce((n, l) => n + l.amount, 0) : money(body.total, 'Tổng tiền bill');
+    // Cộng các dòng lệch nhiều so với tổng bill (vd gõ / đọc mất dấu phẩy: 28,1 → 281) → phải xác nhận mới lưu (chủ quán 26/10)
+    const linesSum = lines.reduce((n, l) => n + l.amount, 0);
+    if (lines.length && body.total !== undefined && body.total !== '' && Math.abs(linesSum - total) > Math.max(50000, total * 0.05) && !body.confirm_mismatch) {
+      const k = total ? linesSum / total : 0;
+      fail(409, `Cộng các dòng ${vnd(linesSum)} lệch tổng bill ${vnd(total)}${k >= 8 ? ` (gấp ~${Math.round(k)} lần: kiểm tra số lượng có mất dấu phẩy không, vd 28,1 kg)` : ''}. Sửa lại, hoặc xác nhận đúng như bill.`);
+    }
     if (total <= 0) fail(400, 'Nhập tổng tiền trên bill');
     const advanceId = body.advance_id ? v.int(body.advance_id, { min: 1, name: 'Tạm ứng' }) : null;
     if (advanceId) {
