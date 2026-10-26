@@ -19,15 +19,15 @@
   <div id="root"></div>
   <p id="boot">Đang mở app…</p>
   <noscript>Cần bật JavaScript để dùng app.</noscript>
-  <script type="module" src="/app.js"></script>
   <script>
     // Server đang khởi động lại (đẩy code) → file app tải hụt, màn hình kẹt "Đang mở app…": báo + tự tải lại
-    setTimeout(function () {
+    function cltRetry(sec) {
       if (document.getElementById('root').childNodes.length) return;
-      var b = document.getElementById('boot');
-      b.innerHTML = 'Mạng chậm hoặc app đang cập nhật…<br><br><button onclick="location.reload()" style="font-size:18px;padding:12px 24px;border-radius:12px;border:0;background:#7c2d12;color:#fff">Tải lại</button><br><small>Tự tải lại sau 10 giây</small>';
-      setTimeout(function () { if (!document.getElementById('root').childNodes.length) location.reload(); }, 10000);
-    }, 8000);
+      document.getElementById('boot').innerHTML = 'App đang cập nhật, tự mở lại sau ' + sec + ' giây…<br><br><button onclick="location.reload()" style="font-size:18px;padding:12px 24px;border-radius:12px;border:0;background:#7c2d12;color:#fff">Tải lại ngay</button>';
+      setTimeout(function () { if (!document.getElementById('root').childNodes.length) location.reload(); }, sec * 1000);
+    }
+    setTimeout(function () { cltRetry(8); }, 8000);
   </script>
+  <script type="module" src="/app.js" onerror="cltRetry(4)"></script>
 </body>
 </html>
