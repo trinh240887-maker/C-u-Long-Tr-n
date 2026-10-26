@@ -1,0 +1,149 @@
+<title>Quy trình Kho & Mua hàng</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;700;800&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: một cột dọc theo dòng chảy hàng & tiền, mỗi bước là một trạm trên đường ray bên trái */
+:root {
+  --bg: #f7f4f1; --surface: #ffffff; --fg: #2a1d17; --muted: #74655c; --line: #e4dbd3;
+  --brand: #7c2d12; --brand-soft: #f3e3da; --money: #1f6f4a; --money-soft: #e1f1e8; --warn: #a1520a; --warn-soft: #fbead6;
+  --display: "Be Vietnam Pro", system-ui, sans-serif; --body: "Be Vietnam Pro", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #1b1512; --surface: #251d19; --fg: #f1e8e2; --muted: #b3a196; --line: #3b2f29;
+  --brand: #f0a37f; --brand-soft: #3d241a; --money: #7fd3a6; --money-soft: #17322a; --warn: #f2b56b; --warn-soft: #3a2a17; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #1b1512; --surface: #251d19; --fg: #f1e8e2; --muted: #b3a196; --line: #3b2f29;
+  --brand: #f0a37f; --brand-soft: #3d241a; --money: #7fd3a6; --money-soft: #17322a; --warn: #f2b56b; --warn-soft: #3a2a17; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 48px }
+.wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px }
+h1 { font: 800 clamp(26px, 6vw, 36px)/1.15 var(--display); margin: 0; text-wrap: balance; letter-spacing: -0.01em }
+h2 { font: 700 19px/1.3 var(--display); margin: 0; text-wrap: balance }
+.lead { color: var(--muted); margin: 6px 0 0; max-width: 60ch }
+.path { font: 500 12.5px/1.4 var(--mono); background: var(--brand-soft); color: var(--brand); padding: 3px 8px; border-radius: 6px; display: inline-block; word-break: break-word }
+.who { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted) }
+.flow { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column }
+.step { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 0 14px }
+.rail { display: flex; flex-direction: column; align-items: center }
+.dot { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font: 800 14px var(--display); background: var(--brand); color: var(--surface); flex: none }
+.step.money .dot { background: var(--money) }
+.step.check .dot { background: var(--warn) }
+.bar { width: 2px; flex: 1; background: var(--line); margin: 4px 0 }
+.step:last-child .bar { display: none }
+.body { padding-bottom: 26px; display: flex; flex-direction: column; gap: 8px; min-width: 0 }
+.body ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px }
+.tag { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--brand-soft); color: var(--brand); width: fit-content }
+.step.money .tag { background: var(--money-soft); color: var(--money) }
+.step.check .tag { background: var(--warn-soft); color: var(--warn) }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px }
+.pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px }
+.pick div { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0 }
+.pick b { font-size: 14px }
+.formula { font: 500 13.5px/1.7 var(--mono); overflow-x: auto; white-space: nowrap; padding: 10px 12px; border-radius: 8px; background: var(--bg) }
+.note { color: var(--muted); font-size: 13.5px; margin: 0 }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Hàng vào, tiền ra, hàng dùng</h1>
+    <p class="lead">Quy trình Cửu Long Trấn từ lúc nhà cung cấp giao hàng tới lúc bếp kiểm kho cuối ngày. Mỗi bước ghi rõ ai làm và bấm ở đâu trong app.</p>
+  </header>
+
+  <ol class="flow">
+    <li class="step"><div class="rail"><span class="dot">1</span><span class="bar"></span></div>
+      <div class="body">
+        <span class="tag">Hàng vào</span>
+        <h2>Nhập hàng khi nhà cung cấp giao</h2>
+        <span class="who">Bếp · Bar · Thu ngân</span>
+        <span class="path">Thêm → Mua hàng &amp; công nợ NCC → 📥 Nhập kho</span>
+        <ul>
+          <li>Chọn nhà cung cấp, chụp bill. App tự đọc tên hàng, số lượng, giá.</li>
+          <li>Kiểm lại từng dòng, chụp ảnh hàng thực nhận.</li>
+          <li>Chọn cách trả: <b>Ghi nợ</b> · <b>Đã CK tại chỗ</b> · <b>Tiền mặt từ két</b>.</li>
+          <li>Bấm gửi: kho được cộng ngay.</li>
+        </ul>
+      </div></li>
+
+    <li class="step"><div class="rail"><span class="dot">2</span><span class="bar"></span></div>
+      <div class="body">
+        <span class="tag">Hàng vào</span>
+        <h2>Duyệt bill</h2>
+        <span class="who">Thu ngân</span>
+        <span class="path">Mua hàng &amp; công nợ NCC → Chờ duyệt</span>
+        <ul>
+          <li>So ảnh bill với số đã nhập. Dòng đỏ là app thấy lệch.</li>
+          <li>Sai số: bấm <b>✏️ Sửa</b>. Bill sai hẳn: <b>🗑 Huỷ bill</b>, hàng tự trừ lại khỏi kho.</li>
+        </ul>
+      </div></li>
+
+    <li class="step money"><div class="rail"><span class="dot">3</span><span class="bar"></span></div>
+      <div class="body">
+        <span class="tag">Tiền ra · trả nhà cung cấp</span>
+        <h2>Xem công nợ và thanh toán</h2>
+        <span class="who">Quản lý · Chủ quán</span>
+        <span class="path">Mua hàng &amp; công nợ NCC → Công nợ NCC</span>
+        <ul>
+          <li>Mỗi nhà cung cấp hiện tổng nợ và từng phiếu còn nợ.</li>
+          <li>Trên phiếu bấm <b>💵 Trả phiếu này</b>, hoặc tick nhiều phiếu để trả một lần.</li>
+          <li>Chọn nguồn tiền: két · tiền quản lý đang giữ · chuyển khoản.</li>
+          <li>Bắt buộc chụp chứng từ trả tiền. Ảnh nằm cạnh ảnh bill để đối chiếu, nợ tự giảm.</li>
+        </ul>
+      </div></li>
+
+    <li class="step money"><div class="rail"><span class="dot">4</span><span class="bar"></span></div>
+      <div class="body">
+        <span class="tag">Tiền ra · chi khác</span>
+        <h2>Phiếu chi</h2>
+        <span class="who">Thu ngân · Quản lý · Chủ quán</span>
+        <span class="path">Thêm → Phiếu chi</span> <span class="path">Thu ngân → ➖ Chi từ két</span>
+        <ul>
+          <li>Dùng cho mọi khoản <b>không phải trả nhà cung cấp</b>: mua đá, ship, sửa đồ…</li>
+          <li>Chọn nguồn: tiền mặt từ két · tiền quản lý đang giữ · chuyển khoản.</li>
+          <li>Ghi số tiền, loại chi, nội dung, chụp hoá đơn (bắt buộc).</li>
+          <li>Chi từ két trên 500.000đ phải chờ trưởng ca hoặc quản lý duyệt.</li>
+        </ul>
+      </div></li>
+
+    <li class="step"><div class="rail"><span class="dot">5</span><span class="bar"></span></div>
+      <div class="body">
+        <span class="tag">Hàng dùng</span>
+        <h2>Xuất kho</h2>
+        <span class="who">Tự động · Bếp · Bar · Tạp vụ · Người giữ kho</span>
+        <ul>
+          <li><b>Thức ăn, đồ uống bán cho khách:</b> không cần làm gì. App tự trừ theo định lượng khi phục vụ bấm Gửi bếp.</li>
+          <li><b>Hàng từ kho tổng cho từng khu:</b> <span class="path">Kho → 📤 Xuất dùng</span><br>Khu bấm <b>Xin lĩnh</b> → người giữ kho bấm <b>Xuất kho</b> → khu bấm <b>Nhận</b>.</li>
+          <li><b>Chén, ly, dụng cụ:</b> <span class="path">Kho → 🍽 Đồ dùng</span> để báo vỡ/mất và kiểm mỗi tuần.</li>
+        </ul>
+      </div></li>
+
+    <li class="step check"><div class="rail"><span class="dot">6</span><span class="bar"></span></div>
+      <div class="body">
+        <span class="tag">Cuối ngày · 22:30</span>
+        <h2>Kiểm bếp và bar cuối ngày</h2>
+        <span class="who">Bếp · Bar (tổ trưởng / trưởng ca nhắc)</span>
+        <span class="path">Kho → Kiểm kho</span>
+        <ul>
+          <li>22:30 khu nào chưa kiểm, app nhắc tổ trưởng và trưởng ca.</li>
+          <li>Cân hoặc đếm nguyên liệu còn lại, nhập số thực tế.</li>
+          <li>App so với số đã bán theo định lượng. Hụt từ <b>200.000đ</b> trở lên thì báo chủ quán và quản lý, kèm món lệch.</li>
+          <li>Kiểm xong bấm <b>Tạo phiếu lĩnh theo gợi ý</b> để xin hàng cho ngày mai (quay lại bước 5).</li>
+        </ul>
+      </div></li>
+  </ol>
+
+  <section class="box">
+    <h2>Tiền ra thì dùng chỗ nào?</h2>
+    <div class="pick">
+      <div><b>Trả nhà cung cấp</b><span class="path">Công nợ NCC → 💵 Trả</span><span class="note">Để công nợ tự trừ đúng phiếu.</span></div>
+      <div><b>Chi khác trong quán</b><span class="path">Phiếu chi</span><span class="note">Đá, ship, sửa chữa, mua lặt vặt.</span></div>
+      <div><b>Trả ngay lúc nhận hàng</b><span class="path">Nhập kho → cách trả</span><span class="note">Chọn CK tại chỗ hoặc tiền mặt từ két.</span></div>
+    </div>
+  </section>
+
+  <section class="box">
+    <h2>Sổ kho tính thế nào</h2>
+    <div class="formula">Tồn đầu + Nhập − Bán theo định lượng − Xuất dùng − Huỷ ± Lệch khi cân = Tồn cuối</div>
+    <p class="note">Xem ở <b>Kho → Nhập – Xuất – Tồn</b> (quản lý trở lên). Lệch âm là thiếu so với sổ.</p>
+  </section>
+</div>
