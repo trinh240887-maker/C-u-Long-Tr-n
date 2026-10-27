@@ -259,6 +259,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
           if (gate && route.role !== 'owner') me = { ...me, role: gate };
         }
         if (route.role) ctx.need(me, route.role);
+        try { ctx.seenAtShop?.(me, net); } catch { /* không chặn lệnh */ }
         if (req.method !== 'GET') {
           // Chỉ nhận JSON để chặn trang web lạ gửi lệnh thay người dùng
           if (!(req.headers['content-type'] || '').startsWith('application/json')) fail(415, 'Cần gửi dữ liệu dạng JSON');

@@ -29,6 +29,8 @@ export default function (r, ctx) {
   // Mã máy: cookie "did" (máy chủ đặt, 2 năm) + localStorage gửi kèm header X-Device (lỡ xoá 1 trong 2 vẫn nhận ra).
   // Quản lý / chủ quán không bị khoá. Tắt được: setting clock_device_lock = 0.
   const colsOf = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  // Lần cuối thấy nhân viên ở quán trong ca (dùng app trên wifi quán / GPS trong bán kính) → quên chấm ra thì tự đóng theo mốc này (chủ quán 27/10)
+  if (!colsOf('attendance').includes('last_seen_at')) db.exec("ALTER TABLE attendance ADD COLUMN last_seen_at INTEGER; ALTER TABLE attendance ADD COLUMN last_seen_how TEXT NOT NULL DEFAULT ''");
   if (!colsOf('staff').includes('device_id')) db.exec("ALTER TABLE staff ADD COLUMN device_id TEXT NOT NULL DEFAULT ''; ALTER TABLE staff ADD COLUMN device_pending TEXT NOT NULL DEFAULT ''; ALTER TABLE staff ADD COLUMN device_at INTEGER");
   if (!colsOf('attendance').includes('device_id')) db.exec("ALTER TABLE attendance ADD COLUMN device_id TEXT NOT NULL DEFAULT ''");
   const DEV = /^[A-Za-z0-9_-]{8,64}$/;
@@ -113,14 +115,19 @@ export default function (r, ctx) {
       LEFT JOIN assignments a ON a.id = at.assignment_id JOIN staff s ON s.id = at.staff_id WHERE at.clock_out IS NULL`).all();
     for (const o of open) {
       let out = null;
+      let seenNote = '';
       if (o.a_date) {
         const end = clock.toEpoch(o.a_date, o.end_min);
-        if (t > end + after) out = Math.max(o.clock_in, end);
+        if (t > end + after) {
+          out = Math.max(o.clock_in, end);
+          // Rời quán sớm mà quên chấm ra: lần cuối thấy ở quán sớm hơn giờ hết ca quá 15 phút → tính tới lần cuối thấy
+          if (o.last_seen_at && o.last_seen_at > o.clock_in && o.last_seen_at < end - 15 * 60_000) { out = o.last_seen_at; seenNote = ` (theo lần cuối ở quán ${clock.fmt(o.last_seen_at).slice(0, 5)}, ${o.last_seen_how})`; }
+        }
       } else if (t > o.clock_in + 14 * 3600_000) {
         out = o.clock_in; // không có lịch: để 0 giờ cho quản lý sửa lại
       }
       if (out !== null) {
-        db.prepare("UPDATE attendance SET clock_out = ?, auto_closed = 1, note = TRIM(note || ' Quên chấm ra, hệ thống tự đóng') WHERE id = ?").run(out, o.id);
+        db.prepare("UPDATE attendance SET clock_out = ?, auto_closed = 1, note = TRIM(note || ?) WHERE id = ?").run(out, ` Quên chấm ra, hệ thống tự đóng${seenNote}`, o.id);
         ctx.notify(ctx.leadsOf(o.team_id).filter((id) => id !== o.staff_id), { title: `${o.name} quên chấm ra`, body: 'Hệ thống đã tự đóng ca, vui lòng kiểm tra lại giờ.', link: '/cham-cong' });
         ctx.notify(o.staff_id, { title: 'Bạn quên chấm ra ca', body: `Hệ thống đã tự đóng lúc ${clock.fmt(out)}. Báo trưởng ca nếu giờ chưa đúng.`, link: '/' });
       }
@@ -190,6 +197,31 @@ export default function (r, ctx) {
     if (me) ctx.clockBlocked?.(me, net);
     fail(403, `Chỉ chấm công được khi đang ở quán. ${why || 'Kết nối wifi quán rồi bấm lại.'}`.trim());
   }
+
+  // Ghi "đang ở quán" cho ca đang mở (không báo lỗi). how: 'wifi' | 'GPS …m'
+  const markSeen = (staffId, how) => db.prepare("UPDATE attendance SET last_seen_at = ?, last_seen_how = ? WHERE staff_id = ? AND clock_out IS NULL").run(ctx.now(), how, staffId);
+  const seenThrottle = new Map();
+  // Mỗi lệnh API từ wifi quán (app.js gọi) → cập nhật, tối đa 1 lần / 2 phút / người
+  ctx.seenAtShop = (me, net) => {
+    if (!me || !onShopWifi(net)) return;
+    const k = seenThrottle.get(me.id) || 0;
+    if (ctx.now() - k < 120_000) return;
+    seenThrottle.set(me.id, ctx.now());
+    markSeen(me.id, 'wifi quán');
+  };
+  // App đang mở trên màn hình gửi vị trí mỗi 5 phút khi đang trong ca
+  r.post('/api/attendance/ping', 'staff', ({ me, net, body }) => {
+    if (!db.prepare('SELECT 1 FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id)) return { open: false };
+    if (onShopWifi(net)) { markSeen(me.id, 'wifi quán'); return { open: true, at_shop: true }; }
+    const p = place();
+    const lat = Number(body?.lat), lng = Number(body?.lng), acc = Math.max(0, Number(body?.acc) || 0);
+    if (p.gps && Number.isFinite(lat) && Number.isFinite(lng) && (lat || lng) && acc <= 1000) {
+      const d = Math.round(distM(p.lat, p.lng, lat, lng));
+      if (d <= p.radius + Math.min(acc, 100)) { markSeen(me.id, `GPS cách quán ${d}m`); return { open: true, at_shop: true }; }
+      return { open: true, at_shop: false, dist: d };
+    }
+    return { open: true, at_shop: null };
+  });
 
   r.post('/api/attendance/clock-in', 'staff', ({ req, res, me, net, body }) => {
     const how = checkNetwork(net, me, body || {});

@@ -25,6 +25,15 @@ function ClockCard() {
   const [now, setNow] = useState(Date.now());
   const [ask, setAsk] = useState(false);
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
+  // Trong ca: app đang mở thì 5 phút báo "đang ở quán" 1 lần (quên chấm ra → tự đóng theo lần cuối ở quán)
+  useEffect(() => {
+    const open0 = st.data?.open;
+    if (!open0) return undefined;
+    const ping = async () => { if (document.visibilityState !== 'visible') return; try { await api('POST', '/api/attendance/ping', st.data?.gps ? await myPlace() : {}); } catch { /* bỏ qua */ } };
+    ping();
+    const id = setInterval(ping, 5 * 60_000);
+    return () => clearInterval(id);
+  }, [st.data?.open?.id]);
   if (!st.data) return html`<section class="card clock"><p class="muted">${st.error || 'Đang tải…'}</p></section>`;
   const { open, next, undo_out: undo } = st.data;
   const out = async () => act(async () => api('POST', '/api/attendance/clock-out', { ...(st.data.gps ? await myPlace() : {}), confirm: true }), 'Đã chấm ra ca');
