@@ -364,3 +364,31 @@ test('Tạp vụ / Bar / Bếp: giữ checklist, việc cũ cất bản lưu ẩ
     assert.deepEqual(items(arch.id), ['Gom rác']);
   } finally { app.close(); }
 });
+
+test('Bắt ghi chú khi xong: thiếu ghi chú không cho Xong; có ghi chú thì lưu và hiện ở thẻ', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie = ''; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const O = mk();
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const tpl = db.prepare("SELECT id FROM checklist_templates WHERE title LIKE 'Mở ca phục vụ%' AND active = 1").get().id;
+  db.prepare('DELETE FROM checklist_items WHERE template_id = ?').run(tpl);
+  const za = db.prepare('SELECT id FROM zones WHERE active = 1 ORDER BY sort, id').get().id;
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const a = (await O('POST', '/api/staff', { name: 'Lan', team_id: pv, pin: '5901', phone: '0900000901' })).data.id;
+  db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at, zone_id) VALUES (?, ?, ?, ?, 840, 1380, 0, ?)').run('ga', a, pv, app.ctx.today(), za);
+  const it = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Khu rửa chén đã rửa hết chưa?', zone_id: za, photo_required: false })).data.id;
+  await O('PATCH', `/api/checklist-items/${it}`, { job_ask_note: true, job_photos: 0 });
+  const job = (await O('GET', '/api/checklists')).data.jobs.find((j) => j.template_id === tpl).job_rows.find((j) => j.item_id === it);
+  const S = mk();
+  await S('POST', '/api/login', { pin: '5901', phone: '0900000901' });
+  assert.equal((await S('POST', `/api/jobs/${job.id}/claim`)).status, 200);
+  assert.equal((await S('POST', `/api/jobs/${job.id}/done`, {})).status, 400);
+  assert.equal((await S('POST', `/api/jobs/${job.id}/done`, { note: 'Còn 2 thau chưa rửa' })).status, 200);
+  const row = (await O('GET', '/api/checklists')).data.jobs.find((j) => j.template_id === tpl).job_rows.find((j) => j.id === job.id);
+  assert.equal(row.done_note, 'Còn 2 thau chưa rửa');
+});

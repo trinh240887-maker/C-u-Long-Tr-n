@@ -840,3 +840,6 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 .zt-prow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; font-size: 14px; padding: 2px 0; }
 .zt-pname { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .zt-prow { grid-template-columns: minmax(0, 1fr) auto; } .zt-prow > small.muted, .zt-prow > small.warn-text { grid-column: 1; } }
+.job-note { display: block; white-space: pre-line; background: #fff8e1; color: #4a3500; border-radius: 6px; padding: 4px 8px; }
+.zt-list li { flex-wrap: wrap; }
+.zt-dnote { order: 5; flex-basis: 100%; }

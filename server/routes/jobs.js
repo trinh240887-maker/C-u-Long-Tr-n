@@ -46,6 +46,7 @@ export default function (r, ctx) {
   );
   CREATE TABLE IF NOT EXISTS job_checkers (date TEXT NOT NULL, zone_id INTEGER NOT NULL, staff_id INTEGER NOT NULL, PRIMARY KEY (date, zone_id));`);
 
+  if (!db.prepare('PRAGMA table_info(jobs)').all().some((c) => c.name === 'done_note')) db.exec("ALTER TABLE jobs ADD COLUMN done_note TEXT NOT NULL DEFAULT ''"); // ghi chú của người làm khi xong
   if (!db.prepare('PRAGMA table_info(jobs)').all().some((c) => c.name === 'deadline_alerted')) db.exec('ALTER TABLE jobs ADD COLUMN deadline_alerted INTEGER NOT NULL DEFAULT 0');
   db.exec('CREATE TABLE IF NOT EXISTS job_photos (id INTEGER PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, file TEXT NOT NULL, at INTEGER NOT NULL)'); // ảnh thêm khi xong (nhiều góc)
   if (oldJobs) db.exec(`INSERT INTO jobs (${JOB_COLS}) SELECT ${JOB_COLS} FROM jobs_old; DROP TABLE jobs_old`);
@@ -241,6 +242,7 @@ export default function (r, ctx) {
       minutes_used: j.minutes_used, late: !!j.late, redo_count: j.redo_count, has_photo: !!j.photo, checked_by_name: name(j.checked_by), check_note: j.check_note,
       overdue: j.status === 'doing' && j.due_at && j.due_at < ctx.now(),
       template_note: t?.job_note || (t && /phục vụ/i.test(t.title) ? (jobTemplates().find((x) => /mở ca phục vụ/i.test(x.title))?.job_note || '') : ''),
+      ask_note: !!it.job_ask_note, done_note: j.done_note || '',
       guide: it.job_guide || '', deadline: it.job_deadline != null ? hhmm(it.job_deadline) : '', photos_needed: it.job_photos || (it.photo_required ? 1 : 0),
       samples: it.id ? db.prepare('SELECT id FROM checklist_samples WHERE item_id = ? ORDER BY id').all(it.id).map((x) => x.id) : [],
       extra_photos: db.prepare('SELECT id FROM job_photos WHERE job_id = ? ORDER BY id').all(j.id).map((x) => x.id),
@@ -376,6 +378,8 @@ export default function (r, ctx) {
     const list = Array.isArray(body.photos) ? body.photos.filter(Boolean).slice(0, 6) : body.data ? [body.data] : [];
     const need = it.job_photos || (it.photo_required ? 1 : 0);
     if (list.length < need) fail(400, need > 1 ? `Việc này phải chụp đủ ${need} ảnh (đang có ${list.length})` : 'Việc này phải chụp ảnh khi xong');
+    const doneNote = v.text(body.note, { name: 'Ghi chú', max: 1000 });
+    if (it.job_ask_note && !doneNote.trim()) fail(400, 'Việc này phải ghi chú khi xong (vd tình trạng, còn thiếu gì)');
     const files = list.map((d, k) => savePhoto(d, `j${j.id}-${k}`));
     const photo = files[0] || null;
     if (files.length > 1) { db.prepare('DELETE FROM job_photos WHERE job_id = ?').run(j.id); for (const f of files.slice(1)) db.prepare('INSERT INTO job_photos (job_id, file, at) VALUES (?, ?, ?)').run(j.id, f, ctx.now()); }
@@ -389,6 +393,7 @@ export default function (r, ctx) {
     const at = ctx.now();
     const late = j.due_at && at > j.due_at ? 1 : 0;
     db.prepare("UPDATE jobs SET status = 'done', done_at = ?, minutes_used = ?, late = MAX(late, ?), photo = COALESCE(?, photo), count = ?, short = ? WHERE id = ?").run(at, Math.max(1, Math.round((at - j.claimed_at) / 60_000)), late, photo, count, short, j.id);
+    db.prepare('UPDATE jobs SET done_note = ? WHERE id = ?').run(doneNote, j.id);
     if (short) {
       const ids = [...new Set([...checkerOf(j.date, j.zone_id), ...ctx.managers()])].filter((x) => x !== me.id);
       ctx.notify(ids, { title: `Thiếu ${short} ${it.unit || ''}: ${it.text}`.replace('  ', ' '), body: `${me.name}: ${count}/${it.job_expect} → ghi vào tên ${me.name} (đền)`, link: '/viec-ca?tab=khu', urgent: true });

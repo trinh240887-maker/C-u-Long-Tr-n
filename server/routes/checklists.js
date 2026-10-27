@@ -57,6 +57,7 @@ export default function (r, ctx) {
   addCol('checklist_items', 'job_deadline', 'INTEGER');                       // phải xong trước (phút trong ngày), vd 14:30 = 870
   addCol('checklist_templates', 'job_note', "TEXT NOT NULL DEFAULT ''");     // lưu ý chung cho mọi người (vd giờ ăn cơm 15h35–15h55)
   addCol('checklist_items', 'job_crew', "TEXT NOT NULL DEFAULT '[]'");       // việc chung nhiều bạn cùng làm: mỗi bạn 1 thẻ (chủ quán 27/10)
+  addCol('checklist_items', 'job_ask_note', 'INTEGER NOT NULL DEFAULT 0');    // bắt nhân viên ghi chú khi xong (vd báo tình trạng khu rửa chén)
   addCol('checklist_items', 'job_role', "TEXT NOT NULL DEFAULT ''");          // '' ai cũng được · lead = chỉ tổ trưởng / trưởng ca (chủ quán 27/10)
   addCol('checklist_items', 'job_gender', "TEXT NOT NULL DEFAULT ''");        // '' ai cũng được · nu chỉ nữ · nam chỉ nam
   addCol('checklist_items', 'job_fixed_staff', 'INTEGER');                   // việc chung: người làm cố định (chủ quán tự chọn), ngày nào có ca thì giao người này
@@ -365,6 +366,7 @@ export default function (r, ctx) {
       db.prepare("UPDATE checklist_items SET job_crew = ?, job_fixed_staff = ?, job_scope = CASE WHEN job_zone_id IS NULL THEN 'shop' ELSE job_scope END WHERE id = ?").run(JSON.stringify(ids.length > 1 ? ids : []), ids.length === 1 ? ids[0] : null, it.id);
       try { ctx.jobsResetItem?.(ctx.today(), it.id); } catch { /* chưa có bảng jobs */ }
     }
+    if (body.job_ask_note !== undefined) db.prepare('UPDATE checklist_items SET job_ask_note = ? WHERE id = ?').run(v.bool(body.job_ask_note) ? 1 : 0, it.id);
     if (body.job_role !== undefined) db.prepare('UPDATE checklist_items SET job_role = ? WHERE id = ?').run(v.oneOf(body.job_role || '', ['', 'lead'], { name: 'Cấp bậc' }), it.id);
     if (body.job_gender !== undefined) db.prepare('UPDATE checklist_items SET job_gender = ? WHERE id = ?').run(v.oneOf(body.job_gender || '', ['', 'nam', 'nu'], { name: 'Ai làm' }), it.id);
     if (body.job_fixed_staff !== undefined) {
@@ -524,7 +526,7 @@ export default function (r, ctx) {
     .map((x) => ({ id: x.id, name: x.name, gender: x.gender || '', role: x.role, team_name: x.team_name, home_zone_id: x.home_zone_id ?? null }));
   // Lưu ý chung (vd giờ ăn cơm) dùng chung cho Mở ca + Đóng ca phục vụ: lưu ở thẻ Mở ca phục vụ
   const noteTpl = (t) => templates().find((x) => x.job_mode && /mở ca phục vụ/i.test(x.title)) || t;
-  const jobRowsOf = (date, tid) => { try { return db.prepare('SELECT id, item_id, zone_id, staff_id, status, owner_id FROM jobs WHERE date = ? AND template_id = ?').all(date, tid); } catch { return []; } };
+  const jobRowsOf = (date, tid) => { try { return db.prepare('SELECT id, item_id, zone_id, staff_id, status, owner_id, done_note FROM jobs WHERE date = ? AND template_id = ?').all(date, tid); } catch { return []; } };
   const zonePhotosOf = (date, tid) => { try { return db.prepare('SELECT id, zone_id, staff_id, at FROM job_zone_photos WHERE date = ? AND template_id = ? ORDER BY id').all(date, tid); } catch { return []; } };
 
   r.get('/api/checklists', 'staff', ({ me, query }) => {
@@ -538,10 +540,10 @@ export default function (r, ctx) {
       let total = 0, done = 0;
       try { const c = db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN status IN ('done','ok') THEN 1 ELSE 0 END) AS d FROM jobs WHERE date = ? AND template_id = ?").get(date, t.id); total = c.n; done = c.d || 0; } catch { /* chưa có bảng jobs */ }
       return { template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t), items: t.items.length, total, done,
-        item_list: t.items.map((i) => ({ id: i.id, text: i.text, job_scope: i.job_scope, job_zone_id: i.job_zone_id ?? null, job_fixed_staff: i.job_fixed_staff ?? null, job_gender: i.job_gender || '', job_role: i.job_role || '', job_crew: JSON.parse(i.job_crew || '[]'), job_guide: i.job_guide || '', job_minutes: i.job_minutes || 0,
+        item_list: t.items.map((i) => ({ id: i.id, text: i.text, job_scope: i.job_scope, job_zone_id: i.job_zone_id ?? null, job_fixed_staff: i.job_fixed_staff ?? null, job_gender: i.job_gender || '', job_role: i.job_role || '', job_ask_note: !!i.job_ask_note, job_crew: JSON.parse(i.job_crew || '[]'), job_guide: i.job_guide || '', job_minutes: i.job_minutes || 0,
           job_deadline: i.job_deadline ?? null, job_photos: i.job_photos || 0, photo_required: !!i.photo_required, samples: (i.samples || []).map((x) => x.id) })), opening_tpl: zoneTpl(t),
         zone_photo: /đầu ca phục vụ/i.test(t.title), note: noteTpl(t).job_note || '', note_tpl: noteTpl(t).id, win: zoneTpl(t) && t.phase === 'close' ? opening(date, t) : null, // trưởng ca chụp ảnh từng khu (chủ quán 27/10)
-        job_rows: zoneTpl(t) ? jobRowsOf(date, t.id).map((j) => ({ id: j.id, item_id: j.item_id, zone_id: j.zone_id, owner_id: j.owner_id, staff_id: j.staff_id, staff_name: nameOf(j.staff_id), status: j.status })) : [],
+        job_rows: zoneTpl(t) ? jobRowsOf(date, t.id).map((j) => ({ id: j.id, item_id: j.item_id, zone_id: j.zone_id, owner_id: j.owner_id, staff_id: j.staff_id, staff_name: nameOf(j.staff_id), status: j.status, done_note: j.done_note || '' })) : [],
         pool: zoneTpl(t) ? poolOf() : [],
         photos: zoneTpl(t) ? zonePhotosOf(date, t.id).map((x) => ({ id: x.id, zone_id: x.zone_id, at: x.at, staff_name: nameOf(x.staff_id) })) : [] };
     });
