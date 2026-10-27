@@ -86,7 +86,21 @@ function TransferForm({ store, lines: initLines, onClose, addOptions = [] }) {
   <//>`;
 }
 
-function Count({ meta }) {
+// Tạo nguyên liệu mới ngay khi kiểm kho (vd phát hiện hàng chưa có mã): vào kho đang kiểm
+function NewIng({ store, onAdded }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({ name: '', unit: 'g' });
+  if (!open) return html`<button class="link small" style="align-self:flex-start" onClick=${() => setOpen(true)}>➕ Tạo nguyên liệu mới</button>`;
+  const save = async () => {
+    const r = await act(() => api('POST', '/api/stock/ingredients', { name: f.name, unit: f.unit, home_store_id: store.kind === 'area' ? store.id : null }), `Đã tạo ${f.name}`);
+    if (r) { onAdded({ ingredient_id: r.id, name: f.name.trim(), unit: f.unit }); setF({ name: '', unit: f.unit }); setOpen(false); }
+  };
+  return html`<div class="row wrap"><input class="grow" placeholder="Tên nguyên liệu (vd Tương ớt)" value=${f.name} onInput=${(e) => setF({ ...f, name: e.target.value })} />
+    <select class="auto" value=${f.unit} onChange=${(e) => setF({ ...f, unit: e.target.value })}>${['g', 'ml', 'cái', 'gói', 'chai', 'hộp', 'kg', 'lít', 'ổ', 'vắt'].map((u) => html`<option value=${u}>${u}</option>`)}</select>
+    <button class="primary" disabled=${!f.name.trim()} onClick=${save}>Tạo</button><button onClick=${() => setOpen(false)}>Thôi</button></div>`;
+}
+
+function Count({ meta, me }) {
   const mine = meta.stores.filter((s) => s.can_count);
   const [storeId, setStoreId] = useState(mine.find((s) => s.kind === 'area')?.id || mine[0]?.id || '');
   const sheet = useData(storeId ? `/api/stock/count-sheet?store=${storeId}` : null);
@@ -112,9 +126,18 @@ function Count({ meta }) {
         <input inputmode="decimal" class="num-in" placeholder="còn" value=${vals[l.ingredient_id] ?? ''} aria-label=${`Còn thực tế ${l.name}`}
           onInput=${(e) => setVals({ ...vals, [l.ingredient_id]: e.target.value })} /><span class="muted unit-l">${l.unit}</span>
       </div>`) : html`<p class="muted">Kho này chưa có nguyên liệu nào.</p>`}
-      ${sheet.data.shared.length && store?.kind === 'area' ? html`<div class="row"><select id="ck-add" class="auto" onChange=${(e) => {
-        const it = sheet.data.shared.find((x) => x.ingredient_id === Number(e.target.value)); if (it) setExtra([...extra, it]); e.target.value = '';
-      }}><option value="">+ Thêm nguyên liệu dùng chung (đá, chanh…)</option>${sheet.data.shared.map((x) => html`<option value=${x.ingredient_id}>${x.name}</option>`)}</select></div>` : null}
+      ${(() => {
+        // Thêm nguyên liệu chưa có trong phiếu: dùng chung trước, rồi mọi nguyên liệu khác (chủ quán 27/10)
+        const have = new Set(lines.map((l) => l.ingredient_id));
+        const shared = sheet.data.shared.filter((x) => !have.has(x.ingredient_id));
+        const others = (meta.ingredients || []).filter((i) => i.active !== false && i.active !== 0 && !have.has(i.id) && !shared.some((x) => x.ingredient_id === i.id)).map((i) => ({ ingredient_id: i.id, name: i.name, unit: i.unit }));
+        const add = (id) => { const it = [...shared, ...others].find((x) => x.ingredient_id === id); if (it) setExtra([...extra, it]); };
+        return shared.length || others.length ? html`<div class="row"><select id="ck-add" class="auto" onChange=${(e) => { add(Number(e.target.value)); e.target.value = ''; }}>
+          <option value="">+ Thêm nguyên liệu khác vào phiếu kiểm</option>
+          ${shared.length ? html`<optgroup label="Dùng chung (đá, chanh…)">${shared.map((x) => html`<option value=${x.ingredient_id}>${x.name}</option>`)}</optgroup>` : null}
+          ${others.length ? html`<optgroup label="Nguyên liệu khác">${others.sort((a, b) => a.name.localeCompare(b.name, 'vi')).map((x) => html`<option value=${x.ingredient_id}>${x.name} (${x.unit})</option>`)}</optgroup>` : null}
+        </select></div>` : null; })()}
+      ${atLeast(me, 'manager') && store ? html`<${NewIng} store=${store} onAdded=${(it) => setExtra([...extra, it])} />` : null}
       <div class="row end"><button class="primary" disabled=${!filled || !store} onClick=${async () => {
         const body = { store_id: store.id, lines: Object.entries(vals).filter(([, x]) => x !== '').map(([id, x]) => ({ ingredient_id: Number(id), actual: String(x).replace(',', '.') })) };
         const r = await act(() => api('POST', '/api/stock/count', body), 'Đã lưu kiểm kho');
@@ -463,7 +486,7 @@ export function StockView({ me, query }) {
     <button class="primary big" onClick=${() => navigate('/mua-hang?tab=nhan')}>📥 Nhập kho: chụp bill + hàng</button>
     ${me.role === 'owner' && !me.wh_live ? html`<button class="link small" onClick=${() => navigate('/kho-tx')}>🚀 Kho mới theo chứng từ (Kho & Tài sản): xem / bắt đầu khi sẵn sàng →</button>` : null}
     ${!meta.data ? html`<${Loading} state=${meta} />`
-      : tab === 'kiem' ? html`<${Count} meta=${meta.data} />`
+      : tab === 'kiem' ? html`<${Count} meta=${meta.data} me=${me} />`
       : tab === 'linh' ? html`<${Transfers} me=${me} meta=${meta.data} />`
       : tab === 'dodung' ? html`<${Utensils} me=${me} />`
       : tab === 'dat' ? html`<${Orders} me=${me} meta=${meta.data} />`

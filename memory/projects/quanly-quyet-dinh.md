@@ -216,3 +216,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 210 | 27/10 | Sửa lại 207: mỗi thẻ có lưu ý riêng; Đóng ca KHÔNG có giờ ăn cơm (chỉ Mở ca). Thẻ chưa có lưu ý thì ẩn khung vàng, chỉ còn nút '📌 Thêm lưu ý chung'. |
 | 211 | 27/10 | Đóng ca phục vụ: công tắc '👑 Giao cả khu cho người phụ trách' (job_lead_mode). Việc của khu → người phụ trách khu (chủ quán chọn 📌 cố định, nghỉ thì tổ trưởng/trưởng ca có ca trong khu → trưởng ca quán), tự chỉ đạo nhân sự. Việc chung chưa có người cố định → Tiếp thực. Ẩn tổng thời gian khi bật. |
 | 212 | 27/10 | Người chưa có bộ phận mà có khu / là trưởng ca (vd Đỗ Thiện) được tính vào checklist Phục vụ khi chia việc và chọn người phụ trách khu đóng ca. |
+| 213 | 27/10 | Kiểm kho: '+ Thêm nguyên liệu khác' (dùng chung + mọi nguyên liệu) và '➕ Tạo nguyên liệu mới' (quản lý+, vào kho đang kiểm). |
