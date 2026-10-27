@@ -541,6 +541,7 @@ const DEFAULT_SETTINGS = {
   clock_ip_prefixes: '',         // vd "192.168.1." — để trống là không giới hạn
   night_bonus_pct: '0',
   month_standard_days: '26',  // (cũ, không dùng cho bảng công tháng nữa)
+  pay_period_start_day: '18', // kỳ lương bắt đầu ngày này (khai trương 18/10 → 18/10–17/11)
   month_paid_off_days: '2',   // lương tháng: số ngày nghỉ vẫn đủ lương / tháng (ngày chuẩn = ngày trong tháng − số này)
   ot_daily_hours: '8',        // làm quá số giờ này / ngày = vượt giờ
   ot_rate: '1',               // vượt giờ tính × hệ số này (chủ quán 27/10: giá giờ thường)

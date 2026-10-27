@@ -69,6 +69,7 @@ const FIELDS = {
   clock_radius_m: (x) => String(v.int(x, { min: 30, max: 2000, name: 'Bán kính chấm công' })),
   night_bonus_pct: (x) => String(v.int(x, { min: 0, max: 300, name: 'Phụ cấp làm đêm' })),
   month_standard_days: (x) => String(v.int(x, { min: 0, max: 31, name: 'Ngày công chuẩn' })),
+  pay_period_start_day: (x) => String(v.int(x, { min: 1, max: 28, name: 'Ngày bắt đầu kỳ lương' })),
   month_paid_off_days: (x) => String(v.int(x, { min: 0, max: 15, name: 'Ngày nghỉ có lương' })),
   ot_daily_hours: (x) => String(v.int(x, { min: 0, max: 16, name: 'Giờ chuẩn / ngày' })),
   ot_rate: (x) => { const n = Number(String(x).replace(',', '.')); if (!(n >= 1 && n <= 4)) fail(400, 'Hệ số vượt giờ từ 1 đến 4'); return String(n); },

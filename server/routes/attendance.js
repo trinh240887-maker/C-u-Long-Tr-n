@@ -416,10 +416,15 @@ export default function (r, ctx) {
   // ---------- Bảng công & lương tạm tính theo tháng ----------
   r.get('/api/timesheet', 'manager', ({ me, query }) => {
     ctx.autoCloseAttendance();
-    const month = query.get('month') || ctx.today().slice(0, 7);
+    // Kỳ lương (chủ quán 27/10: khai trương 18/10 → kỳ 18 → 17 tháng sau). "month" = tháng bắt đầu kỳ
+    const sd = Math.min(28, Math.max(1, num('pay_period_start_day', 18)));
+    const today0 = ctx.today();
+    const curStart = Number(today0.slice(8)) >= sd ? today0.slice(0, 7) : addDays(`${today0.slice(0, 7)}-01`, -1).slice(0, 7);
+    const month = query.get('month') || curStart;
     if (!/^\d{4}-\d{2}$/.test(month)) fail(400, 'Tháng không hợp lệ');
-    const from = `${month}-01`;
-    const to = addDays(addDays(from, 32).slice(0, 7) + '-01', -1);
+    const from = `${month}-${String(sd).padStart(2, '0')}`;
+    const nextM = addDays(`${month}-01`, 32).slice(0, 7);
+    const to = addDays(`${nextM}-${String(sd).padStart(2, '0')}`, -1);
     const clock = ctx.clock();
     const KITCHEN = /bếp|bep|lẩu|lau|nướng|nuong|steak|topping|thái tay/i;
     const tn = new Map(db.prepare('SELECT id, name FROM teams').all().map((x) => [x.id, x.name]));
@@ -428,8 +433,7 @@ export default function (r, ctx) {
       .map((x) => { const h = ctx.payForMonth?.(x.id, month); return { ...x, ...(h ? { pay_type: h.pay_type, pay_rate: h.pay_rate } : {}), rule: x.pay_rule == null ? KITCHEN.test(tn.get(x.team_id) || '') : !!x.pay_rule }; }); // mức lương của đúng tháng đang xem
     const records = db.prepare(`SELECT at.*, a.group_id AS group_key, (SELECT COUNT(*) FROM assignments g WHERE g.group_id = a.group_id) AS seg_n FROM attendance at LEFT JOIN assignments a ON a.id = at.assignment_id
       WHERE at.date BETWEEN ? AND ?`).all(from, to);
-    const [yy, mm] = month.split('-').map(Number);
-    const monthDays = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+    const monthDays = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1; // số ngày của kỳ
     const paidOff = num('month_paid_off_days', 2);
     const stdDays = Math.max(1, monthDays - paidOff); // chủ quán 27/10: làm đủ tháng, nghỉ 2 ngày vẫn đủ lương
     const otH = num('ot_daily_hours', 8), otRate = num('ot_rate', 1);
@@ -448,7 +452,7 @@ export default function (r, ctx) {
     const teamNames = new Map(db.prepare('SELECT id, name FROM teams').all().map((x) => [x.id, x.name]));
     const teamName = (sid) => teamNames.get(staff.find((x) => x.id === sid)?.team_id) || '';
     return {
-      month, from, to,
+      month, from, to, period_start_day: sd,
       night_bonus_pct: num('night_bonus_pct', 0),
       month_standard_days: stdDays, old_standard_days: num('month_standard_days', 26), month_days: monthDays, paid_off_days: paidOff, ot_daily_hours: otH, ot_rate: otRate,
       rows: rows

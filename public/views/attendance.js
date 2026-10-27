@@ -107,22 +107,22 @@ function Records({ me }) {
 }
 
 function Timesheet({ me }) {
-  const [month, setMonth] = useState(me.today.slice(0, 7));
+  const [month, setMonth] = useState('');
   const [adj, setAdj] = useState(null);
-  const st = useData(`/api/timesheet?month=${month}`);
-  const shiftMonth = (n) => { const [y, m] = month.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); setMonth(d.toISOString().slice(0, 7)); };
+  const st = useData(`/api/timesheet${month ? `?month=${month}` : ''}`);
+  const shiftMonth = (n) => { const [y, m] = (month || st.data?.month || me.today.slice(0, 7)).split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); setMonth(d.toISOString().slice(0, 7)); };
   return html`<div class="stack">
     <div class="row between wrap">
       <div class="row">
         <button class="icon" aria-label="Tháng trước" onClick=${() => shiftMonth(-1)}>‹</button>
-        <input id="ts-month" type="month" value=${month} onInput=${(e) => e.target.value && setMonth(e.target.value)} />
-        <button class="icon" aria-label="Tháng sau" onClick=${() => shiftMonth(1)}>›</button>
+        <b>${st.data ? `Kỳ ${st.data.from.slice(8)}/${st.data.from.slice(5, 7)} – ${st.data.to.slice(8)}/${st.data.to.slice(5, 7)}/${st.data.to.slice(0, 4)}` : '…'}</b>
+        <button class="icon" aria-label="Kỳ sau" onClick=${() => shiftMonth(1)}>›</button>
       </div>
       ${st.data ? html`<b>Tổng lương tạm tính: ${money(st.data.total_pay)}</b>` : null}
     </div>
     ${!st.data ? html`<${Loading} state=${st} />` : html`
       <section class="card stack tight">
-        <small>📅 <b>Bếp:</b> tháng này ${st.data.month_days} ngày, được nghỉ ${st.data.paid_off_days} ngày (bỏ 1 khúc ca gãy = nửa ngày) → đi đủ <b>${st.data.month_standard_days} công</b> là đủ lương.</small>
+        <small>📅 <b>Bếp:</b> kỳ này ${st.data.month_days} ngày, được nghỉ ${st.data.paid_off_days} ngày (bỏ 1 khúc ca gãy = nửa ngày) → đi đủ <b>${st.data.month_standard_days} công</b> là đủ lương.</small>
         <small>⏱ <b>Vượt giờ (bếp):</b> ngày nào làm quá ${st.data.ot_daily_hours} giờ thì tính thêm, theo khúc 30 phút, giá giờ thường.</small>
         <small>👥 <b>Bộ phận khác:</b> lương tháng × ngày đi làm ÷ ${st.data.old_standard_days}; lương giờ = số giờ × giá giờ.</small>
       </section>
@@ -143,12 +143,12 @@ function Timesheet({ me }) {
           <br /><button class="link small" onClick=${() => setAdj({ staff_id: r.staff_id, name: r.name, ot_hours: r.ot_manual ? String(r.ot_minutes / 60).replace('.', ',') : '', note: r.ot_note || '', auto: r.ot_manual ? null : r.ot_minutes })}>✏️ Ghi vượt giờ</button></td>
         <td class="r num"><b>${money(r.pay)}</b>${r.ot_pay ? html`<br /><small class="muted">${money(r.base_pay)} + ${money(r.ot_pay)}</small>` : null}</td>
       </tr>`)])}</tbody></table></div>
-      ${adj ? html`<${Modal} title=${`Vượt giờ tháng ${month.slice(5)}: ${adj.name}`} onClose=${() => setAdj(null)}>
+      ${adj ? html`<${Modal} title=${`Vượt giờ kỳ ${st.data.from.slice(8)}/${st.data.from.slice(5, 7)}: ${adj.name}`} onClose=${() => setAdj(null)}>
         <div class="stack">
           ${adj.auto != null ? html`<small class="muted">App tự tính: ${adj.auto ? hours(adj.auto) : '0 giờ'}. Nhập số giờ để thay; để trống = dùng số app tính.</small>` : html`<small class="muted">Để trống = trả về số app tự tính.</small>`}
           <${Field} label="Số giờ vượt cả tháng"><input id="adj-h" inputmode="decimal" placeholder="vd 20 hoặc 12,5" value=${adj.ot_hours} onInput=${(e) => setAdj({ ...adj, ot_hours: e.target.value })} /><//>
           <${Field} label="Ghi chú"><input id="adj-note" placeholder="vd làm thêm sự kiện 30/10" value=${adj.note} onInput=${(e) => setAdj({ ...adj, note: e.target.value })} /><//>
-          <button class="primary" onClick=${async () => { if (await act(() => api('PUT', '/api/timesheet/adjust', { month, staff_id: adj.staff_id, ot_hours: adj.ot_hours.trim() === '' ? null : adj.ot_hours, note: adj.note }), 'Đã lưu')) setAdj(null); }}>Lưu</button>
+          <button class="primary" onClick=${async () => { if (await act(() => api('PUT', '/api/timesheet/adjust', { month: month || st.data.month, staff_id: adj.staff_id, ot_hours: adj.ot_hours.trim() === '' ? null : adj.ot_hours, note: adj.note }), 'Đã lưu')) setAdj(null); }}>Lưu</button>
         </div><//>` : null}
       <p class="muted small">Số tạm tính, đã làm tròn 1.000đ, chưa gồm thưởng, phạt, bảo hiểm, lễ tết. Chỉnh quy tắc ở Cài đặt → Chung; chọn ai theo quy tắc bếp ở Nhân viên.</p>`}
   </div>`;
