@@ -97,11 +97,14 @@ function firstStart(p, days, shifts, hours) {
   return best;
 }
 // Bấm tên ở 2 lịch riêng: đưa vào / bỏ khỏi lịch cố định, chọn khu cố định
-function FixStaff({ p, zones, onClose }) {
+function FixStaff({ p, zones, teams = [], onClose }) {
   const fixed = isFixedStaff(p);
   const save = (body, msg) => act(() => api('PATCH', `/api/staff/${p.id}`, body), msg).then((r) => r && onClose());
   return html`<${Modal} title=${`🔒 ${p.name}`} onClose=${onClose}><div class="stack">
     <p class="small muted">${fixed ? 'Đang ở lịch Ca full cố định.' : 'Đang ở lịch Part-time.'} Khu cố định: ca từ hôm nay trở đi tự vào khu đó.</p>
+    <b>Bộ phận</b>
+    <div class="chips">${teams.map((t) => html`<button class=${`chip ${p.team_id === t.id ? 'on' : ''}`} onClick=${() => p.team_id !== t.id && save({ team_id: t.id, position_id: null }, `Đã chuyển ${p.name} sang ${t.name}`)}>${t.name}</button>`)}</div>
+    ${!teams.some((t) => t.id === p.team_id) ? html`<p class="warn-text small">Chưa có bộ phận: chọn bộ phận ở trên.</p>` : null}
     <b>Khu cố định</b>
     <div class="chips">${zones.map((z) => html`<button class=${`chip ${p.home_zone_id === z.id ? 'on' : ''}`} onClick=${() => save({ work_type: 'full', home_zone_id: z.id }, `${p.name}: full cố định ${z.name}`)}>${z.name}</button>`)}
       <button class=${`chip ${!p.home_zone_id ? 'on' : ''}`} onClick=${() => save({ home_zone_id: null }, `${p.name}: bỏ khu cố định`)}>Không khu</button></div>
@@ -169,7 +172,7 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = ''
     </div><//>` : null}
     ${!groups.length ? html`<p class="muted">${kind === 'full' ? 'Chưa có ai trong lịch Ca full cố định. Vào lịch ⏱ Part-time, bấm tên người để đưa vào.' : 'Không có ai.'}</p>` : null}
     ${edit ? html`<${AddShift} p=${edit.p} date=${edit.date} range=${edit.range} replaceId=${edit.id} onClose=${() => setEdit(null)} />` : null}
-    ${fix ? html`<${FixStaff} p=${fix} zones=${zones} onClose=${() => setFix(null)} />` : null}
+    ${fix ? html`<${FixStaff} p=${fix} zones=${zones} teams=${d.teams} onClose=${() => setFix(null)} />` : null}
   </div>`;
 }
 
@@ -182,7 +185,10 @@ function WeekZones({ ws, staff, teams, map, shifts = [], hours = {}, onClose }) 
   const [cur, setCur] = useState(map || {});
   const RANK = ['manager', 'shift_lead', 'team_lead', 'staff'];
   // Trưởng ca, tổ trưởng lên đầu danh sách
-  const people = staff.filter((p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team)))
+  // Phục vụ + người chưa có bộ phận + ai có ca Phục vụ trong tuần (tránh sót người, chủ quán 27/10)
+  const pvShift = new Set(shifts.filter((x) => pv && x.team_id === pv.id).map((x) => x.staff_id));
+  const people = staff.filter((p) => p.active !== false && p.role !== 'owner'
+    && (!team || p.team_id === Number(team) || !teams.some((t) => t.id === p.team_id) || pvShift.has(p.id)))
     .sort((a, b) => RANK.indexOf(a.role) - RANK.indexOf(b.role));
   const zOf = (p) => { const v0 = cur[p.id]; return v0 && typeof v0 === 'object' ? Number(v0.z) : Number(v0) || null; };
   const tOf = (p) => { const v0 = cur[p.id]; return v0 && typeof v0 === 'object' ? v0.t || '' : ''; };
@@ -201,7 +207,7 @@ function WeekZones({ ws, staff, teams, map, shifts = [], hours = {}, onClose }) 
     <${ZoneCoverage} ws=${ws} zones=${zones} people=${people} shifts=${shifts} hours=${hours} zOf=${zOf} per=${per} />
     ${people.map((p) => { const used = [...new Set(shifts.filter((x) => x.staff_id === p.id && x.zone_name).map((x) => x.zone_name.replace(/^Khu\s*/i, '')))]; return html`<div class="zone-row"><span class="grow"><b>${p.name}</b>
       ${zOf(p) ? html`<br /><input class="tables-in" placeholder="Bàn: vd 1-10 (trống = cả khu)" value=${tOf(p)} onChange=${(e) => pick(p, zOf(p), e.target.value)} />` : null}
-      <br /><small class="muted">🗓 ${workDays(p.id, ws, shifts, hours)}</small>
+      <br /><small class="muted">🗓 ${workDays(p.id, ws, shifts, hours)}</small>${team && p.team_id !== Number(team) ? html`<br /><small class="warn-text">${teams.find((t) => t.id === p.team_id)?.name || 'Chưa có bộ phận'}: bấm tên ở bảng tuần để chuyển sang Phục vụ</small>` : null}
       ${!cur[p.id] ? html`<br /><small class=${used.length ? 'muted' : 'warn-text'}>${used.length ? `đang: khu ${used.join(', ')} (theo ngày)` : 'chưa có khu'}</small>` : null}${p.role !== 'staff' || p.position_name ? html`<br /><small class=${p.role !== 'staff' ? 'role-tag' : 'muted'}>${p.role !== 'staff' ? `⭐ ${p.role_label}` : ''}${p.role !== 'staff' && p.position_name ? ' · ' : ''}${p.position_name || ''}</small>` : null}</span>
       <div class="chips">${zones.map((z) => html`<button class=${`chip ${zOf(p) === z.id ? 'on' : ''}`} onClick=${() => pick(p, z.id)}>${z.name.replace(/^Khu\s*/i, '')}</button>`)}
         <button class=${`chip ${!cur[p.id] ? 'on' : ''}`} onClick=${() => pick(p, null)}>—</button></div></div>`; })}
