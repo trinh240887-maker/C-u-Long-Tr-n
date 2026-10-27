@@ -53,6 +53,7 @@ export default function (r, ctx) {
   addCol('checklist_items', 'fetch_where', "TEXT NOT NULL DEFAULT ''");
   addCol('checklist_items', 'job_with', 'INTEGER NOT NULL DEFAULT 0');        // đi kèm việc khác: giao cho đúng người làm việc đó (vd lau chén → giặt khăn lau chén)
   addCol('checklist_items', 'job_expect', 'INTEGER NOT NULL DEFAULT 0');      // số phải đủ khi xong (vd 2 khăn); thiếu → ghi vào tên người làm       // hết đồ thì lấy ở đâu
+  const hadMoCa = !!ctx.setting('mo_ca_pv_v1'); // DB đang chạy thật (đã qua bản 26/10) — DB mới tạo thì không ẩn gì
   // Chủ quán 26/10: 12 việc mở ca chung Phục vụ + Tiếp thực (14:00–15:30), giao từng người; làm 1 lần
   if (!ctx.setting('mo_ca_pv_v1')) {
     const team = (n) => db.prepare('SELECT id FROM teams WHERE name = ?').get(n)?.id;
@@ -106,6 +107,19 @@ export default function (r, ctx) {
       ctx.setSetting('mo_ca_pv_split', String(t.id));
     }
     ctx.setSetting('mo_ca_pv_v2', '1');
+  }
+  // Chủ quán 27/10: ẩn hết checklist Phục vụ & Tiếp thực để làm lại (giữ ảnh / kết quả cũ; bật lại được ở Tạo / sửa checklist). Bỏ việc ca chưa làm từ hôm nay
+  if (!ctx.setting('pv_tt_hide_v1')) {
+    if (hadMoCa) {
+      const ids = db.prepare(`SELECT c.id FROM checklist_templates c LEFT JOIN teams t ON t.id = c.team_id
+        WHERE c.active = 1 AND (t.name LIKE '%Phục vụ%' OR t.name LIKE '%phục vụ%' OR t.name LIKE '%Tiếp thực%' OR t.name LIKE '%tiếp thực%' OR c.section IN ('Phục vụ', 'Tiếp thực', 'Phục vụ & Tiếp thực'))`).all().map((x) => x.id);
+      for (const id of ids) {
+        db.prepare('UPDATE checklist_templates SET active = 0 WHERE id = ?').run(id);
+        try { db.prepare("DELETE FROM jobs WHERE template_id = ? AND date >= ? AND status = 'todo'").run(id, ctx.today()); } catch { /* chưa có bảng việc ca */ }
+      }
+      ctx.setSetting('pv_tt_hidden_ids', JSON.stringify(ids));
+    }
+    ctx.setSetting('pv_tt_hide_v1', '1');
   }
   const PV_TT = 'Phục vụ & Tiếp thực'; // chủ quán 27/10: gom Phục vụ + Tiếp thực làm 1 mục
   const sectionOf = (t) => {
