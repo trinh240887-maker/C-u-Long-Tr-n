@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { fail, v } from '../http.js';
-import { tx, rank } from '../db.js';
+import { tx, rank, ROLE_LABEL } from '../db.js';
 import { overlaps } from '../lib/time.js';
 import { busyAround, weekMinutes, rangeOf, groupSegments } from '../lib/schedule.js';
 import { suggestReplacements } from '../lib/replacement.js';
@@ -96,12 +96,12 @@ export default function (r, ctx) {
 
   r.get('/api/leave', 'staff', ({ me, query }) => {
     const status = query.get('status');
-    const rows = db.prepare(`SELECT l.*, s.name AS staff_name, s.team_id AS staff_team, rp.name AS replacement_name, d.name AS decided_by_name
-      FROM leave_requests l JOIN staff s ON s.id = l.staff_id LEFT JOIN staff rp ON rp.id = l.replacement_id LEFT JOIN staff d ON d.id = l.decided_by
+    const rows = db.prepare(`SELECT l.*, s.name AS staff_name, s.team_id AS staff_team, s.role AS staff_role, po.name AS staff_position, rp.name AS replacement_name, d.name AS decided_by_name
+      FROM leave_requests l JOIN staff s ON s.id = l.staff_id LEFT JOIN positions po ON po.id = s.position_id LEFT JOIN staff rp ON rp.id = l.replacement_id LEFT JOIN staff d ON d.id = l.decided_by
       ${status ? 'WHERE l.status = ?' : ''} ORDER BY CASE l.status WHEN 'pending' THEN 0 ELSE 1 END, l.date DESC, l.id DESC LIMIT 200`)
       .all(...(status ? [status] : []));
     const offers = db.prepare('SELECT o.*, s.name AS staff_name FROM cover_offers o JOIN staff s ON s.id = o.staff_id WHERE o.leave_id = ?');
-    return rows.filter((l) => canSee(me, l)).map((l) => ({ ...l, shift: shiftInfo(l.group_id), offers: offers.all(l.id) }));
+    return rows.filter((l) => canSee(me, l)).map((l) => ({ ...l, staff_role_label: ROLE_LABEL[l.staff_role] || '', shift: shiftInfo(l.group_id), offers: offers.all(l.id) }));
   });
 
   r.post('/api/leave/:id/cancel', 'staff', ({ me, params }) => {

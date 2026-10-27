@@ -31,7 +31,7 @@ export function LeaveView({ me }) {
     <p class="muted small">Muốn xin nghỉ? Vào <b>Hôm nay</b> → bấm <b>✋ Xin nghỉ</b> → chọn ca. Duyệt nghỉ thì ca đó bỏ khỏi lịch, quản lý xếp lại người ở Lịch ca.</p>
     ${!st.data ? html`<${Loading} state=${st} />` : st.data.length ? st.data.map((l) => html`<section class=${`card ${canHandle && l.status === 'pending' && l.staff_id !== me.id ? 'click' : ''}`}
         onClick=${() => canHandle && l.status === 'pending' && l.staff_id !== me.id && setOpen(l)}>
-      <div class="row between"><b>${l.staff_name}</b><span class=${`pill ${STATUS[l.status][1]}`}>${STATUS[l.status][0]}</span></div>
+      <div class="row between"><span><b>${l.staff_name}</b>${l.staff_role_label || l.staff_position ? html` <span class="pill muted">${[l.staff_role_label, l.staff_position].filter(Boolean).join(' · ')}</span>` : null}</span><span class=${`pill ${STATUS[l.status][1]}`}>${STATUS[l.status][0]}</span></div>
       <div>${dayLabel(l.shift?.date || l.date, { long: true })} · ${l.shift?.text || 'ca đã bị xoá'}${l.shift?.team_name ? ` · ${l.shift.team_name}` : ''}</div>
       <div class="muted small">Lý do: ${l.reason} · ${ago(l.created_at)}</div>
       ${l.offers.length ? html`<div class="chips">${l.offers.map((o) => html`<span class=${`pill ${OFFER[o.status][1]}`}>${o.staff_name}: ${OFFER[o.status][0]}</span>`)}</div>` : null}
