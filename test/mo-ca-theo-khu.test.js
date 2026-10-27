@@ -427,3 +427,28 @@ test('Đóng ca giao cả khu cho người phụ trách: việc khu → tổ tr�
   assert.equal(card.zone_leads[za].today, leadA);
   assert.equal(card.zone_leads[zb].fixed, nvB);
 });
+
+test('Đóng ca: trưởng ca chưa có bộ phận (có khu) vẫn được chọn làm người phụ trách khu', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const tpl = Number(db.prepare("INSERT INTO checklist_templates (team_id, phase, title, sort, active, job_mode, job_lead_mode) VALUES (?, 'close', 'Đóng ca phục vụ', 0, 1, 1, 1)").run(pv).lastInsertRowid);
+  const za = db.prepare('SELECT id FROM zones WHERE active = 1 ORDER BY sort, id').get().id;
+  const sl = (await O('POST', '/api/staff', { name: 'Đỗ Thiện', pin: '5921', role: 'shift_lead' })).data.id; // chưa có bộ phận
+  const tl = (await O('POST', '/api/staff', { name: 'Thành Đạt', pin: '5922', role: 'team_lead', team_id: pv })).data.id;
+  const today = app.ctx.today();
+  db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at, zone_id) VALUES (?, ?, NULL, ?, 840, 1380, 0, ?)').run('g1', sl, today, za);
+  db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at, zone_id) VALUES (?, ?, ?, ?, 840, 1380, 0, ?)').run('g2', tl, pv, today, za);
+  await O('PUT', `/api/checklist-templates/${tpl}/zone-lead`, { zone_id: za, staff_id: sl });
+  const it = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Thu dọn khu A', zone_id: za })).data.id;
+  const card = (await O('GET', '/api/checklists')).data.jobs.find((j) => j.template_id === tpl);
+  assert.equal(card.zone_leads[za].today, sl);
+  assert.equal(db.prepare('SELECT staff_id FROM jobs WHERE item_id = ? AND date = ?').get(it, today).staff_id, sl);
+});

@@ -64,6 +64,7 @@ export default function (r, ctx) {
   const jobTemplates = () => ctx.checklistTemplates().filter((t) => t.job_mode && t.items.length);
   const teamsOf = (t) => (t.job_teams?.length ? t.job_teams : t.team_id ? [t.team_id] : null); // null = mọi bộ phận
 
+  const pvTeamIds = () => new Set(db.prepare('SELECT id, name FROM teams').all().filter((x) => /phục vụ|phuc vu/i.test(x.name)).map((x) => x.id));
   // Người đi làm hôm đó thuộc các bộ phận của checklist (gộp các khúc ca của 1 người)
   function people(date, t) {
     const teams = teamsOf(t);
@@ -71,7 +72,9 @@ export default function (r, ctx) {
       WHERE a.date = ? AND s.active = 1 AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') ORDER BY a.start_min`).all(date);
     const by = new Map();
     for (const a of rows) {
-      if (teams && !teams.includes(a.team_id) && !teams.includes(a.home_team) && !(teams.includes(-1) && a.role === 'shift_lead')) continue; // -1 = trưởng ca cũng làm
+      // Người chưa có bộ phận mà có khu / là trưởng ca (vd Đỗ Thiện) vẫn tính vào checklist Phục vụ (chủ quán 27/10)
+      const noTeamPv = !a.home_team && (a.zone_id || a.role === 'shift_lead') && teams && teams.some((x) => pvTeamIds().has(x));
+      if (teams && !teams.includes(a.team_id) && !teams.includes(a.home_team) && !(teams.includes(-1) && a.role === 'shift_lead') && !noTeamPv) continue; // -1 = trưởng ca cũng làm
       const p = by.get(a.staff_id) || { id: a.staff_id, name: a.name, role: a.role, gender: a.gender || '', team_name: a.team_name || '', zone_id: 0, start: a.start_min, end: a.end_min };
       p.start = Math.min(p.start, a.start_min); p.end = Math.max(p.end, a.end_min);
       if (!p.zone_id && a.zone_id) p.zone_id = a.zone_id;
