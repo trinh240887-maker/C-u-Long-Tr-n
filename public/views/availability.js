@@ -86,7 +86,7 @@ function AddShift({ p, date, range, onClose, replaceId = null }) {
 // Ô đậm = đã xếp ca (bấm để bỏ) · ô xanh = rảnh (bấm để xếp) · ô trống = bận / chưa báo (vẫn bấm xếp được)
 const short = (t) => t.replace(/:00/g, '').replace(/^0/, '').replace(/–0/, '–');
 // 2 lịch riêng (chủ quán 27/10): 🔒 Ca full cố định (Full ca hoặc có khu cố định, xếp theo khu) · ⏱ Part-time (còn lại, xếp theo giờ vào)
-export const isFixedStaff = (p) => p.work_type === 'full' || !!p.home_zone_id;
+export const isFixedStaff = (p) => p.work_type === 'full';
 const minOf = (t) => { const [h, m] = String(t || '99:99').split(':').map(Number); return h * 60 + (m || 0); };
 function firstStart(p, days, shifts, hours) {
   let best = 9999;
@@ -99,17 +99,15 @@ function firstStart(p, days, shifts, hours) {
 // Bấm tên ở 2 lịch riêng: đưa vào / bỏ khỏi lịch cố định, chọn khu cố định
 function FixStaff({ p, zones, teams = [], onClose }) {
   const save = (body, msg) => act(() => api('PATCH', `/api/staff/${p.id}`, body), msg).then((r) => r && onClose());
-  const TYPES = [['full', 'Full ca'], ['gay', 'Ca gãy'], ['part', 'Part-time']];
-  return html`<${Modal} title=${`🔒 ${p.name}`} onClose=${onClose}><div class="stack">
-    <p class="small muted">Lịch 🔒 cố định = Full ca hoặc có khu cố định. Khu cố định: ca từ hôm nay trở đi tự vào khu đó.</p>
-    <b>Loại ca</b>
-    <div class="chips">${TYPES.map(([k, l]) => html`<button class=${`chip ${p.work_type === k ? 'on' : ''}`} onClick=${() => p.work_type !== k && save({ work_type: k }, `${p.name}: ${l}`)}>${l}</button>`)}</div>
-    <b>Bộ phận</b>
-    <div class="chips">${teams.map((t) => html`<button class=${`chip ${p.team_id === t.id ? 'on' : ''}`} onClick=${() => p.team_id !== t.id && save({ team_id: t.id, position_id: null }, `Đã chuyển ${p.name} sang ${t.name}`)}>${t.name}</button>`)}</div>
-    ${!teams.some((t) => t.id === p.team_id) ? html`<p class="warn-text small">Chưa có bộ phận: chọn bộ phận ở trên.</p>` : null}
-    <b>Khu cố định</b>
-    <div class="chips">${zones.map((z) => html`<button class=${`chip ${p.home_zone_id === z.id ? 'on' : ''}`} onClick=${() => save({ home_zone_id: z.id }, `${p.name}: cố định ${z.name}`)}>${z.name}</button>`)}
-      <button class=${`chip ${!p.home_zone_id ? 'on' : ''}`} onClick=${() => save({ home_zone_id: null }, `${p.name}: bỏ khu cố định`)}>Không khu</button></div>
+  const full = p.work_type === 'full';
+  return html`<${Modal} title=${p.name} onClose=${onClose}><div class="stack">
+    <b>1. Ca làm</b>
+    <div class="row wrap"><button class=${`big ${full ? 'primary' : ''}`} onClick=${() => !full && save({ work_type: 'full' }, `${p.name}: Full ca 14–23`)}>Full ca 14–23</button>
+      <button class=${`big ${!full ? 'primary' : ''}`} onClick=${() => full && save({ work_type: 'gay' }, `${p.name}: Ca gãy`)}>Ca gãy</button></div>
+    <b>2. Khu</b>
+    <div class="row wrap">${zones.map((z) => html`<button class=${`big ${p.home_zone_id === z.id ? 'primary' : ''}`} onClick=${() => save({ home_zone_id: z.id }, `${p.name}: ${z.name}`)}>${z.name}</button>`)}
+      <button class=${`big ${!p.home_zone_id ? 'primary' : ''}`} onClick=${() => p.home_zone_id && save({ home_zone_id: null }, `${p.name}: không cố định khu`)}>Không cố định</button></div>
+    <details><summary class="small muted">Đổi bộ phận</summary><div class="chips">${teams.map((t) => html`<button class=${`chip ${p.team_id === t.id ? 'on' : ''}`} onClick=${() => p.team_id !== t.id && save({ team_id: t.id, position_id: null }, `Đã chuyển ${p.name} sang ${t.name}`)}>${t.name}</button>`)}</div></details>
   </div><//>`;
 }
 
@@ -140,7 +138,7 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = ''
     const p = g.people[i], prev = g.people[i - 1];
     if (prev && (prev.home_zone_id || null) === (p.home_zone_id || null)) return null;
     const n = g.people.filter((x) => (x.home_zone_id || null) === (p.home_zone_id || null)).length;
-    return html`<tr class="wk-sub"><td colspan=${d.days.length + 1}>${p.home_zone_id ? `📍 ${zName(p.home_zone_id) || 'Khu'}` : '📍 Chưa có khu cố định'} · ${n} người</td></tr>`;
+    return html`<tr class="wk-sub"><td colspan=${d.days.length + 1}>${p.home_zone_id ? `📍 ${zName(p.home_zone_id) || 'Khu'}` : '📍 Chưa chọn khu'} · ${n} người</td></tr>`;
   };
   const shiftOf = (pid, date) => shifts.filter((x) => x.staff_id === pid && x.date === date);
   const text = (x) => x.segments.map((sg) => short(`${sg.start}–${sg.end === '00:00' ? '24' : sg.end}`)).join(', ');
@@ -152,12 +150,12 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = ''
           && publishTeam(d.week_start, g)}>✅ Duyệt ${g.name}</button>` : null}</div>
       <div class="wk-wrap"><table class="wk">
         <thead><tr><th class="wk-name">Tên</th>${d.days.map((x) => html`<th>${dayLabel(x).split(' ')[0]}<br /><small>${x.slice(8)}/${x.slice(5, 7)}</small><br /><b class="wk-n">${g.people.filter((p) => shiftOf(p.id, x).length).length}</b></th>`)}</tr></thead>
-        <tbody>${g.people.map((p, i) => { return html`${zoneHead(g, i)}<tr><td class=${`wk-name ${canManage ? 'tap' : ''}`} onClick=${() => canManage && setFix(p)}><b>${p.name}</b>${canManage ? html` <small class="muted">✎</small>` : null}${staffTags(p)}
+        <tbody>${g.people.map((p, i) => { return html`${zoneHead(g, i)}<tr><td class=${`wk-name ${canManage ? 'tap' : ''}`} onClick=${() => canManage && setFix(p)}><b>${p.name}</b>${canManage ? html` <small class="muted">✎</small>` : null}${staffTags(p, !!kind)}
 </td>
           ${d.days.map((x) => {
             const sh = shiftOf(p.id, x);
             const fr = d.hours?.[`${p.id}:${x}`] || [];
-            if (sh.length) return html`<td class="has" onClick=${() => canManage && setCell({ p, x, sh })}>${sh.map(text).join(' ')}${sh.some((m) => m.zone_name) ? html`<br /><b class="zone-badge">📍${sh.map((m) => zShort(m.zone_name)).filter(Boolean).join(',')}</b>` : null}</td>`;
+            if (sh.length) return html`<td class="has" onClick=${() => canManage && setCell({ p, x, sh })}>${sh.map(text).join(' ')}${sh.some((m) => m.zone_name && !(kind === 'full' && m.zone_id === p.home_zone_id)) ? html`<br /><b class="zone-badge">📍${sh.map((m) => zShort(m.zone_name)).filter(Boolean).join(',')}</b>` : null}</td>`;
             if (fr.length) return html`<td class="free" onClick=${() => canManage && onAdd(p, x, fr[0])}>${fr.map((r) => short(r.replace('-', '–').replace('24:00', '24'))).join(' ')}</td>`;
             return html`<td class="off" onClick=${() => canManage && onAdd(p, x, null)}></td>`;
           })}</tr>`; })}</tbody>
@@ -170,7 +168,7 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = ''
         ${x.segments.length === 1 ? html`<button class="primary" onClick=${() => { setEdit({ p: cell.p, date: cell.x, range: `${x.segments[0].start}-${x.segments[0].end === '00:00' ? '24:00' : x.segments[0].end}`, id: x.group_id }); setCell(null); }}>✎ Sửa giờ</button>` : null}
         <button onClick=${() => act(() => api('POST', '/api/shifts/delete', { group_id: x.group_id }), `Đã bỏ ca ${cell.p.name}`).then((r) => r && setCell(null))}>✕ Bỏ ca</button></div></div>`)}
     </div><//>` : null}
-    ${!groups.length ? html`<p class="muted">${kind === 'full' ? 'Chưa có ai trong lịch Ca full cố định. Bấm tên người để chọn Full ca hoặc khu cố định.' : 'Không có ai.'}</p>` : null}
+    ${!groups.length ? html`<p class="muted">${kind === 'full' ? 'Chưa có ai Full ca. Bấm Tất cả, rồi bấm tên người để chọn Full ca 14–23.' : 'Không có ai.'}</p>` : null}
     ${edit ? html`<${AddShift} p=${edit.p} date=${edit.date} range=${edit.range} replaceId=${edit.id} onClose=${() => setEdit(null)} />` : null}
     ${fix ? html`<${FixStaff} p=${fix} zones=${zones} teams=${d.teams} onClose=${() => setFix(null)} />` : null}
   </div>`;
@@ -376,8 +374,8 @@ function drawScheduleImage(t) {
 // Nhãn sau tên ở Bảng tuần: cấp bậc (Tổ trưởng / Trưởng ca), loại ca (Full ca / Ca gãy / Part-time), vị trí
 const ROLE_TAG = { team_lead: '⭐ Tổ trưởng', shift_lead: '⭐ Trưởng ca', manager: 'Quản lý' };
 const WORK_TAG = { full: 'Full ca', gay: 'Ca gãy', part: 'Part-time' };
-function staffTags(p) {
-  const tags = [ROLE_TAG[p.role], WORK_TAG[p.work_type], p.position_name].filter(Boolean);
+function staffTags(p, noWork = false) {
+  const tags = [ROLE_TAG[p.role], noWork ? null : WORK_TAG[p.work_type], p.position_name].filter(Boolean);
   return tags.length ? html`<br /><span class="wk-tags">${tags.map((t) => html`<small class=${`wk-tag ${t.startsWith('⭐') ? 'lead' : ''}`}>${t}</small>`)}</span>` : null;
 }
 
@@ -431,9 +429,9 @@ function Overview({ me, week, onWeek }) {
       <a class="btn small" href=${`/api/schedule.xlsx?week=${d.week_start}`} download>⬇ Tải Excel</a></div>
     ${(() => { const ok = (p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team)); const all = staffD.data.filter(ok), nf = all.filter(isFixedStaff).length;
       return html`<div class="chips"><button class=${`chip ${!kind ? 'on' : ''}`} onClick=${() => setKind('')}>Tất cả (${all.length})</button>
-        <button class=${`chip ${kind === 'full' ? 'on' : ''}`} onClick=${() => setKind('full')}>🔒 Ca full cố định (${nf})</button>
-        <button class=${`chip ${kind === 'part' ? 'on' : ''}`} onClick=${() => setKind('part')}>⏱ Ca gãy / Part-time (${all.length - nf})</button></div>
-        ${canManage ? html`<p class="small muted">Bấm <b>tên</b> để đưa vào / bỏ khỏi lịch cố định và chọn khu cố định.</p>` : null}`; })()}
+        <button class=${`chip ${kind === 'full' ? 'on' : ''}`} onClick=${() => setKind('full')}>Full ca 14–23 (${nf})</button>
+        <button class=${`chip ${kind === 'part' ? 'on' : ''}`} onClick=${() => setKind('part')}>Ca gãy (${all.length - nf})</button></div>
+        ${canManage ? html`<p class="small muted">Bấm <b>tên</b> để chọn Full ca / Ca gãy và khu.</p>` : null}`; })()}
     <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} kind=${kind} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />
     <details class="card"><summary><b>Chưa báo lịch rảnh (${missing.length})</b> <small class="muted">hạn ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} ${d.deadline.time}</small></summary>
       <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}
