@@ -393,3 +393,37 @@ test('Bắt ghi chú khi xong: thiếu ghi chú không cho Xong; có ghi chú th
   const row = (await O('GET', '/api/checklists')).data.jobs.find((j) => j.template_id === tpl).job_rows.find((j) => j.id === job.id);
   assert.equal(row.done_note, 'Còn 2 thau chưa rửa');
 });
+
+test('Đóng ca giao cả khu cho người phụ trách: việc khu → tổ trưởng khu (hoặc người chọn cố định); việc chung → Tiếp thực', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const tt = db.prepare("SELECT id FROM teams WHERE name = 'Tiếp thực'").get()?.id || Number(db.prepare("INSERT INTO teams (name, sort, active) VALUES ('Tiếp thực', 9, 1)").run().lastInsertRowid);
+  const tpl = Number(db.prepare("INSERT INTO checklist_templates (team_id, phase, title, sort, active, job_mode, job_teams) VALUES (?, 'close', 'Đóng ca phục vụ', 0, 1, 1, ?)").run(pv, JSON.stringify([pv, tt])).lastInsertRowid);
+  const [za, zb] = db.prepare('SELECT id FROM zones WHERE active = 1 ORDER BY sort, id').all().map((z) => z.id);
+  const mk = async (name, pin, team, role) => (await O('POST', '/api/staff', { name, pin, team_id: team, role })).data.id;
+  const leadA = await mk('Tổ trưởng A', '5911', pv, 'team_lead'), nvA = await mk('NV A', '5912', pv, 'staff'), nvB = await mk('NV B', '5913', pv, 'staff'), ttx = await mk('Tiếp thực 1', '5914', tt, 'staff');
+  const today = app.ctx.today();
+  const ins = (sid, team, zone) => db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at, zone_id) VALUES (?, ?, ?, ?, 840, 1380, 0, ?)').run(`g${sid}`, sid, team, today, zone);
+  ins(leadA, pv, za); ins(nvA, pv, za); ins(nvB, pv, zb); ins(ttx, tt, null);
+  const a1 = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Thu dọn khu A', zone_id: za })).data.id;
+  const b1 = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Thu dọn khu B', zone_id: zb })).data.id;
+  const c1 = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Đổ rác cả quán', job_scope: 'shop' })).data.id;
+  assert.equal((await O('PUT', `/api/checklist-templates/${tpl}/lead-mode`, { on: true })).status, 200);
+  assert.equal((await O('PUT', `/api/checklist-templates/${tpl}/zone-lead`, { zone_id: zb, staff_id: nvB })).status, 200);
+  const card = (await O('GET', '/api/checklists')).data.jobs.find((j) => j.template_id === tpl);
+  assert.equal(card.lead_mode, true);
+  const who = (it) => db.prepare('SELECT staff_id FROM jobs WHERE item_id = ? AND date = ?').get(it, today)?.staff_id;
+  assert.equal(who(a1), leadA);
+  assert.equal(who(b1), nvB);
+  assert.equal(who(c1), ttx);
+  assert.equal(card.zone_leads[za].today, leadA);
+  assert.equal(card.zone_leads[zb].fixed, nvB);
+});

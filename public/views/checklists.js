@@ -255,6 +255,15 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
   for (const j of r.job_rows || []) { if (!j.staff_id) continue; const l = loadOf.get(j.staff_id) || { min: 0, n: 0, noMin: 0, done: 0 }; l.min += minOf.get(j.item_id) || 0; l.n++; if (!minOf.get(j.item_id)) l.noMin++; if (['done', 'ok'].includes(j.status)) l.done++; loadOf.set(j.staff_id, l); }
   const Load = (x) => { const l = loadOf.get(x.id); if (!l) return html`<small class="zt-load free">0′ · 0 việc</small>`; const over = l.min > span; return html`<small class=${`zt-load ${over ? 'over' : l.min < span / 2 ? 'free' : ''}`}>⏱ ${l.min}′ · ${l.n} việc</small>`; };
   const noZone = people.filter((x) => !x.zone_id);
+  const LEADR = ['team_lead', 'shift_lead', 'manager'];
+  const ZoneLead = (z, ps) => {
+    const zl = r.zone_leads?.[z.id] || {};
+    const toRow = (x) => ({ id: x.id, name: x.name, role: x.role, gender: x.gender || '', sub: [x.zone || 'chưa phân khu', x.shift].filter(Boolean).join(' · '), top: LEADR.includes(x.role) });
+    const list = ps.map(toRow), more = people.filter((x) => !ps.some((p) => p.id === x.id)).map(toRow);
+    return html`<div class="zt-lead"><span>👑 Phụ trách hôm nay: <b>${zl.today_name || 'chưa có'}</b>${zl.fixed && zl.fixed !== zl.today ? html` <small class="muted">(📌 ${zl.fixed_name} nghỉ)</small>` : zl.fixed ? html` <small class="muted">📌 cố định</small>` : html` <small class="muted">tự chọn tổ trưởng / trưởng ca của khu</small>`}</span>
+      ${canEdit ? html`<button class="zt-sel" onClick=${() => setPick({ title: `Người phụ trách ${z.name} (đóng ca)`, list, more, lead: true, value: zl.fixed,
+        onPick: (sid) => act(() => api('PUT', `/api/checklist-templates/${r.template_id}/zone-lead`, { zone_id: z.id, staff_id: sid || null }), sid ? 'Đã chọn người phụ trách' : 'Đã bỏ, app tự chọn') })}>👑 Chọn ▾</button>` : null}</div>`;
+  };
   const copyZone = (z) => {
     const others = zones.filter((x) => x.id !== z.id);
     if (!confirm(`Chép ${items.filter((i) => i.job_zone_id === z.id).length} việc của ${z.name} sang ${others.map((x) => x.name).join(', ')}?\nViệc trùng tên đã có thì bỏ qua. Chép cả hướng dẫn, thời gian, ảnh mẫu. Việc nào không hợp anh xoá riêng ở từng khu.`)) return;
@@ -265,9 +274,12 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
     ${r.note ? html`<div class="zt-note"><b>📌 Lưu ý chung</b><span style="white-space:pre-line">${r.note}</span>
       ${canEdit ? html`<button class="link small" onClick=${editNote}>✎ Sửa lưu ý</button>` : null}</div>`
       : canEdit ? html`<button class="link small" style="align-self:flex-start" onClick=${editNote}>📌 Thêm lưu ý chung</button>` : null}
+    ${r.phase === 'close' && atLeast(me, 'shift_lead') && canEdit ? html`<label class="check-row zt-lead-toggle"><input type="checkbox" checked=${r.lead_mode} onChange=${(e) => act(() => api('PUT', `/api/checklist-templates/${r.template_id}/lead-mode`, { on: e.target.checked }), e.target.checked ? 'Đã giao cả khu cho người phụ trách' : 'Đã chuyển về chia việc từng người')} />
+      <span><b>👑 Giao cả khu cho người phụ trách</b> <small class="muted">việc của khu giao trưởng ca / tổ trưởng khu, tự chỉ đạo nhân sự; việc chung giao Tiếp thực</small></span></label>` : null}
     <p class="small"><b>👥 Khung ${o?.from || '14h'}–${o?.to || '15h30'}: ${people.length} người</b> (Phục vụ ${people.filter((x) => !/tiếp thực|tiep thuc/i.test(x.team || '')).length} · Tiếp thực ${people.filter((x) => /tiếp thực|tiep thuc/i.test(x.team || '')).length})${o?.total ? html` · đã chấm vào ${o.clocked}/${o.total}` : ''}</p>
     ${zones.map((z) => { const ps = people.filter((x) => x.zone_id === z.id); const own = items.filter((i) => i.job_zone_id === z.id); return html`<div class="zt-zone">
       <div class="zt-head">📍 ${z.name} <small>${ps.length} người (PV ${ps.filter((x) => !/tiếp thực|tiep thuc/i.test(x.team || '')).length} · TT ${ps.filter((x) => /tiếp thực|tiep thuc/i.test(x.team || '')).length}) · ${own.length} việc riêng</small></div>
+      ${r.lead_mode ? ZoneLead(z, ps) : null}
       ${Who(ps)}
       ${r.zone_photo ? Photo(z) : null}
       ${Items(own, z.id, ps, true)}
@@ -291,7 +303,7 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
     </div>
     ${pick ? html`<${PersonPicker} ...${pick} onClose=${() => setPick(null)} />` : null}
     ${edit ? html`<${ItemEdit} i=${(items.find((x) => x.id === edit.id)) || edit} templateId=${r.template_id} canEdit=${canEdit} onClose=${() => setEdit(null)} />` : null}
-    ${people.length ? html`<details class="zt-zone" open><summary class="zt-head">⏱ Tổng thời gian mỗi người <small>khung ${o?.from || '14h'}–${o?.to || '15h30'} = ${span} phút · ít việc nhất ở trên</small></summary>
+    ${people.length && !r.lead_mode ? html`<details class="zt-zone" open><summary class="zt-head">⏱ Tổng thời gian mỗi người <small>khung ${o?.from || '14h'}–${o?.to || '15h30'} = ${span} phút · ít việc nhất ở trên</small></summary>
       <div class="zt-sum">${[...people].sort((a, b) => (loadOf.get(a.id)?.min || 0) - (loadOf.get(b.id)?.min || 0) || a.name.localeCompare(b.name, 'vi')).map((x) => { const l = loadOf.get(x.id) || { min: 0, n: 0 }; const pct = Math.min(100, Math.round((l.min / span) * 100));
         return html`<div class="zt-sum-row"><span class="grow"><b>${x.name}</b> <small class="muted">${x.zone || 'chưa phân khu'} · ${/tiếp thực/i.test(x.team || '') ? 'Tiếp thực' : 'Phục vụ'}</small></span>
           <span class="zt-bar"><span class=${l.min > span ? 'over' : ''} style=${`width:${pct}%`}></span></span>

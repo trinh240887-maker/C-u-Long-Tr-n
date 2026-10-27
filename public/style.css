@@ -843,3 +843,5 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 .job-note { display: block; white-space: pre-line; background: #fff8e1; color: #4a3500; border-radius: 6px; padding: 4px 8px; }
 .zt-list li { flex-wrap: wrap; }
 .zt-dnote { order: 5; flex-basis: 100%; }
+.zt-lead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; background: #f3e5f5; color: #4a148c; border-radius: 8px; padding: 6px 10px; }
+.zt-lead-toggle { background: #f3e5f5; color: #4a148c; border-radius: 10px; padding: 8px 10px; }

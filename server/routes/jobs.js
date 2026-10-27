@@ -46,6 +46,8 @@ export default function (r, ctx) {
   );
   CREATE TABLE IF NOT EXISTS job_checkers (date TEXT NOT NULL, zone_id INTEGER NOT NULL, staff_id INTEGER NOT NULL, PRIMARY KEY (date, zone_id));`);
 
+  // Đóng ca giao cả khu cho người phụ trách (chủ quán 27/10): người phụ trách cố định từng khu
+  db.exec('CREATE TABLE IF NOT EXISTS job_zone_leads (template_id INTEGER NOT NULL, zone_id INTEGER NOT NULL, staff_id INTEGER NOT NULL, PRIMARY KEY (template_id, zone_id))');
   if (!db.prepare('PRAGMA table_info(jobs)').all().some((c) => c.name === 'done_note')) db.exec("ALTER TABLE jobs ADD COLUMN done_note TEXT NOT NULL DEFAULT ''"); // ghi chú của người làm khi xong
   if (!db.prepare('PRAGMA table_info(jobs)').all().some((c) => c.name === 'deadline_alerted')) db.exec('ALTER TABLE jobs ADD COLUMN deadline_alerted INTEGER NOT NULL DEFAULT 0');
   db.exec('CREATE TABLE IF NOT EXISTS job_photos (id INTEGER PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, file TEXT NOT NULL, at INTEGER NOT NULL)'); // ảnh thêm khi xong (nhiều góc)
@@ -65,12 +67,12 @@ export default function (r, ctx) {
   // Người đi làm hôm đó thuộc các bộ phận của checklist (gộp các khúc ca của 1 người)
   function people(date, t) {
     const teams = teamsOf(t);
-    const rows = db.prepare(`SELECT a.staff_id, a.team_id, a.zone_id, a.start_min, a.end_min, s.name, s.role, s.gender, s.team_id AS home_team FROM assignments a JOIN staff s ON s.id = a.staff_id
+    const rows = db.prepare(`SELECT a.staff_id, a.team_id, a.zone_id, a.start_min, a.end_min, s.name, s.role, s.gender, s.team_id AS home_team, (SELECT name FROM teams WHERE id = s.team_id) AS team_name FROM assignments a JOIN staff s ON s.id = a.staff_id
       WHERE a.date = ? AND s.active = 1 AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') ORDER BY a.start_min`).all(date);
     const by = new Map();
     for (const a of rows) {
       if (teams && !teams.includes(a.team_id) && !teams.includes(a.home_team) && !(teams.includes(-1) && a.role === 'shift_lead')) continue; // -1 = trưởng ca cũng làm
-      const p = by.get(a.staff_id) || { id: a.staff_id, name: a.name, role: a.role, gender: a.gender || '', zone_id: 0, start: a.start_min, end: a.end_min };
+      const p = by.get(a.staff_id) || { id: a.staff_id, name: a.name, role: a.role, gender: a.gender || '', team_name: a.team_name || '', zone_id: 0, start: a.start_min, end: a.end_min };
       p.start = Math.min(p.start, a.start_min); p.end = Math.max(p.end, a.end_min);
       if (!p.zone_id && a.zone_id) p.zone_id = a.zone_id;
       by.set(a.staff_id, p);
@@ -137,6 +139,14 @@ export default function (r, ctx) {
         if (sid) return { ...s, staff_id: sid };
       }
       if (s.owner_id) { if (load.has(s.owner_id)) load.set(s.owner_id, load.get(s.owner_id) + (s.item.job_minutes || DEFAULT_MIN)); return { ...s, staff_id: s.owner_id }; }
+      // Giao cả khu cho người phụ trách: việc của khu → người phụ trách khu; việc chung → ưu tiên Tiếp thực
+      if (t.job_lead_mode) {
+        if (s.zone_id) { const lid = zoneLeadOf(t, s.zone_id, ps); if (lid) { if (load.has(lid)) load.set(lid, load.get(lid) + (s.item.job_minutes || DEFAULT_MIN)); return { ...s, staff_id: lid }; } }
+        else if (!s.item.job_fixed_staff) {
+          const tt = fitPool(ps.filter((p) => /tiếp thực|tiep thuc/i.test(p.team_name || '')), s.item);
+          if (tt.length) { const best = tt.reduce((a, b) => (load.get(b.id) < load.get(a.id) ? b : a)); load.set(best.id, load.get(best.id) + (s.item.job_minutes || DEFAULT_MIN)); return { ...s, staff_id: best.id }; }
+        }
+      }
       // Việc chỉ nữ / chỉ nam: đúng giới tính trước; chưa ghi giới tính thì dùng khi không còn ai đúng; khác giới tính thì không giao
       const fit = fitPool(ps, s.item);
       // Người cố định (chủ quán chọn): có ca trong khung giờ thì giao luôn
@@ -158,6 +168,16 @@ export default function (r, ctx) {
     }
   }
 
+  // Người phụ trách khu (đóng ca): chủ quán chọn cố định → tổ trưởng / trưởng ca có ca trong khu → trưởng ca của quán
+  function zoneLeadOf(t, zoneId, ps) {
+    const fx = db.prepare('SELECT staff_id FROM job_zone_leads WHERE template_id = ? AND zone_id = ?').get(t.id, zoneId)?.staff_id;
+    if (fx && ps.some((p) => p.id === fx)) return fx;
+    const inZone = ps.filter((p) => p.zone_id === zoneId && ['team_lead', 'shift_lead'].includes(p.role));
+    if (inZone.length) return (inZone.find((p) => p.role === 'team_lead') || inZone[0]).id;
+    return ps.find((p) => p.role === 'shift_lead')?.id || null;
+  }
+  ctx.jobsZoneLead = (date, t, zoneId) => { let ps = people(date, t); if (t.phase === 'close' && t.job_from == null && ps.length) { const last = Math.max(...ps.map((p) => p.end)); ps = ps.filter((p) => p.end >= last - 90); } return zoneLeadOf(t, zoneId, ps); };
+  ctx.jobsResetTemplate = (date, tid) => { db.prepare("DELETE FROM jobs WHERE date >= ? AND template_id = ? AND status = 'todo'").run(date, tid); ensureDay(date); };
   // Việc chỉ tổ trưởng / trưởng ca (chủ quán 27/10): quản lý cũng làm được
   const LEAD = ['team_lead', 'shift_lead', 'manager'];
   const fitPool = (ps, it) => genderPool(it.job_role === 'lead' ? ps.filter((p) => LEAD.includes(p.role)) : ps, it.job_gender);
