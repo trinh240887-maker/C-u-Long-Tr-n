@@ -413,31 +413,78 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
+
+  // ---------- Quy tắc lương dùng chung (bảng công + báo cáo nhân sự) ----------
+  // Kỳ lương (chủ quán 27/10: khai trương 18/10 → kỳ 18 → 17 tháng sau). "month" = tháng bắt đầu kỳ
+  const startDay = () => Math.min(28, Math.max(1, num('pay_period_start_day', 18)));
+  const dayCount = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000) + 1;
+  const periodMonthOf = (date) => (Number(date.slice(8)) >= startDay() ? date.slice(0, 7) : addDays(`${date.slice(0, 7)}-01`, -1).slice(0, 7));
+  function periodOf(month) {
+    const sd = String(startDay()).padStart(2, '0');
+    const from = `${month}-${sd}`;
+    const to = addDays(`${addDays(`${month}-01`, 32).slice(0, 7)}-${sd}`, -1);
+    const days = dayCount(from, to); // số ngày của kỳ
+    return { month, from, to, days, std: Math.max(1, days - num('month_paid_off_days', 2)) }; // chủ quán 27/10: làm đủ tháng, nghỉ 2 ngày vẫn đủ lương
+  }
+  const KITCHEN = /bếp|bep|lẩu|lau|nướng|nuong|steak|topping|thái tay/i;
+  // Quy tắc bếp (chủ quán 27/10): mặc định bộ phận bếp; chủ quán bật / tắt riêng từng người (staff.pay_rule: 1 bật, 0 tắt, NULL theo bộ phận)
+  // Mức lương của đúng tháng đang tính (lịch sử lương)
+  function payStaff(month) {
+    const tn = new Map(db.prepare('SELECT id, name FROM teams').all().map((x) => [x.id, x.name]));
+    return db.prepare('SELECT s.id, s.name, s.pay_type, s.pay_rate, s.team_id, s.active, s.pay_rule, s.role, p.name AS position_name FROM staff s LEFT JOIN positions p ON p.id = s.position_id ORDER BY s.name').all()
+      .map((x) => { const h = ctx.payForMonth?.(x.id, month); return { ...x, ...(h ? { pay_type: h.pay_type, pay_rate: h.pay_rate } : {}), rule: x.pay_rule == null ? KITCHEN.test(tn.get(x.team_id) || '') : !!x.pay_rule }; });
+  }
+  // Lượt chấm công kèm ca gãy (group_key = nhóm ca, seg_n = số khúc) để tính công theo khúc
+  const payRecordsBetween = (from, to) => db.prepare(`SELECT at.*, a.group_id AS group_key, (SELECT COUNT(*) FROM assignments g WHERE g.group_id = a.group_id) AS seg_n FROM attendance at LEFT JOIN assignments a ON a.id = at.assignment_id
+      WHERE at.date BETWEEN ? AND ?`).all(from, to);
+  ctx.payRecordsBetween = payRecordsBetween;
+  // Tính lương cho đoạn [a, b] nằm trong kỳ "month". Đoạn ngắn hơn kỳ (báo cáo nhân sự): lương tháng, ngày công chuẩn
+  // và giờ vượt ghi tay chia theo tỉ lệ số ngày → giá 1 ngày / 1 giờ giữ nguyên như bảng lương, tối đa = lương tháng × số ngày / số ngày kỳ.
+  function periodRows(month, a, b, staff, records) {
+    const p = periodOf(month);
+    const f = Math.min(1, dayCount(a, b) / p.days);
+    const scaled = f === 1 ? staff : staff.map((s) => (s.pay_type === 'month' ? { ...s, pay_rate: s.pay_rate * f } : s));
+    const adjust = new Map(db.prepare('SELECT * FROM payroll_adjust WHERE month = ?').all(month)
+      .map((x) => [x.staff_id, f === 1 || x.ot_minutes == null ? x : { ...x, ot_minutes: Math.round(x.ot_minutes * f) }]));
+    const recs = records.filter((r) => r.date >= a && r.date <= b);
+    const rows = computeTimesheet(ctx.payRecords(recs), scaled, ctx.clock(), { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: num('month_standard_days', 26) * f, ruleStandardDays: p.std * f,
+      otDailyHours: num('ot_daily_hours', 8), otRate: num('ot_rate', 1), otRoundMinutes: num('ot_round_minutes', 30), adjust });
+    if (f !== 1) for (const row of rows) { const s = staff.find((x) => x.id === row.staff_id); row.pay_rate = s.pay_rate; row.std_days = p.std; }
+    return rows;
+  }
+  // Lương theo khoảng ngày bất kỳ (báo cáo nhân sự): cắt theo kỳ lương, mỗi đoạn dùng đúng quy tắc + mức lương của kỳ đó rồi cộng lại.
+  // records: truyền vào nếu cần (vd báo cáo tự đóng lượt chưa chấm ra); mặc định lấy từ bảng chấm công.
+  ctx.payrollRange = (from, to, records = payRecordsBetween(from, to)) => {
+    const out = new Map();
+    const SUM = ['minutes', 'night_minutes', 'shifts', 'days', 'pay', 'base_pay', 'ot_pay', 'ot_minutes', 'open_records'];
+    for (let d = from; d <= to;) {
+      const month = periodMonthOf(d);
+      const p = periodOf(month);
+      const b = p.to < to ? p.to : to;
+      for (const row of periodRows(month, d, b, payStaff(month), records)) {
+        const x = out.get(row.staff_id);
+        if (!x) { out.set(row.staff_id, { ...row }); continue; }
+        for (const k of SUM) x[k] = (x[k] || 0) + (row[k] || 0);
+        x.pay_type = row.pay_type; x.pay_rate = row.pay_rate;
+      }
+      d = addDays(b, 1);
+    }
+    for (const x of out.values()) x.days = Math.round(x.days * 100) / 100;
+    return [...out.values()];
+  };
+
   // ---------- Bảng công & lương tạm tính theo tháng ----------
   r.get('/api/timesheet', 'manager', ({ me, query }) => {
     ctx.autoCloseAttendance();
-    // Kỳ lương (chủ quán 27/10: khai trương 18/10 → kỳ 18 → 17 tháng sau). "month" = tháng bắt đầu kỳ
-    const sd = Math.min(28, Math.max(1, num('pay_period_start_day', 18)));
     const today0 = ctx.today();
-    const curStart = Number(today0.slice(8)) >= sd ? today0.slice(0, 7) : addDays(`${today0.slice(0, 7)}-01`, -1).slice(0, 7);
-    const month = query.get('month') || curStart;
+    const month = query.get('month') || periodMonthOf(today0);
     if (!/^\d{4}-\d{2}$/.test(month)) fail(400, 'Tháng không hợp lệ');
-    const from = `${month}-${String(sd).padStart(2, '0')}`;
-    const nextM = addDays(`${month}-01`, 32).slice(0, 7);
-    const to = addDays(`${nextM}-${String(sd).padStart(2, '0')}`, -1);
-    const clock = ctx.clock();
-    const KITCHEN = /bếp|bep|lẩu|lau|nướng|nuong|steak|topping|thái tay/i;
-    const tn = new Map(db.prepare('SELECT id, name FROM teams').all().map((x) => [x.id, x.name]));
-    // Quy tắc bếp (chủ quán 27/10): mặc định bộ phận bếp; chủ quán bật / tắt riêng từng người (staff.pay_rule: 1 bật, 0 tắt, NULL theo bộ phận)
-    const staff = db.prepare('SELECT s.id, s.name, s.pay_type, s.pay_rate, s.team_id, s.active, s.pay_rule, s.role, p.name AS position_name FROM staff s LEFT JOIN positions p ON p.id = s.position_id ORDER BY s.name').all()
-      .map((x) => { const h = ctx.payForMonth?.(x.id, month); return { ...x, ...(h ? { pay_type: h.pay_type, pay_rate: h.pay_rate } : {}), rule: x.pay_rule == null ? KITCHEN.test(tn.get(x.team_id) || '') : !!x.pay_rule }; }); // mức lương của đúng tháng đang xem
-    const records = db.prepare(`SELECT at.*, a.group_id AS group_key, (SELECT COUNT(*) FROM assignments g WHERE g.group_id = a.group_id) AS seg_n FROM attendance at LEFT JOIN assignments a ON a.id = at.assignment_id
-      WHERE at.date BETWEEN ? AND ?`).all(from, to);
-    const monthDays = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1; // số ngày của kỳ
+    const { from, to, days: monthDays, std: stdDays } = periodOf(month);
+    const sd = startDay();
+    const staff = payStaff(month);
     const paidOff = num('month_paid_off_days', 2);
-    const stdDays = Math.max(1, monthDays - paidOff); // chủ quán 27/10: làm đủ tháng, nghỉ 2 ngày vẫn đủ lương
     const otH = num('ot_daily_hours', 8), otRate = num('ot_rate', 1);
-    const rows = computeTimesheet(ctx.payRecords(records), staff, clock, { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: num('month_standard_days', 26), ruleStandardDays: stdDays, otDailyHours: otH, otRate, otRoundMinutes: num('ot_round_minutes', 30), adjust: new Map(db.prepare('SELECT * FROM payroll_adjust WHERE month = ?').all(month).map((x) => [x.staff_id, x])) });
+    const rows = periodRows(month, from, to, staff, payRecordsBetween(from, to));
     const stats = db.prepare(`SELECT staff_id, SUM(late_minutes > 0) AS late_count, SUM(late_minutes) AS late_minutes, SUM(auto_closed) AS auto_closed
       FROM attendance WHERE date BETWEEN ? AND ? GROUP BY staff_id`).all(from, to);
     const today = ctx.today();

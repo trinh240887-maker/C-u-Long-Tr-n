@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, DEFAULT_OWNER_PIN } from '../server/db.js';
 import { createApp } from '../server/app.js';
-import { makeClock } from '../server/lib/time.js';
+import { makeClock, addDays } from '../server/lib/time.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const clock = makeClock({ offset: '+07:00' });
@@ -115,4 +115,63 @@ test('năng suất nhân sự: lương/doanh thu theo giờ, giờ thừa ngư�
   assert.equal((await N('POST', '/api/attendance/clock-out', { lat: 10.7769, lng: 106.7009, acc: 10, confirm: true })).status, 200);
   await o('PUT', '/api/settings', { clock_ip_prefixes: net.ip, shop_lat: '', shop_lng: '' });
   assert.equal((await N('GET', '/api/attendance/network')).data.allowed, true);
+});
+
+test('báo cáo nhân sự: lương bếp lương tháng có vượt giờ = đúng số trong bảng lương (lịch sử lương, công theo khúc ca, giờ vượt ghi tay, kỳ 18 → 17)', async (t) => {
+  let now = at('2026-11-20', '10:00');
+  const db = openDb(':memory:', { now });
+  const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie;
+  const o = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const set = res.headers.get('set-cookie'); if (set) cookie = set.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  await o('PUT', '/api/settings', { ot_rate: '1.5' });
+  const bep = Number(db.prepare("INSERT INTO teams (name, sort, min_staff) VALUES ('Bếp', 0, 0)").run().lastInsertRowid);
+  const a = (await o('POST', '/api/staff', { name: 'Bếp A', team_id: bep, pin: '736401', pay_type: 'month', pay_rate: 8_000_000 })).data.id;
+  const b = (await o('POST', '/api/staff', { name: 'Bếp B', team_id: bep, pin: '736402', pay_type: 'month', pay_rate: 6_000_000 })).data.id;
+  // Lịch sử lương: kỳ tháng 10 (18/10–17/11) Bếp A còn 7 triệu, từ kỳ tháng 11 mới lên 8 triệu
+  db.prepare('DELETE FROM pay_history WHERE staff_id = ?').run(a);
+  db.prepare("INSERT INTO pay_history (staff_id, from_month, pay_type, pay_rate) VALUES (?, '2026-10', 'month', 7000000), (?, '2026-11', 'month', 8000000)").run(a, a);
+  // Kỳ 18/10–17/11 (31 ngày, chuẩn 29): làm 28 ngày, ca gãy 8–12 + 14–23 (13 giờ → vượt 5 giờ / ngày); chấm vào sớm / ra muộn không tính
+  const addA = db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES (?, ?, ?, ?, ?, ?, 0)');
+  const addAtt = db.prepare('INSERT INTO attendance (staff_id, date, clock_in, clock_out, assignment_id) VALUES (?, ?, ?, ?, ?)');
+  for (let k = 0; k < 28; k++) {
+    const d = addDays('2026-10-18', k);
+    for (const id of [a, b]) {
+      const g = `g${id}-${d}`;
+      const s1 = Number(addA.run(g, id, bep, d, 480, 720).lastInsertRowid);
+      const s2 = Number(addA.run(g, id, bep, d, 840, 1380).lastInsertRowid);
+      addAtt.run(id, d, at(d, '07:50'), at(d, '12:00'), s1);
+      addAtt.run(id, d, at(d, '14:00'), at(d, '23:10'), s2);
+    }
+  }
+  // Bếp B: chủ quán ghi tay 10 giờ vượt cho cả kỳ
+  assert.equal((await o('PUT', '/api/timesheet/adjust', { month: '2026-10', staff_id: b, ot_hours: 10 })).status, 200);
+
+  const ts = (await o('GET', '/api/timesheet?month=2026-10')).data;
+  assert.equal(ts.from, '2026-10-18');
+  assert.equal(ts.to, '2026-11-17');
+  const tA = ts.rows.find((r) => r.staff_id === a);
+  const tB = ts.rows.find((r) => r.staff_id === b);
+  assert.equal(tA.base_pay, Math.round(7_000_000 * 28 / 29 / 1000) * 1000);
+  assert.equal(tA.ot_minutes, 28 * 5 * 60);
+  assert.ok(tA.ot_pay > 0);
+  assert.equal(tB.ot_minutes, 600);
+
+  // Khoảng xem = đúng kỳ lương → lương mỗi người & tổng lương khớp bảng lương
+  const x = (await o('GET', '/api/reports/labor?from=2026-10-18&to=2026-11-17')).data;
+  assert.equal(x.people.find((p) => p.id === a).cost, tA.pay);
+  assert.equal(x.people.find((p) => p.id === b).cost, tB.pay);
+  assert.equal(x.summary.labor_cost, tA.pay + tB.pay);
+
+  // Khoảng 1 tuần (18–24/10, đi đủ 7 ngày): lương tháng chia theo số ngày, giá giờ vượt giữ nguyên như bảng lương
+  const w = (await o('GET', '/api/reports/labor?from=2026-10-18&to=2026-10-24')).data;
+  const k1 = (n) => Math.round(n / 1000) * 1000;
+  assert.equal(w.people.find((p) => p.id === a).cost, k1(7_000_000 * 7 / 31) + k1(7 * 5 * (7_000_000 / (29 * 8)) * 1.5));
+  // Giờ vượt ghi tay cũng chia theo số ngày (10 giờ × 7/31)
+  assert.equal(w.people.find((p) => p.id === b).cost, k1(6_000_000 * 7 / 31) + k1((Math.round(600 * 7 / 31) / 60) * (6_000_000 / (29 * 8)) * 1.5));
 });
