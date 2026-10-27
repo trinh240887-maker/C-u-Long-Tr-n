@@ -815,3 +815,7 @@ table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align
 .zt-team.tt { background: #fff3e0; color: #e65100; }
 .zt-note { color: #4a3500; background: #fff8e1; border: 1px solid #ffe082; border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
 .zt-list li .zt-item { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+button.zt-sel { min-height: 36px; padding: 4px 10px; font-size: 14px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pp-list { display: flex; flex-direction: column; gap: 4px; max-height: 55vh; overflow-y: auto; }
+.pp-row { display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 10px 12px; min-height: 48px; }
+.pp-row.on { border-color: var(--accent, #c2410c); background: var(--accent-soft, #fde7d8); }
