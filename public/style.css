@@ -808,3 +808,8 @@ table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align
 .zt-sel { font-size: 13px; padding: 2px 4px; max-width: 46%; min-height: 32px; }
 .zt-photo { display: flex; flex-direction: column; gap: 6px; }
 .zt-list li .grow { flex: 1; min-width: 0; }
+.zt-item { background: none; border: 0; padding: 4px 0; text-align: left; font: inherit; color: inherit; min-height: 0; cursor: pointer; }
+.job-guide summary { cursor: pointer; font-weight: 600; }
+.zt-team { font-size: 11px; font-weight: 600; padding: 0 5px; border-radius: 6px; }
+.zt-team.pv { background: #e3f2fd; color: #0d47a1; }
+.zt-team.tt { background: #fff3e0; color: #e65100; }

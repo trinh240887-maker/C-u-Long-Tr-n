@@ -25,6 +25,14 @@ function Countdown({ due, now }) {
 function JobCard({ j, now, mine }) {
   const [busy, setBusy] = useState(false);
   const [cnt, setCnt] = useState('');
+  const [shots, setShots] = useState([]); // ảnh đã chụp (việc phải chụp nhiều góc)
+  const need = j.photos_needed || (j.photo_required ? 1 : 0);
+  const addShot = async (e) => { const data = await pick(e); if (data) setShots((x) => [...x, data]); };
+  const doneMany = async () => {
+    if (j.expect && cnt === '') { alert(`Nhập số thực tế trước (phải đủ ${j.expect})`); return; }
+    setBusy(true);
+    try { await act(() => api('POST', `/api/jobs/${j.id}/done`, { photos: shots, ...(j.expect ? { count: cnt } : {}) }), 'Đã báo xong').then((r) => { if (r) setShots([]); if (r?.late) alert('Việc này trễ so với thời gian quy định, đã ghi lại.'); }); } finally { setBusy(false); }
+  };
   const done = async (e) => {
     if (j.expect && cnt === '') { alert(`Nhập số thực tế trước (phải đủ ${j.expect})`); if (e) e.target.value = ''; return; }
     const data = e ? await pick(e) : null;
@@ -39,6 +47,11 @@ function JobCard({ j, now, mine }) {
   return html`<div class=${`card tight stack job ${j.overdue ? 'bad' : ''}`}>
     <div class="row"><b class="grow">${j.title}${j.qty ? html` · <span class="muted">${j.qty}</span>` : ''}</b><span class=${`pill ${cls}`}>${j.redo_count && j.status === 'doing' ? 'Làm lại' : label}</span></div>
     <small class="muted">${j.zone_name || ''}${j.minutes ? ` · chuẩn ${j.minutes} phút` : ''}${j.template_title ? ` · ${j.template_title}` : ''}${j.claimed_at ? ` · nhận ${hm(j.claimed_at)}` : ''}${j.done_at ? ` · xong ${hm(j.done_at)} (${j.minutes_used}′)` : ''}</small>
+    ${j.deadline ? html`<small class=${j.status !== 'ok' && j.status !== 'done' && hmMin(new Date(now).getHours() * 60 + new Date(now).getMinutes()) > j.deadline ? 'warn-text' : ''}>🕐 Phải xong trước <b>${j.deadline}</b></small>` : null}
+    ${j.guide || j.samples?.length ? html`<details class="job-guide" open=${mine && j.status !== 'ok'}><summary>📖 Hướng dẫn${j.samples?.length ? ` · ${j.samples.length} ảnh mẫu` : ''}</summary>
+      ${j.guide ? html`<p class="small" style="white-space:pre-line">${j.guide}</p>` : null}
+      ${j.samples?.length ? html`<div class="row wrap">${j.samples.map((id) => html`<a href=${`/api/checklist-samples/${id}`} target="_blank"><img class="job-photo" src=${`/api/checklist-samples/${id}`} /></a>`)}</div>` : null}
+    </details>` : null}
     ${j.with_title ? html`<small class="muted">↳ làm sau: ${j.with_title}</small>` : null}
     ${j.fetch_where ? html`<small>📦 Hết thì lấy ở: <b>${j.fetch_where}</b></small>` : null}
     ${j.check_note && j.status === 'doing' ? html`<small class="warn-text">↩ ${j.checked_by_name}: ${j.check_note}</small>` : null}
@@ -47,7 +60,12 @@ function JobCard({ j, now, mine }) {
     ${j.count != null ? html`<small class=${j.short ? 'warn-text' : 'muted'}>Đếm: ${j.count}/${j.expect}${j.short ? ` · thiếu ${j.short} (đền)` : ''}</small>` : null}
     ${mine ? html`<div class="row wrap">
       ${j.status === 'todo' ? html`<button class="primary big grow" onClick=${() => act(() => api('POST', `/api/jobs/${j.id}/claim`), 'Đã nhận, bắt đầu tính giờ')}>✋ Nhận việc</button>` : null}
-      ${j.status === 'doing' ? (j.photo_required
+      ${j.status === 'doing' && need > 1 ? html`<div class="stack tight grow">
+        ${shots.length ? html`<div class="row wrap">${shots.map((x, k) => html`<img class="job-photo" src=${x} onClick=${() => confirm('Bỏ ảnh này?') && setShots(shots.filter((_, i) => i !== k))} />`)}</div>` : null}
+        ${shots.length < need ? html`<label class="button primary big">📷 Chụp ảnh rộng ${shots.length + 1}/${need}<input type="file" accept="image/*" capture="environment" hidden onChange=${addShot} /></label>`
+          : html`<button class="primary big" disabled=${busy} onClick=${doneMany}>${busy ? 'Đang gửi…' : `✅ Báo xong (${shots.length} ảnh)`}</button>`}
+        ${shots.length >= need ? html`<label class="button small">📷 Chụp thêm<input type="file" accept="image/*" capture="environment" hidden onChange=${addShot} /></label>` : null}
+      </div>` : j.status === 'doing' ? (j.photo_required
         ? html`<label class=${`button primary big grow ${busy ? 'muted' : ''}`}>📷 ${busy ? 'Đang gửi…' : 'Chụp ảnh & báo xong'}<input type="file" accept="image/*" capture="environment" hidden onChange=${done} /></label>`
         : html`<button class="primary big grow" disabled=${busy} onClick=${() => done()}>✅ Xong</button>`) : null}
       ${['todo', 'doing'].includes(j.status) ? html`<button onClick=${() => act(() => api('POST', `/api/jobs/${j.id}/out`, {}), 'Đã báo tổ trưởng')}>Hết đồ</button>` : null}
@@ -87,7 +105,7 @@ function ZoneBoard({ t, z, now, today = true }) {
         ${j.count != null ? html`<span class=${`pill ${j.short ? 'bad' : 'ok'}`}>${j.count}/${j.expect}${j.short ? ` thiếu ${j.short}` : ''}</span>` : null}
         ${j.late ? html`<span class="pill bad">trễ</span>` : null}${j.redo_count ? html`<span class="pill warn">làm lại ${j.redo_count}</span>` : null}
       </div>
-      ${j.has_photo ? html`<a href=${`/api/jobs/${j.id}/photo`} target="_blank"><img class="job-photo" src=${`/api/jobs/${j.id}/photo`} /></a>` : null}
+      ${j.has_photo ? html`<a href=${`/api/jobs/${j.id}/photo`} target="_blank"><img class="job-photo" src=${`/api/jobs/${j.id}/photo`} /></a>` : null}${(j.extra_photos || []).map((id) => html`<a href=${`/api/jobs/photo-extra/${id}`} target="_blank"><img class="job-photo" src=${`/api/jobs/photo-extra/${id}`} /></a>`)}
       ${z.can_check && j.status === 'done' ? html`<div class="row"><input class="grow" placeholder="Lý do nếu làm lại" value=${note[j.id] || ''} onInput=${(e) => setNote({ ...note, [j.id]: e.target.value })} />
         <button onClick=${() => act(() => api('POST', `/api/jobs/${j.id}/check`, { ok: false, note: note[j.id] || '' }), 'Đã trả lại')}>↩ Làm lại</button>
         <button class="primary" onClick=${() => act(() => api('POST', `/api/jobs/${j.id}/check`, { ok: true }), 'Đạt')}>✅ Đạt</button></div>` : null}

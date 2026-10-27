@@ -52,7 +52,10 @@ export default function (r, ctx) {
   addCol('checklist_items', 'job_per_table', 'REAL NOT NULL DEFAULT 0');      // số lượng theo số bàn của khu (vd 1 bếp ga / bàn)
   addCol('checklist_items', 'fetch_where', "TEXT NOT NULL DEFAULT ''");
   addCol('checklist_items', 'job_with', 'INTEGER NOT NULL DEFAULT 0');        // đi kèm việc khác: giao cho đúng người làm việc đó (vd lau chén → giặt khăn lau chén)
-  addCol('checklist_items', 'job_zone_id', 'INTEGER');                       // việc riêng của 1 khu (chủ quán 27/10); trống = khu nào cũng làm
+  addCol('checklist_items', 'job_zone_id', 'INTEGER');
+  addCol('checklist_items', 'job_guide', "TEXT NOT NULL DEFAULT ''");          // hướng dẫn cách làm (chủ quán 27/10)
+  addCol('checklist_items', 'job_deadline', 'INTEGER');                       // phải xong trước (phút trong ngày), vd 14:30 = 870
+  addCol('checklist_items', 'job_photos', 'INTEGER NOT NULL DEFAULT 0');      // số ảnh rộng phải chụp khi xong (0 = theo photo_required)                       // việc riêng của 1 khu (chủ quán 27/10); trống = khu nào cũng làm
   addCol('checklist_items', 'job_expect', 'INTEGER NOT NULL DEFAULT 0');      // số phải đủ khi xong (vd 2 khăn); thiếu → ghi vào tên người làm       // hết đồ thì lấy ở đâu
   const hadMoCa = !!ctx.setting('mo_ca_pv_v1'); // DB đang chạy thật (đã qua bản 26/10) — DB mới tạo thì không ẩn gì
   // Chủ quán 26/10: 12 việc mở ca chung Phục vụ + Tiếp thực (14:00–15:30), giao từng người; làm 1 lần
@@ -286,6 +289,27 @@ export default function (r, ctx) {
     return { id };
   });
 
+  // Sửa 1 việc ngay trên màn checklist: tên, hướng dẫn, số phút, phải xong trước, số ảnh phải chụp
+  r.patch('/api/checklist-items/:id', 'team_lead', ({ me, params, body }) => {
+    const it = db.prepare('SELECT i.*, t.team_id FROM checklist_items i JOIN checklist_templates t ON t.id = i.template_id WHERE i.id = ?').get(params.id);
+    if (!it) fail(404, 'Không tìm thấy việc');
+    canEditTpl(me, it.team_id);
+    const text = body.text === undefined ? it.text : v.text(body.text, { name: 'Tên việc', required: true, max: 120 });
+    const guide = body.job_guide === undefined ? it.job_guide : v.text(body.job_guide, { name: 'Hướng dẫn', max: 1000 });
+    const minutes = body.job_minutes === undefined ? it.job_minutes : (body.job_minutes === '' || body.job_minutes === null ? 0 : v.int(body.job_minutes, { min: 0, max: 600, name: 'Số phút' }));
+    let deadline = it.job_deadline;
+    if (body.job_deadline !== undefined) {
+      if (body.job_deadline === '' || body.job_deadline === null) deadline = null;
+      else { const m = /^(\d{1,2}):(\d{2})$/.exec(String(body.job_deadline)); if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) fail(400, 'Giờ phải xong không hợp lệ (vd 14:30)'); deadline = Number(m[1]) * 60 + Number(m[2]); }
+    }
+    const photos = body.job_photos === undefined ? it.job_photos : v.int(body.job_photos || 0, { min: 0, max: 6, name: 'Số ảnh' });
+    const photoReq = photos > 0 ? 1 : body.photo_required === undefined ? it.photo_required : (v.bool(body.photo_required) ? 1 : 0);
+    db.prepare('UPDATE checklist_items SET text = ?, job_guide = ?, job_minutes = ?, job_deadline = ?, job_photos = ?, photo_required = ? WHERE id = ?').run(text, guide, minutes, deadline, photos, photoReq, it.id);
+    ctx.audit(me, 'checklist.item_edit', { id: it.id, text });
+    ctx.broadcast('checklists');
+    return { ok: true };
+  });
+
   // Xoá 1 việc ngay trên màn checklist (việc theo khu ở Mở ca phục vụ)
   r.post('/api/checklist-items/:id/delete', 'team_lead', ({ me, params }) => {
     const it = db.prepare('SELECT i.*, t.team_id FROM checklist_items i JOIN checklist_templates t ON t.id = i.template_id WHERE i.id = ?').get(params.id);
@@ -398,7 +422,8 @@ export default function (r, ctx) {
       let total = 0, done = 0;
       try { const c = db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN status IN ('done','ok') THEN 1 ELSE 0 END) AS d FROM jobs WHERE date = ? AND template_id = ?").get(date, t.id); total = c.n; done = c.d || 0; } catch { /* chưa có bảng jobs */ }
       return { template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t), items: t.items.length, total, done,
-        item_list: t.items.map((i) => ({ id: i.id, text: i.text, job_scope: i.job_scope, job_zone_id: i.job_zone_id ?? null })), opening_tpl: zoneTpl(t),
+        item_list: t.items.map((i) => ({ id: i.id, text: i.text, job_scope: i.job_scope, job_zone_id: i.job_zone_id ?? null, job_guide: i.job_guide || '', job_minutes: i.job_minutes || 0,
+          job_deadline: i.job_deadline ?? null, job_photos: i.job_photos || 0, photo_required: !!i.photo_required, samples: (i.samples || []).map((x) => x.id) })), opening_tpl: zoneTpl(t),
         zone_photo: /đầu ca phục vụ/i.test(t.title), // trưởng ca chụp ảnh từng khu (chủ quán 27/10)
         job_rows: zoneTpl(t) ? jobRowsOf(date, t.id).map((j) => ({ id: j.id, item_id: j.item_id, zone_id: j.zone_id, staff_id: j.staff_id, staff_name: nameOf(j.staff_id), status: j.status })) : [],
         photos: zoneTpl(t) ? zonePhotosOf(date, t.id).map((x) => ({ id: x.id, zone_id: x.zone_id, at: x.at, staff_name: nameOf(x.staff_id) })) : [] };
@@ -535,7 +560,7 @@ export default function (r, ctx) {
     if (buf.length < 500) fail(400, 'Ảnh không hợp lệ');
     if (buf.length > 1_500_000) fail(413, 'Ảnh quá lớn, chụp lại giúp');
     const n = db.prepare(`SELECT COUNT(*) AS n FROM checklist_samples WHERE template_id = ? AND ${itemId ? 'item_id = ?' : 'item_id IS NULL'}`).get(...(itemId ? [t.id, itemId] : [t.id])).n;
-    if (n >= (itemId ? 3 : 6)) fail(400, itemId ? 'Tối đa 3 ảnh mẫu cho mỗi việc' : 'Tối đa 6 ảnh mẫu cho mỗi checklist');
+    if (n >= 6) fail(400, itemId ? 'Tối đa 6 ảnh mẫu cho mỗi việc' : 'Tối đa 6 ảnh mẫu cho mỗi checklist');
     const file = `${t.id}-${itemId || 0}-${crypto.randomBytes(6).toString('hex')}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
     fs.mkdirSync(sampleDir, { recursive: true });
     fs.writeFileSync(path.join(sampleDir, file), buf);

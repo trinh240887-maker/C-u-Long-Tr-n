@@ -46,6 +46,8 @@ export default function (r, ctx) {
   );
   CREATE TABLE IF NOT EXISTS job_checkers (date TEXT NOT NULL, zone_id INTEGER NOT NULL, staff_id INTEGER NOT NULL, PRIMARY KEY (date, zone_id));`);
 
+  if (!db.prepare('PRAGMA table_info(jobs)').all().some((c) => c.name === 'deadline_alerted')) db.exec('ALTER TABLE jobs ADD COLUMN deadline_alerted INTEGER NOT NULL DEFAULT 0');
+  db.exec('CREATE TABLE IF NOT EXISTS job_photos (id INTEGER PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, file TEXT NOT NULL, at INTEGER NOT NULL)'); // ảnh thêm khi xong (nhiều góc)
   if (oldJobs) db.exec(`INSERT INTO jobs (${JOB_COLS}) SELECT ${JOB_COLS} FROM jobs_old; DROP TABLE jobs_old`);
   const K = (itemId, zoneId, ownerId) => `${itemId}:${zoneId}:${ownerId || 0}`;
 
@@ -205,6 +207,9 @@ export default function (r, ctx) {
       staff_id: j.staff_id, staff_name: name(j.staff_id), staff_role: j.staff_id ? db.prepare('SELECT role FROM staff WHERE id = ?').get(j.staff_id)?.role || '' : '', status: j.status, claimed_at: j.claimed_at, due_at: j.due_at, done_at: j.done_at,
       minutes_used: j.minutes_used, late: !!j.late, redo_count: j.redo_count, has_photo: !!j.photo, checked_by_name: name(j.checked_by), check_note: j.check_note,
       overdue: j.status === 'doing' && j.due_at && j.due_at < ctx.now(),
+      guide: it.job_guide || '', deadline: it.job_deadline != null ? hhmm(it.job_deadline) : '', photos_needed: it.job_photos || (it.photo_required ? 1 : 0),
+      samples: it.id ? db.prepare('SELECT id FROM checklist_samples WHERE item_id = ? ORDER BY id').all(it.id).map((x) => x.id) : [],
+      extra_photos: db.prepare('SELECT id FROM job_photos WHERE job_id = ? ORDER BY id').all(j.id).map((x) => x.id),
       own: !!j.owner_id, with_title: it.job_with ? (t?.items.find((i) => i.id === it.job_with)?.text || '') : '', expect: it.job_expect || 0, count: j.count, short: j.short || 0,
     };
   }
@@ -333,8 +338,13 @@ export default function (r, ctx) {
     if (j.staff_id !== me.id) fail(403, 'Đây không phải việc của bạn');
     if (j.status !== 'doing') fail(409, j.status === 'todo' ? 'Bấm Nhận trước khi làm' : 'Việc đã báo xong');
     const it = itemOf(j);
-    const photo = body.data ? savePhoto(body.data, `j${j.id}`) : null;
-    if (it.photo_required && !photo) fail(400, 'Việc này phải chụp ảnh khi xong');
+    // Nhiều ảnh (chụp rộng các góc): body.photos = [data,…]; cũ: body.data = 1 ảnh
+    const list = Array.isArray(body.photos) ? body.photos.filter(Boolean).slice(0, 6) : body.data ? [body.data] : [];
+    const need = it.job_photos || (it.photo_required ? 1 : 0);
+    if (list.length < need) fail(400, need > 1 ? `Việc này phải chụp đủ ${need} ảnh (đang có ${list.length})` : 'Việc này phải chụp ảnh khi xong');
+    const files = list.map((d, k) => savePhoto(d, `j${j.id}-${k}`));
+    const photo = files[0] || null;
+    if (files.length > 1) { db.prepare('DELETE FROM job_photos WHERE job_id = ?').run(j.id); for (const f of files.slice(1)) db.prepare('INSERT INTO job_photos (job_id, file, at) VALUES (?, ?, ?)').run(j.id, f, ctx.now()); }
     // Việc có số phải đủ (vd giặt 2 khăn): nhập số thực tế, thiếu → ghi vào tên người làm (đền)
     let count = null, short = 0;
     if (it.job_expect) {
@@ -426,6 +436,7 @@ export default function (r, ctx) {
   });
 
   r.get('/api/jobs/:id/photo', 'staff', ({ params }) => sendPhoto(getJob(params.id).photo));
+  r.get('/api/jobs/photo-extra/:id', 'staff', ({ params }) => sendPhoto(db.prepare('SELECT file FROM job_photos WHERE id = ?').get(params.id)?.file));
 
   // Ảnh tổng khu (người kiểm tra chụp 1 lần khi khu xong)
   r.post('/api/jobs/zone-photo', 'staff', ({ me, body }) => {
@@ -482,6 +493,12 @@ export default function (r, ctx) {
       if (j.status === 'doing' && j.due_at && now > j.due_at && !j.alerted) {
         db.prepare('UPDATE jobs SET alerted = 1, late = 1 WHERE id = ?').run(j.id);
         ctx.notify([...new Set([j.staff_id, ...checkerOf(date, j.zone_id)])].filter(Boolean), { title: `⏰ Quá giờ: ${it.text}`, body: `${name(j.staff_id)} · ${zoneLabel(j.zone_id)} · chuẩn ${it.job_minutes} phút`, link: '/viec-ca?tab=khu', urgent: true });
+        continue;
+      }
+      // Quá giờ phải xong (vd 14:30) mà chưa xong → báo người làm + người kiểm tra khu (1 lần)
+      if (it.job_deadline != null && nowMin >= it.job_deadline && !j.deadline_alerted) {
+        db.prepare('UPDATE jobs SET deadline_alerted = 1, late = 1 WHERE id = ?').run(j.id);
+        ctx.notify([...new Set([j.staff_id, ...checkerOf(date, j.zone_id)])].filter(Boolean), { title: `⏰ Quá ${hhmm(it.job_deadline)} chưa xong: ${it.text}`, body: `${j.staff_id ? name(j.staff_id) : 'Chưa ai nhận'} · ${zoneLabel(j.zone_id)}`, link: '/viec-ca?tab=khu', urgent: true });
         continue;
       }
       if (j.status !== 'todo' || j.nudged) continue;

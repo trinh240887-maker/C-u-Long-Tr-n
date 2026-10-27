@@ -82,3 +82,44 @@ test('Đầu ca khăn + nón theo khu: thẻ có ảnh từng khu, giao người
   assert.ok(owners.length);
   void sent;
 });
+
+test('Sửa việc: hướng dẫn, số phút, phải xong trước, số ảnh; Xong phải đủ ảnh; quá giờ phải xong → báo', async (t) => {
+  let now = Date.parse('2026-10-27T13:50:00+07:00');
+  const db = openDb(':memory:', { now });
+  const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const mk = () => { let cookie = ''; return async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; }; };
+  const O = mk();
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const tpl = db.prepare("SELECT id FROM checklist_templates WHERE title LIKE 'Mở ca phục vụ%' AND active = 1").get().id;
+  const za = db.prepare('SELECT id FROM zones WHERE active = 1 ORDER BY sort, id').get().id;
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const a = (await O('POST', '/api/staff', { name: 'Phát', team_id: pv, pin: '5841', phone: '0900000041' })).data.id;
+  const today = app.ctx.today();
+  db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at, zone_id) VALUES (?, ?, ?, ?, 840, 1380, 0, ?)').run('ga', a, pv, today, za);
+  const it = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Lau bàn ghế', zone_id: za })).data.id;
+  assert.equal((await O('PATCH', `/api/checklist-items/${it}`, { job_guide: 'Khăn xanh + cồn', job_minutes: 15, job_deadline: '14:30', job_photos: 2 })).status, 200);
+  assert.equal((await O('PATCH', `/api/checklist-items/${it}`, { job_deadline: '25:00' })).status, 400);
+  const row = db.prepare('SELECT * FROM checklist_items WHERE id = ?').get(it);
+  assert.equal(row.job_guide, 'Khăn xanh + cồn'); assert.equal(row.job_minutes, 15); assert.equal(row.job_deadline, 870); assert.equal(row.job_photos, 2); assert.equal(row.photo_required, 1);
+  const card = (await O('GET', '/api/checklists')).data.jobs.find((j) => j.template_id === tpl);
+  const job = card.job_rows.find((j) => j.item_id === it);
+  await O('PATCH', `/api/jobs/${job.id}`, { staff_id: a });
+  const S = mk();
+  const lg = await S('POST', '/api/login', { pin: '5841', phone: '0900000041' });
+  assert.equal(lg.status, 200, JSON.stringify(lg.data));
+  const mine = (await S('GET', '/api/jobs/mine')).data.mine.find((j) => j.id === job.id);
+  assert.equal(mine.guide, 'Khăn xanh + cồn'); assert.equal(mine.deadline, '14:30'); assert.equal(mine.photos_needed, 2);
+  assert.equal((await S('POST', `/api/jobs/${job.id}/claim`)).status, 200);
+  const img = 'data:image/jpeg;base64,' + Buffer.alloc(800, 7).toString('base64');
+  assert.equal((await S('POST', `/api/jobs/${job.id}/done`, { photos: [img] })).status, 400); // thiếu ảnh
+  now = Date.parse('2026-10-27T14:31:00+07:00');
+  app.ctx.jobsTick(); app.ctx.jobsTick(); // lần 1 báo quá số phút, lần 2 báo quá giờ phải xong
+  assert.ok(db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE title LIKE '%Quá 14:30%'").get().n > 0);
+  const ok = await S('POST', `/api/jobs/${job.id}/done`, { photos: [img, img] });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM job_photos WHERE job_id = ?').get(job.id).n, 1);
+});
