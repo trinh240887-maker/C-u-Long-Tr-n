@@ -149,7 +149,7 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = ''
           && publishTeam(d.week_start, g)}>✅ Duyệt ${g.name}</button>` : null}</div>
       <div class="wk-wrap"><table class="wk">
         <thead><tr><th class="wk-name">Tên</th>${d.days.map((x) => html`<th>${dayLabel(x).split(' ')[0]}<br /><small>${x.slice(8)}/${x.slice(5, 7)}</small><br /><b class="wk-n">${g.people.filter((p) => shiftOf(p.id, x).length).length}</b></th>`)}</tr></thead>
-        <tbody>${g.people.map((p, i) => { return html`${zoneHead(g, i)}<tr><td class=${`wk-name ${kind && canManage ? 'tap' : ''}`} onClick=${() => kind && canManage && setFix(p)}><b>${p.name}</b>${kind && canManage ? html` <small class="muted">✎</small>` : null}${staffTags(p)}
+        <tbody>${g.people.map((p, i) => { return html`${zoneHead(g, i)}<tr><td class=${`wk-name ${canManage ? 'tap' : ''}`} onClick=${() => canManage && setFix(p)}><b>${p.name}</b>${canManage ? html` <small class="muted">✎</small>` : null}${staffTags(p)}
 </td>
           ${d.days.map((x) => {
             const sh = shiftOf(p.id, x);
@@ -427,7 +427,7 @@ function Overview({ me, week, onWeek }) {
       return html`<div class="chips"><button class=${`chip ${!kind ? 'on' : ''}`} onClick=${() => setKind('')}>Tất cả (${all.length})</button>
         <button class=${`chip ${kind === 'full' ? 'on' : ''}`} onClick=${() => setKind('full')}>🔒 Ca full cố định (${nf})</button>
         <button class=${`chip ${kind === 'part' ? 'on' : ''}`} onClick=${() => setKind('part')}>⏱ Part-time (${all.length - nf})</button></div>
-        ${kind && canManage ? html`<p class="small muted">Bấm <b>tên</b> để đưa vào / bỏ khỏi lịch cố định và chọn khu cố định.</p>` : null}`; })()}
+        ${canManage ? html`<p class="small muted">Bấm <b>tên</b> để đưa vào / bỏ khỏi lịch cố định và chọn khu cố định.</p>` : null}`; })()}
     <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} kind=${kind} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />
     <details class="card"><summary><b>Chưa báo lịch rảnh (${missing.length})</b> <small class="muted">hạn ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} ${d.deadline.time}</small></summary>
       <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}
