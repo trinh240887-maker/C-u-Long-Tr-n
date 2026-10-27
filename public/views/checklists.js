@@ -259,9 +259,9 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
     if (!confirm(`Chép ${items.filter((i) => i.job_zone_id === z.id).length} việc của ${z.name} sang ${others.map((x) => x.name).join(', ')}?\nViệc trùng tên đã có thì bỏ qua. Chép cả hướng dẫn, thời gian, ảnh mẫu. Việc nào không hợp anh xoá riêng ở từng khu.`)) return;
     act(() => api('POST', `/api/checklist-templates/${r.template_id}/copy-zone`, { from: z.id, to: others.map((x) => x.id) })).then((res) => res && toast(`Đã chép ${res.copied} việc`));
   };
-  const editNote = () => { const n = prompt('Lưu ý chung cho mọi người (mỗi dòng 1 ý):', r.note || ''); if (n !== null) act(() => api('PUT', `/api/checklist-templates/${r.template_id}/note`, { note: n }), 'Đã lưu lưu ý'); };
+  const editNote = () => { const n = prompt('Lưu ý chung cho mọi người (mỗi dòng 1 ý):', r.note || ''); if (n !== null) act(() => api('PUT', `/api/checklist-templates/${r.note_tpl || r.template_id}/note`, { note: n }), 'Đã lưu lưu ý'); };
   return html`<div class="stack zt">
-    ${r.note || canEdit ? html`<div class="zt-note"><b>📌 Lưu ý chung</b>${r.note ? html`<span style="white-space:pre-line">${r.note}</span>` : html`<small class="muted">Chưa có (vd giờ ăn cơm).</small>`}
+    ${r.note || canEdit ? html`<div class="zt-note"><b>📌 Lưu ý chung</b> <small class="muted">(dùng chung Mở ca + Đóng ca)</small>${r.note ? html`<span style="white-space:pre-line">${r.note}</span>` : html`<small class="muted">Chưa có (vd giờ ăn cơm).</small>`}
       ${canEdit ? html`<button class="link small" onClick=${editNote}>✎ Sửa lưu ý</button>` : null}</div>` : null}
     <p class="small"><b>👥 Khung ${o?.from || '14h'}–${o?.to || '15h30'}: ${people.length} người</b> (Phục vụ ${people.filter((x) => !/tiếp thực|tiep thuc/i.test(x.team || '')).length} · Tiếp thực ${people.filter((x) => /tiếp thực|tiep thuc/i.test(x.team || '')).length})${o?.total ? html` · đã chấm vào ${o.clocked}/${o.total}` : ''}</p>
     ${zones.map((z) => { const ps = people.filter((x) => x.zone_id === z.id); const own = items.filter((i) => i.job_zone_id === z.id); return html`<div class="zt-zone">

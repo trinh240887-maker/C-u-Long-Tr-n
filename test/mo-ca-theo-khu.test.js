@@ -315,3 +315,28 @@ test('Đóng ca phục vụ theo khu: thẻ có nhân sự giờ cuối (ngườ
   assert.equal(card.win.from, '22h'); assert.equal(card.win.to, '23h');
   assert.deepEqual(card.win.people.map((x) => x.name), ['Về muộn']);
 });
+
+test('Đóng ca: lưu ý chung lấy từ Mở ca; khung 14h của đóng ca bị bỏ', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app0 = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  app0.close();
+  const pv0 = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const cid = Number(db.prepare("INSERT INTO checklist_templates (team_id, phase, title, sort, active, job_mode, job_from, job_to) VALUES (?, 'close', 'Đóng ca phục vụ', 0, 1, 1, 840, 930)").run(pv0).lastInsertRowid);
+  db.prepare("DELETE FROM settings WHERE key = 'dong_ca_win_v1'").run();
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const close = db.prepare('SELECT * FROM checklist_templates WHERE id = ?').get(cid);
+  assert.equal(close.job_from, null);
+  const mo = db.prepare("SELECT id FROM checklist_templates WHERE title LIKE 'Mở ca phục vụ%' AND active = 1").get().id;
+  await O('PUT', `/api/checklist-templates/${mo}/note`, { note: 'Ăn cơm 15h35–15h55' });
+  const day = (await O('GET', '/api/checklists')).data;
+  const c = day.jobs.find((j) => j.template_id === close.id);
+  assert.equal(c.note, 'Ăn cơm 15h35–15h55');
+  assert.equal(c.note_tpl, mo);
+});

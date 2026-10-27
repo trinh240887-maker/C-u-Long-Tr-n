@@ -171,6 +171,11 @@ export default function (r, ctx) {
     try { db.prepare("DELETE FROM jobs WHERE status = 'todo' AND template_id IN (SELECT id FROM checklist_templates WHERE title = 'Đầu ca Phục vụ: khăn + nón')").run(); } catch { /* chưa có bảng jobs */ }
     ctx.setSetting('dau_ca_off_v1', '1');
   }
+  // Chủ quán 27/10: Đóng ca phục vụ bị đặt khung 14:00–15:30 của mở ca → bỏ khung (đóng ca = người ở lại giờ cuối)
+  if (!ctx.setting('dong_ca_win_v1')) {
+    db.prepare("UPDATE checklist_templates SET job_from = NULL, job_to = NULL WHERE phase = 'close' AND job_from IS NOT NULL AND job_from < 1020 AND title LIKE '%óng ca%'").run();
+    ctx.setSetting('dong_ca_win_v1', '1');
+  }
   const PV_TT = 'Phục vụ & Tiếp thực'; // chủ quán 27/10: gom Phục vụ + Tiếp thực làm 1 mục
   const sectionOf = (t) => {
     if (t.section) return /^(phục vụ|tiếp thực)$/i.test(t.section.trim()) ? PV_TT : t.section;
@@ -499,6 +504,8 @@ export default function (r, ctx) {
   const poolOf = () => db.prepare(`SELECT s.id, s.name, s.gender, s.role, s.home_zone_id, COALESCE(t.name, '') AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id
     WHERE s.active = 1 AND s.role != 'owner' ORDER BY s.name`).all().filter((x) => /phục vụ|phuc vu|tiếp thực|tiep thuc/i.test(x.team_name.normalize('NFC')) || x.home_zone_id)
     .map((x) => ({ id: x.id, name: x.name, gender: x.gender || '', role: x.role, team_name: x.team_name, home_zone_id: x.home_zone_id ?? null }));
+  // Lưu ý chung (vd giờ ăn cơm) dùng chung cho Mở ca + Đóng ca phục vụ: lưu ở thẻ Mở ca phục vụ
+  const noteTpl = (t) => templates().find((x) => x.job_mode && /mở ca phục vụ/i.test(x.title)) || t;
   const jobRowsOf = (date, tid) => { try { return db.prepare('SELECT id, item_id, zone_id, staff_id, status, owner_id FROM jobs WHERE date = ? AND template_id = ?').all(date, tid); } catch { return []; } };
   const zonePhotosOf = (date, tid) => { try { return db.prepare('SELECT id, zone_id, staff_id, at FROM job_zone_photos WHERE date = ? AND template_id = ? ORDER BY id').all(date, tid); } catch { return []; } };
 
@@ -515,7 +522,7 @@ export default function (r, ctx) {
       return { template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t), items: t.items.length, total, done,
         item_list: t.items.map((i) => ({ id: i.id, text: i.text, job_scope: i.job_scope, job_zone_id: i.job_zone_id ?? null, job_fixed_staff: i.job_fixed_staff ?? null, job_gender: i.job_gender || '', job_role: i.job_role || '', job_crew: JSON.parse(i.job_crew || '[]'), job_guide: i.job_guide || '', job_minutes: i.job_minutes || 0,
           job_deadline: i.job_deadline ?? null, job_photos: i.job_photos || 0, photo_required: !!i.photo_required, samples: (i.samples || []).map((x) => x.id) })), opening_tpl: zoneTpl(t),
-        zone_photo: /đầu ca phục vụ/i.test(t.title), note: t.job_note || '', win: zoneTpl(t) && t.phase === 'close' ? opening(date, t) : null, // trưởng ca chụp ảnh từng khu (chủ quán 27/10)
+        zone_photo: /đầu ca phục vụ/i.test(t.title), note: noteTpl(t).job_note || '', note_tpl: noteTpl(t).id, win: zoneTpl(t) && t.phase === 'close' ? opening(date, t) : null, // trưởng ca chụp ảnh từng khu (chủ quán 27/10)
         job_rows: zoneTpl(t) ? jobRowsOf(date, t.id).map((j) => ({ id: j.id, item_id: j.item_id, zone_id: j.zone_id, owner_id: j.owner_id, staff_id: j.staff_id, staff_name: nameOf(j.staff_id), status: j.status })) : [],
         pool: zoneTpl(t) ? poolOf() : [],
         photos: zoneTpl(t) ? zonePhotosOf(date, t.id).map((x) => ({ id: x.id, zone_id: x.zone_id, at: x.at, staff_name: nameOf(x.staff_id) })) : [] };
@@ -533,7 +540,7 @@ export default function (r, ctx) {
       FROM assignments a JOIN staff s ON s.id = a.staff_id AND s.active = 1
       LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN zones z ON z.id = a.zone_id WHERE a.date = ? ORDER BY a.start_min`).all(date).filter((x) => /phục vụ|phuc vu|tiếp thực|tiep thuc/i.test(x.team || ''));
     for (const x of segs) if (x.end_min <= x.start_min) x.end_min += 1440; // ca qua nửa đêm
-    if (ctpl && ctpl.phase === 'close' && ctpl.job_from == null) { const last = segs.length ? Math.max(...segs.map((x) => x.end_min)) : 1380; from = last - 60; to = last; }
+    if (ctpl && ctpl.phase === 'close' && (ctpl.job_from == null || ctpl.job_from < 17 * 60)) { const last = segs.length ? Math.max(...segs.map((x) => x.end_min)) : 1380; from = last - 60; to = last; }
     const by = new Map();
     for (const x of segs) { const p = by.get(x.staff_id) || { id: x.staff_id, name: x.name, gender: x.gender || '', role: x.role, team: x.team, zone: '', zone_id: null, segs: [] }; p.segs.push([x.start_min, x.end_min]); if (x.zone && !p.zone) { p.zone = x.zone; p.zone_id = x.zone_id; } by.set(x.staff_id, p); }
     const hm = (m) => `${Math.floor((m % 1440) / 60)}h${m % 60 ? String(m % 60).padStart(2, '0') : ''}`;
