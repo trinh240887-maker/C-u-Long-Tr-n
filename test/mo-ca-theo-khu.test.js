@@ -340,3 +340,27 @@ test('Đóng ca: lưu ý chung lấy từ Mở ca; khung 14h của đóng ca b�
   assert.equal(c.note, 'Ăn cơm 15h35–15h55');
   assert.equal(c.note_tpl, mo);
 });
+
+test('Tạp vụ / Bar / Bếp: giữ checklist, việc cũ cất bản lưu ẩn, giữ dòng kiểm kho', () => {
+  const db = openDb(':memory:', { now: Date.now() });
+  createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } }).close(); // lần chạy đầu
+  db.prepare("DELETE FROM settings WHERE key = 'tv_bar_bep_clear_v1'").run();
+  const team = (re) => db.prepare('SELECT id, name FROM teams').all().find((x) => re.test(x.name))?.id;
+  const tv = team(/tạp vụ/i), bep = team(/bếp/i);
+  const tpl = (teamId, title) => Number(db.prepare("INSERT INTO checklist_templates (team_id, phase, title, sort, active) VALUES (?, 'close', ?, 0, 1)").run(teamId, title).lastInsertRowid);
+  const a = tpl(tv, 'Đóng ca khu bán hàng'), k = tpl(bep, 'Kiểm bếp');
+  db.prepare("INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, extra_ingredient_ids, sort) VALUES (?, 'Gom rác', 'check', '', 1, 0, '[]', 0)").run(a);
+  const ing = db.prepare('SELECT id FROM ingredients LIMIT 1').get()?.id ?? null;
+  db.prepare("INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, extra_ingredient_ids, sort) VALUES (?, 'Lau bếp', 'check', '', 1, 0, '[]', 0)").run(k);
+  if (ing) db.prepare("INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, extra_ingredient_ids, sort, ingredient_id) VALUES (?, 'Cân thịt bò', 'number', 'kg', 1, 0, '[]', 1, ?)").run(k, ing);
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  try {
+    const items = (id) => db.prepare('SELECT text FROM checklist_items WHERE template_id = ?').all(id).map((x) => x.text);
+    assert.deepEqual(items(a), []);
+    assert.equal(db.prepare('SELECT active FROM checklist_templates WHERE id = ?').get(a).active, 1, 'giữ checklist');
+    assert.deepEqual(items(k), ing ? ['Cân thịt bò'] : []);
+    const arch = db.prepare("SELECT id, active FROM checklist_templates WHERE title = 'Đóng ca khu bán hàng (việc cũ 27/10)'").get();
+    assert.ok(arch); assert.equal(arch.active, 0);
+    assert.deepEqual(items(arch.id), ['Gom rác']);
+  } finally { app.close(); }
+});

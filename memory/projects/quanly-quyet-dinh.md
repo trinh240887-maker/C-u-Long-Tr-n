@@ -211,3 +211,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 205 | 27/10 | Tiếp thực KHÔNG tách khối riêng, không chia khu: giữ ở khối 'Chưa phân khu' của thẻ Mở ca; giao việc qua 'Xem thêm…' khi cần. |
 | 206 | 27/10 | Đóng ca phục vụ chia theo khu giống Mở ca (3 khu + việc chung + lưu ý + tổng thời gian). Nhân sự = người có ca tới giờ cuối (1 tiếng trước giờ về muộn nhất), trừ khi thẻ có khung giờ riêng. Sửa: ca kết thúc 24h (00:00) giờ được tính đúng. |
 | 207 | 27/10 | Lưu ý chung (giờ ăn cơm) dùng chung Mở ca + Đóng ca phục vụ (lưu ở thẻ Mở ca). Đóng ca bỏ khung 14:00–15:30 đặt nhầm → nhân sự/chia việc theo giờ cuối. |
+| 208 | 27/10 | Tạp vụ, Bar, Bếp: giữ checklist Mở/Đóng ca, chuyển việc cũ sang bản lưu ẩn '(việc cũ 27/10)' để chủ quán ghi lại; GIỮ dòng kiểm kho (nối nguyên liệu). Checklist trống hiện 'Chưa có việc' thay vì 'Xong'. |

@@ -203,6 +203,24 @@ export default function (r, ctx) {
   }
 
   ctx.checklistTemplates = templates;
+  // Chủ quán 27/10: Tạp vụ, Bar, Bếp — giữ checklist, chỉ bỏ các VIỆC để ghi lại (chuyển sang bản lưu ẩn "(việc cũ 27/10)"); giữ dòng kiểm kho (nối nguyên liệu)
+  if (!ctx.setting('tv_bar_bep_clear_v1') && hadMoCa) {
+    tx(db, () => {
+      for (const t of templates()) {
+        if (/\(việc cũ/i.test(t.title)) continue;
+        if (!/^(bếp|bar|tạp vụ)/i.test(t.section_label || '') && !/bếp|lẩu|bar|tạp vụ/i.test(t.team_name || '')) continue;
+        const move = db.prepare('SELECT id FROM checklist_items WHERE template_id = ? AND ingredient_id IS NULL').all(t.id).map((x) => x.id);
+        if (!move.length) continue;
+        const arch = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, sort, active) VALUES (?, ?, ?, ?, 0)').run(t.team_id, t.phase, `${t.title} (việc cũ 27/10)`, t.sort).lastInsertRowid);
+        for (const id of move) {
+          db.prepare('UPDATE checklist_samples SET template_id = ? WHERE item_id = ?').run(arch, id);
+          db.prepare('UPDATE checklist_items SET template_id = ? WHERE id = ?').run(arch, id);
+          try { db.prepare("DELETE FROM jobs WHERE item_id = ? AND status = 'todo'").run(id); } catch { /* chưa có bảng jobs */ }
+        }
+      }
+    });
+    ctx.setSetting('tv_bar_bep_clear_v1', '1');
+  }
   r.get('/api/checklist-templates', 'staff', ({ query }) => templates({ activeOnly: query.get('all') !== '1' }));
 
   function saveItems(templateId, items) {
