@@ -495,6 +495,10 @@ export default function (r, ctx) {
 
   // Thẻ chia theo khu: Mở ca phục vụ, Đầu ca phục vụ (khăn + nón)
   const zoneTpl = (t) => /mở ca phục vụ|đầu ca phục vụ|đóng ca phục vụ/i.test(t.title);
+  // Người chọn làm việc ở thẻ theo khu: Phục vụ + Tiếp thực + người có khu (gửi kèm để màn checklist không phụ thuộc quyền xem danh sách nhân viên)
+  const poolOf = () => db.prepare(`SELECT s.id, s.name, s.gender, s.role, s.home_zone_id, COALESCE(t.name, '') AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id
+    WHERE s.active = 1 AND s.role != 'owner' ORDER BY s.name`).all().filter((x) => /phục vụ|phuc vu|tiếp thực|tiep thuc/i.test(x.team_name.normalize('NFC')) || x.home_zone_id)
+    .map((x) => ({ id: x.id, name: x.name, gender: x.gender || '', role: x.role, team_name: x.team_name, home_zone_id: x.home_zone_id ?? null }));
   const jobRowsOf = (date, tid) => { try { return db.prepare('SELECT id, item_id, zone_id, staff_id, status, owner_id FROM jobs WHERE date = ? AND template_id = ?').all(date, tid); } catch { return []; } };
   const zonePhotosOf = (date, tid) => { try { return db.prepare('SELECT id, zone_id, staff_id, at FROM job_zone_photos WHERE date = ? AND template_id = ? ORDER BY id').all(date, tid); } catch { return []; } };
 
@@ -513,6 +517,7 @@ export default function (r, ctx) {
           job_deadline: i.job_deadline ?? null, job_photos: i.job_photos || 0, photo_required: !!i.photo_required, samples: (i.samples || []).map((x) => x.id) })), opening_tpl: zoneTpl(t),
         zone_photo: /đầu ca phục vụ/i.test(t.title), note: t.job_note || '', win: zoneTpl(t) && t.phase === 'close' ? opening(date, t) : null, // trưởng ca chụp ảnh từng khu (chủ quán 27/10)
         job_rows: zoneTpl(t) ? jobRowsOf(date, t.id).map((j) => ({ id: j.id, item_id: j.item_id, zone_id: j.zone_id, owner_id: j.owner_id, staff_id: j.staff_id, staff_name: nameOf(j.staff_id), status: j.status })) : [],
+        pool: zoneTpl(t) ? poolOf() : [],
         photos: zoneTpl(t) ? zonePhotosOf(date, t.id).map((x) => ({ id: x.id, zone_id: x.zone_id, at: x.at, staff_name: nameOf(x.staff_id) })) : [] };
     });
     return { date, runs: dayView(date, scope), jobs, opening: opening(date) };

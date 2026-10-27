@@ -205,9 +205,8 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
   const lead = atLeast(me, 'team_lead');
   const [edit, setEdit] = useState(null);
   const [pick, setPick] = useState(null);
-  const staffD = useData('/api/staff');
-  // Người chọn làm việc chung: Phục vụ + Tiếp thực + người có khu (vd trưởng ca chưa có bộ phận)
-  const pool = (staffD.data || []).filter((x) => x.active !== false && x.role !== 'owner' && (/phục vụ|tiếp thực/i.test(x.team_name || '') || x.home_zone_id)).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  // Người chọn làm việc: máy chủ gửi kèm (Phục vụ + Tiếp thực + người có khu)
+  const pool = [...(r.pool || [])].sort((a, b) => a.name.localeCompare(b.name, 'vi'));
   const del = (i) => confirm(`Xoá việc "${i.text}"?`) && act(() => api('POST', `/api/checklist-items/${i.id}/delete`, {}), 'Đã xoá việc');
   const jobOf = (i, zid) => (r.job_rows || []).find((j) => j.item_id === i.id && !j.owner_id && j.zone_id === (i.job_scope === 'shop' ? 0 : zid));
   const give = (j, sid) => act(() => api('PATCH', `/api/jobs/${j.id}`, { staff_id: sid ? Number(sid) : null }), sid ? 'Đã giao việc' : 'Đã bỏ giao');
@@ -277,7 +276,7 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
       <div class="zt-head">🔁 Việc chung cả quán <small>${common.length} việc · chọn 1 hoặc nhiều bạn cố định</small></div>
       ${common.length ? html`<ul class="zt-list">${common.map((i) => { const j = (r.job_rows || []).find((x) => x.item_id === i.id); return html`<li>
         <button class="grow zt-item" onClick=${() => setEdit(i)}>${i.text}${j && j.staff_id && j.staff_id !== i.job_fixed_staff ? html`<br /><small class="muted">hôm nay: ${j.staff_name}${['done', 'ok'].includes(j.status) ? ' ✅' : ''}</small>` : j && ['done', 'ok'].includes(j.status) ? html` ✅` : ''}</button>
-        ${(() => { const crew = i.job_crew?.length ? i.job_crew : i.job_fixed_staff ? [i.job_fixed_staff] : []; const nm = (id) => pool.find((x) => x.id === id)?.name || '?';
+        ${(() => { const crew = i.job_crew?.length ? i.job_crew : i.job_fixed_staff ? [i.job_fixed_staff] : []; const nm = (id) => pool.find((x) => x.id === id)?.name || people.find((x) => x.id === id)?.name || (r.job_rows || []).find((x) => x.staff_id === id)?.staff_name || 'người đã nghỉ việc';
           const cards = (r.job_rows || []).filter((x) => x.item_id === i.id && x.owner_id); const doneN = cards.filter((x) => ['done', 'ok'].includes(x.status)).length;
           const label = crew.length > 1 ? `👥 ${crew.map(nm).join(', ')}${cards.length ? ` (${doneN}/${cards.length} xong)` : ''}` : crew.length ? `👤 ${nm(crew[0])}` : '👤 chọn người';
           return canEdit ? html`<button class="zt-sel zt-crew" onClick=${() => setPick({ title: `${i.text} · chọn 1 hoặc nhiều bạn`, multi: true, values: crew, gender: i.job_gender, lead: i.job_role === 'lead',
