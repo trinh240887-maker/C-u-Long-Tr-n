@@ -419,12 +419,14 @@ export default function (r, ctx) {
     const statBy = new Map(stats.map((s) => [s.staff_id, s]));
     const absentBy = new Map(absent.map((s) => [s.staff_id, s.n]));
     const active = new Set(staff.filter((s) => s.active).map((s) => s.id));
+    const teamNames = new Map(db.prepare('SELECT id, name FROM teams').all().map((x) => [x.id, x.name]));
+    const teamName = (sid) => teamNames.get(staff.find((x) => x.id === sid)?.team_id) || '';
     return {
       month, from, to,
       night_bonus_pct: num('night_bonus_pct', 0),
       month_standard_days: num('month_standard_days', 26),
       rows: rows
-        .map((row) => ({ ...row, late_count: statBy.get(row.staff_id)?.late_count || 0, late_minutes: statBy.get(row.staff_id)?.late_minutes || 0,
+        .map((row) => ({ ...row, team_name: teamName(row.staff_id), late_count: statBy.get(row.staff_id)?.late_count || 0, late_minutes: statBy.get(row.staff_id)?.late_minutes || 0,
           auto_closed: statBy.get(row.staff_id)?.auto_closed || 0, absent: absentBy.get(row.staff_id) || 0 }))
         .filter((row) => active.has(row.staff_id) || row.minutes > 0),
       total_pay: rows.reduce((s, x) => s + x.pay, 0),
