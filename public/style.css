@@ -805,3 +805,6 @@ table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align
 .zt-who { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 14px; }
 .zt-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .zt-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.zt-sel { font-size: 13px; padding: 2px 4px; max-width: 46%; min-height: 32px; }
+.zt-photo { display: flex; flex-direction: column; gap: 6px; }
+.zt-list li .grow { flex: 1; min-width: 0; }

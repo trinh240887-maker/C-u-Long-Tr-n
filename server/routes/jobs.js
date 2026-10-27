@@ -176,6 +176,7 @@ export default function (r, ctx) {
     });
   }
   // Hôm nay: giữ ổn định; các ngày tới (tối đa 14 ngày): luôn theo lịch ca / phân khu mới nhất
+  ctx.jobsEnsureDay = (date) => ensureDay(date); // màn Checklist dùng để hiện ai làm việc nào theo khu
   const ensureDay = (date) => {
     const today = ctx.today();
     if (date < today || date > addDays(today, 14)) return;

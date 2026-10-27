@@ -178,7 +178,7 @@ export function ChecklistView({ me }) {
         <span class=${`pill ${r.total && r.done === r.total ? 'ok' : r.done ? 'warn' : ''}`}>${r.total ? `${r.done}/${r.total}` : '—'}</span></div>
       <p class="small muted">Mỗi việc đã giao cho từng bạn theo khu. Nhân viên làm ở <b>Việc ca</b> (Nhận → Xong).</p>
       <div class="row wrap"><${Link} href="/viec-ca" class="btn-link">✋ Việc của tôi<//>${atLeast(me, 'team_lead') ? html`<${Link} href="/viec-ca?tab=khu" class="btn-link">📋 Bảng khu (ai làm gì)<//>` : null}</div>
-      ${r.opening_tpl ? html`<${ZoneTasks} r=${r} o=${st.data.opening} canEdit=${!old && canEditTpl(me, r.team_id)} />`
+      ${r.opening_tpl ? html`<${ZoneTasks} r=${r} o=${st.data.opening} me=${me} today=${date === me.today} canEdit=${!old && canEditTpl(me, r.team_id)} />`
         : !old && canEditTpl(me, r.team_id) ? html`<${AddItemInline} templateId=${r.template_id} />` : null}
       ${!old && atLeast(me, 'shift_lead') ? html`<button class="link small" onClick=${() => confirm(`Thôi giao việc từng người cho "${r.title}"? Checklist quay về kiểu cũ (ai cũng tick).`) && act(() => api('PATCH', `/api/checklist-templates/${r.template_id}`, { job_mode: false }), 'Đã chuyển về checklist chung')}>↩ Thôi giao việc từng người</button>` : null}
     </section>`)}
@@ -196,27 +196,58 @@ export function ChecklistView({ me }) {
 }
 
 // Mở ca phục vụ theo khu (chủ quán 27/10): mỗi khu 1 khối = nhân sự khung đầu ca của khu + việc riêng của khu (chủ quán tự ghi)
-function ZoneTasks({ r, o, canEdit }) {
+function ZoneTasks({ r, o, me, today, canEdit }) {
   const zd = useData('/api/zones');
   const zones = (zd.data || []).filter((z) => z.active !== false && z.active !== 0);
   const people = o?.people || [];
   const items = r.item_list || [];
   const common = items.filter((i) => !i.job_zone_id);
+  const lead = atLeast(me, 'team_lead');
   const del = (i) => confirm(`Xoá việc "${i.text}"?`) && act(() => api('POST', `/api/checklist-items/${i.id}/delete`, {}), 'Đã xoá việc');
-  const Items = (list) => (list.length ? html`<ul class="zt-list">${list.map((i) => html`<li><span>• ${i.text}${i.job_scope === 'shop' ? html` <small class="muted">(1 người cả quán)</small>` : ''}</span>${canEdit ? html`<button class="link small" aria-label="Xoá" onClick=${() => del(i)}>✕</button>` : null}</li>`)}</ul>` : html`<p class="small muted">Chưa có việc.</p>`);
+  const jobOf = (i, zid) => (r.job_rows || []).find((j) => j.item_id === i.id && j.zone_id === (i.job_scope === 'shop' ? 0 : zid));
+  const give = (j, sid) => act(() => api('PATCH', `/api/jobs/${j.id}`, { staff_id: sid ? Number(sid) : null }), sid ? 'Đã giao việc' : 'Đã bỏ giao');
+  // Người làm của 1 việc trong khu: tổ trưởng / trưởng ca chọn từ danh sách (người trong khu lên đầu)
+  const Who1 = (i, zid, ps) => {
+    const j = jobOf(i, zid);
+    if (!j) return today ? html`<small class="muted">chưa tạo thẻ</small>` : null;
+    const done = ['done', 'ok'].includes(j.status);
+    if (!lead || done) return html`<small class=${j.staff_name ? '' : 'warn-text'}>${done ? '✅ ' : '👤 '}${j.staff_name || 'chưa giao'}</small>`;
+    const others = people.filter((x) => !ps.some((p) => p.id === x.id));
+    return html`<select class="zt-sel" value=${j.staff_id || ''} onChange=${(e) => give(j, e.target.value)}>
+      <option value="">👤 chưa giao</option>
+      ${ps.map((x) => html`<option value=${x.id}>${x.name}</option>`)}
+      ${j.staff_id && !people.some((x) => x.id === j.staff_id) ? html`<option value=${j.staff_id}>${j.staff_name}</option>` : null}
+      ${others.length ? html`<optgroup label="Khu khác / chưa phân khu">${others.map((x) => html`<option value=${x.id}>${x.name}</option>`)}</optgroup>` : null}
+    </select>`;
+  };
+  const Items = (list, zid, ps, removable) => (list.length ? html`<ul class="zt-list">${list.map((i) => html`<li>
+      <span class="grow">${i.job_zone_id ? '• ' : '🔁 '}${i.text}${i.job_scope === 'shop' ? html` <small class="muted">(1 người cả quán)</small>` : ''}</span>
+      ${zid !== null ? Who1(i, zid, ps) : i.job_scope === 'shop' ? Who1(i, 0, people) : null}
+      ${removable && canEdit && (i.job_zone_id || zid === null) ? html`<button class="link small" aria-label="Xoá" onClick=${() => del(i)}>✕</button>` : null}</li>`)}</ul>` : html`<p class="small muted">Chưa có việc.</p>`);
   const Who = (list) => (list.length ? html`<div class="zt-who">${list.map((x) => html`<span class="zt-p">${x.clocked ? '✅' : '⏳'} ${x.name} <small class=${x.short ? 'warn-text' : 'muted'}>${x.shift}</small></span>`)}</div>` : html`<p class="small warn-text">Chưa có ai trong khung ${o?.from || '14h'}–${o?.to || '15h30'}.</p>`);
+  // Ảnh khăn + nón từng khu: trưởng ca / tổ trưởng chụp bằng camera
+  const Photo = (z) => {
+    const ph = (r.photos || []).filter((x) => x.zone_id === z.id);
+    const up = async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; const data = await compressImage(f); act(() => api('POST', '/api/jobs/zone-photo', { template_id: r.template_id, zone_id: z.id, data }), `Đã gửi ảnh ${z.name}`); };
+    return html`<div class="zt-photo">
+      ${ph.length ? html`<div class="row wrap">${ph.map((x) => html`<a href=${`/api/jobs/zone-photo/${x.id}`} target="_blank"><img class="job-photo" src=${`/api/jobs/zone-photo/${x.id}`} /></a><small class="muted">✅ ${x.staff_name} ${hm(x.at)}</small>`)}</div>`
+        : html`<small class="warn-text">⏳ Chưa chụp ảnh khăn + nón</small>`}
+      ${lead && today ? html`<label class="button primary">📷 ${ph.length ? 'Chụp thêm' : 'Chụp ảnh khu'}<input type="file" accept="image/*" capture="environment" hidden onChange=${up} /></label>` : null}
+    </div>`;
+  };
   const noZone = people.filter((x) => !x.zone_id);
   return html`<div class="stack zt">
     <p class="small"><b>👥 Khung ${o?.from || '14h'}–${o?.to || '15h30'}: ${people.length} người</b>${o?.total ? html` · đã chấm vào ${o.clocked}/${o.total}` : ''}</p>
     ${zones.map((z) => { const ps = people.filter((x) => x.zone_id === z.id); const own = items.filter((i) => i.job_zone_id === z.id); return html`<div class="zt-zone">
-      <div class="zt-head">📍 ${z.name} <small>${ps.length} người · ${own.length} việc riêng</small></div>
+      <div class="zt-head">📍 ${z.name} <small>${ps.length} người · ${own.length + common.filter((i) => i.job_scope !== 'shop').length} việc</small></div>
       ${Who(ps)}
-      ${Items(own)}
+      ${r.zone_photo ? Photo(z) : null}
+      ${Items([...own, ...common.filter((i) => i.job_scope !== 'shop')], z.id, ps, true)}
       ${canEdit ? html`<${AddItemInline} templateId=${r.template_id} zoneId=${z.id} placeholder=${`+ Thêm việc cho ${z.name}…`} />` : null}
     </div>`; })}
     <div class="zt-zone">
-      <div class="zt-head">🔁 Việc chung, khu nào cũng làm <small>${common.length} việc</small></div>
-      ${Items(common)}
+      <div class="zt-head">🔁 Việc chung, khu nào cũng làm <small>${common.length} việc · việc mỗi khu hiện trong từng khu ở trên, việc 1 người cả quán giao ở đây</small></div>
+      ${Items(common, null, [], true)}
       ${canEdit ? html`<${AddItemInline} templateId=${r.template_id} placeholder="+ Thêm việc chung cho mọi khu…" />` : null}
     </div>
     ${noZone.length ? html`<div class="zt-zone"><div class="zt-head warn">⚠ Chưa phân khu <small>${noZone.length} người</small></div>${Who(noZone)}</div>` : null}

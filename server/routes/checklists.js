@@ -382,16 +382,26 @@ export default function (r, ctx) {
   }
   ctx.checklistDay = (date) => dayView(date, null);
 
+  // Thẻ chia theo khu: Mở ca phục vụ, Đầu ca phục vụ (khăn + nón)
+  const zoneTpl = (t) => /mở ca phục vụ|đầu ca phục vụ/i.test(t.title);
+  const jobRowsOf = (date, tid) => { try { return db.prepare('SELECT id, item_id, zone_id, staff_id, status FROM jobs WHERE date = ? AND template_id = ? AND owner_id = 0').all(date, tid); } catch { return []; } };
+  const zonePhotosOf = (date, tid) => { try { return db.prepare('SELECT id, zone_id, staff_id, at FROM job_zone_photos WHERE date = ? AND template_id = ? ORDER BY id').all(date, tid); } catch { return []; } };
+
   r.get('/api/checklists', 'staff', ({ me, query }) => {
     const date = query.get('date') || ctx.today();
     if (!isDate(date)) fail(400, 'Ngày không hợp lệ');
     // Checklist đang giao việc từng người: vẫn hiện thẻ tóm tắt (bấm sang Việc ca, thêm việc mới ngay tại đây)
     const scope = myScope(me, date);
+    try { if (date === ctx.today()) ctx.jobsEnsureDay?.(date); } catch { /* chưa có bảng jobs */ }
+    const nameOf = (id) => (id ? db.prepare('SELECT name FROM staff WHERE id = ?').get(id)?.name || '' : '');
     const jobs = templates().filter((t) => t.job_mode && (!scope || (!scope.off && (t.team_id === null || scope.teams.has(t.team_id) || (t.job_teams || []).some((x) => scope.teams.has(x)))))).map((t) => {
       let total = 0, done = 0;
       try { const c = db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN status IN ('done','ok') THEN 1 ELSE 0 END) AS d FROM jobs WHERE date = ? AND template_id = ?").get(date, t.id); total = c.n; done = c.d || 0; } catch { /* chưa có bảng jobs */ }
       return { template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t), items: t.items.length, total, done,
-        item_list: t.items.map((i) => ({ id: i.id, text: i.text, job_scope: i.job_scope, job_zone_id: i.job_zone_id ?? null })), opening_tpl: /mở ca phục vụ/i.test(t.title) };
+        item_list: t.items.map((i) => ({ id: i.id, text: i.text, job_scope: i.job_scope, job_zone_id: i.job_zone_id ?? null })), opening_tpl: zoneTpl(t),
+        zone_photo: /đầu ca phục vụ/i.test(t.title), // trưởng ca chụp ảnh từng khu (chủ quán 27/10)
+        job_rows: zoneTpl(t) ? jobRowsOf(date, t.id).map((j) => ({ id: j.id, item_id: j.item_id, zone_id: j.zone_id, staff_id: j.staff_id, staff_name: nameOf(j.staff_id), status: j.status })) : [],
+        photos: zoneTpl(t) ? zonePhotosOf(date, t.id).map((x) => ({ id: x.id, zone_id: x.zone_id, at: x.at, staff_name: nameOf(x.staff_id) })) : [] };
     });
     return { date, runs: dayView(date, scope), jobs, opening: opening(date) };
   });
@@ -421,6 +431,20 @@ export default function (r, ctx) {
   // Trước giờ mở ca 10 phút: báo chủ quán / quản lý / trưởng ca số người đầu ca + ai ca 14–18 (1 lần / ngày)
   ctx.openingTick = () => {
     const date = ctx.today(), c = ctx.clock();
+    // Hết khung đầu ca (15:30): khu có người mà chưa có ảnh khăn + nón → báo chủ quán / quản lý (1 lần / ngày)
+    const dc = templates().find((t) => t.job_mode && /đầu ca phục vụ/i.test(t.title));
+    const mo = templates().find((t) => t.job_mode && t.job_from != null && /mở ca phục vụ/i.test(t.title));
+    const end = dc?.job_to ?? mo?.job_to ?? 930;
+    if (dc && c.minuteOf(ctx.now()) >= end && !ctx.setting(`dau_ca_photo:${date}`)) {
+      ctx.setSetting(`dau_ca_photo:${date}`, '1');
+      const o = opening(date);
+      const has = new Set(zonePhotosOf(date, dc.id).map((x) => x.zone_id));
+      const miss = [...new Map(o.people.filter((x) => x.zone_id && !has.has(x.zone_id)).map((x) => [x.zone_id, x.zone])).values()];
+      if (miss.length) {
+        const to = db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager')").all().map((x) => x.id);
+        ctx.notify(to, { title: `📷 Chưa có ảnh khăn + nón: ${miss.join(', ')}`, body: `Hết ${o.to} mà trưởng ca chưa chụp ảnh đầu ca các khu này.`, link: '/checklist' });
+      }
+    }
     const tpl = templates().find((t) => t.job_mode && t.job_from != null && /mở ca phục vụ/i.test(t.title));
     const from = tpl?.job_from ?? 840;
     if (c.minuteOf(ctx.now()) < from - 10 || ctx.setting(`opening_note:${date}`)) return;
