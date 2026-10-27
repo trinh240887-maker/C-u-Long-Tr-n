@@ -210,6 +210,7 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 204 | 27/10 | Việc có 'Cấp bậc: chỉ tổ trưởng / trưởng ca' (job_role=lead): tự chia chỉ cho tổ trưởng, trưởng ca, quản lý (cả khi tự chuyển lúc 14:15); ô chọn người đưa người phù hợp lên đầu, gắn nhãn ⭐. |
 | 205 | 27/10 | Tiếp thực KHÔNG tách khối riêng, không chia khu: giữ ở khối 'Chưa phân khu' của thẻ Mở ca; giao việc qua 'Xem thêm…' khi cần. |
 | 206 | 27/10 | Đóng ca phục vụ chia theo khu giống Mở ca (3 khu + việc chung + lưu ý + tổng thời gian). Nhân sự = người có ca tới giờ cuối (1 tiếng trước giờ về muộn nhất), trừ khi thẻ có khung giờ riêng. Sửa: ca kết thúc 24h (00:00) giờ được tính đúng. |
-| 207 | 27/10 | Lưu ý chung (giờ ăn cơm) dùng chung Mở ca + Đóng ca phục vụ (lưu ở thẻ Mở ca). Đóng ca bỏ khung 14:00–15:30 đặt nhầm → nhân sự/chia việc theo giờ cuối. |
+| 207 | 27/10 | (Đã bỏ, xem 210) Lưu ý chung dùng chung Mở ca + Đóng ca. Đóng ca bỏ khung 14:00–15:30 đặt nhầm → nhân sự/chia việc theo giờ cuối. |
 | 208 | 27/10 | Tạp vụ, Bar, Bếp: giữ checklist Mở/Đóng ca, chuyển việc cũ sang bản lưu ẩn '(việc cũ 27/10)' để chủ quán ghi lại; GIỮ dòng kiểm kho (nối nguyên liệu). Checklist trống hiện 'Chưa có việc' thay vì 'Xong'. |
 | 209 | 27/10 | Việc có '📝 Bắt ghi chú khi xong' (job_ask_note): nhân viên ghi chú (tình trạng, còn thiếu gì) mới Xong được; mọi việc đều có ô ghi chú tuỳ chọn. Ghi chú hiện ở thẻ Mở/Đóng ca theo khu và Bảng khu cho người kiểm tra. |
+| 210 | 27/10 | Sửa lại 207: mỗi thẻ có lưu ý riêng; Đóng ca KHÔNG có giờ ăn cơm (chỉ Mở ca). Thẻ chưa có lưu ý thì ẩn khung vàng, chỉ còn nút '📌 Thêm lưu ý chung'. |

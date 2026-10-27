@@ -241,7 +241,7 @@ export default function (r, ctx) {
       staff_id: j.staff_id, staff_name: name(j.staff_id), staff_role: j.staff_id ? db.prepare('SELECT role FROM staff WHERE id = ?').get(j.staff_id)?.role || '' : '', status: j.status, claimed_at: j.claimed_at, due_at: j.due_at, done_at: j.done_at,
       minutes_used: j.minutes_used, late: !!j.late, redo_count: j.redo_count, has_photo: !!j.photo, checked_by_name: name(j.checked_by), check_note: j.check_note,
       overdue: j.status === 'doing' && j.due_at && j.due_at < ctx.now(),
-      template_note: t?.job_note || (t && /phục vụ/i.test(t.title) ? (jobTemplates().find((x) => /mở ca phục vụ/i.test(x.title))?.job_note || '') : ''),
+      template_note: t?.job_note || '',
       ask_note: !!it.job_ask_note, done_note: j.done_note || '',
       guide: it.job_guide || '', deadline: it.job_deadline != null ? hhmm(it.job_deadline) : '', photos_needed: it.job_photos || (it.photo_required ? 1 : 0),
       samples: it.id ? db.prepare('SELECT id FROM checklist_samples WHERE item_id = ? ORDER BY id').all(it.id).map((x) => x.id) : [],

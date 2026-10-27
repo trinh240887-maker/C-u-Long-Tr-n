@@ -262,8 +262,9 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
   };
   const editNote = () => { const n = prompt('Lưu ý chung cho mọi người (mỗi dòng 1 ý):', r.note || ''); if (n !== null) act(() => api('PUT', `/api/checklist-templates/${r.note_tpl || r.template_id}/note`, { note: n }), 'Đã lưu lưu ý'); };
   return html`<div class="stack zt">
-    ${r.note || canEdit ? html`<div class="zt-note"><b>📌 Lưu ý chung</b> <small class="muted">(dùng chung Mở ca + Đóng ca)</small>${r.note ? html`<span style="white-space:pre-line">${r.note}</span>` : html`<small class="muted">Chưa có (vd giờ ăn cơm).</small>`}
-      ${canEdit ? html`<button class="link small" onClick=${editNote}>✎ Sửa lưu ý</button>` : null}</div>` : null}
+    ${r.note ? html`<div class="zt-note"><b>📌 Lưu ý chung</b><span style="white-space:pre-line">${r.note}</span>
+      ${canEdit ? html`<button class="link small" onClick=${editNote}>✎ Sửa lưu ý</button>` : null}</div>`
+      : canEdit ? html`<button class="link small" style="align-self:flex-start" onClick=${editNote}>📌 Thêm lưu ý chung</button>` : null}
     <p class="small"><b>👥 Khung ${o?.from || '14h'}–${o?.to || '15h30'}: ${people.length} người</b> (Phục vụ ${people.filter((x) => !/tiếp thực|tiep thuc/i.test(x.team || '')).length} · Tiếp thực ${people.filter((x) => /tiếp thực|tiep thuc/i.test(x.team || '')).length})${o?.total ? html` · đã chấm vào ${o.clocked}/${o.total}` : ''}</p>
     ${zones.map((z) => { const ps = people.filter((x) => x.zone_id === z.id); const own = items.filter((i) => i.job_zone_id === z.id); return html`<div class="zt-zone">
       <div class="zt-head">📍 ${z.name} <small>${ps.length} người (PV ${ps.filter((x) => !/tiếp thực|tiep thuc/i.test(x.team || '')).length} · TT ${ps.filter((x) => /tiếp thực|tiep thuc/i.test(x.team || '')).length}) · ${own.length} việc riêng</small></div>

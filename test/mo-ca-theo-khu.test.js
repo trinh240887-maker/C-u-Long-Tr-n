@@ -316,7 +316,7 @@ test('Đóng ca phục vụ theo khu: thẻ có nhân sự giờ cuối (ngườ
   assert.deepEqual(card.win.people.map((x) => x.name), ['Về muộn']);
 });
 
-test('Đóng ca: lưu ý chung lấy từ Mở ca; khung 14h của đóng ca bị bỏ', async (t) => {
+test('Đóng ca: lưu ý riêng (không lấy giờ ăn cơm của Mở ca); khung 14h của đóng ca bị bỏ', async (t) => {
   const db = openDb(':memory:', { now: Date.now() });
   const app0 = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
   app0.close();
@@ -337,8 +337,9 @@ test('Đóng ca: lưu ý chung lấy từ Mở ca; khung 14h của đóng ca b�
   await O('PUT', `/api/checklist-templates/${mo}/note`, { note: 'Ăn cơm 15h35–15h55' });
   const day = (await O('GET', '/api/checklists')).data;
   const c = day.jobs.find((j) => j.template_id === close.id);
-  assert.equal(c.note, 'Ăn cơm 15h35–15h55');
-  assert.equal(c.note_tpl, mo);
+  assert.equal(c.note, ''); // đóng ca không có giờ ăn cơm (chủ quán 27/10)
+  assert.equal(c.note_tpl, close.id);
+  assert.equal(day.jobs.find((j) => j.template_id === mo).note, 'Ăn cơm 15h35–15h55');
 });
 
 test('Tạp vụ / Bar / Bếp: giữ checklist, việc cũ cất bản lưu ẩn, giữ dòng kiểm kho', () => {
