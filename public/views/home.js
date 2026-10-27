@@ -24,6 +24,7 @@ function ClockCard() {
   const st = useData('/api/attendance/me');
   const [now, setNow] = useState(Date.now());
   const [ask, setAsk] = useState(false);
+  const [busy, setBusy] = useState(false); // đang lấy vị trí / gửi: hiện chữ cho nhân viên biết, chặn bấm nhiều lần
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
   // Trong ca: app đang mở thì 5 phút báo "đang ở quán" 1 lần (quên chấm ra → tự đóng theo lần cuối ở quán)
   useEffect(() => {
@@ -56,10 +57,10 @@ function ClockCard() {
     <div><div class="eyebrow">${next ? 'Ca tiếp theo' : 'Hôm nay'}</div>
       <div class="big">${next ? `${next.label ? next.label + ' · ' : ''}${next.text}` : 'Chưa có ca sắp tới'}</div>
       <div class="muted">${next ? dayLabel(next.date, { long: true }) : 'Chưa có ca thì chưa chấm công được: báo lịch rảnh hoặc nhờ quản lý thêm ca'}</div></div>
-    <button class="primary big" onClick=${() => act(async () => {
-      const r = await api('POST', '/api/attendance/clock-in', st.data.gps ? await myPlace() : {});
-      return r;
-    }, 'Đã chấm vào ca')}>Chấm vào</button>
+    <button class="primary big" disabled=${busy} onClick=${async () => {
+      setBusy(true);
+      try { await act(async () => api('POST', '/api/attendance/clock-in', st.data.gps ? await myPlace() : {}), 'Đã chấm vào ca'); } finally { setBusy(false); }
+    }}>${busy ? '📍 Đang lấy vị trí, chờ chút…' : 'Chấm vào'}</button>
   </section>`;
 }
 
@@ -79,10 +80,13 @@ function LatePhoto({ late }) {
 
 // Lấy vị trí điện thoại để chấm công (quán bật kiểm tra vị trí). Không cho phép / lỗi → gửi rỗng, máy chủ thử theo wifi quán
 function myPlace() {
-  return new Promise((done) => {
+  return new Promise((done0) => {
+    // Có máy hỏi quyền vị trí mà không hiện bảng / GPS treo → tối đa 8 giây thì gửi rỗng (máy chủ thử theo wifi quán)
+    let fin = false; const done = (v) => { if (!fin) { fin = true; done0(v); } };
+    setTimeout(() => done({}), 8000);
     if (!navigator.geolocation) return done({});
     navigator.geolocation.getCurrentPosition((p) => done({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) }),
-      () => done({}), { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+      () => done({}), { enableHighAccuracy: true, timeout: 7000, maximumAge: 60000 });
   });
 }
 
