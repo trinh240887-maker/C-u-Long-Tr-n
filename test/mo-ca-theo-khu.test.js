@@ -242,3 +242,22 @@ test('Việc chung nhiều bạn cùng làm: mỗi bạn có ca 1 thẻ; bạn n
   const one = db.prepare('SELECT staff_id, owner_id FROM jobs WHERE item_id = ? AND date = ?').all(it, today);
   assert.equal(one.length, 1); assert.equal(one[0].owner_id, 0); assert.equal(one[0].staff_id, ids[1]);
 });
+
+test('Người vào sau khung đầu ca (16h, 17h): có trong danh sách để giao thêm việc, kèm tổng phút', async () => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  try {
+    const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+    const mk = (name) => Number(db.prepare("INSERT INTO staff (name, role, team_id, active, created_at) VALUES (?, 'staff', ?, 1, 0)").run(name, pv).lastInsertRowid);
+    const early = mk('Sớm'), late = mk('Muộn');
+    const today = app.ctx.today();
+    db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES (?, ?, ?, ?, 840, 1380, 0)').run('g1', early, pv, today);
+    db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES (?, ?, ?, ?, 960, 1380, 0)').run('g2', late, pv, today);
+    const o = app.ctx.openingInfo(today);
+    assert.ok(o.people.some((x) => x.id === early));
+    assert.ok(!o.people.some((x) => x.id === late));
+    const l = o.later.find((x) => x.id === late);
+    assert.ok(l); assert.equal(l.start, '16h');
+    assert.equal(typeof o.loads, 'object');
+  } finally { app.close(); }
+});

@@ -535,7 +535,14 @@ export default function (r, ctx) {
     }).sort((a, b) => (!a.zone - !b.zone) || (a.zone || '').localeCompare(b.zone || '', 'vi') || a.team.localeCompare(b.team) || a.name.localeCompare(b.name, 'vi'));
     const pv = people.filter((x) => /phục vụ|phuc vu/i.test(x.team)).length;
     const zones = [...new Set(people.map((x) => x.zone || 'Chưa phân khu'))].map((z) => ({ name: z, people: people.filter((x) => (x.zone || 'Chưa phân khu') === z) }));
-    return { zones, from: hm(from), to: hm(to), total: people.length, pv, tt: people.length - pv, clocked: people.filter((x) => x.clocked).length, people, short: people.filter((x) => x.short) };
+    // Người vào sau khung đầu ca (vd 16h, 17h): để chủ quán giao thêm việc khi họ còn trống (chủ quán 27/10)
+    const later = [...by.values()].filter((p) => !inOpen(p) && Math.min(...p.segs.map(([a]) => a)) >= to).map((p) => ({ id: p.id, name: p.name, gender: p.gender, team: p.team, zone: p.zone || '', zone_id: p.zone_id,
+      start: hm(Math.min(...p.segs.map(([a]) => a))), shift: p.segs.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(' + '), clocked: clocked.has(p.id) }))
+      .sort((a, b) => a.start.localeCompare(b.start, 'vi', { numeric: true }) || a.name.localeCompare(b.name, 'vi'));
+    // Tổng phút việc đã giao trong ngày (mọi checklist giao việc) của từng người
+    let loads = {};
+    try { for (const x of db.prepare('SELECT j.staff_id, COUNT(*) AS n, SUM(COALESCE(i.job_minutes, 0)) AS m FROM jobs j JOIN checklist_items i ON i.id = j.item_id WHERE j.date = ? AND j.staff_id IS NOT NULL GROUP BY j.staff_id').all(date)) loads[x.staff_id] = { min: x.m || 0, n: x.n }; } catch { loads = {}; }
+    return { zones, from: hm(from), to: hm(to), total: people.length, pv, tt: people.length - pv, clocked: people.filter((x) => x.clocked).length, people, later, loads, short: people.filter((x) => x.short) };
   }
   ctx.openingInfo = opening;
   // Trước giờ mở ca 10 phút: báo chủ quán / quản lý / trưởng ca số người đầu ca + ai ca 14–18 (1 lần / ngày)

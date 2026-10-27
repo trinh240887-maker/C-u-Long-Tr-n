@@ -220,7 +220,8 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
     const others = people.filter((x) => !ps.some((p) => p.id === x.id));
     const zoneName = (id) => zones.find((z) => z.id === id)?.name || '';
     const toRow = (x) => ({ id: x.id, name: x.name, gender: x.gender || '', sub: [x.zone_id ? zoneName(x.zone_id) : 'Chưa phân khu', /tiếp thực/i.test(x.team || '') ? 'Tiếp thực' : 'Phục vụ', x.shift].join(' · '), top: ps.some((p) => p.id === x.id) });
-    const list = (zid ? ps : people).map(toRow), more = zid ? people.filter((x) => !ps.some((p) => p.id === x.id)).map(toRow) : [];
+    const later = (o?.later || []).map((x) => ({ id: x.id, name: x.name, gender: x.gender || '', sub: `vào ${x.start} · ${x.zone_id ? zoneName(x.zone_id) : 'chưa phân khu'} · ${/tiếp thực/i.test(x.team || '') ? 'Tiếp thực' : 'Phục vụ'} · ${x.shift}` }));
+    const list = (zid ? ps : people).map(toRow), more = [...(zid ? people.filter((x) => !ps.some((p) => p.id === x.id)).map(toRow) : []), ...later];
     const isFix = i.job_fixed_staff && i.job_fixed_staff === j.staff_id;
     const fixName = i.job_fixed_staff && !isFix ? (pool.find((x) => x.id === i.job_fixed_staff)?.name || '') : '';
     return html`<span class="stack tight" style="align-items:flex-end"><button class="zt-sel" onClick=${() => setPick({ title: i.text, list, more, value: j.staff_id, gender: i.job_gender, fixable: !!i.job_zone_id && canEdit, fixed: !!i.job_fixed_staff,
@@ -291,13 +292,18 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
           <small class=${l.min > span ? 'warn-text' : 'muted'}>${l.min}′/${span}′ · ${l.n} việc${l.min < span ? ` · rảnh ${span - l.min}′` : l.min > span ? ` · quá ${l.min - span}′` : ''}</small></div>`; })}</div>
       <small class="muted">Việc chưa ghi phút tính 0′: bấm tên việc → ⏱ Làm trong (phút) để tính đúng.</small>
     </details>` : null}
+    ${o?.later?.length ? html`<details class="zt-zone" open><summary class="zt-head">🕓 Người vào sau ${o.to} <small>${o.later.length} người · tổng phút việc đã giao hôm nay</small></summary>
+      <div class="zt-sum">${o.later.map((x) => { const l = o.loads?.[x.id] || { min: 0, n: 0 }; return html`<div class="zt-sum-row"><span class="grow"><b>${x.name}</b> <small class="muted">vào ${x.start} · ${x.zone || 'chưa phân khu'} · ${/tiếp thực/i.test(x.team || '') ? 'Tiếp thực' : 'Phục vụ'}</small></span>
+        <small class=${`zt-load ${l.n ? '' : 'free'}`}>⏱ ${l.min}′ · ${l.n} việc</small><small class="muted">${x.shift}${x.clocked ? ' · ✅ đã chấm vào' : ''}</small></div>`; })}</div>
+      <small class="muted">Giao thêm việc: bấm 👤 ở việc → "Xem thêm…" → chọn bạn vào sau. Việc có giờ phải xong thì để ý giờ vào của bạn đó.</small>
+    </details>` : null}
     ${noZone.length ? html`<div class="zt-zone"><div class="zt-head warn">⚠ Chưa phân khu <small>${noZone.length} người</small></div>${Who(noZone)}</div>` : null}
   </div>`;
 }
 
 // Chọn người có ô tìm tên (gõ không dấu cũng được), người đang có ca trong khu lên đầu
 const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
-function PersonPicker({ title, list, more = [], moreLabel = 'người khu khác / hỗ trợ', value, onPick, onClose, gender = '', fixable = false, fixed = false, multi = false, values = [] }) {
+function PersonPicker({ title, list, more = [], moreLabel = 'người khu khác / hỗ trợ / vào sau', value, onPick, onClose, gender = '', fixable = false, fixed = false, multi = false, values = [] }) {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(values);
   const [all, setAll] = useState(false);
