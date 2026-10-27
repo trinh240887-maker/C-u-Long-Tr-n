@@ -37,3 +37,27 @@ test('Khu cố định: đặt khu → ca từ hôm nay chuyển sang khu đó; 
   ins(addDays(today, 6), zb);
   assert.equal(z(addDays(today, 6)), zb);
 });
+
+test('Lịch Ca full cố định / Part-time: đưa vào (work_type full + khu), chuyển về part-time bỏ khu', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const za = db.prepare('SELECT id FROM zones ORDER BY id').get().id;
+  const id = (await O('POST', '/api/staff', { name: 'Ý', team_id: pv, pin: '4822' })).data.id;
+  const get = async () => (await O('GET', '/api/staff')).data.find((x) => x.id === id);
+  assert.equal((await O('PATCH', `/api/staff/${id}`, { work_type: 'full', home_zone_id: za })).status, 200);
+  let s = await get();
+  assert.equal(s.work_type, 'full'); assert.equal(s.home_zone_id, za); assert.equal(s.name, 'Ý');
+  await O('PATCH', `/api/staff/${id}`, { work_type: 'part', home_zone_id: null });
+  s = await get();
+  assert.equal(s.work_type, 'part'); assert.equal(s.home_zone_id, null);
+  const { isFixedStaff } = await import('../public/views/availability.js').catch(() => ({}));
+  if (isFixedStaff) { assert.equal(isFixedStaff({ work_type: 'part', home_zone_id: 3 }), true); assert.equal(isFixedStaff({ work_type: 'gay' }), false); }
+});

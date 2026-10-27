@@ -85,7 +85,33 @@ function AddShift({ p, date, range, onClose, replaceId = null }) {
 // Bảng tuần giống bảng Excel "Lịch trực ca": theo bộ phận, mỗi người 1 dòng, cột T2 → CN.
 // Ô đậm = đã xếp ca (bấm để bỏ) · ô xanh = rảnh (bấm để xếp) · ô trống = bận / chưa báo (vẫn bấm xếp được)
 const short = (t) => t.replace(/:00/g, '').replace(/^0/, '').replace(/–0/, '–');
-function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
+// 2 lịch riêng (chủ quán 27/10): 🔒 Ca full cố định (Full ca hoặc có khu cố định, xếp theo khu) · ⏱ Part-time (còn lại, xếp theo giờ vào)
+export const isFixedStaff = (p) => p.work_type === 'full' || !!p.home_zone_id;
+const minOf = (t) => { const [h, m] = String(t || '99:99').split(':').map(Number); return h * 60 + (m || 0); };
+function firstStart(p, days, shifts, hours) {
+  let best = 9999;
+  for (const x of days) {
+    for (const s of shifts) if (s.staff_id === p.id && s.date === x) best = Math.min(best, ...s.segments.map((g) => minOf(g.start)));
+    for (const r of hours[`${p.id}:${x}`] || []) best = Math.min(best, minOf(r.split('-')[0]));
+  }
+  return best;
+}
+// Bấm tên ở 2 lịch riêng: đưa vào / bỏ khỏi lịch cố định, chọn khu cố định
+function FixStaff({ p, zones, onClose }) {
+  const fixed = isFixedStaff(p);
+  const save = (body, msg) => act(() => api('PATCH', `/api/staff/${p.id}`, body), msg).then((r) => r && onClose());
+  return html`<${Modal} title=${`🔒 ${p.name}`} onClose=${onClose}><div class="stack">
+    <p class="small muted">${fixed ? 'Đang ở lịch Ca full cố định.' : 'Đang ở lịch Part-time.'} Khu cố định: ca từ hôm nay trở đi tự vào khu đó.</p>
+    <b>Khu cố định</b>
+    <div class="chips">${zones.map((z) => html`<button class=${`chip ${p.home_zone_id === z.id ? 'on' : ''}`} onClick=${() => save({ work_type: 'full', home_zone_id: z.id }, `${p.name}: full cố định ${z.name}`)}>${z.name}</button>`)}
+      <button class=${`chip ${!p.home_zone_id ? 'on' : ''}`} onClick=${() => save({ home_zone_id: null }, `${p.name}: bỏ khu cố định`)}>Không khu</button></div>
+    ${fixed ? html`<button onClick=${() => save({ work_type: 'part', home_zone_id: null }, `Đã chuyển ${p.name} sang Part-time`)}>⏱ Chuyển sang Part-time</button>`
+      : html`<button class="primary" onClick=${() => save({ work_type: 'full' }, `Đã đưa ${p.name} vào Ca full cố định`)}>🔒 Đưa vào Ca full cố định</button>`}
+  </div><//>`;
+}
+
+function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = '' }) {
+  const [fix, setFix] = useState(null);
   const [cell, setCell] = useState(null);
   const zonesD = useData('/api/zones');
   const zones = (zonesD.data || []).filter((z) => z.active !== false && z.active !== 0);
@@ -94,9 +120,25 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
   const setZone = (x, zoneId) => act(() => api('POST', '/api/shifts', { staff_id: x.staff_id, date: x.date, team_id: x.team_id || undefined, label: x.label || 'Ca', template_id: x.template_id || undefined,
     segments: x.segments.map((sg) => ({ start: sg.start, end: sg.end })), zone_id: zoneId || undefined, replace_group_id: x.group_id }), zoneId ? 'Đã giao khu' : 'Đã bỏ khu').then((r) => r && setCell(null));
   const [edit, setEdit] = useState(null);
-  const people = staff.filter((p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team)));
+  const people = staff.filter((p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team))
+    && (!kind || (kind === 'full') === isFixedStaff(p)));
+  const zName = (id) => zones.find((z) => z.id === id)?.name || '';
+  const hours = d.hours || {};
+  const order = (list) => {
+    if (kind === 'full') return [...list].sort((a, b) => (zName(a.home_zone_id) || '~').localeCompare(zName(b.home_zone_id) || '~', 'vi') || a.name.localeCompare(b.name, 'vi'));
+    if (kind === 'part') { const k = new Map(list.map((p) => [p.id, firstStart(p, d.days, shifts, hours)])); return [...list].sort((a, b) => k.get(a.id) - k.get(b.id) || a.name.localeCompare(b.name, 'vi')); }
+    return list;
+  };
   const groups = [...d.teams.map((t) => ({ id: t.id, name: t.name })), { id: null, name: 'Chưa có bộ phận' }]
-    .map((g) => ({ ...g, people: people.filter((p) => (g.id ? p.team_id === g.id : !d.teams.some((t) => t.id === p.team_id))) })).filter((g) => g.people.length);
+    .map((g) => ({ ...g, people: order(people.filter((p) => (g.id ? p.team_id === g.id : !d.teams.some((t) => t.id === p.team_id)))) })).filter((g) => g.people.length);
+  // Lịch cố định: chèn dòng tiêu đề khu (📍 Khu A · 5 người)
+  const zoneHead = (g, i) => {
+    if (kind !== 'full') return null;
+    const p = g.people[i], prev = g.people[i - 1];
+    if (prev && (prev.home_zone_id || null) === (p.home_zone_id || null)) return null;
+    const n = g.people.filter((x) => (x.home_zone_id || null) === (p.home_zone_id || null)).length;
+    return html`<tr class="wk-sub"><td colspan=${d.days.length + 1}>${p.home_zone_id ? `📍 ${zName(p.home_zone_id) || 'Khu'}` : '📍 Chưa có khu cố định'} · ${n} người</td></tr>`;
+  };
   const shiftOf = (pid, date) => shifts.filter((x) => x.staff_id === pid && x.date === date);
   const text = (x) => x.segments.map((sg) => short(`${sg.start}–${sg.end === '00:00' ? '24' : sg.end}`)).join(', ');
   return html`<div class="stack">
@@ -107,7 +149,7 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
           && publishTeam(d.week_start, g)}>✅ Duyệt ${g.name}</button>` : null}</div>
       <div class="wk-wrap"><table class="wk">
         <thead><tr><th class="wk-name">Tên</th>${d.days.map((x) => html`<th>${dayLabel(x).split(' ')[0]}<br /><small>${x.slice(8)}/${x.slice(5, 7)}</small><br /><b class="wk-n">${g.people.filter((p) => shiftOf(p.id, x).length).length}</b></th>`)}</tr></thead>
-        <tbody>${g.people.map((p) => { return html`<tr><td class="wk-name"><b>${p.name}</b>${staffTags(p)}
+        <tbody>${g.people.map((p, i) => { return html`${zoneHead(g, i)}<tr><td class=${`wk-name ${kind && canManage ? 'tap' : ''}`} onClick=${() => kind && canManage && setFix(p)}><b>${p.name}</b>${kind && canManage ? html` <small class="muted">✎</small>` : null}${staffTags(p)}
 </td>
           ${d.days.map((x) => {
             const sh = shiftOf(p.id, x);
@@ -125,7 +167,9 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake }) {
         ${x.segments.length === 1 ? html`<button class="primary" onClick=${() => { setEdit({ p: cell.p, date: cell.x, range: `${x.segments[0].start}-${x.segments[0].end === '00:00' ? '24:00' : x.segments[0].end}`, id: x.group_id }); setCell(null); }}>✎ Sửa giờ</button>` : null}
         <button onClick=${() => act(() => api('POST', '/api/shifts/delete', { group_id: x.group_id }), `Đã bỏ ca ${cell.p.name}`).then((r) => r && setCell(null))}>✕ Bỏ ca</button></div></div>`)}
     </div><//>` : null}
+    ${!groups.length ? html`<p class="muted">${kind === 'full' ? 'Chưa có ai trong lịch Ca full cố định. Vào lịch ⏱ Part-time, bấm tên người để đưa vào.' : 'Không có ai.'}</p>` : null}
     ${edit ? html`<${AddShift} p=${edit.p} date=${edit.date} range=${edit.range} replaceId=${edit.id} onClose=${() => setEdit(null)} />` : null}
+    ${fix ? html`<${FixStaff} p=${fix} zones=${zones} onClose=${() => setFix(null)} />` : null}
   </div>`;
 }
 
@@ -343,6 +387,8 @@ function Overview({ me, week, onWeek }) {
   const [add, setAdd] = useState(null);
   const [covDay, setCovDay] = useState(null);
   const [zoning, setZoning] = useState(false);
+  const [kind, setKind0] = useState(() => { try { return localStorage.getItem('wk-kind') || ''; } catch { return ''; } });
+  const setKind = (k) => { setKind0(k); try { localStorage.setItem('wk-kind', k); } catch {} };
   if (!st.data || !sc.data || !staffD.data) return html`<${Loading} state=${!st.data ? st : !sc.data ? sc : staffD} />`;
   const d = st.data;
   const teams = d.teams.filter((t) => staffD.data.some((p) => p.team_id === t.id));
@@ -377,7 +423,12 @@ function Overview({ me, week, onWeek }) {
     <div class="row between wrap"><div class="chips"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Cả quán</button>
       ${teams.map((t) => html`<button class=${`chip ${team === String(t.id) ? 'on' : ''}`} onClick=${() => setTeam(String(t.id))}>${t.name}</button>`)}</div>
       <a class="btn small" href=${`/api/schedule.xlsx?week=${d.week_start}`} download>⬇ Tải Excel</a></div>
-    <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />
+    ${(() => { const ok = (p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team)); const all = staffD.data.filter(ok), nf = all.filter(isFixedStaff).length;
+      return html`<div class="chips"><button class=${`chip ${!kind ? 'on' : ''}`} onClick=${() => setKind('')}>Tất cả (${all.length})</button>
+        <button class=${`chip ${kind === 'full' ? 'on' : ''}`} onClick=${() => setKind('full')}>🔒 Ca full cố định (${nf})</button>
+        <button class=${`chip ${kind === 'part' ? 'on' : ''}`} onClick=${() => setKind('part')}>⏱ Part-time (${all.length - nf})</button></div>
+        ${kind && canManage ? html`<p class="small muted">Bấm <b>tên</b> để đưa vào / bỏ khỏi lịch cố định và chọn khu cố định.</p>` : null}`; })()}
+    <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} kind=${kind} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />
     <details class="card"><summary><b>Chưa báo lịch rảnh (${missing.length})</b> <small class="muted">hạn ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} ${d.deadline.time}</small></summary>
       <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}
       ${missing.length && canManage ? html`<button onClick=${() => act(() => api('POST', '/api/availability/remind', { week: d.week_start })).then((r) => r && toast(r.group ? 'Đã nhắc trong app + nhóm Zalo' : r.group_error ? `Đã nhắc trong app. Nhóm Zalo lỗi: ${r.group_error}` : 'Đã nhắc trong app (chưa chọn nhóm Zalo nhân viên)'))}>🔔 Nhắc tất cả</button>` : null}</div>
