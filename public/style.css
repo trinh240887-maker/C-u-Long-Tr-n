@@ -831,3 +831,12 @@ button.zt-crew { max-width: 60%; }
 .zt-bar span { display: block; height: 100%; background: #4caf50; }
 .zt-bar span.over { background: #e53935; }
 @media (max-width: 480px) { .zt-sum-row { grid-template-columns: minmax(0, 1fr) 60px; } .zt-sum-row > small { grid-column: 1 / -1; } }
+/* 27/10: tên người làm hiện đủ, không bị cắt "Ph…" */
+.zt-list li > span.stack, .zt-list li > button.zt-sel, .zt-list li > small { flex: 0 0 auto; }
+button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-space: nowrap; font-weight: 600; }
+.zt-list li { padding: 4px 0; border-bottom: 1px dashed var(--line); }
+.zt-list li:last-child { border-bottom: 0; }
+.zt-who2 { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+.zt-prow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; font-size: 14px; padding: 2px 0; }
+.zt-pname { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .zt-prow { grid-template-columns: minmax(0, 1fr) auto; } .zt-prow > small.muted, .zt-prow > small.warn-text { grid-column: 1; } }
