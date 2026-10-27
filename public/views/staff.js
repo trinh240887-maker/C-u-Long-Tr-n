@@ -79,6 +79,7 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
     pay_type: init.pay_type || 'hour', pay_rate: init.pay_rate ?? '', weekly_limit_hours: init.weekly_limit_hours ?? 48,
     zalo_user_id: init.zalo_user_id || '', active: init.active ?? true, pin: '',
     skills: init.skills || [], pskills: init.pskills || [], position_id: init.position_id ?? '', work_type: init.work_type || '',
+    pay_rule: init.pay_rule == null ? '' : String(init.pay_rule),
   });
   const set = (k, v) => setF({ ...f, [k]: v });
   const allowed = ROLES.filter((r) => me.role === 'owner' || ROLES.indexOf(r) < ROLES.indexOf(me.role));
@@ -94,7 +95,7 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
     : t.id === Number(f.team_id) ? [] : [{ key: `t${t.id}`, label: t.name, level: skillOf(t.id), set: (n) => setSkill(t.id, n) }]));
   const needPin = ROLES.indexOf(f.role) >= ROLES.indexOf('manager') ? 6 : 4;
   const save = async () => {
-    const body = { ...f, team_id: f.team_id || null, position_id: (f.team_id && f.position_id) || null, pay_rate: Number(f.pay_rate || 0) };
+    const body = { ...f, team_id: f.team_id || null, position_id: (f.team_id && f.position_id) || null, pay_rate: Number(f.pay_rate || 0), pay_rule: f.pay_rule === '' ? null : f.pay_rule === '1' };
     if (!body.pin) delete body.pin;
     const ok = await act(() => (isNew ? api('POST', '/api/staff', body) : api('PATCH', `/api/staff/${init.id}`, body)), isNew ? 'Đã thêm nhân viên' : 'Đã lưu');
     if (ok) onClose();
@@ -114,6 +115,8 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
       <${Field} label="Tính lương"><select id="st-paytype" value=${f.pay_type} onChange=${(e) => set('pay_type', e.target.value)}>
         <option value="hour">Theo giờ</option><option value="shift">Theo ca</option><option value="month">Theo tháng</option></select><//>
       <${Field} label=${({ hour: 'Lương 1 giờ (đ)', shift: 'Lương 1 ca (đ)', month: 'Lương 1 tháng (đ)' })[f.pay_type]}><input id="st-rate" type="number" inputmode="numeric" min="0" step="1000" value=${f.pay_rate} onInput=${(e) => set('pay_rate', e.target.value)} /><//>
+      ${atLeast(me, 'manager') ? html`<${Field} label="Quy tắc lương bếp" hint="Nghỉ 2 ngày/tháng vẫn đủ lương + mỗi ngày quá 8 giờ tính vượt giờ (chỉnh số ở Cài đặt → Chung)"><select id="st-payrule" value=${f.pay_rule} onChange=${(e) => set('pay_rule', e.target.value)}>
+        <option value="">Theo bộ phận (bếp: có · khác: không)</option><option value="1">Có áp dụng</option><option value="0">Không áp dụng</option></select><//>` : null}
       <${Field} label="Tối đa giờ/tuần" hint="Dùng khi gợi ý người làm thay"><input id="st-limit" type="number" min="1" max="100" value=${f.weekly_limit_hours} onInput=${(e) => set('weekly_limit_hours', e.target.value)} /><//>
       <${Field} label=${isNew ? 'Mã PIN đăng nhập' : 'Đặt lại mã PIN (để trống nếu giữ nguyên)'} hint=${`${needPin}–8 chữ số. Nhân viên sẽ phải đổi PIN khi đăng nhập lần đầu.`}>
         <input id="st-pin" inputmode="numeric" value=${f.pin} maxlength="8" onInput=${(e) => set('pin', e.target.value.replace(/\D/g, ''))} /><//>

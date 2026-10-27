@@ -54,7 +54,7 @@ export default function (r, ctx) {
       ...(canSeePay ? { device_set: !!s.device_id, device_pending: !!s.device_pending, device_at: s.device_at || null } : {}),
       skills: skills.filter((k) => k.staff_id === s.id).map(({ team_id, level }) => ({ team_id, level })),
       pskills: pskills.filter((k) => k.staff_id === s.id).map(({ position_id, level }) => ({ position_id, level })),
-      ...(canSeePay ? { pay_type: s.pay_type, pay_rate: s.pay_rate, zalo_user_id: s.zalo_user_id } : {}),
+      ...(canSeePay ? { pay_type: s.pay_type, pay_rate: s.pay_rate, pay_rule: s.pay_rule ?? null, zalo_user_id: s.zalo_user_id } : {}),
     }));
   }
 
@@ -169,6 +169,7 @@ export default function (r, ctx) {
       saveSkills(cur.id, body.skills);
       savePositionSkills(cur.id, body.pskills);
       db.prepare('UPDATE staff SET position_id = ?, work_type = ? WHERE id = ?').run(f.positionId, f.workType, cur.id);
+      if (body.pay_rule !== undefined && rank(me.role) >= rank('manager')) db.prepare('UPDATE staff SET pay_rule = ? WHERE id = ?').run(body.pay_rule === null || body.pay_rule === '' ? null : (v.bool(body.pay_rule) ? 1 : 0), cur.id);
       if (body.pin) {
         db.prepare('UPDATE staff SET pin_lookup = ?, must_change_pin = 1 WHERE id = ?').run(validatePin(db, body.pin, f.role, cur.id), cur.id);
       }

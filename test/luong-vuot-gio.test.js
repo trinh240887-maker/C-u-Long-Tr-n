@@ -28,4 +28,18 @@ test('lương tháng: nghỉ 2 ngày vẫn đủ lương; mỗi ngày quá 8 gi�
   // Nghỉ thêm: chỉ làm 27 ngày → 27/29 lương
   const rows2 = computeTimesheet(recs.filter((r) => r.staff_id !== 1 || Number(r.date.slice(8)) <= 27), staff, clock, { nightBonusPct: 0, monthStandardDays: 29, otDailyHours: 8, otRate: 1.5 });
   assert.equal(rows2.find((r) => r.staff_id === 1).base_pay, Math.round(7_000_000 * 27 / 29));
+  // Nghỉ theo ca: 29 ngày làm đủ + bỏ ca sáng 2 ngày (mỗi ngày ca gãy 2 khúc) → nghỉ 2 + 1 = 3 ngày… chỉ làm 28 ngày đủ + 2 ngày nửa = 29 công → đủ lương
+  const half = [];
+  for (let d = 1; d <= 30; d++) {
+    const date = `2026-10-${String(d).padStart(2, '0')}`;
+    if (d > 28) { half.push({ staff_id: 1, date, clock_in: at(date, 14), clock_out: at(date, 23), seg_n: 2 }); continue; }
+    half.push({ staff_id: 1, date, clock_in: at(date, 8), clock_out: at(date, 12), seg_n: 2 }, { staff_id: 1, date, clock_in: at(date, 14), clock_out: at(date, 23), seg_n: 2 });
+  }
+  const rh = computeTimesheet(half, [staff[0]], clock, { nightBonusPct: 0, monthStandardDays: 29, otDailyHours: 8, otRate: 1 })[0];
+  assert.equal(rh.days, 29); // 28 + 0,5 + 0,5 = 29 công (nghỉ 1 ngày + 2 nửa ngày = 2 ngày)
+  assert.equal(rh.base_pay, 7_000_000);
+  // Không áp quy tắc bếp (vd phục vụ lương tháng): ngày công ÷ 26 cũ, không vượt giờ
+  const rows3 = computeTimesheet(recs.filter((r) => r.staff_id === 1), [{ ...staff[0], rule: false }], clock, { nightBonusPct: 0, monthStandardDays: 26, ruleStandardDays: 29, otDailyHours: 8, otRate: 1 });
+  assert.equal(rows3[0].ot_minutes, 0);
+  assert.equal(rows3[0].pay, 7_000_000);
 });
