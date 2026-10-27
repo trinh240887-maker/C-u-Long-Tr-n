@@ -172,6 +172,7 @@ export function ChecklistView({ me }) {
     </div>
     ${sections.length ? html`<div class="chips scroll-x sec-tabs">${sections.map((x) => html`<button class=${`chip big ${x === curSec ? 'on' : ''}`} onClick=${() => setSec(x)}>${x}${left(x) ? html` <b class="dotn">${left(x)}</b>` : ''}</button>`)}</div>` : null}
     <div class="tabs">${[['open', 'Mở ca'], ['close', 'Đóng ca']].map(([k, l]) => html`<button class=${phase === k ? 'on' : ''} onClick=${() => setPhase(k)}>${l}${left(curSec, k) ? ` (${left(curSec, k)})` : ''}</button>`)}</div>
+    ${phase === 'open' && /phục vụ/i.test(curSec) && st.data.opening?.total ? html`<${OpeningCard} o=${st.data.opening} />` : null}
     ${jobCards.map((r) => html`<section class="card job-card">
       <div class="row between"><div><h3>${r.title}</h3><small class="muted">${r.team_name} · 👥 Giao việc từng người · ${r.items} việc</small></div>
         <span class=${`pill ${r.total && r.done === r.total ? 'ok' : r.done ? 'warn' : ''}`}>${r.total ? `${r.done}/${r.total}` : '—'}</span></div>
@@ -191,4 +192,19 @@ export function ChecklistView({ me }) {
       ${!old && atLeast(me, 'shift_lead') && r.items.length >= 2 ? html`<button class="job-switch" onClick=${() => toJobs(me, r)}>👥 Chuyển sang giao việc từng người</button>` : null}
     </section>`) : jobCards.length ? null : html`<div class="empty">${sections.length ? `Mục ${curSec} không có checklist ${phase === 'open' ? 'mở ca' : 'đóng ca'}.` : `Hôm nay bạn không có checklist.${atLeast(me, 'manager') ? ' Tạo checklist ở nút Tạo / sửa checklist.' : ''}`}</div>`}
   </div>`;
+}
+
+// Đầu ca Phục vụ + Tiếp thực: số người trong khung mở ca, ai đã chấm vào, ai ca ngắn về ≤ 18h (chủ quán 27/10)
+function OpeningCard({ o }) {
+  const [open, setOpen] = useState(false);
+  return html`<section class="card stack tight">
+    <div class="row between"><b>👥 Đầu ca ${o.from}–${o.to}: ${o.total} người</b><small class="muted">đã chấm vào ${o.clocked}/${o.total}</small></div>
+    <small>Phục vụ <b>${o.pv}</b> · Tiếp thực <b>${o.tt}</b></small>
+    ${o.short.length ? html`<small class="warn-text">⏰ Ca ngắn, về ≤ 18h (${o.short.length}): ${o.short.map((x) => `${x.name} (${x.shift})`).join(', ')}</small>` : html`<small class="muted">Không ai về trước 18h.</small>`}
+    <div class="chips">${(o.zones || []).map((z) => html`<span class=${`pill ${z.name === 'Chưa phân khu' ? 'warn' : 'muted'}`}>${z.name}: ${z.people.length}</span>`)}</div>
+    <button class="link small" style="align-self:flex-start" onClick=${() => setOpen(!open)}>${open ? 'Ẩn danh sách' : 'Xem danh sách theo khu'}</button>
+    ${open ? (o.zones || []).map((z) => html`<div class="stack tight"><b class="small">📍 ${z.name} (${z.people.length})</b>
+      ${z.people.map((x) => html`<div class="row between small"><span>${x.clocked ? '✅' : '⏳'} ${x.name} <span class="muted">· ${x.team}</span></span><span class=${x.short ? 'warn-text' : 'muted'}>${x.shift}</span></div>`)}</div>`) : null}
+    <a class="link small" href="/viec-ca?tab=khu">✋ Phân lại việc ở Việc ca → Bảng khu</a>
+  </section>`;
 }

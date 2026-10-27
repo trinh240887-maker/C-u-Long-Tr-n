@@ -107,8 +107,10 @@ export default function (r, ctx) {
     }
     ctx.setSetting('mo_ca_pv_v2', '1');
   }
+  const PV_TT = 'Phục vụ & Tiếp thực'; // chủ quán 27/10: gom Phục vụ + Tiếp thực làm 1 mục
   const sectionOf = (t) => {
-    if (t.section) return t.section;
+    if (t.section) return /^(phục vụ|tiếp thực)$/i.test(t.section.trim()) ? PV_TT : t.section;
+    if (!t.zone_name && /phục vụ|phuc vu|tiếp thực|tiep thuc/i.test(t.team_name || '')) return PV_TT;
     if (t.zone_name) return `Tổng ${t.zone_name.toLowerCase().startsWith('khu') ? t.zone_name.replace(/^Khu/i, 'khu') : `khu ${t.zone_name}`}`;
     if (/vệ sinh|wc|toilet/i.test(t.title)) return 'Khu vực vệ sinh';
     if (/rửa chén|rửa bát/i.test(t.title)) return 'Khu vực rửa chén';
@@ -343,8 +345,42 @@ export default function (r, ctx) {
       try { const c = db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN status IN ('done','ok') THEN 1 ELSE 0 END) AS d FROM jobs WHERE date = ? AND template_id = ?").get(date, t.id); total = c.n; done = c.d || 0; } catch { /* chưa có bảng jobs */ }
       return { template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t), items: t.items.length, total, done };
     });
-    return { date, runs: dayView(date, scope), jobs };
+    return { date, runs: dayView(date, scope), jobs, opening: opening(date) };
   });
+
+  // Đầu ca Phục vụ + Tiếp thực (chủ quán 27/10): ai có ca trong khung mở ca (mặc định 14:00–15:30), ai ca ngắn kết thúc ≤ 18:00
+  function opening(date) {
+    const tpl = templates().find((t) => t.job_mode && t.job_from != null && /mở ca phục vụ/i.test(t.title)) || null;
+    const from = tpl?.job_from ?? 840, to = tpl?.job_to ?? 930;
+    const segs = db.prepare(`SELECT a.staff_id, a.start_min, a.end_min, s.name, t.name AS team, z.name AS zone FROM assignments a JOIN staff s ON s.id = a.staff_id AND s.active = 1
+      JOIN teams t ON t.id = s.team_id LEFT JOIN zones z ON z.id = a.zone_id WHERE a.date = ? ORDER BY a.start_min`).all(date).filter((x) => /phục vụ|phuc vu|tiếp thực|tiep thuc/i.test(x.team));
+    const by = new Map();
+    for (const x of segs) { const p = by.get(x.staff_id) || { id: x.staff_id, name: x.name, team: x.team, zone: '', segs: [] }; p.segs.push([x.start_min, x.end_min]); if (x.zone && !p.zone) p.zone = x.zone; by.set(x.staff_id, p); }
+    const hm = (m) => `${Math.floor((m % 1440) / 60)}h${m % 60 ? String(m % 60).padStart(2, '0') : ''}`;
+    const inOpen = (p) => p.segs.some(([a, b]) => Math.min(b, to) - Math.max(a, from) >= 30);
+    const clocked = new Set(db.prepare('SELECT DISTINCT staff_id FROM attendance WHERE date = ?').all(date).map((x) => x.staff_id));
+    const people = [...by.values()].filter(inOpen).map((p) => {
+      const seg = p.segs.find(([a, b]) => Math.min(b, to) - Math.max(a, from) >= 30);
+      return { id: p.id, name: p.name, team: p.team, zone: p.zone || '', shift: p.segs.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(' + '), short: seg[1] <= 18 * 60, clocked: clocked.has(p.id) };
+    }).sort((a, b) => (!a.zone - !b.zone) || (a.zone || '').localeCompare(b.zone || '', 'vi') || a.team.localeCompare(b.team) || a.name.localeCompare(b.name, 'vi'));
+    const pv = people.filter((x) => /phục vụ|phuc vu/i.test(x.team)).length;
+    const zones = [...new Set(people.map((x) => x.zone || 'Chưa phân khu'))].map((z) => ({ name: z, people: people.filter((x) => (x.zone || 'Chưa phân khu') === z) }));
+    return { zones, from: hm(from), to: hm(to), total: people.length, pv, tt: people.length - pv, clocked: people.filter((x) => x.clocked).length, people, short: people.filter((x) => x.short) };
+  }
+  ctx.openingInfo = opening;
+  // Trước giờ mở ca 10 phút: báo chủ quán / quản lý / trưởng ca số người đầu ca + ai ca 14–18 (1 lần / ngày)
+  ctx.openingTick = () => {
+    const date = ctx.today(), c = ctx.clock();
+    const tpl = templates().find((t) => t.job_mode && t.job_from != null && /mở ca phục vụ/i.test(t.title));
+    const from = tpl?.job_from ?? 840;
+    if (c.minuteOf(ctx.now()) < from - 10 || ctx.setting(`opening_note:${date}`)) return;
+    ctx.setSetting(`opening_note:${date}`, '1');
+    const o = opening(date);
+    if (!o.total) return;
+    const to = db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager','shift_lead')").all().map((x) => x.id);
+    ctx.notify(to, { title: `Đầu ca ${o.from}–${o.to}: ${o.total} người (PV ${o.pv} · TT ${o.tt})`,
+      body: `${o.zones.map((z) => `${z.name}: ${z.people.map((x) => x.name).join(', ')}`).join('\n')}\n${o.short.length ? `Ca ngắn về ≤ 18h: ${o.short.map((x) => `${x.name} (${x.shift})`).join(', ')}` : 'Không ai về trước 18h.'}`, link: '/checklist' });
+  };
 
   // Lượt checklist xong khi mọi việc bắt buộc đã làm và không có việc nào bị chấm "Làm lại"
   function updateRun(run, by) {
