@@ -88,6 +88,7 @@ export default function (r, ctx) {
     for (const it of t.items) {
       // Mỗi người tự làm: mọi người có ca hôm đó thuộc các bộ phận của checklist (không theo khung giờ: ai về giờ nào làm giờ đó)
       if (it.job_scope === 'each') { for (const p of everyone) out.push({ item: it, zone_id: p.zone_id || 0, owner_id: p.id }); continue; }
+      if (it.job_zone_id) { if (zs.some((z) => z.id === it.job_zone_id)) out.push({ item: it, zone_id: it.job_zone_id }); continue; } // việc riêng 1 khu
       if (it.job_scope === 'shop' || !zs.length) out.push({ item: it, zone_id: 0 });
       else for (const z of zs) out.push({ item: it, zone_id: z.id });
     }

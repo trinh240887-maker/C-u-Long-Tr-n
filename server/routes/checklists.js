@@ -52,6 +52,7 @@ export default function (r, ctx) {
   addCol('checklist_items', 'job_per_table', 'REAL NOT NULL DEFAULT 0');      // số lượng theo số bàn của khu (vd 1 bếp ga / bàn)
   addCol('checklist_items', 'fetch_where', "TEXT NOT NULL DEFAULT ''");
   addCol('checklist_items', 'job_with', 'INTEGER NOT NULL DEFAULT 0');        // đi kèm việc khác: giao cho đúng người làm việc đó (vd lau chén → giặt khăn lau chén)
+  addCol('checklist_items', 'job_zone_id', 'INTEGER');                       // việc riêng của 1 khu (chủ quán 27/10); trống = khu nào cũng làm
   addCol('checklist_items', 'job_expect', 'INTEGER NOT NULL DEFAULT 0');      // số phải đủ khi xong (vd 2 khăn); thiếu → ghi vào tên người làm       // hết đồ thì lấy ở đâu
   const hadMoCa = !!ctx.setting('mo_ca_pv_v1'); // DB đang chạy thật (đã qua bản 26/10) — DB mới tạo thì không ẩn gì
   // Chủ quán 26/10: 12 việc mở ca chung Phục vụ + Tiếp thực (14:00–15:30), giao từng người; làm 1 lần
@@ -202,6 +203,7 @@ export default function (r, ctx) {
       if (it.id && existing.has(Number(it.id))) {
         db.prepare('UPDATE checklist_items SET text = ?, kind = ?, unit = ?, required = ?, photo_required = ?, ingredient_id = ?, store_id = ?, extra_ingredient_ids = ?, sort = ? WHERE id = ?').run(text, kind, unit, required, photo, ingId, storeId, JSON.stringify(extra), i, Number(it.id));
         db.prepare('UPDATE checklist_items SET job_minutes = ?, job_scope = ?, job_qty = ?, job_per_table = ?, fetch_where = ?, job_expect = ? WHERE id = ?').run(job.minutes, job.scope, job.qty, job.perTable, job.fetch, job.expect, Number(it.id));
+        if (it.job_zone_id !== undefined) db.prepare('UPDATE checklist_items SET job_zone_id = ? WHERE id = ?').run(Number(it.job_zone_id) || null, Number(it.id));
         keep.add(Number(it.id));
         ids[i] = Number(it.id);
       } else {
@@ -276,10 +278,24 @@ export default function (r, ctx) {
     const text = v.text(body.text, { name: 'Tên việc', required: true, max: 120 });
     const n = db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(sort), -1) AS m FROM checklist_items WHERE template_id = ?').get(cur.id);
     if (n.n >= 60) fail(400, 'Tối đa 60 việc trong một checklist');
-    const id = Number(db.prepare("INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, extra_ingredient_ids, sort) VALUES (?, ?, 'check', '', 1, ?, '[]', ?)").run(cur.id, text, body.photo_required === false ? 0 : 1, n.m + 1).lastInsertRowid);
+    const zoneId = body.zone_id ? v.int(body.zone_id, { min: 1, name: 'Khu' }) : null;
+    if (zoneId && !db.prepare('SELECT 1 FROM zones WHERE id = ?').get(zoneId)) fail(400, 'Khu không tồn tại');
+    const id = Number(db.prepare("INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, extra_ingredient_ids, sort, job_zone_id) VALUES (?, ?, 'check', '', 1, ?, '[]', ?, ?)").run(cur.id, text, body.photo_required === false ? 0 : 1, n.m + 1, zoneId).lastInsertRowid);
     ctx.audit(me, 'checklist.item_add', { template: cur.id, text });
     ctx.broadcast('checklists');
     return { id };
+  });
+
+  // Xoá 1 việc ngay trên màn checklist (việc theo khu ở Mở ca phục vụ)
+  r.post('/api/checklist-items/:id/delete', 'team_lead', ({ me, params }) => {
+    const it = db.prepare('SELECT i.*, t.team_id FROM checklist_items i JOIN checklist_templates t ON t.id = i.template_id WHERE i.id = ?').get(params.id);
+    if (!it) fail(404, 'Không tìm thấy việc');
+    canEditTpl(me, it.team_id);
+    db.prepare("DELETE FROM jobs WHERE item_id = ? AND status = 'todo'").run(it.id);
+    db.prepare('DELETE FROM checklist_items WHERE id = ?').run(it.id);
+    ctx.audit(me, 'checklist.item_delete', { template: it.template_id, text: it.text });
+    ctx.broadcast('checklists');
+    return { ok: true };
   });
 
   r.patch('/api/checklist-templates/:id', 'team_lead', ({ me, params, body }) => {
@@ -374,7 +390,8 @@ export default function (r, ctx) {
     const jobs = templates().filter((t) => t.job_mode && (!scope || (!scope.off && (t.team_id === null || scope.teams.has(t.team_id) || (t.job_teams || []).some((x) => scope.teams.has(x)))))).map((t) => {
       let total = 0, done = 0;
       try { const c = db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN status IN ('done','ok') THEN 1 ELSE 0 END) AS d FROM jobs WHERE date = ? AND template_id = ?").get(date, t.id); total = c.n; done = c.d || 0; } catch { /* chưa có bảng jobs */ }
-      return { template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t), items: t.items.length, total, done };
+      return { template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t), items: t.items.length, total, done,
+        item_list: t.items.map((i) => ({ id: i.id, text: i.text, job_scope: i.job_scope, job_zone_id: i.job_zone_id ?? null })), opening_tpl: /mở ca phục vụ/i.test(t.title) };
     });
     return { date, runs: dayView(date, scope), jobs, opening: opening(date) };
   });
@@ -383,16 +400,18 @@ export default function (r, ctx) {
   function opening(date) {
     const tpl = templates().find((t) => t.job_mode && t.job_from != null && /mở ca phục vụ/i.test(t.title)) || null;
     const from = tpl?.job_from ?? 840, to = tpl?.job_to ?? 930;
-    const segs = db.prepare(`SELECT a.staff_id, a.start_min, a.end_min, s.name, t.name AS team, z.name AS zone FROM assignments a JOIN staff s ON s.id = a.staff_id AND s.active = 1
-      JOIN teams t ON t.id = s.team_id LEFT JOIN zones z ON z.id = a.zone_id WHERE a.date = ? ORDER BY a.start_min`).all(date).filter((x) => /phục vụ|phuc vu|tiếp thực|tiep thuc/i.test(x.team));
+    // Người chưa có bộ phận mà có khu (vd trưởng ca) vẫn tính vào Phục vụ
+    const segs = db.prepare(`SELECT a.staff_id, a.start_min, a.end_min, s.name, COALESCE(t.name, CASE WHEN a.zone_id IS NOT NULL OR s.home_zone_id IS NOT NULL THEN 'Phục vụ' END) AS team, z.name AS zone, z.id AS zone_id
+      FROM assignments a JOIN staff s ON s.id = a.staff_id AND s.active = 1
+      LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN zones z ON z.id = a.zone_id WHERE a.date = ? ORDER BY a.start_min`).all(date).filter((x) => /phục vụ|phuc vu|tiếp thực|tiep thuc/i.test(x.team || ''));
     const by = new Map();
-    for (const x of segs) { const p = by.get(x.staff_id) || { id: x.staff_id, name: x.name, team: x.team, zone: '', segs: [] }; p.segs.push([x.start_min, x.end_min]); if (x.zone && !p.zone) p.zone = x.zone; by.set(x.staff_id, p); }
+    for (const x of segs) { const p = by.get(x.staff_id) || { id: x.staff_id, name: x.name, team: x.team, zone: '', zone_id: null, segs: [] }; p.segs.push([x.start_min, x.end_min]); if (x.zone && !p.zone) { p.zone = x.zone; p.zone_id = x.zone_id; } by.set(x.staff_id, p); }
     const hm = (m) => `${Math.floor((m % 1440) / 60)}h${m % 60 ? String(m % 60).padStart(2, '0') : ''}`;
     const inOpen = (p) => p.segs.some(([a, b]) => Math.min(b, to) - Math.max(a, from) >= 30);
     const clocked = new Set(db.prepare('SELECT DISTINCT staff_id FROM attendance WHERE date = ?').all(date).map((x) => x.staff_id));
     const people = [...by.values()].filter(inOpen).map((p) => {
       const seg = p.segs.find(([a, b]) => Math.min(b, to) - Math.max(a, from) >= 30);
-      return { id: p.id, name: p.name, team: p.team, zone: p.zone || '', shift: p.segs.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(' + '), short: seg[1] <= 18 * 60, clocked: clocked.has(p.id) };
+      return { id: p.id, name: p.name, team: p.team, zone: p.zone || '', zone_id: p.zone_id, shift: p.segs.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(' + '), short: seg[1] <= 18 * 60, clocked: clocked.has(p.id) };
     }).sort((a, b) => (!a.zone - !b.zone) || (a.zone || '').localeCompare(b.zone || '', 'vi') || a.team.localeCompare(b.team) || a.name.localeCompare(b.name, 'vi'));
     const pv = people.filter((x) => /phục vụ|phuc vu/i.test(x.team)).length;
     const zones = [...new Set(people.map((x) => x.zone || 'Chưa phân khu'))].map((z) => ({ name: z, people: people.filter((x) => (x.zone || 'Chưa phân khu') === z) }));

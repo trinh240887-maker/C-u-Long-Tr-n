@@ -199,3 +199,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 193 | 27/10 | Bảng xếp ca tuần có 3 nút: Tất cả / 🔒 Ca full cố định (work_type full hoặc có khu cố định, xếp theo khu) / ⏱ Part-time (còn lại, xếp theo giờ vào). Bấm tên để đưa vào/bỏ lịch cố định + chọn khu. |
 | 194 | 27/10 | Phục vụ: Full ca = 14–23, giờ khác = Ca gãy. Gán lại 1 lần theo ca 7 ngày trước/sau (pv_work_type_v1). Bấm tên chọn Loại ca / Bộ phận / Khu cố định; chọn khu không đổi loại ca. |
 | 195 | 27/10 | CHỐT: lịch 🔒 Ca full cố định = ai đã chọn khu cố định (xếp theo khu); ⏱ Part-time = chưa có khu. Dưới tên ghi chức vụ + Full ca/Ca gãy. App không tự đổi loại ca/khu của nhân viên. |
+| 196 | 27/10 | Mở ca phục vụ chia theo khu: mỗi khu 1 khối = nhân sự khung 14h–15h30 (✅ đã chấm/⏳) + việc riêng của khu (checklist_items.job_zone_id, chủ quán tự ghi) + khối Việc chung mọi khu + Chưa phân khu. Ẩn thẻ Đầu ca riêng. Nút Chấm vào hiện 'Đang lấy vị trí', GPS tối đa 8s. |
