@@ -74,12 +74,14 @@ function StaffRequests({ me, teams }) {
 
 function StaffForm({ me, init, teams, positions = [], onClose }) {
   const isNew = !init.id;
+  const zd = useData('/api/zones');
+  const zones = (Array.isArray(zd.data) ? zd.data : zd.data?.zones || []).filter((z) => z.active !== false && z.active !== 0);
   const [f, setF] = useState({
     name: init.name || '', phone: init.phone || '', role: init.role || 'staff', team_id: init.team_id ?? '',
     pay_type: init.pay_type || 'hour', pay_rate: init.pay_rate ?? '', weekly_limit_hours: init.weekly_limit_hours ?? 48,
     zalo_user_id: init.zalo_user_id || '', active: init.active ?? true, pin: '',
     skills: init.skills || [], pskills: init.pskills || [], position_id: init.position_id ?? '', work_type: init.work_type || '',
-    pay_rule: init.pay_rule == null ? '' : String(init.pay_rule), pay_from: me.today.slice(0, 7),
+    pay_rule: init.pay_rule == null ? '' : String(init.pay_rule), pay_from: me.today.slice(0, 7), home_zone_id: init.home_zone_id ?? '',
   });
   const set = (k, v) => setF({ ...f, [k]: v });
   const allowed = ROLES.filter((r) => me.role === 'owner' || ROLES.indexOf(r) < ROLES.indexOf(me.role));
@@ -95,7 +97,7 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
     : t.id === Number(f.team_id) ? [] : [{ key: `t${t.id}`, label: t.name, level: skillOf(t.id), set: (n) => setSkill(t.id, n) }]));
   const needPin = ROLES.indexOf(f.role) >= ROLES.indexOf('manager') ? 6 : 4;
   const save = async () => {
-    const body = { ...f, team_id: f.team_id || null, position_id: (f.team_id && f.position_id) || null, pay_rate: Number(f.pay_rate || 0), pay_rule: f.pay_rule === '' ? null : f.pay_rule === '1', pay_from: (Number(f.pay_rate || 0) !== Number(init.pay_rate || 0) || f.pay_type !== init.pay_type || f.pay_from !== me.today.slice(0, 7)) ? f.pay_from : undefined };
+    const body = { ...f, home_zone_id: f.home_zone_id === '' ? null : f.home_zone_id, team_id: f.team_id || null, position_id: (f.team_id && f.position_id) || null, pay_rate: Number(f.pay_rate || 0), pay_rule: f.pay_rule === '' ? null : f.pay_rule === '1', pay_from: (Number(f.pay_rate || 0) !== Number(init.pay_rate || 0) || f.pay_type !== init.pay_type || f.pay_from !== me.today.slice(0, 7)) ? f.pay_from : undefined };
     if (!body.pin) delete body.pin;
     const ok = await act(() => (isNew ? api('POST', '/api/staff', body) : api('PATCH', `/api/staff/${init.id}`, body)), isNew ? 'Đã thêm nhân viên' : 'Đã lưu');
     if (ok) onClose();
@@ -110,6 +112,8 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
         <option value="">(chưa chọn bộ phận)</option>${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
       ${posOf(f.team_id).length ? html`<${Field} label="Vị trí chính" hint="Vị trí hay đứng nhất. Khi xếp ca vẫn đổi được"><select id="st-pos" value=${f.position_id} onChange=${(e) => set('position_id', e.target.value ? Number(e.target.value) : '')}>
         <option value="">(chưa chọn)</option>${posOf(f.team_id).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>` : null}
+      ${zones.length ? html`<${Field} label="Khu cố định" hint="Người làm full 14–23 giữ 1 khu: mọi ca từ hôm nay và tuần sau tự vào khu này. Để trống = phân khu theo tuần"><select id="st-homezone" value=${f.home_zone_id} onChange=${(e) => set('home_zone_id', e.target.value ? Number(e.target.value) : '')}>
+        <option value="">(không cố định)</option>${zones.map((z) => html`<option value=${z.id}>${z.name}</option>`)}</select><//>` : null}
       <${Field} label="Loại ca" hint="Hiện cạnh tên ở Lịch ca → Bảng tuần"><select id="st-worktype" value=${f.work_type} onChange=${(e) => set('work_type', e.target.value)}>
         <option value="">(chưa chọn)</option><option value="full">Full ca</option><option value="gay">Ca gãy</option><option value="part">Part-time</option></select><//>
       <${Field} label="Tính lương"><select id="st-paytype" value=${f.pay_type} onChange=${(e) => set('pay_type', e.target.value)}>

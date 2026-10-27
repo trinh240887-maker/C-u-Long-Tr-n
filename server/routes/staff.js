@@ -38,6 +38,12 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
+  // Khu cố định (chủ quán 27/10: người làm full 14–23 giữ cố định 1 khu): mọi ca mới của người đó tự vào khu này (trigger, áp cho mọi nơi tạo ca)
+  if (!db.prepare('PRAGMA table_info(staff)').all().some((c) => c.name === 'home_zone_id')) db.exec('ALTER TABLE staff ADD COLUMN home_zone_id INTEGER');
+  db.exec(`CREATE TRIGGER IF NOT EXISTS assign_home_zone AFTER INSERT ON assignments
+    WHEN (SELECT home_zone_id FROM staff WHERE id = NEW.staff_id) IS NOT NULL
+    BEGIN UPDATE assignments SET zone_id = (SELECT home_zone_id FROM staff WHERE id = NEW.staff_id) WHERE id = NEW.id; END`);
+
   // Lịch sử mức lương theo tháng (chủ quán 27/10: tháng đầu 23k/giờ, tháng sau 20k/giờ). from_month '0000-00' = mức trước khi có lịch sử
   db.exec('CREATE TABLE IF NOT EXISTS pay_history (staff_id INTEGER NOT NULL, from_month TEXT NOT NULL, pay_type TEXT NOT NULL, pay_rate INTEGER NOT NULL, by_staff INTEGER, at INTEGER, PRIMARY KEY (staff_id, from_month))');
   const payAt = (staffId, month) => db.prepare('SELECT pay_type, pay_rate, from_month FROM pay_history WHERE staff_id = ? AND from_month <= ? ORDER BY from_month DESC LIMIT 1').get(staffId, month);
@@ -63,7 +69,7 @@ export default function (r, ctx) {
       id: s.id, name: s.name, phone: rank(me.role) >= rank('team_lead') ? s.phone : '',
       role: s.role, role_label: ROLE_LABEL[s.role], team_id: s.team_id, team_name: s.team_name || '',
       active: !!s.active, zalo_linked: !!s.zalo_user_id, weekly_limit_hours: s.weekly_limit_hours,
-      position_id: s.position_id ?? null, position_name: s.position_name || '', work_type: s.work_type || '',
+      position_id: s.position_id ?? null, position_name: s.position_name || '', work_type: s.work_type || '', home_zone_id: s.home_zone_id ?? null,
       first_login: canSeePay ? !!s.must_change_pin : undefined,
       ...(canSeePay ? { device_set: !!s.device_id, device_pending: !!s.device_pending, device_at: s.device_at || null } : {}),
       skills: skills.filter((k) => k.staff_id === s.id).map(({ team_id, level }) => ({ team_id, level })),
@@ -195,6 +201,12 @@ export default function (r, ctx) {
       saveSkills(cur.id, body.skills);
       savePositionSkills(cur.id, body.pskills);
       db.prepare('UPDATE staff SET position_id = ?, work_type = ? WHERE id = ?').run(f.positionId, f.workType, cur.id);
+      if (body.home_zone_id !== undefined) {
+        const hz = body.home_zone_id === null || body.home_zone_id === '' ? null : v.int(body.home_zone_id, { min: 1, name: 'Khu cố định' });
+        if (hz && !db.prepare('SELECT 1 FROM zones WHERE id = ?').get(hz)) fail(400, 'Khu không tồn tại');
+        db.prepare('UPDATE staff SET home_zone_id = ? WHERE id = ?').run(hz, cur.id);
+        if (hz) db.prepare('UPDATE assignments SET zone_id = ? WHERE staff_id = ? AND date >= ?').run(hz, cur.id, ctx.today()); // ca từ hôm nay trở đi vào khu cố định
+      }
       if (body.pay_rule !== undefined && rank(me.role) >= rank('manager')) db.prepare('UPDATE staff SET pay_rule = ? WHERE id = ?').run(body.pay_rule === null || body.pay_rule === '' ? null : (v.bool(body.pay_rule) ? 1 : 0), cur.id);
       if (body.pin) {
         db.prepare('UPDATE staff SET pin_lookup = ?, must_change_pin = 1 WHERE id = ?').run(validatePin(db, body.pin, f.role, cur.id), cur.id);
