@@ -822,3 +822,12 @@ button.zt-sel { min-height: 36px; padding: 4px 10px; font-size: 14px; text-align
 .pp-check { cursor: pointer; }
 .pp-check input { width: 20px; height: 20px; vertical-align: middle; }
 button.zt-crew { max-width: 60%; }
+.zt-load { font-size: 11px; padding: 0 5px; border-radius: 6px; background: var(--line); color: var(--muted); }
+.zt-load.over { background: #ffe0e0; color: #b00020; font-weight: 600; }
+.zt-load.free { background: #e8f5e9; color: #1b5e20; }
+.zt-sum { display: flex; flex-direction: column; gap: 6px; }
+.zt-sum-row { display: grid; grid-template-columns: minmax(0, 1fr) 80px auto; gap: 8px; align-items: center; }
+.zt-bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.zt-bar span { display: block; height: 100%; background: #4caf50; }
+.zt-bar span.over { background: #e53935; }
+@media (max-width: 480px) { .zt-sum-row { grid-template-columns: minmax(0, 1fr) 60px; } .zt-sum-row > small { grid-column: 1 / -1; } }

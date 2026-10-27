@@ -232,7 +232,7 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
         ${i.job_guide || i.samples?.length || i.job_minutes || i.job_deadline != null || i.job_photos || i.job_gender ? html`<br /><small class="muted">${[i.job_guide || i.samples?.length ? '📖' : '', i.job_minutes ? `⏱ ${i.job_minutes}′` : '', i.job_deadline != null ? `🕐 trước ${hmm(i.job_deadline)}` : '', i.job_photos ? `📷 ${i.job_photos} ảnh` : '', i.job_gender ? (i.job_gender === 'nu' ? '♀ chỉ nữ' : '♂ chỉ nam') : ''].filter(Boolean).join(' · ')}</small>` : null}</button>
       ${zid !== null ? Who1(i, zid, ps) : i.job_scope === 'shop' ? Who1(i, 0, people) : null}
       ${removable && canEdit && (i.job_zone_id || zid === null) ? html`<button class="link small" aria-label="Xoá" onClick=${() => del(i)}>✕</button>` : null}</li>`)}</ul>` : html`<p class="small muted">Chưa có việc.</p>`);
-  const Who = (list) => (list.length ? html`<div class="zt-who">${list.map((x) => html`<span class="zt-p">${x.clocked ? '✅' : '⏳'} ${x.name} <b class=${`zt-team ${/tiếp thực|tiep thuc/i.test(x.team || '') ? 'tt' : 'pv'}`}>${/tiếp thực|tiep thuc/i.test(x.team || '') ? 'Tiếp thực' : 'Phục vụ'}</b> <small class=${x.short ? 'warn-text' : 'muted'}>${x.shift}</small></span>`)}</div>` : html`<p class="small warn-text">Chưa có ai trong khung ${o?.from || '14h'}–${o?.to || '15h30'}.</p>`);
+  const Who = (list) => (list.length ? html`<div class="zt-who">${list.map((x) => html`<span class="zt-p">${x.clocked ? '✅' : '⏳'} ${x.name} <b class=${`zt-team ${/tiếp thực|tiep thuc/i.test(x.team || '') ? 'tt' : 'pv'}`}>${/tiếp thực|tiep thuc/i.test(x.team || '') ? 'Tiếp thực' : 'Phục vụ'}</b> <small class=${x.short ? 'warn-text' : 'muted'}>${x.shift}</small> ${Load(x)}</span>`)}</div>` : html`<p class="small warn-text">Chưa có ai trong khung ${o?.from || '14h'}–${o?.to || '15h30'}.</p>`);
   // Ảnh khăn + nón từng khu: trưởng ca / tổ trưởng chụp bằng camera
   const Photo = (z) => {
     const ph = (r.photos || []).filter((x) => x.zone_id === z.id);
@@ -243,6 +243,12 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
       ${lead && today ? html`<label class="button primary">📷 ${ph.length ? 'Chụp thêm' : 'Chụp ảnh khu'}<input type="file" accept="image/*" capture="environment" hidden onChange=${up} /></label>` : null}
     </div>`;
   };
+  // Tổng phút việc đã giao cho mỗi người (để giao thêm việc trong quán): khung đầu ca vd 14:00–15:30 = 90 phút
+  const minOf = new Map(items.map((i) => [i.id, i.job_minutes || 0]));
+  const span = (() => { const m = /(\d+)h(\d*)–(\d+)h(\d*)/.exec(`${o?.from || ''}–${o?.to || ''}`); return m ? (Number(m[3]) * 60 + Number(m[4] || 0)) - (Number(m[1]) * 60 + Number(m[2] || 0)) : 90; })();
+  const loadOf = new Map();
+  for (const j of r.job_rows || []) { if (!j.staff_id) continue; const l = loadOf.get(j.staff_id) || { min: 0, n: 0, noMin: 0, done: 0 }; l.min += minOf.get(j.item_id) || 0; l.n++; if (!minOf.get(j.item_id)) l.noMin++; if (['done', 'ok'].includes(j.status)) l.done++; loadOf.set(j.staff_id, l); }
+  const Load = (x) => { const l = loadOf.get(x.id); if (!l) return html`<small class="zt-load free">0′ · chưa có việc</small>`; const over = l.min > span; return html`<small class=${`zt-load ${over ? 'over' : l.min < span / 2 ? 'free' : ''}`}>⏱ ${l.min}′ · ${l.n} việc${l.noMin ? ` (${l.noMin} chưa ghi phút)` : ''}</small>`; };
   const noZone = people.filter((x) => !x.zone_id);
   const copyZone = (z) => {
     const others = zones.filter((x) => x.id !== z.id);
@@ -278,6 +284,13 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
     </div>
     ${pick ? html`<${PersonPicker} ...${pick} onClose=${() => setPick(null)} />` : null}
     ${edit ? html`<${ItemEdit} i=${(items.find((x) => x.id === edit.id)) || edit} templateId=${r.template_id} canEdit=${canEdit} onClose=${() => setEdit(null)} />` : null}
+    ${people.length ? html`<details class="zt-zone" open><summary class="zt-head">⏱ Tổng thời gian mỗi người <small>khung ${o?.from || '14h'}–${o?.to || '15h30'} = ${span} phút · ít việc nhất ở trên</small></summary>
+      <div class="zt-sum">${[...people].sort((a, b) => (loadOf.get(a.id)?.min || 0) - (loadOf.get(b.id)?.min || 0) || a.name.localeCompare(b.name, 'vi')).map((x) => { const l = loadOf.get(x.id) || { min: 0, n: 0 }; const pct = Math.min(100, Math.round((l.min / span) * 100));
+        return html`<div class="zt-sum-row"><span class="grow"><b>${x.name}</b> <small class="muted">${x.zone || 'chưa phân khu'} · ${/tiếp thực/i.test(x.team || '') ? 'Tiếp thực' : 'Phục vụ'}</small></span>
+          <span class="zt-bar"><span class=${l.min > span ? 'over' : ''} style=${`width:${pct}%`}></span></span>
+          <small class=${l.min > span ? 'warn-text' : 'muted'}>${l.min}′/${span}′ · ${l.n} việc${l.min < span ? ` · rảnh ${span - l.min}′` : l.min > span ? ` · quá ${l.min - span}′` : ''}</small></div>`; })}</div>
+      <small class="muted">Việc chưa ghi phút tính 0′: bấm tên việc → ⏱ Làm trong (phút) để tính đúng.</small>
+    </details>` : null}
     ${noZone.length ? html`<div class="zt-zone"><div class="zt-head warn">⚠ Chưa phân khu <small>${noZone.length} người</small></div>${Who(noZone)}</div>` : null}
   </div>`;
 }
