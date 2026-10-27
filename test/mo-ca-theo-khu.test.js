@@ -151,3 +151,28 @@ test('Việc chung cả quán: 1 thẻ (không chia khu), giao bạn cố địn
   assert.equal(card.note, 'Ăn cơm 15h35–15h55');
   assert.equal(card.item_list.find((i) => i.id === it).job_fixed_staff, b);
 });
+
+test('Chép việc Khu A sang B, C: chép cả hướng dẫn / thời gian, bỏ qua việc trùng', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const tpl = db.prepare("SELECT id FROM checklist_templates WHERE title LIKE 'Mở ca phục vụ%' AND active = 1").get().id;
+  const [za, zb, zc] = db.prepare('SELECT id FROM zones WHERE active = 1 ORDER BY sort, id').all().map((z) => z.id);
+  const i1 = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Quét sạch khu', zone_id: za })).data.id;
+  await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Kéo bạt', zone_id: za });
+  await O('PATCH', `/api/checklist-items/${i1}`, { job_guide: 'Chổi + hốt rác', job_minutes: 15, job_photos: 4 });
+  await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Kéo bạt', zone_id: zb }); // B đã có
+  const r = await O('POST', `/api/checklist-templates/${tpl}/copy-zone`, { from: za, to: [zb, zc] });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.copied, 3);
+  const c = db.prepare('SELECT * FROM checklist_items WHERE template_id = ? AND job_zone_id = ? ORDER BY sort').all(tpl, zc);
+  assert.deepEqual(c.map((x) => x.text), ['Quét sạch khu', 'Kéo bạt']);
+  assert.equal(c[0].job_guide, 'Chổi + hốt rác'); assert.equal(c[0].job_minutes, 15); assert.equal(c[0].job_photos, 4);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM checklist_items WHERE template_id = ? AND job_zone_id = ?').get(tpl, zb).n, 2);
+});

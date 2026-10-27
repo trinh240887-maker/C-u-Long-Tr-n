@@ -352,6 +352,39 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
+  // Chép việc của 1 khu sang các khu khác (chủ quán 27/10: chép Khu A → B, C rồi bỏ việc không hợp). Bỏ qua việc trùng tên; chép cả hướng dẫn, thời gian, ảnh mẫu
+  r.post('/api/checklist-templates/:id/copy-zone', 'team_lead', ({ me, params, body }) => {
+    const t = db.prepare('SELECT * FROM checklist_templates WHERE id = ?').get(params.id);
+    if (!t) fail(404, 'Không tìm thấy checklist');
+    canEditTpl(me, t.team_id);
+    const from = v.int(body.from, { min: 1, name: 'Khu gốc' });
+    const to = (Array.isArray(body.to) ? body.to : []).map(Number).filter((z) => z && z !== from && db.prepare('SELECT 1 FROM zones WHERE id = ?').get(z));
+    if (!to.length) fail(400, 'Chọn khu để chép sang');
+    const src = db.prepare('SELECT * FROM checklist_items WHERE template_id = ? AND job_zone_id = ? ORDER BY sort, id').all(t.id, from);
+    if (!src.length) fail(400, 'Khu này chưa có việc để chép');
+    let n = 0;
+    tx(db, () => {
+      let sort = db.prepare('SELECT COALESCE(MAX(sort), -1) AS m FROM checklist_items WHERE template_id = ?').get(t.id).m;
+      for (const z of to) {
+        const have = new Set(db.prepare('SELECT text FROM checklist_items WHERE template_id = ? AND job_zone_id = ?').all(t.id, z).map((x) => x.text.trim().toLowerCase()));
+        for (const it of src) {
+          if (have.has(it.text.trim().toLowerCase())) continue;
+          const id = Number(db.prepare(`INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, extra_ingredient_ids, sort, job_minutes, job_scope, job_qty, job_per_table, fetch_where, job_expect, job_zone_id, job_guide, job_deadline, job_photos)
+            VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(t.id, it.text, it.kind, it.unit, it.required, it.photo_required, ++sort, it.job_minutes, it.job_scope, it.job_qty, it.job_per_table, it.fetch_where, it.job_expect, z, it.job_guide, it.job_deadline, it.job_photos).lastInsertRowid);
+          for (const sm of db.prepare('SELECT * FROM checklist_samples WHERE item_id = ?').all(it.id)) {
+            const file = `${t.id}-${id}-${crypto.randomBytes(6).toString('hex')}${path.extname(sm.file)}`;
+            try { fs.copyFileSync(path.join(sampleDir, sm.file), path.join(sampleDir, file)); } catch { continue; }
+            db.prepare('INSERT INTO checklist_samples (template_id, item_id, file, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(t.id, id, file, sm.note, me.id, ctx.now());
+          }
+          n++;
+        }
+      }
+    });
+    ctx.audit(me, 'checklist.copy_zone', { template: t.id, from, to, n });
+    ctx.broadcast('checklists');
+    return { copied: n };
+  });
+
   // Xoá 1 việc ngay trên màn checklist (việc theo khu ở Mở ca phục vụ)
   r.post('/api/checklist-items/:id/delete', 'team_lead', ({ me, params }) => {
     const it = db.prepare('SELECT i.*, t.team_id FROM checklist_items i JOIN checklist_templates t ON t.id = i.template_id WHERE i.id = ?').get(params.id);

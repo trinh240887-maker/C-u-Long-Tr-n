@@ -239,6 +239,11 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
     </div>`;
   };
   const noZone = people.filter((x) => !x.zone_id);
+  const copyZone = (z) => {
+    const others = zones.filter((x) => x.id !== z.id);
+    if (!confirm(`Chép ${items.filter((i) => i.job_zone_id === z.id).length} việc của ${z.name} sang ${others.map((x) => x.name).join(', ')}?\nViệc trùng tên đã có thì bỏ qua. Chép cả hướng dẫn, thời gian, ảnh mẫu. Việc nào không hợp anh xoá riêng ở từng khu.`)) return;
+    act(() => api('POST', `/api/checklist-templates/${r.template_id}/copy-zone`, { from: z.id, to: others.map((x) => x.id) })).then((res) => res && toast(`Đã chép ${res.copied} việc`));
+  };
   const editNote = () => { const n = prompt('Lưu ý chung cho mọi người (mỗi dòng 1 ý):', r.note || ''); if (n !== null) act(() => api('PUT', `/api/checklist-templates/${r.template_id}/note`, { note: n }), 'Đã lưu lưu ý'); };
   return html`<div class="stack zt">
     ${r.note || canEdit ? html`<div class="zt-note"><b>📌 Lưu ý chung</b>${r.note ? html`<span style="white-space:pre-line">${r.note}</span>` : html`<small class="muted">Chưa có (vd giờ ăn cơm).</small>`}
@@ -250,6 +255,7 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
       ${r.zone_photo ? Photo(z) : null}
       ${Items(own, z.id, ps, true)}
       ${canEdit ? html`<${AddItemInline} templateId=${r.template_id} zoneId=${z.id} placeholder=${`+ Thêm việc cho ${z.name}…`} />` : null}
+      ${canEdit && own.length && zones.length > 1 ? html`<button class="link small" style="align-self:flex-start" onClick=${() => copyZone(z)}>📋 Chép ${own.length} việc này sang khu khác</button>` : null}
     </div>`; })}
     <div class="zt-zone">
       <div class="zt-head">🔁 Việc chung cả quán <small>${common.length} việc · mỗi việc 1 bạn cố định</small></div>
