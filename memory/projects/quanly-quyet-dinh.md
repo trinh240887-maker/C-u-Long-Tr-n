@@ -203,3 +203,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 197 | 27/10 | Mở ca + Đầu ca phục vụ theo khu: chọn người làm từng việc ngay trong khối khu (tổ trưởng+). Đầu ca khăn+nón: trưởng ca chụp ảnh từng khu (camera); hết 15h30 khu có người mà chưa ảnh → báo chủ quán/quản lý. |
 | 198 | 27/10 | Bấm tên việc → Sửa việc: hướng dẫn, ảnh mẫu các góc (≤6), làm trong N phút, phải xong trước HH:MM (quá giờ báo người làm + người kiểm tra), số ảnh phải chụp khi xong (chụp đủ mới Xong). Khối khu ghi rõ Phục vụ / Tiếp thực từng người. |
 | 199 | 27/10 | Việc chung (không gắn khu) ở Mở ca/Đầu ca PV = 1 người cả quán, chỉ hiện ở khối Việc chung, chủ quán chọn bạn cố định (job_fixed_staff: ngày có ca thì tự giao). 'Ăn cơm 15h35–15h55' chuyển thành 📌 Lưu ý chung (job_note) cho mọi người, hiện cả ở Việc ca. |
+| 200 | 27/10 | Tắt checklist 'Đầu ca Phục vụ: khăn + nón' theo yêu cầu (active=0, giữ dữ liệu; báo 15h30 cũng tắt theo). |

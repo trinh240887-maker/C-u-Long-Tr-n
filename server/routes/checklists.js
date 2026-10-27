@@ -162,6 +162,12 @@ export default function (r, ctx) {
     }
     ctx.setSetting('com_note_v1', '1');
   }
+  // Chủ quán 27/10: bỏ thẻ "Đầu ca Phục vụ: khăn + nón" → tắt (giữ dữ liệu, bật lại ở Tạo / sửa checklist)
+  if (!ctx.setting('dau_ca_off_v1')) {
+    db.prepare("UPDATE checklist_templates SET active = 0 WHERE title = 'Đầu ca Phục vụ: khăn + nón'").run();
+    try { db.prepare("DELETE FROM jobs WHERE status = 'todo' AND template_id IN (SELECT id FROM checklist_templates WHERE title = 'Đầu ca Phục vụ: khăn + nón')").run(); } catch { /* chưa có bảng jobs */ }
+    ctx.setSetting('dau_ca_off_v1', '1');
+  }
   const PV_TT = 'Phục vụ & Tiếp thực'; // chủ quán 27/10: gom Phục vụ + Tiếp thực làm 1 mục
   const sectionOf = (t) => {
     if (t.section) return /^(phục vụ|tiếp thực)$/i.test(t.section.trim()) ? PV_TT : t.section;
