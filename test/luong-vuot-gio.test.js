@@ -20,14 +20,14 @@ test('lương tháng: nghỉ 2 ngày vẫn đủ lương; mỗi ngày quá 8 gi�
   const a = rows.find((r) => r.staff_id === 1);
   assert.equal(a.base_pay, 7_000_000);
   assert.equal(a.ot_minutes, 29 * 5 * 60);
-  assert.equal(a.ot_pay, Math.round(145 * (7_000_000 / (29 * 8)) * 1.5));
+  assert.equal(a.ot_pay, Math.round(145 * (7_000_000 / (29 * 8)) * 1.5 / 1000) * 1000);
   assert.equal(a.pay, a.base_pay + a.ot_pay);
   const b = rows.find((r) => r.staff_id === 2);
   assert.equal(b.ot_minutes, 120);
-  assert.equal(b.pay, 10 * 23_000 + Math.round(2 * 23_000 * 0.5));
+  assert.equal(b.pay, 10 * 23_000 + Math.round(2 * 23_000 * 0.5 / 1000) * 1000);
   // Nghỉ thêm: chỉ làm 27 ngày → 27/29 lương
   const rows2 = computeTimesheet(recs.filter((r) => r.staff_id !== 1 || Number(r.date.slice(8)) <= 27), staff, clock, { nightBonusPct: 0, monthStandardDays: 29, otDailyHours: 8, otRate: 1.5 });
-  assert.equal(rows2.find((r) => r.staff_id === 1).base_pay, Math.round(7_000_000 * 27 / 29));
+  assert.equal(rows2.find((r) => r.staff_id === 1).base_pay, Math.round(7_000_000 * 27 / 29 / 1000) * 1000);
   // Nghỉ theo ca: 29 ngày làm đủ + bỏ ca sáng 2 ngày (mỗi ngày ca gãy 2 khúc) → nghỉ 2 + 1 = 3 ngày… chỉ làm 28 ngày đủ + 2 ngày nửa = 29 công → đủ lương
   const half = [];
   for (let d = 1; d <= 30; d++) {
@@ -42,4 +42,10 @@ test('lương tháng: nghỉ 2 ngày vẫn đủ lương; mỗi ngày quá 8 gi�
   const rows3 = computeTimesheet(recs.filter((r) => r.staff_id === 1), [{ ...staff[0], rule: false }], clock, { nightBonusPct: 0, monthStandardDays: 26, ruleStandardDays: 29, otDailyHours: 8, otRate: 1 });
   assert.equal(rows3[0].ot_minutes, 0);
   assert.equal(rows3[0].pay, 7_000_000);
+  assert.equal(rows3[0].day_price, Math.round(7_000_000 / 26 / 1000) * 1000);
+  // Chủ quán ghi tay 10 giờ vượt cho người không theo quy tắc bếp → tính theo giá 1 giờ = lương ÷ (26 × 8)
+  const rows4 = computeTimesheet(recs.filter((r) => r.staff_id === 1), [{ ...staff[0], rule: false }], clock, { nightBonusPct: 0, monthStandardDays: 26, ruleStandardDays: 29, otDailyHours: 8, otRate: 1, adjust: new Map([[1, { ot_minutes: 600, note: 'sự kiện' }]]) });
+  assert.equal(rows4[0].ot_minutes, 600);
+  assert.equal(rows4[0].ot_manual, true);
+  assert.equal(rows4[0].ot_pay, Math.round(10 * 7_000_000 / (26 * 8) / 1000) * 1000);
 });

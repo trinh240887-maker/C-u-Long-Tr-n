@@ -51,7 +51,7 @@ test('lương theo giờ có phụ cấp đêm 30%, lương theo ca đếm số 
   const [a, b] = computeTimesheet(records, staff, clock, { nightBonusPct: 30 });
   assert.equal(a.minutes, 450);
   assert.equal(a.night_minutes, 150);
-  assert.equal(a.pay, Math.round(7.5 * 25000 + 2.5 * 25000 * 0.3)); // 206 250
+  assert.equal(a.pay, Math.round((7.5 * 25000 + 2.5 * 25000 * 0.3) / 1000) * 1000); // 206 250 → làm tròn 206 000
   assert.equal(b.shifts, 1);
   assert.equal(b.pay, 200000);
   assert.equal(b.open_records, 1);

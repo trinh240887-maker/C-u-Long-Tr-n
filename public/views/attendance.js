@@ -86,7 +86,7 @@ function Records({ me }) {
         const n = pp.rows.length;
         const top = idx === 0 ? 'border-top:2px solid var(--line, #ddd)' : 'border-top:1px dashed var(--line, #e5e5e5)';
         return html`<tr class="click" style=${top} onClick=${() => setEdit(r)}>
-          ${idx === 0 ? html`<td rowspan=${n} style="vertical-align:top"><b>${pp.staff_name}</b><br /><small class="muted">${pp.team_name || ''}${n > 1 ? ` · ${n} lượt` : ''}</small></td>` : null}
+          ${idx === 0 ? html`<td rowspan=${n} style="vertical-align:top"><b>${pp.staff_name}</b><br /><small class="muted">${r.role_label || pp.team_name || ''}${n > 1 ? ` · ${n} lượt` : ''}</small></td>` : null}
           <td>${r.start_min != null ? html`<b>${fmt(r.start_min)}–${fmt(r.end_min)}</b>` : html`<span class="pill warn">Ngoài lịch</span>`}
             ${mins != null && mins < 5 ? html`<br /><span class="pill bad">bấm nhầm? ${mins}′</span>` : null}</td>
           <td>${hm(r.clock_in)}${r.late_minutes ? html` <span class="pill warn">trễ ${r.late_minutes}′</span>` : null}
@@ -108,6 +108,7 @@ function Records({ me }) {
 
 function Timesheet({ me }) {
   const [month, setMonth] = useState(me.today.slice(0, 7));
+  const [adj, setAdj] = useState(null);
   const st = useData(`/api/timesheet?month=${month}`);
   const shiftMonth = (n) => { const [y, m] = month.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); setMonth(d.toISOString().slice(0, 7)); };
   return html`<div class="stack">
@@ -119,18 +120,37 @@ function Timesheet({ me }) {
       </div>
       ${st.data ? html`<b>Tổng lương tạm tính: ${money(st.data.total_pay)}</b>` : null}
     </div>
-    ${!st.data ? html`<${Loading} state=${st} />` : html`<div class="table-wrap"><table class="list">
-      <thead><tr><th>Nhân viên</th><th class="r">Số ca</th><th class="r">Giờ làm</th><th class="r">Vượt giờ</th><th class="r">Trễ</th><th class="r">Vắng</th><th class="r">Lương tạm tính</th></tr></thead>
-      <tbody>${groupByTeam(st.data.rows.map((r) => ({ ...r, staff_name: r.name, clock_in: 0 }))).map((g) => [html`<tr class="att-group"><td colspan="7" style=${`background:${g.color};color:#fff;font-weight:700;padding:8px 12px`}>
-          ${g.name.toUpperCase()} · ${g.people.length} người · ${hours(g.rows.reduce((n, r) => n + r.minutes, 0))}${st.data.can_see_pay !== false ? ` · ${money(g.rows.reduce((n, r) => n + r.pay, 0))}` : ''}</td></tr>`, ...g.rows.map((r) => html`<tr>
-        <td><b>${r.name}</b><br /><small class="muted">${r.pay_rate ? `${money(r.pay_rate)}/${({ hour: 'giờ', shift: 'ca', month: 'tháng' })[r.pay_type]}` : 'Chưa có mức lương'}</small></td>
-        <td class="r num">${r.shifts}</td><td class="r num">${hours(r.minutes)}</td><td class="r num">${r.ot_minutes ? html`${hours(r.ot_minutes)}${r.ot_pay ? html`<br /><small class="muted">+${money(r.ot_pay)}</small>` : null}` : '—'}</td>
-        <td class="r num">${r.late_count ? `${r.late_count} lần` : '—'}</td>
-        <td class="r num">${r.absent ? html`<span class="bad-text">${r.absent}</span>` : '—'}</td>
-        <td class="r num"><b>${money(r.pay)}</b>${r.rule && r.pay_type === 'month' ? html`<br /><small class=${r.days >= st.data.month_standard_days ? 'ok-text' : 'muted'}>${String(r.days).replace('.', ',')}/${st.data.month_standard_days} công</small>` : null}${r.open_records || r.auto_closed ? html`<br /><small class="warn-text">cần kiểm tra</small>` : null}</td>
+    ${!st.data ? html`<${Loading} state=${st} />` : html`
+      <section class="card stack tight">
+        <small>📅 <b>Bếp:</b> tháng này ${st.data.month_days} ngày, được nghỉ ${st.data.paid_off_days} ngày (bỏ 1 khúc ca gãy = nửa ngày) → đi đủ <b>${st.data.month_standard_days} công</b> là đủ lương.</small>
+        <small>⏱ <b>Vượt giờ (bếp):</b> ngày nào làm quá ${st.data.ot_daily_hours} giờ thì tính thêm, theo khúc 30 phút, giá giờ thường.</small>
+        <small>👥 <b>Bộ phận khác:</b> lương tháng × ngày đi làm ÷ ${st.data.old_standard_days}; lương giờ = số giờ × giá giờ.</small>
+      </section>
+      <div class="table-wrap"><table class="list">
+      <thead><tr><th>Nhân viên</th><th class="r">Đi làm</th><th class="r">Vượt giờ</th><th class="r">Lương</th></tr></thead>
+      <tbody>${groupByTeam(st.data.rows.map((r) => ({ ...r, staff_name: r.name, clock_in: 0 }))).map((g) => [html`<tr class="att-group"><td colspan="4" style=${`background:${g.color};color:#fff;font-weight:700;padding:8px 12px`}>
+          ${g.name.toUpperCase()} · ${g.people.length} người${st.data.can_see_pay !== false ? ` · ${money(g.rows.reduce((n, r) => n + r.pay, 0))}` : ''}</td></tr>`, ...g.rows.map((r) => html`<tr>
+        <td><b>${r.name}</b>${r.role_label ? html`<br /><small>${r.role_label}</small>` : null}<br /><small class="muted">${r.pay_rate ? `${money(r.pay_rate)}/${({ hour: 'giờ', shift: 'ca', month: 'tháng' })[r.pay_type]}` : 'Chưa có mức lương'}</small>
+          ${r.day_price ? html`<br /><small class="muted">1 ngày ≈ ${money(r.day_price)} · 1 giờ ≈ ${money(r.hour_price)}</small>` : null}
+          ${r.late_count || r.absent || r.open_records || r.auto_closed ? html`<br />` : null}
+          ${r.late_count ? html`<span class="pill warn">trễ ${r.late_count} lần</span> ` : null}${r.absent ? html`<span class="pill bad">vắng ${r.absent}</span> ` : null}${r.open_records || r.auto_closed ? html`<span class="pill warn">cần kiểm tra</span>` : null}</td>
+        <td class="r num">${r.rule && r.pay_type === 'month'
+          ? html`<b class=${r.days >= st.data.month_standard_days ? 'ok-text' : ''}>${String(r.days).replace('.', ',')}/${st.data.month_standard_days} công</b>`
+          : html`<b>${r.pay_type === 'hour' ? hours(r.minutes) : `${r.pay_type === 'shift' ? r.shifts : r.days} ${r.pay_type === 'shift' ? 'ca' : 'ngày'}`}</b>`}
+          <br /><small class="muted">${hours(r.minutes)} làm</small></td>
+        <td class="r num">${r.ot_minutes ? html`<b>${hours(r.ot_minutes)}</b>${r.ot_manual ? html` <small class="warn-text">ghi tay</small>` : null}${r.ot_pay ? html`<br /><small class="muted">+${money(r.ot_pay)}</small>` : null}` : '—'}
+          ${r.ot_note ? html`<br /><small class="muted">📝 ${r.ot_note}</small>` : null}
+          <br /><button class="link small" onClick=${() => setAdj({ staff_id: r.staff_id, name: r.name, ot_hours: r.ot_manual ? String(r.ot_minutes / 60).replace('.', ',') : '', note: r.ot_note || '', auto: r.ot_manual ? null : r.ot_minutes })}>✏️ Ghi vượt giờ</button></td>
+        <td class="r num"><b>${money(r.pay)}</b>${r.ot_pay ? html`<br /><small class="muted">${money(r.base_pay)} + ${money(r.ot_pay)}</small>` : null}</td>
       </tr>`)])}</tbody></table></div>
-      <p class="muted small"><b>Quy tắc bếp</b> (bộ phận Bếp + người được chọn ở Nhân viên → Quy tắc lương bếp): tháng này ${st.data.month_days} ngày, nghỉ ${st.data.paid_off_days} ngày vẫn đủ lương (tính theo ca: ca gãy bỏ 1 khúc = nghỉ nửa ngày) → làm đủ ${st.data.month_standard_days} ngày là đủ lương, thiếu mỗi ngày trừ 1/${st.data.month_standard_days}. Vượt giờ: mỗi ngày làm quá ${st.data.ot_daily_hours} giờ, phần dư trả × ${String(st.data.ot_rate).replace('.', ',')} (lương tháng: giá 1 giờ = lương ÷ (${st.data.month_standard_days} × ${st.data.ot_daily_hours})). Người khác: lương tháng × ngày công ÷ ${st.data.old_standard_days}, không tính vượt giờ. Lương giờ có phụ cấp đêm ${st.data.night_bonus_pct}% (22h–6h). Ca gãy tính 1 ca. Chỉnh ở Cài đặt → Chung.
-        Đây là số tạm tính, chưa gồm thưởng, phạt, bảo hiểm và lễ tết.</p>`}
+      ${adj ? html`<${Modal} title=${`Vượt giờ tháng ${month.slice(5)}: ${adj.name}`} onClose=${() => setAdj(null)}>
+        <div class="stack">
+          ${adj.auto != null ? html`<small class="muted">App tự tính: ${adj.auto ? hours(adj.auto) : '0 giờ'}. Nhập số giờ để thay; để trống = dùng số app tính.</small>` : html`<small class="muted">Để trống = trả về số app tự tính.</small>`}
+          <${Field} label="Số giờ vượt cả tháng"><input id="adj-h" inputmode="decimal" placeholder="vd 20 hoặc 12,5" value=${adj.ot_hours} onInput=${(e) => setAdj({ ...adj, ot_hours: e.target.value })} /><//>
+          <${Field} label="Ghi chú"><input id="adj-note" placeholder="vd làm thêm sự kiện 30/10" value=${adj.note} onInput=${(e) => setAdj({ ...adj, note: e.target.value })} /><//>
+          <button class="primary" onClick=${async () => { if (await act(() => api('PUT', '/api/timesheet/adjust', { month, staff_id: adj.staff_id, ot_hours: adj.ot_hours.trim() === '' ? null : adj.ot_hours, note: adj.note }), 'Đã lưu')) setAdj(null); }}>Lưu</button>
+        </div><//>` : null}
+      <p class="muted small">Số tạm tính, đã làm tròn 1.000đ, chưa gồm thưởng, phạt, bảo hiểm, lễ tết. Chỉnh quy tắc ở Cài đặt → Chung; chọn ai theo quy tắc bếp ở Nhân viên.</p>`}
   </div>`;
 }
 

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { tx, rank } from '../db.js';
+import { tx, rank, ROLE_LABEL } from '../db.js';
 import { addDays, isDate, fmtHM } from '../lib/time.js';
 import { rangeOf } from '../lib/schedule.js';
 import { computeTimesheet } from '../lib/payroll.js';
@@ -30,6 +30,8 @@ export default function (r, ctx) {
   // Quản lý / chủ quán không bị khoá. Tắt được: setting clock_device_lock = 0.
   const colsOf = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
   if (!colsOf('staff').includes('pay_rule')) db.exec('ALTER TABLE staff ADD COLUMN pay_rule INTEGER');
+  // Chủ quán ghi tay vượt giờ / ghi chú lương theo tháng (27/10)
+  db.exec('CREATE TABLE IF NOT EXISTS payroll_adjust (month TEXT NOT NULL, staff_id INTEGER NOT NULL, ot_minutes INTEGER, note TEXT NOT NULL DEFAULT \'\', by_staff INTEGER, at INTEGER, PRIMARY KEY (month, staff_id))');
   // Lần cuối thấy nhân viên ở quán trong ca (dùng app trên wifi quán / GPS trong bán kính) → quên chấm ra thì tự đóng theo mốc này (chủ quán 27/10)
   if (!colsOf('attendance').includes('last_seen_at')) db.exec("ALTER TABLE attendance ADD COLUMN last_seen_at INTEGER; ALTER TABLE attendance ADD COLUMN last_seen_how TEXT NOT NULL DEFAULT ''");
   if (!colsOf('staff').includes('device_id')) db.exec("ALTER TABLE staff ADD COLUMN device_id TEXT NOT NULL DEFAULT ''; ALTER TABLE staff ADD COLUMN device_pending TEXT NOT NULL DEFAULT ''; ALTER TABLE staff ADD COLUMN device_at INTEGER");
@@ -331,13 +333,13 @@ export default function (r, ctx) {
     const to = query.get('to') || from;
     if (!isDate(from) || !isDate(to)) fail(400, 'Ngày không hợp lệ');
     const staffId = query.get('staff_id');
-    return db.prepare(`SELECT at.*, s.name AS staff_name, t.name AS team_name, a.start_min, a.end_min, a.label, e.name AS edited_by_name
-      FROM attendance at JOIN staff s ON s.id = at.staff_id LEFT JOIN teams t ON t.id = s.team_id
+    return db.prepare(`SELECT at.*, s.name AS staff_name, t.name AS team_name, s.role AS staff_role, po.name AS position_name, a.start_min, a.end_min, a.label, e.name AS edited_by_name
+      FROM attendance at JOIN staff s ON s.id = at.staff_id LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN positions po ON po.id = s.position_id
       LEFT JOIN assignments a ON a.id = at.assignment_id LEFT JOIN staff e ON e.id = at.edited_by
       WHERE at.date BETWEEN ? AND ? ${staffId ? 'AND at.staff_id = ?' : ''} ORDER BY at.clock_in DESC LIMIT 1000`)
       .all(...[from, to, ...(staffId ? [Number(staffId)] : [])]).map((r) => {
         const p = payInfo(r);
-        const out = { ...r, ...p, paid_minutes: p.paid_to ? Math.round((p.paid_to - p.paid_from) / 60_000) : null };
+        const out = { ...r, ...p, role_label: [ROLE_LABEL[r.staff_role] || '', r.position_name || ''].filter(Boolean).join(' · '), paid_minutes: p.paid_to ? Math.round((p.paid_to - p.paid_from) / 60_000) : null };
         if (me.role !== 'owner') { out.ot_minutes = 0; out.ot_status = ''; } // phần ở lại sau ca chỉ chủ quán thấy
         return out;
       });
@@ -397,6 +399,20 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
+  r.put('/api/timesheet/adjust', 'manager', ({ me, body }) => {
+    const month = String(body.month || '');
+    if (!/^\d{4}-\d{2}$/.test(month)) fail(400, 'Tháng không hợp lệ');
+    const staffId = v.int(body.staff_id, { min: 1, name: 'Nhân viên' });
+    const raw = body.ot_hours === null || body.ot_hours === '' || body.ot_hours === undefined ? null : Number(String(body.ot_hours).replace(',', '.'));
+    if (raw !== null && !(raw >= 0 && raw <= 400)) fail(400, 'Số giờ vượt không hợp lệ');
+    const note = v.text(body.note, { name: 'Ghi chú', max: 200 });
+    if (raw === null && !note) db.prepare('DELETE FROM payroll_adjust WHERE month = ? AND staff_id = ?').run(month, staffId);
+    else db.prepare('INSERT INTO payroll_adjust (month, staff_id, ot_minutes, note, by_staff, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (month, staff_id) DO UPDATE SET ot_minutes = excluded.ot_minutes, note = excluded.note, by_staff = excluded.by_staff, at = excluded.at')
+      .run(month, staffId, raw === null ? null : Math.round(raw * 60), note, me.id, ctx.now());
+    ctx.audit(me, 'payroll.adjust', { month, staff_id: staffId, ot_hours: raw, note });
+    return { ok: true };
+  });
+
   // ---------- Bảng công & lương tạm tính theo tháng ----------
   r.get('/api/timesheet', 'manager', ({ me, query }) => {
     ctx.autoCloseAttendance();
@@ -408,7 +424,7 @@ export default function (r, ctx) {
     const KITCHEN = /bếp|bep|lẩu|lau|nướng|nuong|steak|topping|thái tay/i;
     const tn = new Map(db.prepare('SELECT id, name FROM teams').all().map((x) => [x.id, x.name]));
     // Quy tắc bếp (chủ quán 27/10): mặc định bộ phận bếp; chủ quán bật / tắt riêng từng người (staff.pay_rule: 1 bật, 0 tắt, NULL theo bộ phận)
-    const staff = db.prepare('SELECT id, name, pay_type, pay_rate, team_id, active, pay_rule FROM staff ORDER BY name').all()
+    const staff = db.prepare('SELECT s.id, s.name, s.pay_type, s.pay_rate, s.team_id, s.active, s.pay_rule, s.role, p.name AS position_name FROM staff s LEFT JOIN positions p ON p.id = s.position_id ORDER BY s.name').all()
       .map((x) => ({ ...x, rule: x.pay_rule == null ? KITCHEN.test(tn.get(x.team_id) || '') : !!x.pay_rule }));
     const records = db.prepare(`SELECT at.*, a.group_id AS group_key, (SELECT COUNT(*) FROM assignments g WHERE g.group_id = a.group_id) AS seg_n FROM attendance at LEFT JOIN assignments a ON a.id = at.assignment_id
       WHERE at.date BETWEEN ? AND ?`).all(from, to);
@@ -417,7 +433,7 @@ export default function (r, ctx) {
     const paidOff = num('month_paid_off_days', 2);
     const stdDays = Math.max(1, monthDays - paidOff); // chủ quán 27/10: làm đủ tháng, nghỉ 2 ngày vẫn đủ lương
     const otH = num('ot_daily_hours', 8), otRate = num('ot_rate', 1);
-    const rows = computeTimesheet(ctx.payRecords(records), staff, clock, { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: num('month_standard_days', 26), ruleStandardDays: stdDays, otDailyHours: otH, otRate });
+    const rows = computeTimesheet(ctx.payRecords(records), staff, clock, { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: num('month_standard_days', 26), ruleStandardDays: stdDays, otDailyHours: otH, otRate, otRoundMinutes: num('ot_round_minutes', 30), adjust: new Map(db.prepare('SELECT * FROM payroll_adjust WHERE month = ?').all(month).map((x) => [x.staff_id, x])) });
     const stats = db.prepare(`SELECT staff_id, SUM(late_minutes > 0) AS late_count, SUM(late_minutes) AS late_minutes, SUM(auto_closed) AS auto_closed
       FROM attendance WHERE date BETWEEN ? AND ? GROUP BY staff_id`).all(from, to);
     const today = ctx.today();
@@ -436,7 +452,7 @@ export default function (r, ctx) {
       night_bonus_pct: num('night_bonus_pct', 0),
       month_standard_days: stdDays, old_standard_days: num('month_standard_days', 26), month_days: monthDays, paid_off_days: paidOff, ot_daily_hours: otH, ot_rate: otRate,
       rows: rows
-        .map((row) => ({ ...row, team_name: teamName(row.staff_id), late_count: statBy.get(row.staff_id)?.late_count || 0, late_minutes: statBy.get(row.staff_id)?.late_minutes || 0,
+        .map((row) => ({ ...row, team_name: teamName(row.staff_id), role_label: [ROLE_LABEL[staff.find((x) => x.id === row.staff_id)?.role] || '', staff.find((x) => x.id === row.staff_id)?.position_name || ''].filter(Boolean).join(' · '), late_count: statBy.get(row.staff_id)?.late_count || 0, late_minutes: statBy.get(row.staff_id)?.late_minutes || 0,
           auto_closed: statBy.get(row.staff_id)?.auto_closed || 0, absent: absentBy.get(row.staff_id) || 0 }))
         .filter((row) => active.has(row.staff_id) || row.minutes > 0),
       total_pay: rows.reduce((s, x) => s + x.pay, 0),
