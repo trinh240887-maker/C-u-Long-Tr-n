@@ -38,8 +38,22 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
+  // Lịch sử mức lương theo tháng (chủ quán 27/10: tháng đầu 23k/giờ, tháng sau 20k/giờ). from_month '0000-00' = mức trước khi có lịch sử
+  db.exec('CREATE TABLE IF NOT EXISTS pay_history (staff_id INTEGER NOT NULL, from_month TEXT NOT NULL, pay_type TEXT NOT NULL, pay_rate INTEGER NOT NULL, by_staff INTEGER, at INTEGER, PRIMARY KEY (staff_id, from_month))');
+  const payAt = (staffId, month) => db.prepare('SELECT pay_type, pay_rate, from_month FROM pay_history WHERE staff_id = ? AND from_month <= ? ORDER BY from_month DESC LIMIT 1').get(staffId, month);
+  ctx.payForMonth = (staffId, month) => payAt(staffId, month) || null;
+  // Sang tháng mới: mức đang dùng (staff.pay_*) = mức của tháng hiện tại theo lịch sử (cho báo cáo nhân sự, danh sách…)
+  ctx.syncPay = () => {
+    const m = ctx.today().slice(0, 7);
+    for (const { staff_id: id } of db.prepare('SELECT DISTINCT staff_id FROM pay_history').all()) {
+      const h = payAt(id, m);
+      if (h) db.prepare('UPDATE staff SET pay_type = ?, pay_rate = ? WHERE id = ? AND (pay_type != ? OR pay_rate != ?)').run(h.pay_type, h.pay_rate, id, h.pay_type, h.pay_rate);
+    }
+  };
+
   // ---------- Nhân viên ----------
   function listStaff(me, { includeInactive = false } = {}) {
+    ctx.syncPay();
     const canSeePay = rank(me.role) >= rank('manager');
     const rows = db.prepare(`SELECT s.*, t.name AS team_name, p.name AS position_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN positions p ON p.id = s.position_id
       ${includeInactive ? '' : 'WHERE s.active = 1'} ORDER BY s.active DESC, ${rankSql()} DESC, t.sort, s.name`).all();
@@ -54,7 +68,7 @@ export default function (r, ctx) {
       ...(canSeePay ? { device_set: !!s.device_id, device_pending: !!s.device_pending, device_at: s.device_at || null } : {}),
       skills: skills.filter((k) => k.staff_id === s.id).map(({ team_id, level }) => ({ team_id, level })),
       pskills: pskills.filter((k) => k.staff_id === s.id).map(({ position_id, level }) => ({ position_id, level })),
-      ...(canSeePay ? { pay_type: s.pay_type, pay_rate: s.pay_rate, pay_rule: s.pay_rule ?? null, zalo_user_id: s.zalo_user_id } : {}),
+      ...(canSeePay ? { pay_type: s.pay_type, pay_rate: s.pay_rate, pay_rule: s.pay_rule ?? null, zalo_user_id: s.zalo_user_id, pay_history: db.prepare("SELECT from_month, pay_type, pay_rate FROM pay_history WHERE staff_id = ? AND from_month != '0000-00' ORDER BY from_month").all(s.id) } : {}),
     }));
   }
 
@@ -162,6 +176,18 @@ export default function (r, ctx) {
     if (cur.role === 'owner' && (!active || f.role !== 'owner')) {
       const owners = db.prepare("SELECT COUNT(*) AS n FROM staff WHERE role = 'owner' AND active = 1").get().n;
       if (owners <= 1) fail(400, 'Phải còn ít nhất một tài khoản Chủ');
+    }
+    // Đổi lương: ghi lịch sử theo tháng áp dụng; mức đang dùng = mức của tháng hiện tại (đặt trước cho tháng sau không đổi tháng này)
+    const thisMonth = ctx.today().slice(0, 7);
+    const payChanged = f.payType !== cur.pay_type || f.payRate !== cur.pay_rate || body.pay_from;
+    if (payChanged && rank(me.role) >= rank('manager')) {
+      const from = body.pay_from && /^\d{4}-\d{2}$/.test(body.pay_from) ? body.pay_from : thisMonth;
+      if (!db.prepare('SELECT 1 FROM pay_history WHERE staff_id = ?').get(cur.id)) db.prepare("INSERT INTO pay_history (staff_id, from_month, pay_type, pay_rate, by_staff, at) VALUES (?, '0000-00', ?, ?, ?, ?)").run(cur.id, cur.pay_type || 'hour', cur.pay_rate || 0, me.id, ctx.now());
+      db.prepare('INSERT INTO pay_history (staff_id, from_month, pay_type, pay_rate, by_staff, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (staff_id, from_month) DO UPDATE SET pay_type = excluded.pay_type, pay_rate = excluded.pay_rate, by_staff = excluded.by_staff, at = excluded.at')
+        .run(cur.id, from, f.payType, f.payRate, me.id, ctx.now());
+      const eff = payAt(cur.id, thisMonth);
+      if (eff) { f.payType = eff.pay_type; f.payRate = eff.pay_rate; }
+      ctx.audit(me, 'staff.pay_change', { id: cur.id, from, pay_type: f.payType, pay_rate: f.payRate });
     }
     tx(db, () => {
       db.prepare(`UPDATE staff SET name = ?, phone = ?, role = ?, team_id = ?, pay_type = ?, pay_rate = ?, weekly_limit_hours = ?, zalo_user_id = ?, active = ? WHERE id = ?`)

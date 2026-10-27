@@ -425,7 +425,7 @@ export default function (r, ctx) {
     const tn = new Map(db.prepare('SELECT id, name FROM teams').all().map((x) => [x.id, x.name]));
     // Quy tắc bếp (chủ quán 27/10): mặc định bộ phận bếp; chủ quán bật / tắt riêng từng người (staff.pay_rule: 1 bật, 0 tắt, NULL theo bộ phận)
     const staff = db.prepare('SELECT s.id, s.name, s.pay_type, s.pay_rate, s.team_id, s.active, s.pay_rule, s.role, p.name AS position_name FROM staff s LEFT JOIN positions p ON p.id = s.position_id ORDER BY s.name').all()
-      .map((x) => ({ ...x, rule: x.pay_rule == null ? KITCHEN.test(tn.get(x.team_id) || '') : !!x.pay_rule }));
+      .map((x) => { const h = ctx.payForMonth?.(x.id, month); return { ...x, ...(h ? { pay_type: h.pay_type, pay_rate: h.pay_rate } : {}), rule: x.pay_rule == null ? KITCHEN.test(tn.get(x.team_id) || '') : !!x.pay_rule }; }); // mức lương của đúng tháng đang xem
     const records = db.prepare(`SELECT at.*, a.group_id AS group_key, (SELECT COUNT(*) FROM assignments g WHERE g.group_id = a.group_id) AS seg_n FROM attendance at LEFT JOIN assignments a ON a.id = at.assignment_id
       WHERE at.date BETWEEN ? AND ?`).all(from, to);
     const [yy, mm] = month.split('-').map(Number);
