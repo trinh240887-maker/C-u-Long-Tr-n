@@ -137,7 +137,7 @@ export default function (r, ctx) {
       }
       if (s.owner_id) { if (load.has(s.owner_id)) load.set(s.owner_id, load.get(s.owner_id) + (s.item.job_minutes || DEFAULT_MIN)); return { ...s, staff_id: s.owner_id }; }
       // Việc chỉ nữ / chỉ nam: đúng giới tính trước; chưa ghi giới tính thì dùng khi không còn ai đúng; khác giới tính thì không giao
-      const fit = genderPool(ps, s.item.job_gender);
+      const fit = fitPool(ps, s.item);
       // Người cố định (chủ quán chọn): có ca trong khung giờ thì giao luôn
       const fx = s.item.job_fixed_staff && fit.find((p) => p.id === s.item.job_fixed_staff);
       if (fx) { load.set(fx.id, load.get(fx.id) + (s.item.job_minutes || DEFAULT_MIN)); return { ...s, staff_id: fx.id }; }
@@ -157,6 +157,9 @@ export default function (r, ctx) {
     }
   }
 
+  // Việc chỉ tổ trưởng / trưởng ca (chủ quán 27/10): quản lý cũng làm được
+  const LEAD = ['team_lead', 'shift_lead', 'manager'];
+  const fitPool = (ps, it) => genderPool(it.job_role === 'lead' ? ps.filter((p) => LEAD.includes(p.role)) : ps, it.job_gender);
   function genderPool(ps, g) {
     if (!g) return ps;
     const ok = ps.filter((p) => p.gender === g);
@@ -529,7 +532,7 @@ export default function (r, ctx) {
       for (const j of rows) {
         if (inAtt.has(j.staff_id) || (startOf.get(j.staff_id) ?? 0) > nowMin) continue; // đã đến / ca bắt đầu muộn hơn → không chuyển
         const it = itemOf(j);
-        const fit = genderPool(here, it.job_gender);
+        const fit = fitPool(here, it);
         if (!fit.length) { moved.push(`${it.text}: chưa có người thay (${name(j.staff_id)} chưa chấm vào)`); continue; }
         const cost = (p) => cnt.get(p.id) * 10 + (j.zone_id && p.zone_id === j.zone_id ? 0 : !p.zone_id ? 5 : 15);
         const best = fit.reduce((a, b) => (cost(b) < cost(a) ? b : a));

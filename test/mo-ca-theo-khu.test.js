@@ -261,3 +261,29 @@ test('Người vào sau khung đầu ca (16h, 17h): có trong danh sách để g
     assert.equal(typeof o.loads, 'object');
   } finally { app.close(); }
 });
+
+test('Việc chỉ tổ trưởng / trưởng ca: chỉ giao cho tổ trưởng, trưởng ca', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const tpl = db.prepare("SELECT id FROM checklist_templates WHERE title LIKE 'Mở ca phục vụ%' AND active = 1").get().id;
+  db.prepare('DELETE FROM checklist_items WHERE template_id = ?').run(tpl);
+  const za = db.prepare('SELECT id FROM zones WHERE active = 1 ORDER BY sort, id').get().id;
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const nv = (await O('POST', '/api/staff', { name: 'NV', team_id: pv, pin: '5881' })).data.id;
+  const tt = (await O('POST', '/api/staff', { name: 'Tổ trưởng', team_id: pv, pin: '5882', role: 'team_lead' })).data.id;
+  const today = app.ctx.today();
+  for (const sid of [nv, tt]) db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at, zone_id) VALUES (?, ?, ?, ?, 840, 1380, 0, ?)').run(`g${sid}`, sid, pv, today, za);
+  const it = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Chụp tổng thể khu', zone_id: za })).data.id;
+  const other = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Quét khu', zone_id: za })).data.id;
+  for (const x of [other]) await O('PATCH', `/api/checklist-items/${x}`, { job_minutes: 30 });
+  assert.equal((await O('PATCH', `/api/checklist-items/${it}`, { job_role: 'lead', job_minutes: 5 })).status, 200);
+  await O('GET', '/api/checklists');
+  assert.equal(db.prepare('SELECT staff_id FROM jobs WHERE item_id = ? AND date = ?').get(it, today).staff_id, tt);
+});
