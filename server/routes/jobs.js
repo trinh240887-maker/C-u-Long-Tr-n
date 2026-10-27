@@ -87,7 +87,11 @@ export default function (r, ctx) {
     const zs = t.zone_id ? zonesAll().filter((z) => z.id === t.zone_id) : zonesAll();
     const out = [];
     const everyone = t.items.some((i) => i.job_scope === 'each') && date ? people(date, t) : [];
+    const crewOn = (it) => { const ids = JSON.parse(it.job_crew || '[]'); if (!ids.length || !date) return []; const ps = people(date, t).filter((p) => inWindow(p, t)); return ids.filter((x) => ps.some((p) => p.id === x)); };
     for (const it of t.items) {
+      // Nhiều bạn cùng làm (việc chung): mỗi bạn có ca trong khung giờ 1 thẻ; không ai có ca → 1 thẻ chung để app chia người khác
+      const crew = crewOn(it);
+      if (crew.length) { for (const x of crew) out.push({ item: it, zone_id: 0, owner_id: x }); continue; }
       // Mỗi người tự làm: mọi người có ca hôm đó thuộc các bộ phận của checklist (không theo khung giờ: ai về giờ nào làm giờ đó)
       if (it.job_scope === 'each') { for (const p of everyone) out.push({ item: it, zone_id: p.zone_id || 0, owner_id: p.id }); continue; }
       if (it.job_zone_id) { if (zs.some((z) => z.id === it.job_zone_id)) out.push({ item: it, zone_id: it.job_zone_id }); continue; } // việc riêng 1 khu
@@ -200,6 +204,7 @@ export default function (r, ctx) {
       }
     }
   };
+  ctx.jobsResetItem = (date, itemId) => { db.prepare("DELETE FROM jobs WHERE date >= ? AND item_id = ? AND status = 'todo'").run(date, itemId); ensureDay(date); };
   ctx.jobsApplyFixed = (date) => { db.prepare("DELETE FROM jobs WHERE date >= ? AND status = 'todo' AND zone_id != 0 AND item_id IN (SELECT id FROM checklist_items WHERE job_scope = 'shop')").run(date); ensureDay(date); };
   // Hôm nay: giữ ổn định; các ngày tới (tối đa 14 ngày): luôn theo lịch ca / phân khu mới nhất
   ctx.jobsEnsureDay = (date) => ensureDay(date); // màn Checklist dùng để hiện ai làm việc nào theo khu

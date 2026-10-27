@@ -209,7 +209,7 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
   // Người chọn làm việc chung: Phục vụ + Tiếp thực + người có khu (vd trưởng ca chưa có bộ phận)
   const pool = (staffD.data || []).filter((x) => x.active !== false && x.role !== 'owner' && (/phục vụ|tiếp thực/i.test(x.team_name || '') || x.home_zone_id)).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
   const del = (i) => confirm(`Xoá việc "${i.text}"?`) && act(() => api('POST', `/api/checklist-items/${i.id}/delete`, {}), 'Đã xoá việc');
-  const jobOf = (i, zid) => (r.job_rows || []).find((j) => j.item_id === i.id && j.zone_id === (i.job_scope === 'shop' ? 0 : zid));
+  const jobOf = (i, zid) => (r.job_rows || []).find((j) => j.item_id === i.id && !j.owner_id && j.zone_id === (i.job_scope === 'shop' ? 0 : zid));
   const give = (j, sid) => act(() => api('PATCH', `/api/jobs/${j.id}`, { staff_id: sid ? Number(sid) : null }), sid ? 'Đã giao việc' : 'Đã bỏ giao');
   // Người làm của 1 việc trong khu: tổ trưởng / trưởng ca chọn từ danh sách (người trong khu lên đầu)
   const Who1 = (i, zid, ps) => {
@@ -263,13 +263,16 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
       ${canEdit && own.length && zones.length > 1 ? html`<button class="link small" style="align-self:flex-start" onClick=${() => copyZone(z)}>📋 Chép ${own.length} việc này sang khu khác</button>` : null}
     </div>`; })}
     <div class="zt-zone">
-      <div class="zt-head">🔁 Việc chung cả quán <small>${common.length} việc · mỗi việc 1 bạn cố định</small></div>
+      <div class="zt-head">🔁 Việc chung cả quán <small>${common.length} việc · chọn 1 hoặc nhiều bạn cố định</small></div>
       ${common.length ? html`<ul class="zt-list">${common.map((i) => { const j = (r.job_rows || []).find((x) => x.item_id === i.id); return html`<li>
         <button class="grow zt-item" onClick=${() => setEdit(i)}>${i.text}${j && j.staff_id && j.staff_id !== i.job_fixed_staff ? html`<br /><small class="muted">hôm nay: ${j.staff_name}${['done', 'ok'].includes(j.status) ? ' ✅' : ''}</small>` : j && ['done', 'ok'].includes(j.status) ? html` ✅` : ''}</button>
-        ${canEdit ? html`<button class="zt-sel" onClick=${() => setPick({ title: `${i.text} · bạn cố định`, value: i.job_fixed_staff, gender: i.job_gender,
+        ${(() => { const crew = i.job_crew?.length ? i.job_crew : i.job_fixed_staff ? [i.job_fixed_staff] : []; const nm = (id) => pool.find((x) => x.id === id)?.name || '?';
+          const cards = (r.job_rows || []).filter((x) => x.item_id === i.id && x.owner_id); const doneN = cards.filter((x) => ['done', 'ok'].includes(x.status)).length;
+          const label = crew.length > 1 ? `👥 ${crew.map(nm).join(', ')}${cards.length ? ` (${doneN}/${cards.length} xong)` : ''}` : crew.length ? `👤 ${nm(crew[0])}` : '👤 chọn người';
+          return canEdit ? html`<button class="zt-sel zt-crew" onClick=${() => setPick({ title: `${i.text} · chọn 1 hoặc nhiều bạn`, multi: true, values: crew, gender: i.job_gender,
             list: pool.map((x) => { const on = people.find((p) => p.id === x.id); return { id: x.id, name: x.name, gender: x.gender || '', sub: [x.team_name || 'Chưa có bộ phận', on ? `hôm nay ${on.shift}` : 'hôm nay không có ca 14h'].join(' · '), top: !!on }; }),
-            onPick: (sid) => act(() => api('PATCH', `/api/checklist-items/${i.id}`, { job_fixed_staff: sid || null }), sid ? 'Đã giao cố định' : 'Đã bỏ người cố định') })}>
-          ${pool.find((x) => x.id === i.job_fixed_staff)?.name ? `👤 ${pool.find((x) => x.id === i.job_fixed_staff).name}` : '👤 chọn bạn cố định'} ▾</button>` : html`<small>👤 ${pool.find((x) => x.id === i.job_fixed_staff)?.name || j?.staff_name || 'chưa giao'}</small>`}
+            onPick: (ids) => act(() => api('PATCH', `/api/checklist-items/${i.id}`, { job_crew: ids }), ids.length > 1 ? `Đã giao ${ids.length} bạn cùng làm` : ids.length ? 'Đã giao cố định' : 'Đã bỏ người') })}>${label} ▾</button>`
+            : html`<small>${label}</small>`; })()}
         ${canEdit ? html`<button class="link small" aria-label="Xoá" onClick=${() => del(i)}>✕</button>` : null}</li>`; })}</ul>` : html`<p class="small muted">Chưa có việc chung.</p>`}
       ${canEdit ? html`<${AddItemInline} templateId=${r.template_id} scope="shop" placeholder="+ Thêm việc chung cả quán…" />` : null}
     </div>
@@ -281,8 +284,9 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
 
 // Chọn người có ô tìm tên (gõ không dấu cũng được), người đang có ca trong khu lên đầu
 const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
-function PersonPicker({ title, list, more = [], moreLabel = 'người khu khác / hỗ trợ', value, onPick, onClose, gender = '', fixable = false, fixed = false }) {
+function PersonPicker({ title, list, more = [], moreLabel = 'người khu khác / hỗ trợ', value, onPick, onClose, gender = '', fixable = false, fixed = false, multi = false, values = [] }) {
   const [q, setQ] = useState('');
+  const [sel, setSel] = useState(values);
   const [all, setAll] = useState(false);
   const [fix, setFix] = useState(fixed);
   const f = fold(q).trim();
@@ -295,11 +299,13 @@ function PersonPicker({ title, list, more = [], moreLabel = 'người khu khác 
     <input class="big" autoFocus placeholder="🔍 Gõ tên để tìm (vd: thuong)" value=${q} onInput=${(e) => setQ(e.target.value)} />
     ${fixable ? html`<label class="check-row"><input type="checkbox" checked=${fix} onChange=${(e) => setFix(e.target.checked)} /> <span>📌 <b>Cố định</b>: ngày nào bạn này có ca cũng giao (nghỉ thì app tự chia người khác)</span></label>` : null}
     <div class="pp-list">
-      ${rows.map((x) => html`<button class=${`pp-row ${x.id === value ? 'on' : ''} ${gender && x.gender && x.gender !== gender ? 'muted' : ''}`} onClick=${() => choose(x.id)}><b>${x.name}${x.gender ? html` <small class="muted">· ${G[x.gender]}</small>` : ''}</b>${x.sub ? html`<small class="muted">${x.sub}</small>` : null}</button>`)}
+      ${multi ? rows.map((x) => html`<label class=${`pp-row pp-check ${sel.includes(x.id) ? 'on' : ''}`}><span><input type="checkbox" checked=${sel.includes(x.id)} onChange=${() => setSel(sel.includes(x.id) ? sel.filter((y) => y !== x.id) : [...sel, x.id])} /> <b>${x.name}${x.gender ? html` <small class="muted">· ${G[x.gender]}</small>` : ''}</b></span>${x.sub ? html`<small class="muted">${x.sub}</small>` : null}</label>`) : null}
+      ${multi ? null : rows.map((x) => html`<button class=${`pp-row ${x.id === value ? 'on' : ''} ${gender && x.gender && x.gender !== gender ? 'muted' : ''}`} onClick=${() => choose(x.id)}><b>${x.name}${x.gender ? html` <small class="muted">· ${G[x.gender]}</small>` : ''}</b>${x.sub ? html`<small class="muted">${x.sub}</small>` : null}</button>`)}
       ${!rows.length ? html`<p class="muted small">${q ? `Không thấy tên "${q}".` : 'Khu này chưa có ai trong khung giờ.'}</p>` : null}
     </div>
     ${more.length && !all && !f ? html`<button onClick=${() => setAll(true)}>➕ Xem thêm ${more.length} ${moreLabel}</button>` : null}
-    ${value ? html`<button onClick=${() => choose(null)}>✕ Bỏ người đang chọn</button>` : null}
+    ${multi ? html`<button class="primary big" onClick=${() => { onClose(); onPick(sel); }}>✓ Lưu (${sel.length} người)</button>${sel.length ? html`<button onClick=${() => setSel([])}>Bỏ chọn hết</button>` : null}`
+      : value ? html`<button onClick=${() => choose(null)}>✕ Bỏ người đang chọn</button>` : null}
   </div><//>`;
 }
 const hmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;

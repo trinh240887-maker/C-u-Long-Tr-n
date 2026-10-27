@@ -56,6 +56,7 @@ export default function (r, ctx) {
   addCol('checklist_items', 'job_guide', "TEXT NOT NULL DEFAULT ''");          // hướng dẫn cách làm (chủ quán 27/10)
   addCol('checklist_items', 'job_deadline', 'INTEGER');                       // phải xong trước (phút trong ngày), vd 14:30 = 870
   addCol('checklist_templates', 'job_note', "TEXT NOT NULL DEFAULT ''");     // lưu ý chung cho mọi người (vd giờ ăn cơm 15h35–15h55)
+  addCol('checklist_items', 'job_crew', "TEXT NOT NULL DEFAULT '[]'");       // việc chung nhiều bạn cùng làm: mỗi bạn 1 thẻ (chủ quán 27/10)
   addCol('checklist_items', 'job_gender', "TEXT NOT NULL DEFAULT ''");        // '' ai cũng được · nu chỉ nữ · nam chỉ nam
   addCol('checklist_items', 'job_fixed_staff', 'INTEGER');                   // việc chung: người làm cố định (chủ quán tự chọn), ngày nào có ca thì giao người này
   addCol('checklist_items', 'job_photos', 'INTEGER NOT NULL DEFAULT 0');      // số ảnh rộng phải chụp khi xong (0 = theo photo_required)                       // việc riêng của 1 khu (chủ quán 27/10); trống = khu nào cũng làm
@@ -333,6 +334,13 @@ export default function (r, ctx) {
     const photos = body.job_photos === undefined ? it.job_photos : v.int(body.job_photos || 0, { min: 0, max: 6, name: 'Số ảnh' });
     const photoReq = photos > 0 ? 1 : body.photo_required === undefined ? it.photo_required : (v.bool(body.photo_required) ? 1 : 0);
     db.prepare('UPDATE checklist_items SET text = ?, job_guide = ?, job_minutes = ?, job_deadline = ?, job_photos = ?, photo_required = ? WHERE id = ?').run(text, guide, minutes, deadline, photos, photoReq, it.id);
+    if (body.job_crew !== undefined) {
+      const ids = [...new Set((Array.isArray(body.job_crew) ? body.job_crew : []).map(Number).filter(Boolean))].slice(0, 20);
+      for (const x of ids) if (!db.prepare('SELECT 1 FROM staff WHERE id = ? AND active = 1').get(x)) fail(404, 'Không tìm thấy nhân viên');
+      // 1 bạn = người cố định; nhiều bạn = mỗi bạn 1 thẻ
+      db.prepare("UPDATE checklist_items SET job_crew = ?, job_fixed_staff = ?, job_scope = CASE WHEN job_zone_id IS NULL THEN 'shop' ELSE job_scope END WHERE id = ?").run(JSON.stringify(ids.length > 1 ? ids : []), ids.length === 1 ? ids[0] : null, it.id);
+      try { ctx.jobsResetItem?.(ctx.today(), it.id); } catch { /* chưa có bảng jobs */ }
+    }
     if (body.job_gender !== undefined) db.prepare('UPDATE checklist_items SET job_gender = ? WHERE id = ?').run(v.oneOf(body.job_gender || '', ['', 'nam', 'nu'], { name: 'Ai làm' }), it.id);
     if (body.job_fixed_staff !== undefined) {
       const sid = body.job_fixed_staff ? v.int(body.job_fixed_staff, { min: 1, name: 'Người làm' }) : null;
@@ -485,7 +493,7 @@ export default function (r, ctx) {
 
   // Thẻ chia theo khu: Mở ca phục vụ, Đầu ca phục vụ (khăn + nón)
   const zoneTpl = (t) => /mở ca phục vụ|đầu ca phục vụ/i.test(t.title);
-  const jobRowsOf = (date, tid) => { try { return db.prepare('SELECT id, item_id, zone_id, staff_id, status FROM jobs WHERE date = ? AND template_id = ? AND owner_id = 0').all(date, tid); } catch { return []; } };
+  const jobRowsOf = (date, tid) => { try { return db.prepare('SELECT id, item_id, zone_id, staff_id, status, owner_id FROM jobs WHERE date = ? AND template_id = ?').all(date, tid); } catch { return []; } };
   const zonePhotosOf = (date, tid) => { try { return db.prepare('SELECT id, zone_id, staff_id, at FROM job_zone_photos WHERE date = ? AND template_id = ? ORDER BY id').all(date, tid); } catch { return []; } };
 
   r.get('/api/checklists', 'staff', ({ me, query }) => {
@@ -499,10 +507,10 @@ export default function (r, ctx) {
       let total = 0, done = 0;
       try { const c = db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN status IN ('done','ok') THEN 1 ELSE 0 END) AS d FROM jobs WHERE date = ? AND template_id = ?").get(date, t.id); total = c.n; done = c.d || 0; } catch { /* chưa có bảng jobs */ }
       return { template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t), items: t.items.length, total, done,
-        item_list: t.items.map((i) => ({ id: i.id, text: i.text, job_scope: i.job_scope, job_zone_id: i.job_zone_id ?? null, job_fixed_staff: i.job_fixed_staff ?? null, job_gender: i.job_gender || '', job_guide: i.job_guide || '', job_minutes: i.job_minutes || 0,
+        item_list: t.items.map((i) => ({ id: i.id, text: i.text, job_scope: i.job_scope, job_zone_id: i.job_zone_id ?? null, job_fixed_staff: i.job_fixed_staff ?? null, job_gender: i.job_gender || '', job_crew: JSON.parse(i.job_crew || '[]'), job_guide: i.job_guide || '', job_minutes: i.job_minutes || 0,
           job_deadline: i.job_deadline ?? null, job_photos: i.job_photos || 0, photo_required: !!i.photo_required, samples: (i.samples || []).map((x) => x.id) })), opening_tpl: zoneTpl(t),
         zone_photo: /đầu ca phục vụ/i.test(t.title), note: t.job_note || '', // trưởng ca chụp ảnh từng khu (chủ quán 27/10)
-        job_rows: zoneTpl(t) ? jobRowsOf(date, t.id).map((j) => ({ id: j.id, item_id: j.item_id, zone_id: j.zone_id, staff_id: j.staff_id, staff_name: nameOf(j.staff_id), status: j.status })) : [],
+        job_rows: zoneTpl(t) ? jobRowsOf(date, t.id).map((j) => ({ id: j.id, item_id: j.item_id, zone_id: j.zone_id, owner_id: j.owner_id, staff_id: j.staff_id, staff_name: nameOf(j.staff_id), status: j.status })) : [],
         photos: zoneTpl(t) ? zonePhotosOf(date, t.id).map((x) => ({ id: x.id, zone_id: x.zone_id, at: x.at, staff_name: nameOf(x.staff_id) })) : [] };
     });
     return { date, runs: dayView(date, scope), jobs, opening: opening(date) };

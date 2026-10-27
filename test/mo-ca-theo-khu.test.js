@@ -213,3 +213,32 @@ test('Chia việc: chỉ nữ giao bạn nữ; người cố định; 14:15 chư
   assert.ok([nam, nu1].includes(who(gas)));
   if (who(wc) !== undefined) assert.equal(who(wc), nu1, 'việc chỉ nữ chuyển cho bạn nữ còn lại');
 });
+
+test('Việc chung nhiều bạn cùng làm: mỗi bạn có ca 1 thẻ; bạn nghỉ thì không có thẻ', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const tpl = db.prepare("SELECT id FROM checklist_templates WHERE title LIKE 'Mở ca phục vụ%' AND active = 1").get().id;
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const ids = [];
+  for (const [n, pin] of [['Tú', '5871'], ['Phát', '5872'], ['Ý', '5873']]) ids.push((await O('POST', '/api/staff', { name: n, team_id: pv, pin })).data.id);
+  const today = app.ctx.today();
+  for (const sid of ids.slice(0, 2)) db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES (?, ?, ?, ?, 840, 1380, 0)').run(`g${sid}`, sid, pv, today); // Ý nghỉ
+  const it = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Lau toàn bộ chén đũa muỗng', job_scope: 'shop' })).data.id;
+  assert.equal((await O('PATCH', `/api/checklist-items/${it}`, { job_crew: ids })).status, 200);
+  const card = (await O('GET', '/api/checklists')).data.jobs.find((j) => j.template_id === tpl);
+  assert.deepEqual(card.item_list.find((i) => i.id === it).job_crew, ids);
+  const rows = db.prepare('SELECT staff_id, owner_id FROM jobs WHERE item_id = ? AND date = ? ORDER BY staff_id').all(it, today);
+  assert.deepEqual(rows.map((x) => x.staff_id), ids.slice(0, 2));
+  // còn 1 bạn → thành người cố định, 1 thẻ chung
+  await O('PATCH', `/api/checklist-items/${it}`, { job_crew: [ids[1]] });
+  await O('GET', '/api/checklists');
+  const one = db.prepare('SELECT staff_id, owner_id FROM jobs WHERE item_id = ? AND date = ?').all(it, today);
+  assert.equal(one.length, 1); assert.equal(one[0].owner_id, 0); assert.equal(one[0].staff_id, ids[1]);
+});

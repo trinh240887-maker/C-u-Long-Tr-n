@@ -819,3 +819,6 @@ button.zt-sel { min-height: 36px; padding: 4px 10px; font-size: 14px; text-align
 .pp-list { display: flex; flex-direction: column; gap: 4px; max-height: 55vh; overflow-y: auto; }
 .pp-row { display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 10px 12px; min-height: 48px; }
 .pp-row.on { border-color: var(--accent, #c2410c); background: var(--accent-soft, #fde7d8); }
+.pp-check { cursor: pointer; }
+.pp-check input { width: 20px; height: 20px; vertical-align: middle; }
+button.zt-crew { max-width: 60%; }
