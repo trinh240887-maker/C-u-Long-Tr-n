@@ -121,6 +121,23 @@ export default function (r, ctx) {
     }
     ctx.setSetting('pv_tt_hide_v1', '1');
   }
+  // Chủ quán 27/10 (sửa lại): chỉ bỏ các VIỆC để ghi lại, giữ checklist → bật lại checklist đã ẩn, chuyển việc cũ sang bản lưu ẩn "(việc cũ 27/10)" (giữ lịch sử, ảnh)
+  if (!ctx.setting('pv_tt_restore_v1')) {
+    let ids = [];
+    try { ids = JSON.parse(ctx.setting('pv_tt_hidden_ids') || '[]'); } catch { ids = []; }
+    tx(db, () => {
+      for (const id of ids) {
+        const t = db.prepare('SELECT * FROM checklist_templates WHERE id = ?').get(id);
+        if (!t) continue;
+        db.prepare('UPDATE checklist_templates SET active = 1 WHERE id = ?').run(id);
+        if (!db.prepare('SELECT 1 FROM checklist_items WHERE template_id = ?').get(id)) continue;
+        const arch = Number(db.prepare("INSERT INTO checklist_templates (team_id, phase, title, sort, active) VALUES (?, ?, ?, ?, 0)").run(t.team_id, t.phase, `${t.title} (việc cũ 27/10)`, t.sort).lastInsertRowid);
+        db.prepare('UPDATE checklist_samples SET template_id = ? WHERE item_id IN (SELECT id FROM checklist_items WHERE template_id = ?)').run(arch, id);
+        db.prepare('UPDATE checklist_items SET template_id = ? WHERE template_id = ?').run(arch, id);
+      }
+    });
+    ctx.setSetting('pv_tt_restore_v1', '1');
+  }
   const PV_TT = 'Phục vụ & Tiếp thực'; // chủ quán 27/10: gom Phục vụ + Tiếp thực làm 1 mục
   const sectionOf = (t) => {
     if (t.section) return /^(phục vụ|tiếp thực)$/i.test(t.section.trim()) ? PV_TT : t.section;

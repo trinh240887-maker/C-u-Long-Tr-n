@@ -16,13 +16,17 @@ test('Ẩn checklist Phục vụ & Tiếp thực 1 lần (DB đang chạy): gi�
   assert.ok(active().some((x) => /Mở ca phục vụ/i.test(x.title)));
   app.close();
   // Giả lập bản đang chạy thật: cờ ẩn chưa có → lần khởi động sau sẽ ẩn
-  db.prepare("DELETE FROM settings WHERE key = 'pv_tt_hide_v1'").run();
+  db.prepare("DELETE FROM settings WHERE key IN ('pv_tt_hide_v1', 'pv_tt_restore_v1')").run();
   const bepBefore = active().filter((x) => /bếp|lẩu|bar/i.test(x.team || '')).length;
   app = mk();
-  const after = active();
-  assert.ok(!after.some((x) => /phục vụ|tiếp thực/i.test(x.team || '') || /Mở ca phục vụ/i.test(x.title)));
-  assert.equal(after.filter((x) => /bếp|lẩu|bar/i.test(x.team || '')).length, bepBefore);
-  assert.ok(db.prepare("SELECT COUNT(*) AS n FROM checklist_templates WHERE title LIKE 'Mở ca phục vụ%'").get().n >= 1); // vẫn còn (ẩn), không xoá
+  // Sửa lại: checklist Phục vụ vẫn dùng (bật lại) nhưng TRỐNG việc; việc cũ nằm ở bản "(việc cũ 27/10)" đang tắt
+  const mo = db.prepare("SELECT * FROM checklist_templates WHERE title = 'Mở ca phục vụ'").get();
+  assert.equal(mo.active, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM checklist_items WHERE template_id = ?').get(mo.id).n, 0);
+  const arch = db.prepare("SELECT * FROM checklist_templates WHERE title = 'Mở ca phục vụ (việc cũ 27/10)'").get();
+  assert.equal(arch.active, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM checklist_items WHERE template_id = ?').get(arch.id).n, 12);
+  assert.equal(active().filter((x) => /bếp|lẩu|bar/i.test(x.team || '')).length, bepBefore);
   assert.ok(JSON.parse(app.ctx.setting('pv_tt_hidden_ids')).length >= 1);
   app.close();
 });
