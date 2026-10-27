@@ -176,3 +176,40 @@ test('Chép việc Khu A sang B, C: chép cả hướng dẫn / thời gian, b�
   assert.equal(c[0].job_guide, 'Chổi + hốt rác'); assert.equal(c[0].job_minutes, 15); assert.equal(c[0].job_photos, 4);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM checklist_items WHERE template_id = ? AND job_zone_id = ?').get(tpl, zb).n, 2);
 });
+
+test('Chia việc: chỉ nữ giao bạn nữ; người cố định; 14:15 chưa chấm vào → chuyển việc', async (t) => {
+  let now = Date.parse('2026-10-27T12:00:00+07:00');
+  const db = openDb(':memory:', { now });
+  const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const tpl = db.prepare("SELECT id FROM checklist_templates WHERE title LIKE 'Mở ca phục vụ%' AND active = 1").get().id;
+  db.prepare("DELETE FROM checklist_items WHERE template_id = ?").run(tpl); // chỉ giữ việc của test
+  const za = db.prepare('SELECT id FROM zones WHERE active = 1 ORDER BY sort, id').get().id;
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const mk = async (name, pin, gender) => { const id = (await O('POST', '/api/staff', { name, team_id: pv, pin })).data.id; await O('PATCH', `/api/staff/${id}`, { gender }); return id; };
+  const nam = await mk('Phát', '5861', 'nam'), nu1 = await mk('Ngân', '5862', 'nu'), nu2 = await mk('Ý', '5863', 'nu');
+  assert.equal((await O('GET', '/api/staff')).data.find((x) => x.id === nu1).gender, 'nu');
+  const today = app.ctx.today();
+  for (const sid of [nam, nu1, nu2]) db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at, zone_id) VALUES (?, ?, ?, ?, 840, 1380, 0, ?)').run(`g${sid}`, sid, pv, today, za);
+  const wc = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Kiểm tra nhà vệ sinh Nữ', zone_id: za })).data.id;
+  await O('PATCH', `/api/checklist-items/${wc}`, { job_gender: 'nu', job_minutes: 30 });
+  const gas = (await O('POST', `/api/checklist-templates/${tpl}/items`, { text: 'Check bình gas', zone_id: za })).data.id;
+  await O('PATCH', `/api/checklist-items/${gas}`, { job_fixed_staff: nu2 });
+  await O('GET', '/api/checklists');
+  const who = (item) => db.prepare('SELECT staff_id FROM jobs WHERE item_id = ? AND date = ?').get(item, today)?.staff_id;
+  assert.ok([nu1, nu2].includes(who(wc)), 'việc chỉ nữ giao bạn nữ');
+  assert.equal(who(gas), nu2, 'người cố định');
+  // Ngân + Phát chấm vào, Ý không đến → 14:16 chuyển việc của Ý
+  for (const sid of [nam, nu1]) db.prepare('INSERT INTO attendance (staff_id, date, clock_in) VALUES (?, ?, ?)').run(sid, today, Date.parse('2026-10-27T13:55:00+07:00'));
+  now = Date.parse('2026-10-27T14:16:00+07:00');
+  app.ctx.jobsTick();
+  assert.notEqual(who(gas), nu2);
+  assert.ok([nam, nu1].includes(who(gas)));
+  if (who(wc) !== undefined) assert.equal(who(wc), nu1, 'việc chỉ nữ chuyển cho bạn nữ còn lại');
+});

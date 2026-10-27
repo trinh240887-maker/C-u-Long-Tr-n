@@ -107,6 +107,8 @@ function FixStaff({ p, zones, teams = [], onClose }) {
     <b>2. Khu</b>
     <div class="row wrap">${zones.map((z) => html`<button class=${`big ${p.home_zone_id === z.id ? 'primary' : ''}`} onClick=${() => save({ home_zone_id: z.id }, `${p.name}: ${z.name}`)}>${z.name}</button>`)}
       <button class=${`big ${!p.home_zone_id ? 'primary' : ''}`} onClick=${() => p.home_zone_id && save({ home_zone_id: null }, `${p.name}: không cố định khu`)}>Không cố định</button></div>
+    <b>3. Giới tính</b>
+    <div class="row wrap">${[['nu', 'Nữ'], ['nam', 'Nam']].map(([k, l]) => html`<button class=${`big ${p.gender === k ? 'primary' : ''}`} onClick=${() => p.gender !== k && save({ gender: k }, `${p.name}: ${l}`)}>${l}</button>`)}</div>
     <details><summary class="small muted">Đổi bộ phận</summary><div class="chips">${teams.map((t) => html`<button class=${`chip ${p.team_id === t.id ? 'on' : ''}`} onClick=${() => p.team_id !== t.id && save({ team_id: t.id, position_id: null }, `Đã chuyển ${p.name} sang ${t.name}`)}>${t.name}</button>`)}</div></details>
   </div><//>`;
 }

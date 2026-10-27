@@ -64,12 +64,12 @@ export default function (r, ctx) {
   // Người đi làm hôm đó thuộc các bộ phận của checklist (gộp các khúc ca của 1 người)
   function people(date, t) {
     const teams = teamsOf(t);
-    const rows = db.prepare(`SELECT a.staff_id, a.team_id, a.zone_id, a.start_min, a.end_min, s.name, s.role, s.team_id AS home_team FROM assignments a JOIN staff s ON s.id = a.staff_id
+    const rows = db.prepare(`SELECT a.staff_id, a.team_id, a.zone_id, a.start_min, a.end_min, s.name, s.role, s.gender, s.team_id AS home_team FROM assignments a JOIN staff s ON s.id = a.staff_id
       WHERE a.date = ? AND s.active = 1 AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') ORDER BY a.start_min`).all(date);
     const by = new Map();
     for (const a of rows) {
       if (teams && !teams.includes(a.team_id) && !teams.includes(a.home_team) && !(teams.includes(-1) && a.role === 'shift_lead')) continue; // -1 = trưởng ca cũng làm
-      const p = by.get(a.staff_id) || { id: a.staff_id, name: a.name, role: a.role, zone_id: 0, start: a.start_min, end: a.end_min };
+      const p = by.get(a.staff_id) || { id: a.staff_id, name: a.name, role: a.role, gender: a.gender || '', zone_id: 0, start: a.start_min, end: a.end_min };
       p.start = Math.min(p.start, a.start_min); p.end = Math.max(p.end, a.end_min);
       if (!p.zone_id && a.zone_id) p.zone_id = a.zone_id;
       by.set(a.staff_id, p);
@@ -132,8 +132,13 @@ export default function (r, ctx) {
         if (sid) return { ...s, staff_id: sid };
       }
       if (s.owner_id) { if (load.has(s.owner_id)) load.set(s.owner_id, load.get(s.owner_id) + (s.item.job_minutes || DEFAULT_MIN)); return { ...s, staff_id: s.owner_id }; }
+      // Việc chỉ nữ / chỉ nam: đúng giới tính trước; chưa ghi giới tính thì dùng khi không còn ai đúng; khác giới tính thì không giao
+      const fit = genderPool(ps, s.item.job_gender);
+      // Người cố định (chủ quán chọn): có ca trong khung giờ thì giao luôn
+      const fx = s.item.job_fixed_staff && fit.find((p) => p.id === s.item.job_fixed_staff);
+      if (fx) { load.set(fx.id, load.get(fx.id) + (s.item.job_minutes || DEFAULT_MIN)); return { ...s, staff_id: fx.id }; }
       // Việc của khu: người trong khu trước → người chưa phân khu (vd tiếp thực) → người khu khác (chỉ khi khu này thiếu người rõ rệt)
-      const pool = ps;
+      const pool = fit;
       const near = ps.filter((p) => !s.zone_id || !p.zone_id || p.zone_id === s.zone_id).length; // người cùng khu + hỗ trợ
       if (!pool.length) return { ...s, staff_id: null };
       const cost = (p) => load.get(p.id)
@@ -146,6 +151,12 @@ export default function (r, ctx) {
       load.set(best.id, load.get(best.id) + (s.item.job_minutes || DEFAULT_MIN));
       return { ...s, staff_id: best.id };
     }
+  }
+
+  function genderPool(ps, g) {
+    if (!g) return ps;
+    const ok = ps.filter((p) => p.gender === g);
+    return ok.length ? ok : ps.filter((p) => !p.gender);
   }
 
   // Tạo thẻ việc trong ngày (chỉ lần đầu); chia lại thì chỉ đổi việc chưa ai bắt đầu
@@ -179,10 +190,14 @@ export default function (r, ctx) {
   }
   // Việc chung có người cố định: ngày nào người đó có ca thì giao cho họ (việc chưa bắt đầu)
   const applyFixed = (date) => {
-    for (const t of jobTemplates()) for (const it of t.items) {
-      if (!it.job_fixed_staff) continue;
-      if (!db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(it.job_fixed_staff, date)) continue;
-      db.prepare("UPDATE jobs SET staff_id = ?, assigned_by = NULL, nudged = 0 WHERE date = ? AND item_id = ? AND status = 'todo' AND owner_id = 0 AND assigned_by IS NULL AND (staff_id IS NULL OR staff_id != ?)").run(it.job_fixed_staff, date, it.id, it.job_fixed_staff);
+    for (const t of jobTemplates()) {
+      const its = t.items.filter((it) => it.job_fixed_staff && (it.job_zone_id || it.job_scope === 'shop'));
+      if (!its.length) continue;
+      const on = new Set(people(date, t).filter((p) => inWindow(p, t)).map((p) => p.id));
+      for (const it of its) {
+        if (!on.has(it.job_fixed_staff)) continue; // nghỉ / không có ca khung này → để app chia người khác
+        db.prepare("UPDATE jobs SET staff_id = ?, assigned_by = NULL, nudged = 0 WHERE date = ? AND item_id = ? AND status = 'todo' AND owner_id = 0 AND assigned_by IS NULL AND (staff_id IS NULL OR staff_id != ?)").run(it.job_fixed_staff, date, it.id, it.job_fixed_staff);
+      }
     }
   };
   ctx.jobsApplyFixed = (date) => { db.prepare("DELETE FROM jobs WHERE date >= ? AND status = 'todo' AND zone_id != 0 AND item_id IN (SELECT id FROM checklist_items WHERE job_scope = 'shop')").run(date); ensureDay(date); };
@@ -495,6 +510,31 @@ export default function (r, ctx) {
     // Tạo thẻ việc trong ngày từ 1 tiếng trước ca sớm nhất
     const nowMin = c.minuteOf(now);
     for (const t of ts) { const ps = people(date, t); if (ps.length && nowMin >= (t.job_from ?? Math.min(...ps.map((p) => p.start))) - 60) materialize(date, t); }
+    // 15 phút sau giờ bắt đầu (vd 14:15): người được giao mà chưa chấm vào → chuyển việc cho người đã chấm vào (cùng khu → hỗ trợ → khu khác), báo người kiểm tra (1 lần / ngày)
+    for (const t of ts) {
+      if (t.job_from == null || nowMin < t.job_from + 15 || ctx.setting(`noshow:${date}:${t.id}`)) continue;
+      ctx.setSetting(`noshow:${date}:${t.id}`, '1');
+      const inAtt = new Set(db.prepare('SELECT DISTINCT staff_id FROM attendance WHERE date = ?').all(date).map((x) => x.staff_id));
+      const everyone = people(date, t), startOf = new Map(everyone.map((p) => [p.id, p.start]));
+      const ps = everyone.filter((p) => inWindow(p, t));
+      const here = ps.filter((p) => inAtt.has(p.id));
+      const rows = db.prepare("SELECT * FROM jobs WHERE date = ? AND template_id = ? AND status = 'todo' AND owner_id = 0 AND staff_id IS NOT NULL").all(date, t.id);
+      const cnt = new Map(here.map((p) => [p.id, rows.filter((r) => r.staff_id === p.id).length]));
+      const moved = [];
+      for (const j of rows) {
+        if (inAtt.has(j.staff_id) || (startOf.get(j.staff_id) ?? 0) > nowMin) continue; // đã đến / ca bắt đầu muộn hơn → không chuyển
+        const it = itemOf(j);
+        const fit = genderPool(here, it.job_gender);
+        if (!fit.length) { moved.push(`${it.text}: chưa có người thay (${name(j.staff_id)} chưa chấm vào)`); continue; }
+        const cost = (p) => cnt.get(p.id) * 10 + (j.zone_id && p.zone_id === j.zone_id ? 0 : !p.zone_id ? 5 : 15);
+        const best = fit.reduce((a, b) => (cost(b) < cost(a) ? b : a));
+        db.prepare('UPDATE jobs SET staff_id = ?, nudged = 0, assigned_at = ? WHERE id = ?').run(best.id, now, j.id);
+        cnt.set(best.id, cnt.get(best.id) + 1);
+        ctx.notify([best.id], { title: `Việc thêm: ${it.text}`, body: `${zoneLabel(j.zone_id)} · làm thay ${name(j.staff_id)} (chưa chấm vào)`, link: '/viec-ca' });
+        moved.push(`${it.text}: ${name(j.staff_id)} → ${best.name}`);
+      }
+      if (moved.length) ctx.notify([...new Set(zonesAll().flatMap((z) => checkerOf(date, z.id)))], { title: `🔁 Chuyển ${moved.length} việc (người chưa chấm vào)`, body: moved.join('\n'), link: '/viec-ca?tab=khu' });
+    }
     const tpl = new Map(ts.map((t) => [t.id, t]));
     for (const j of db.prepare("SELECT * FROM jobs WHERE date = ? AND status IN ('todo','doing')").all(date)) {
       const t = tpl.get(j.template_id);

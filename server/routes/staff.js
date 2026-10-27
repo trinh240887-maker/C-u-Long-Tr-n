@@ -40,6 +40,7 @@ export default function (r, ctx) {
 
   // Khu cố định (chủ quán 27/10: người làm full 14–23 giữ cố định 1 khu): mọi ca mới của người đó tự vào khu này (trigger, áp cho mọi nơi tạo ca)
   if (!db.prepare('PRAGMA table_info(staff)').all().some((c) => c.name === 'home_zone_id')) db.exec('ALTER TABLE staff ADD COLUMN home_zone_id INTEGER');
+  if (!db.prepare('PRAGMA table_info(staff)').all().some((c) => c.name === 'gender')) db.exec("ALTER TABLE staff ADD COLUMN gender TEXT NOT NULL DEFAULT ''"); // nam | nu | '' (chủ quán 27/10: việc chỉ nữ / chỉ nam)
   db.exec(`CREATE TRIGGER IF NOT EXISTS assign_home_zone AFTER INSERT ON assignments
     WHEN (SELECT home_zone_id FROM staff WHERE id = NEW.staff_id) IS NOT NULL
     BEGIN UPDATE assignments SET zone_id = (SELECT home_zone_id FROM staff WHERE id = NEW.staff_id) WHERE id = NEW.id; END`);
@@ -85,7 +86,7 @@ export default function (r, ctx) {
       id: s.id, name: s.name, phone: rank(me.role) >= rank('team_lead') ? s.phone : '',
       role: s.role, role_label: ROLE_LABEL[s.role], team_id: s.team_id, team_name: s.team_name || '',
       active: !!s.active, zalo_linked: !!s.zalo_user_id, weekly_limit_hours: s.weekly_limit_hours,
-      position_id: s.position_id ?? null, position_name: s.position_name || '', work_type: s.work_type || '', home_zone_id: s.home_zone_id ?? null,
+      position_id: s.position_id ?? null, position_name: s.position_name || '', work_type: s.work_type || '', home_zone_id: s.home_zone_id ?? null, gender: s.gender || '',
       first_login: canSeePay ? !!s.must_change_pin : undefined,
       ...(canSeePay ? { device_set: !!s.device_id, device_pending: !!s.device_pending, device_at: s.device_at || null } : {}),
       skills: skills.filter((k) => k.staff_id === s.id).map(({ team_id, level }) => ({ team_id, level })),
@@ -217,6 +218,7 @@ export default function (r, ctx) {
       saveSkills(cur.id, body.skills);
       savePositionSkills(cur.id, body.pskills);
       db.prepare('UPDATE staff SET position_id = ?, work_type = ? WHERE id = ?').run(f.positionId, f.workType, cur.id);
+      if (body.gender !== undefined) db.prepare('UPDATE staff SET gender = ? WHERE id = ?').run(v.oneOf(body.gender || '', ['', 'nam', 'nu'], { name: 'Giới tính' }), cur.id);
       if (body.home_zone_id !== undefined) {
         const hz = body.home_zone_id === null || body.home_zone_id === '' ? null : v.int(body.home_zone_id, { min: 1, name: 'Khu cố định' });
         if (hz && !db.prepare('SELECT 1 FROM zones WHERE id = ?').get(hz)) fail(400, 'Khu không tồn tại');
