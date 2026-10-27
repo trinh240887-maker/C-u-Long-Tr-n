@@ -78,3 +78,19 @@ test('Đổi bộ phận từ bảng tuần: gửi team_id + position_id null kh
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal((await O('GET', '/api/staff')).data.find((x) => x.id === id).team_id, pv);
 });
+
+test('Phục vụ: ca 14–23 → Full ca, giờ khác → Ca gãy (gán theo ca đang xếp)', async () => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const mk = (name) => db.prepare("INSERT INTO staff (name, role, team_id, active, work_type, created_at) VALUES (?, 'staff', ?, 1, '', 0)").run(name, pv).lastInsertRowid;
+  const a = mk('A'), b = mk('B'), c = mk('C');
+  const today = app.ctx.today();
+  const ins = (sid, d, s, e, g) => db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES (?, ?, ?, ?, ?, ?, 0)').run(g || `g${sid}-${d}-${s}`, sid, pv, d, s, e);
+  for (let i = 0; i < 3; i++) { ins(a, addDays(today, i), 840, 1380); ins(b, addDays(today, i), 1080, 1380); }
+  ins(c, today, 600, 840, 'gc'); ins(c, today, 1020, 1380, 'gc');
+  assert.equal(app.ctx.pvWorkTypeSync(), 3);
+  const wt = (id) => db.prepare('SELECT work_type FROM staff WHERE id = ?').get(id).work_type;
+  assert.equal(wt(a), 'full'); assert.equal(wt(b), 'gay'); assert.equal(wt(c), 'gay');
+  app.close();
+});

@@ -44,6 +44,22 @@ export default function (r, ctx) {
     WHEN (SELECT home_zone_id FROM staff WHERE id = NEW.staff_id) IS NOT NULL
     BEGIN UPDATE assignments SET zone_id = (SELECT home_zone_id FROM staff WHERE id = NEW.staff_id) WHERE id = NEW.id; END`);
 
+  // Phục vụ (chủ quán 27/10): Full ca = 14–23, giờ khác = Ca gãy. Gán lại 1 lần theo ca đang xếp (7 ngày trước → 7 ngày tới)
+  ctx.pvWorkTypeSync = () => {
+    const pv = db.prepare("SELECT id FROM teams WHERE name LIKE '%hục vụ%' OR name LIKE '%HỤC VỤ%'").get();
+    if (!pv) return 0;
+    const t = ctx.today(), [y, m, dd] = t.split('-').map(Number);
+    const shift = (n) => new Date(Date.UTC(y, m - 1, dd + n)).toISOString().slice(0, 10);
+    const rows = db.prepare(`SELECT a.staff_id, a.group_id, COUNT(*) AS n, MIN(a.start_min) AS s, MAX(a.end_min) AS e FROM assignments a JOIN staff st ON st.id = a.staff_id
+      WHERE st.team_id = ? AND st.active = 1 AND a.date BETWEEN ? AND ? GROUP BY a.staff_id, a.group_id`).all(pv.id, shift(-7), shift(7));
+    const by = new Map();
+    for (const r of rows) { const o = by.get(r.staff_id) || { full: 0, other: 0 }; (r.n === 1 && r.s === 840 && (r.e === 1380 || r.e === 1440 || r.e === 0) ? o.full++ : o.other++); by.set(r.staff_id, o); }
+    let n = 0;
+    for (const [id, o] of by) { db.prepare('UPDATE staff SET work_type = ? WHERE id = ?').run(o.full >= o.other ? 'full' : 'gay', id); n++; }
+    return n;
+  };
+  if (!ctx.setting('pv_work_type_v1')) { ctx.pvWorkTypeSync(); ctx.setSetting('pv_work_type_v1', '1'); }
+
   // Lịch sử mức lương theo tháng (chủ quán 27/10: tháng đầu 23k/giờ, tháng sau 20k/giờ). from_month '0000-00' = mức trước khi có lịch sử
   db.exec('CREATE TABLE IF NOT EXISTS pay_history (staff_id INTEGER NOT NULL, from_month TEXT NOT NULL, pay_type TEXT NOT NULL, pay_rate INTEGER NOT NULL, by_staff INTEGER, at INTEGER, PRIMARY KEY (staff_id, from_month))');
   const payAt = (staffId, month) => db.prepare('SELECT pay_type, pay_rate, from_month FROM pay_history WHERE staff_id = ? AND from_month <= ? ORDER BY from_month DESC LIMIT 1').get(staffId, month);

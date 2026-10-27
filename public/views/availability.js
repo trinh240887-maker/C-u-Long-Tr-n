@@ -98,18 +98,18 @@ function firstStart(p, days, shifts, hours) {
 }
 // Bấm tên ở 2 lịch riêng: đưa vào / bỏ khỏi lịch cố định, chọn khu cố định
 function FixStaff({ p, zones, teams = [], onClose }) {
-  const fixed = isFixedStaff(p);
   const save = (body, msg) => act(() => api('PATCH', `/api/staff/${p.id}`, body), msg).then((r) => r && onClose());
+  const TYPES = [['full', 'Full ca'], ['gay', 'Ca gãy'], ['part', 'Part-time']];
   return html`<${Modal} title=${`🔒 ${p.name}`} onClose=${onClose}><div class="stack">
-    <p class="small muted">${fixed ? 'Đang ở lịch Ca full cố định.' : 'Đang ở lịch Part-time.'} Khu cố định: ca từ hôm nay trở đi tự vào khu đó.</p>
+    <p class="small muted">Lịch 🔒 cố định = Full ca hoặc có khu cố định. Khu cố định: ca từ hôm nay trở đi tự vào khu đó.</p>
+    <b>Loại ca</b>
+    <div class="chips">${TYPES.map(([k, l]) => html`<button class=${`chip ${p.work_type === k ? 'on' : ''}`} onClick=${() => p.work_type !== k && save({ work_type: k }, `${p.name}: ${l}`)}>${l}</button>`)}</div>
     <b>Bộ phận</b>
     <div class="chips">${teams.map((t) => html`<button class=${`chip ${p.team_id === t.id ? 'on' : ''}`} onClick=${() => p.team_id !== t.id && save({ team_id: t.id, position_id: null }, `Đã chuyển ${p.name} sang ${t.name}`)}>${t.name}</button>`)}</div>
     ${!teams.some((t) => t.id === p.team_id) ? html`<p class="warn-text small">Chưa có bộ phận: chọn bộ phận ở trên.</p>` : null}
     <b>Khu cố định</b>
-    <div class="chips">${zones.map((z) => html`<button class=${`chip ${p.home_zone_id === z.id ? 'on' : ''}`} onClick=${() => save({ work_type: 'full', home_zone_id: z.id }, `${p.name}: full cố định ${z.name}`)}>${z.name}</button>`)}
+    <div class="chips">${zones.map((z) => html`<button class=${`chip ${p.home_zone_id === z.id ? 'on' : ''}`} onClick=${() => save({ home_zone_id: z.id }, `${p.name}: cố định ${z.name}`)}>${z.name}</button>`)}
       <button class=${`chip ${!p.home_zone_id ? 'on' : ''}`} onClick=${() => save({ home_zone_id: null }, `${p.name}: bỏ khu cố định`)}>Không khu</button></div>
-    ${fixed ? html`<button onClick=${() => save({ work_type: 'part', home_zone_id: null }, `Đã chuyển ${p.name} sang Part-time`)}>⏱ Chuyển sang Part-time</button>`
-      : html`<button class="primary" onClick=${() => save({ work_type: 'full' }, `Đã đưa ${p.name} vào Ca full cố định`)}>🔒 Đưa vào Ca full cố định</button>`}
   </div><//>`;
 }
 
@@ -170,7 +170,7 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = ''
         ${x.segments.length === 1 ? html`<button class="primary" onClick=${() => { setEdit({ p: cell.p, date: cell.x, range: `${x.segments[0].start}-${x.segments[0].end === '00:00' ? '24:00' : x.segments[0].end}`, id: x.group_id }); setCell(null); }}>✎ Sửa giờ</button>` : null}
         <button onClick=${() => act(() => api('POST', '/api/shifts/delete', { group_id: x.group_id }), `Đã bỏ ca ${cell.p.name}`).then((r) => r && setCell(null))}>✕ Bỏ ca</button></div></div>`)}
     </div><//>` : null}
-    ${!groups.length ? html`<p class="muted">${kind === 'full' ? 'Chưa có ai trong lịch Ca full cố định. Vào lịch ⏱ Part-time, bấm tên người để đưa vào.' : 'Không có ai.'}</p>` : null}
+    ${!groups.length ? html`<p class="muted">${kind === 'full' ? 'Chưa có ai trong lịch Ca full cố định. Bấm tên người để chọn Full ca hoặc khu cố định.' : 'Không có ai.'}</p>` : null}
     ${edit ? html`<${AddShift} p=${edit.p} date=${edit.date} range=${edit.range} replaceId=${edit.id} onClose=${() => setEdit(null)} />` : null}
     ${fix ? html`<${FixStaff} p=${fix} zones=${zones} teams=${d.teams} onClose=${() => setFix(null)} />` : null}
   </div>`;
@@ -432,7 +432,7 @@ function Overview({ me, week, onWeek }) {
     ${(() => { const ok = (p) => p.active !== false && p.role !== 'owner' && (!team || p.team_id === Number(team)); const all = staffD.data.filter(ok), nf = all.filter(isFixedStaff).length;
       return html`<div class="chips"><button class=${`chip ${!kind ? 'on' : ''}`} onClick=${() => setKind('')}>Tất cả (${all.length})</button>
         <button class=${`chip ${kind === 'full' ? 'on' : ''}`} onClick=${() => setKind('full')}>🔒 Ca full cố định (${nf})</button>
-        <button class=${`chip ${kind === 'part' ? 'on' : ''}`} onClick=${() => setKind('part')}>⏱ Part-time (${all.length - nf})</button></div>
+        <button class=${`chip ${kind === 'part' ? 'on' : ''}`} onClick=${() => setKind('part')}>⏱ Ca gãy / Part-time (${all.length - nf})</button></div>
         ${canManage ? html`<p class="small muted">Bấm <b>tên</b> để đưa vào / bỏ khỏi lịch cố định và chọn khu cố định.</p>` : null}`; })()}
     <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} kind=${kind} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />
     <details class="card"><summary><b>Chưa báo lịch rảnh (${missing.length})</b> <small class="muted">hạn ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} ${d.deadline.time}</small></summary>
