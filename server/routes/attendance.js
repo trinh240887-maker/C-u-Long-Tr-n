@@ -407,7 +407,12 @@ export default function (r, ctx) {
     const staff = db.prepare('SELECT id, name, pay_type, pay_rate, team_id, active FROM staff ORDER BY name').all();
     const records = db.prepare(`SELECT at.*, a.group_id AS group_key FROM attendance at LEFT JOIN assignments a ON a.id = at.assignment_id
       WHERE at.date BETWEEN ? AND ?`).all(from, to);
-    const rows = computeTimesheet(ctx.payRecords(records), staff, clock, { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: num('month_standard_days', 26) });
+    const [yy, mm] = month.split('-').map(Number);
+    const monthDays = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+    const paidOff = num('month_paid_off_days', 2);
+    const stdDays = Math.max(1, monthDays - paidOff); // chủ quán 27/10: làm đủ tháng, nghỉ 2 ngày vẫn đủ lương
+    const otH = num('ot_daily_hours', 8), otRate = num('ot_rate', 1);
+    const rows = computeTimesheet(ctx.payRecords(records), staff, clock, { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: stdDays, otDailyHours: otH, otRate });
     const stats = db.prepare(`SELECT staff_id, SUM(late_minutes > 0) AS late_count, SUM(late_minutes) AS late_minutes, SUM(auto_closed) AS auto_closed
       FROM attendance WHERE date BETWEEN ? AND ? GROUP BY staff_id`).all(from, to);
     const today = ctx.today();
@@ -424,7 +429,7 @@ export default function (r, ctx) {
     return {
       month, from, to,
       night_bonus_pct: num('night_bonus_pct', 0),
-      month_standard_days: num('month_standard_days', 26),
+      month_standard_days: stdDays, month_days: monthDays, paid_off_days: paidOff, ot_daily_hours: otH, ot_rate: otRate,
       rows: rows
         .map((row) => ({ ...row, team_name: teamName(row.staff_id), late_count: statBy.get(row.staff_id)?.late_count || 0, late_minutes: statBy.get(row.staff_id)?.late_minutes || 0,
           auto_closed: statBy.get(row.staff_id)?.auto_closed || 0, absent: absentBy.get(row.staff_id) || 0 }))

@@ -120,17 +120,17 @@ function Timesheet({ me }) {
       ${st.data ? html`<b>Tổng lương tạm tính: ${money(st.data.total_pay)}</b>` : null}
     </div>
     ${!st.data ? html`<${Loading} state=${st} />` : html`<div class="table-wrap"><table class="list">
-      <thead><tr><th>Nhân viên</th><th class="r">Số ca</th><th class="r">Giờ làm</th><th class="r">Giờ đêm</th><th class="r">Trễ</th><th class="r">Vắng</th><th class="r">Lương tạm tính</th></tr></thead>
+      <thead><tr><th>Nhân viên</th><th class="r">Số ca</th><th class="r">Giờ làm</th><th class="r">Vượt giờ</th><th class="r">Trễ</th><th class="r">Vắng</th><th class="r">Lương tạm tính</th></tr></thead>
       <tbody>${groupByTeam(st.data.rows.map((r) => ({ ...r, staff_name: r.name, clock_in: 0 }))).map((g) => [html`<tr class="att-group"><td colspan="7" style=${`background:${g.color};color:#fff;font-weight:700;padding:8px 12px`}>
           ${g.name.toUpperCase()} · ${g.people.length} người · ${hours(g.rows.reduce((n, r) => n + r.minutes, 0))}${st.data.can_see_pay !== false ? ` · ${money(g.rows.reduce((n, r) => n + r.pay, 0))}` : ''}</td></tr>`, ...g.rows.map((r) => html`<tr>
         <td><b>${r.name}</b><br /><small class="muted">${r.pay_rate ? `${money(r.pay_rate)}/${({ hour: 'giờ', shift: 'ca', month: 'tháng' })[r.pay_type]}` : 'Chưa có mức lương'}</small></td>
-        <td class="r num">${r.shifts}</td><td class="r num">${hours(r.minutes)}</td><td class="r num">${hours(r.night_minutes)}</td>
+        <td class="r num">${r.shifts}</td><td class="r num">${hours(r.minutes)}</td><td class="r num">${r.ot_minutes ? html`${hours(r.ot_minutes)}${r.ot_pay ? html`<br /><small class="muted">+${money(r.ot_pay)}</small>` : null}` : '—'}</td>
         <td class="r num">${r.late_count ? `${r.late_count} lần` : '—'}</td>
         <td class="r num">${r.absent ? html`<span class="bad-text">${r.absent}</span>` : '—'}</td>
         <td class="r num"><b>${money(r.pay)}</b>${r.open_records || r.auto_closed ? html`<br /><small class="warn-text">cần kiểm tra</small>` : null}</td>
       </tr>`)])}</tbody></table></div>
-      <p class="muted small">Lương theo giờ có cộng phụ cấp làm đêm ${st.data.night_bonus_pct}% cho giờ từ 22h–6h. Ca gãy tính là 1 ca. Lương tháng = lương tháng × số ngày công / ${st.data.month_standard_days || 'đủ'} ${st.data.month_standard_days ? 'ngày công chuẩn' : '(trả cố định)'}.
-        Đây là số tạm tính để tham khảo, chưa gồm thưởng, phạt, bảo hiểm và tăng ca ngày lễ. Bạn tự đối chiếu với quy định của quán và Bộ luật Lao động.</p>`}
+      <p class="muted small">Lương tháng: tháng này ${st.data.month_days} ngày, nghỉ ${st.data.paid_off_days} ngày vẫn đủ lương → làm đủ ${st.data.month_standard_days} ngày là đủ lương, thiếu mỗi ngày trừ 1/${st.data.month_standard_days}. Vượt giờ: mỗi ngày làm quá ${st.data.ot_daily_hours} giờ, phần dư trả × ${String(st.data.ot_rate).replace('.', ',')} (lương tháng: giá 1 giờ = lương ÷ (${st.data.month_standard_days} × ${st.data.ot_daily_hours})). Lương giờ có phụ cấp đêm ${st.data.night_bonus_pct}% (22h–6h). Ca gãy tính 1 ca. Chỉnh ở Cài đặt → Chung.
+        Đây là số tạm tính, chưa gồm thưởng, phạt, bảo hiểm và lễ tết.</p>`}
   </div>`;
 }
 

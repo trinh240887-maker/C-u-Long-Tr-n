@@ -43,7 +43,7 @@ function General({ s, staff }) {
     shop_name: f.shop_name, public_url: f.public_url, day_cutoff_hour: f.day_cutoff_hour, late_grace_minutes: f.late_grace_minutes,
     clock_early_minutes: f.clock_early_minutes, auto_close_after_minutes: f.auto_close_after_minutes, clock_ip_prefixes: f.clock_ip_prefixes, shop_lat: f.shop_lat, shop_lng: f.shop_lng, clock_radius_m: f.clock_radius_m || '150',
     labor_target_pct: f.labor_target_pct, idle_alert_minutes: f.idle_alert_minutes, count_tolerance_pct: f.count_tolerance_pct, spot_photos_per_run: f.spot_photos_per_run,
-    night_bonus_pct: f.night_bonus_pct, month_standard_days: f.month_standard_days, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
+    night_bonus_pct: f.night_bonus_pct, month_paid_off_days: f.month_paid_off_days, ot_daily_hours: f.ot_daily_hours, ot_rate: f.ot_rate, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
     avail_deadline_dow: f.avail_deadline_dow, avail_deadline_time: f.avail_deadline_time, avail_slots: JSON.stringify(slots),
   }), 'Đã lưu cài đặt');
   const slots = (() => { try { const x = JSON.parse(f.avail_slots || '[]'); return x.length ? x : DEF_SLOTS; } catch { return DEF_SLOTS; } })();
@@ -69,7 +69,9 @@ function General({ s, staff }) {
       ${inp('labor_target_pct', 'Lương / doanh thu mục tiêu (%)', { type: 'number', min: 5, max: 80 }, 'Giờ nào vượt 1,5 lần mức này mà ít bàn thì app báo thừa người.')}
       ${inp('idle_alert_minutes', 'Không thao tác bao lâu thì ghi nhận (phút)', { type: 'number', min: 15 }, 'Chỉ tính phục vụ, tiếp thực, thu ngân.')}
       ${inp('night_bonus_pct', 'Phụ cấp làm đêm 22h–6h (%)', { type: 'number', min: 0 })}
-      ${inp('month_standard_days', 'Ngày công chuẩn / tháng (lương tháng)', { type: 'number', min: 0, max: 31 }, 'vd 26. Điền 0 nếu trả đủ lương tháng cố định.')}
+      ${inp('month_paid_off_days', 'Lương tháng: ngày nghỉ vẫn đủ lương / tháng', { type: 'number', min: 0, max: 15 }, 'vd 2: tháng 31 ngày làm 29 ngày là đủ lương; nghỉ thêm mỗi ngày trừ 1/29')}
+      ${inp('ot_daily_hours', 'Giờ chuẩn / ngày (quá là vượt giờ)', { type: 'number', min: 0, max: 16 }, 'vd 8: ca 8–12 + 14–23 (13 giờ) → vượt 5 giờ. 0 = không tính vượt giờ')}
+      ${inp('ot_rate', 'Hệ số tiền vượt giờ', { inputmode: 'decimal' }, '1 = giá giờ thường; 1,5 = trả 150%')}
     </div></section>
     <section class="card"><h3>Lịch rảnh</h3><p class="muted small">Nhân viên báo buổi rảnh của tuần sau trước hạn này. Giờ của buổi dùng để so với ca đã xếp.</p>
       <div class="row">
