@@ -81,6 +81,7 @@ function Mine() {
   const { mine, open, to_check, on_shift } = d.data;
   const left = mine.filter((j) => ['todo', 'doing'].includes(j.status));
   return html`<div class="stack">
+    ${[...new Set(mine.map((j) => j.template_note).filter(Boolean))].map((n) => html`<section class="card hint"><b>📌 Lưu ý chung</b><span style="white-space:pre-line">${n}</span></section>`)}
     ${to_check ? html`<button class="card hint" onClick=${() => navigate('/viec-ca?tab=khu')}>🔍 ${to_check} việc chờ bạn kiểm tra →</button>` : null}
     ${!on_shift && !mine.length ? html`<p class="muted">Hôm nay bạn không có ca nên chưa có việc.</p>` : null}
     ${mine.length ? html`<h3>Việc của tôi <small class="muted">${left.length ? `còn ${left.length}` : 'đã xong hết 👍'}</small></h3>` : on_shift ? html`<p class="muted">Chưa có việc nào giao cho bạn.</p>` : null}

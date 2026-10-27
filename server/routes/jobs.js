@@ -177,12 +177,22 @@ export default function (r, ctx) {
       }
     });
   }
+  // Việc chung có người cố định: ngày nào người đó có ca thì giao cho họ (việc chưa bắt đầu)
+  const applyFixed = (date) => {
+    for (const t of jobTemplates()) for (const it of t.items) {
+      if (!it.job_fixed_staff) continue;
+      if (!db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(it.job_fixed_staff, date)) continue;
+      db.prepare("UPDATE jobs SET staff_id = ?, assigned_by = NULL, nudged = 0 WHERE date = ? AND item_id = ? AND status = 'todo' AND owner_id = 0 AND assigned_by IS NULL AND (staff_id IS NULL OR staff_id != ?)").run(it.job_fixed_staff, date, it.id, it.job_fixed_staff);
+    }
+  };
+  ctx.jobsApplyFixed = (date) => { db.prepare("DELETE FROM jobs WHERE date >= ? AND status = 'todo' AND zone_id != 0 AND item_id IN (SELECT id FROM checklist_items WHERE job_scope = 'shop')").run(date); ensureDay(date); };
   // Hôm nay: giữ ổn định; các ngày tới (tối đa 14 ngày): luôn theo lịch ca / phân khu mới nhất
   ctx.jobsEnsureDay = (date) => ensureDay(date); // màn Checklist dùng để hiện ai làm việc nào theo khu
   const ensureDay = (date) => {
     const today = ctx.today();
     if (date < today || date > addDays(today, 14)) return;
     for (const t of jobTemplates()) materialize(date, t, { mode: date === today ? 'fill' : 'auto' });
+    applyFixed(date);
   };
 
   // Người kiểm tra khu: chỉ định riêng → tổ trưởng có ca trong khu → trưởng ca có ca hôm đó → quản lý
@@ -207,6 +217,7 @@ export default function (r, ctx) {
       staff_id: j.staff_id, staff_name: name(j.staff_id), staff_role: j.staff_id ? db.prepare('SELECT role FROM staff WHERE id = ?').get(j.staff_id)?.role || '' : '', status: j.status, claimed_at: j.claimed_at, due_at: j.due_at, done_at: j.done_at,
       minutes_used: j.minutes_used, late: !!j.late, redo_count: j.redo_count, has_photo: !!j.photo, checked_by_name: name(j.checked_by), check_note: j.check_note,
       overdue: j.status === 'doing' && j.due_at && j.due_at < ctx.now(),
+      template_note: t?.job_note || '',
       guide: it.job_guide || '', deadline: it.job_deadline != null ? hhmm(it.job_deadline) : '', photos_needed: it.job_photos || (it.photo_required ? 1 : 0),
       samples: it.id ? db.prepare('SELECT id FROM checklist_samples WHERE item_id = ? ORDER BY id').all(it.id).map((x) => x.id) : [],
       extra_photos: db.prepare('SELECT id FROM job_photos WHERE job_id = ? ORDER BY id').all(j.id).map((x) => x.id),

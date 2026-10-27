@@ -132,10 +132,10 @@ function Item({ run, item, disabled, me }) {
 }
 
 // Thêm nhanh 1 việc vào checklist ngay trên màn hằng ngày
-function AddItemInline({ templateId, zoneId = null, placeholder = '+ Thêm việc mới vào checklist này…' }) {
+function AddItemInline({ templateId, zoneId = null, scope = null, placeholder = '+ Thêm việc mới vào checklist này…' }) {
   const [text, setText] = useState('');
   const [photo, setPhoto] = useState(true);
-  const add = () => act(() => api('POST', `/api/checklist-templates/${templateId}/items`, { text, photo_required: photo, zone_id: zoneId || undefined }), 'Đã thêm việc').then((r) => r && setText(''));
+  const add = () => act(() => api('POST', `/api/checklist-templates/${templateId}/items`, { text, photo_required: photo, zone_id: zoneId || undefined, job_scope: scope || undefined }), 'Đã thêm việc').then((r) => r && setText(''));
   return html`<div class="add-inline">
     <input value=${text} placeholder=${placeholder} onInput=${(e) => setText(e.target.value)} onKeyDown=${(e) => e.key === 'Enter' && text.trim() && add()} />
     ${text.trim() ? html`<div class="row wrap tight">
@@ -204,6 +204,9 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
   const common = items.filter((i) => !i.job_zone_id);
   const lead = atLeast(me, 'team_lead');
   const [edit, setEdit] = useState(null);
+  const staffD = useData('/api/staff');
+  // Người chọn làm việc chung: Phục vụ + Tiếp thực + người có khu (vd trưởng ca chưa có bộ phận)
+  const pool = (staffD.data || []).filter((x) => x.active !== false && x.role !== 'owner' && (/phục vụ|tiếp thực/i.test(x.team_name || '') || x.home_zone_id)).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
   const del = (i) => confirm(`Xoá việc "${i.text}"?`) && act(() => api('POST', `/api/checklist-items/${i.id}/delete`, {}), 'Đã xoá việc');
   const jobOf = (i, zid) => (r.job_rows || []).find((j) => j.item_id === i.id && j.zone_id === (i.job_scope === 'shop' ? 0 : zid));
   const give = (j, sid) => act(() => api('PATCH', `/api/jobs/${j.id}`, { staff_id: sid ? Number(sid) : null }), sid ? 'Đã giao việc' : 'Đã bỏ giao');
@@ -238,19 +241,28 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
     </div>`;
   };
   const noZone = people.filter((x) => !x.zone_id);
+  const editNote = () => { const n = prompt('Lưu ý chung cho mọi người (mỗi dòng 1 ý):', r.note || ''); if (n !== null) act(() => api('PUT', `/api/checklist-templates/${r.template_id}/note`, { note: n }), 'Đã lưu lưu ý'); };
   return html`<div class="stack zt">
+    ${r.note || canEdit ? html`<div class="zt-note"><b>📌 Lưu ý chung</b>${r.note ? html`<span style="white-space:pre-line">${r.note}</span>` : html`<small class="muted">Chưa có (vd giờ ăn cơm).</small>`}
+      ${canEdit ? html`<button class="link small" onClick=${editNote}>✎ Sửa lưu ý</button>` : null}</div>` : null}
     <p class="small"><b>👥 Khung ${o?.from || '14h'}–${o?.to || '15h30'}: ${people.length} người</b> (Phục vụ ${people.filter((x) => !/tiếp thực|tiep thuc/i.test(x.team || '')).length} · Tiếp thực ${people.filter((x) => /tiếp thực|tiep thuc/i.test(x.team || '')).length})${o?.total ? html` · đã chấm vào ${o.clocked}/${o.total}` : ''}</p>
     ${zones.map((z) => { const ps = people.filter((x) => x.zone_id === z.id); const own = items.filter((i) => i.job_zone_id === z.id); return html`<div class="zt-zone">
-      <div class="zt-head">📍 ${z.name} <small>${ps.length} người (PV ${ps.filter((x) => !/tiếp thực|tiep thuc/i.test(x.team || '')).length} · TT ${ps.filter((x) => /tiếp thực|tiep thuc/i.test(x.team || '')).length}) · ${own.length + common.filter((i) => i.job_scope !== 'shop').length} việc</small></div>
+      <div class="zt-head">📍 ${z.name} <small>${ps.length} người (PV ${ps.filter((x) => !/tiếp thực|tiep thuc/i.test(x.team || '')).length} · TT ${ps.filter((x) => /tiếp thực|tiep thuc/i.test(x.team || '')).length}) · ${own.length} việc riêng</small></div>
       ${Who(ps)}
       ${r.zone_photo ? Photo(z) : null}
-      ${Items([...own, ...common.filter((i) => i.job_scope !== 'shop')], z.id, ps, true)}
+      ${Items(own, z.id, ps, true)}
       ${canEdit ? html`<${AddItemInline} templateId=${r.template_id} zoneId=${z.id} placeholder=${`+ Thêm việc cho ${z.name}…`} />` : null}
     </div>`; })}
     <div class="zt-zone">
-      <div class="zt-head">🔁 Việc chung, khu nào cũng làm <small>${common.length} việc · việc mỗi khu hiện trong từng khu ở trên, việc 1 người cả quán giao ở đây</small></div>
-      ${Items(common, null, [], true)}
-      ${canEdit ? html`<${AddItemInline} templateId=${r.template_id} placeholder="+ Thêm việc chung cho mọi khu…" />` : null}
+      <div class="zt-head">🔁 Việc chung cả quán <small>${common.length} việc · mỗi việc 1 bạn cố định</small></div>
+      ${common.length ? html`<ul class="zt-list">${common.map((i) => { const j = (r.job_rows || []).find((x) => x.item_id === i.id); return html`<li>
+        <button class="grow zt-item" onClick=${() => setEdit(i)}>${i.text}${j && j.staff_id && j.staff_id !== i.job_fixed_staff ? html`<br /><small class="muted">hôm nay: ${j.staff_name}${['done', 'ok'].includes(j.status) ? ' ✅' : ''}</small>` : j && ['done', 'ok'].includes(j.status) ? html` ✅` : ''}</button>
+        ${canEdit ? html`<select class="zt-sel" value=${i.job_fixed_staff || ''} onChange=${(e) => act(() => api('PATCH', `/api/checklist-items/${i.id}`, { job_fixed_staff: e.target.value ? Number(e.target.value) : null }), e.target.value ? 'Đã giao cố định' : 'Đã bỏ người cố định')}>
+          <option value="">👤 chọn bạn cố định</option>
+          ${pool.map((x) => html`<option value=${x.id}>${x.name}</option>`)}
+        </select>` : html`<small>👤 ${pool.find((x) => x.id === i.job_fixed_staff)?.name || j?.staff_name || 'chưa giao'}</small>`}
+        ${canEdit ? html`<button class="link small" aria-label="Xoá" onClick=${() => del(i)}>✕</button>` : null}</li>`; })}</ul>` : html`<p class="small muted">Chưa có việc chung.</p>`}
+      ${canEdit ? html`<${AddItemInline} templateId=${r.template_id} scope="shop" placeholder="+ Thêm việc chung cả quán…" />` : null}
     </div>
     ${edit ? html`<${ItemEdit} i=${(items.find((x) => x.id === edit.id)) || edit} templateId=${r.template_id} canEdit=${canEdit} onClose=${() => setEdit(null)} />` : null}
     ${noZone.length ? html`<div class="zt-zone"><div class="zt-head warn">⚠ Chưa phân khu <small>${noZone.length} người</small></div>${Who(noZone)}</div>` : null}

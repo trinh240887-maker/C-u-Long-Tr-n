@@ -813,3 +813,5 @@ table.zcov { border-collapse: collapse; width: 100%; font-size: 14px; text-align
 .zt-team { font-size: 11px; font-weight: 600; padding: 0 5px; border-radius: 6px; }
 .zt-team.pv { background: #e3f2fd; color: #0d47a1; }
 .zt-team.tt { background: #fff3e0; color: #e65100; }
+.zt-note { color: #4a3500; background: #fff8e1; border: 1px solid #ffe082; border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.zt-list li .zt-item { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
