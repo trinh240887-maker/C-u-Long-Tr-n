@@ -209,3 +209,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 203 | 27/10 | Thẻ Mở ca phục vụ: tổng phút việc mỗi người (so với khung 90′, đỏ = quá, xanh = rảnh) + khối 'Người vào sau 15h30' (vào 16h/17h, tổng phút việc hôm nay); chọn người 'Xem thêm' có cả người vào sau để giao thêm việc. |
 | 204 | 27/10 | Việc có 'Cấp bậc: chỉ tổ trưởng / trưởng ca' (job_role=lead): tự chia chỉ cho tổ trưởng, trưởng ca, quản lý (cả khi tự chuyển lúc 14:15); ô chọn người đưa người phù hợp lên đầu, gắn nhãn ⭐. |
 | 205 | 27/10 | Tiếp thực KHÔNG tách khối riêng, không chia khu: giữ ở khối 'Chưa phân khu' của thẻ Mở ca; giao việc qua 'Xem thêm…' khi cần. |
+| 206 | 27/10 | Đóng ca phục vụ chia theo khu giống Mở ca (3 khu + việc chung + lưu ý + tổng thời gian). Nhân sự = người có ca tới giờ cuối (1 tiếng trước giờ về muộn nhất), trừ khi thẻ có khung giờ riêng. Sửa: ca kết thúc 24h (00:00) giờ được tính đúng. |

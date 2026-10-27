@@ -494,7 +494,7 @@ export default function (r, ctx) {
   ctx.checklistDay = (date) => dayView(date, null);
 
   // Thẻ chia theo khu: Mở ca phục vụ, Đầu ca phục vụ (khăn + nón)
-  const zoneTpl = (t) => /mở ca phục vụ|đầu ca phục vụ/i.test(t.title);
+  const zoneTpl = (t) => /mở ca phục vụ|đầu ca phục vụ|đóng ca phục vụ/i.test(t.title);
   const jobRowsOf = (date, tid) => { try { return db.prepare('SELECT id, item_id, zone_id, staff_id, status, owner_id FROM jobs WHERE date = ? AND template_id = ?').all(date, tid); } catch { return []; } };
   const zonePhotosOf = (date, tid) => { try { return db.prepare('SELECT id, zone_id, staff_id, at FROM job_zone_photos WHERE date = ? AND template_id = ? ORDER BY id').all(date, tid); } catch { return []; } };
 
@@ -511,7 +511,7 @@ export default function (r, ctx) {
       return { template_id: t.id, title: t.title, phase: t.phase, team_id: t.team_id, team_name: t.team_name || 'Cả quán', section: sectionOf(t), items: t.items.length, total, done,
         item_list: t.items.map((i) => ({ id: i.id, text: i.text, job_scope: i.job_scope, job_zone_id: i.job_zone_id ?? null, job_fixed_staff: i.job_fixed_staff ?? null, job_gender: i.job_gender || '', job_role: i.job_role || '', job_crew: JSON.parse(i.job_crew || '[]'), job_guide: i.job_guide || '', job_minutes: i.job_minutes || 0,
           job_deadline: i.job_deadline ?? null, job_photos: i.job_photos || 0, photo_required: !!i.photo_required, samples: (i.samples || []).map((x) => x.id) })), opening_tpl: zoneTpl(t),
-        zone_photo: /đầu ca phục vụ/i.test(t.title), note: t.job_note || '', // trưởng ca chụp ảnh từng khu (chủ quán 27/10)
+        zone_photo: /đầu ca phục vụ/i.test(t.title), note: t.job_note || '', win: zoneTpl(t) && t.phase === 'close' ? opening(date, t) : null, // trưởng ca chụp ảnh từng khu (chủ quán 27/10)
         job_rows: zoneTpl(t) ? jobRowsOf(date, t.id).map((j) => ({ id: j.id, item_id: j.item_id, zone_id: j.zone_id, owner_id: j.owner_id, staff_id: j.staff_id, staff_name: nameOf(j.staff_id), status: j.status })) : [],
         photos: zoneTpl(t) ? zonePhotosOf(date, t.id).map((x) => ({ id: x.id, zone_id: x.zone_id, at: x.at, staff_name: nameOf(x.staff_id) })) : [] };
     });
@@ -519,13 +519,16 @@ export default function (r, ctx) {
   });
 
   // Đầu ca Phục vụ + Tiếp thực (chủ quán 27/10): ai có ca trong khung mở ca (mặc định 14:00–15:30), ai ca ngắn kết thúc ≤ 18:00
-  function opening(date) {
-    const tpl = templates().find((t) => t.job_mode && t.job_from != null && /mở ca phục vụ/i.test(t.title)) || null;
-    const from = tpl?.job_from ?? 840, to = tpl?.job_to ?? 930;
+  // Nhân sự khung giờ của thẻ: mở ca = khung đầu ca (14:00–15:30); đóng ca (chưa đặt khung) = giờ cuối cùng trước khi về
+  function opening(date, ctpl = null) {
+    const tpl = ctpl || templates().find((t) => t.job_mode && t.job_from != null && /mở ca phục vụ/i.test(t.title)) || null;
+    let from = tpl?.job_from ?? 840, to = tpl?.job_to ?? 930;
     // Người chưa có bộ phận mà có khu (vd trưởng ca) vẫn tính vào Phục vụ
     const segs = db.prepare(`SELECT a.staff_id, a.start_min, a.end_min, s.name, s.gender, s.role, COALESCE(t.name, CASE WHEN a.zone_id IS NOT NULL OR s.home_zone_id IS NOT NULL THEN 'Phục vụ' END) AS team, z.name AS zone, z.id AS zone_id
       FROM assignments a JOIN staff s ON s.id = a.staff_id AND s.active = 1
       LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN zones z ON z.id = a.zone_id WHERE a.date = ? ORDER BY a.start_min`).all(date).filter((x) => /phục vụ|phuc vu|tiếp thực|tiep thuc/i.test(x.team || ''));
+    for (const x of segs) if (x.end_min <= x.start_min) x.end_min += 1440; // ca qua nửa đêm
+    if (ctpl && ctpl.phase === 'close' && ctpl.job_from == null) { const last = segs.length ? Math.max(...segs.map((x) => x.end_min)) : 1380; from = last - 60; to = last; }
     const by = new Map();
     for (const x of segs) { const p = by.get(x.staff_id) || { id: x.staff_id, name: x.name, gender: x.gender || '', role: x.role, team: x.team, zone: '', zone_id: null, segs: [] }; p.segs.push([x.start_min, x.end_min]); if (x.zone && !p.zone) { p.zone = x.zone; p.zone_id = x.zone_id; } by.set(x.staff_id, p); }
     const hm = (m) => `${Math.floor((m % 1440) / 60)}h${m % 60 ? String(m % 60).padStart(2, '0') : ''}`;
@@ -533,12 +536,12 @@ export default function (r, ctx) {
     const clocked = new Set(db.prepare('SELECT DISTINCT staff_id FROM attendance WHERE date = ?').all(date).map((x) => x.staff_id));
     const people = [...by.values()].filter(inOpen).map((p) => {
       const seg = p.segs.find(([a, b]) => Math.min(b, to) - Math.max(a, from) >= 30);
-      return { id: p.id, name: p.name, gender: p.gender, role: p.role, team: p.team, zone: p.zone || '', zone_id: p.zone_id, shift: p.segs.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(' + '), short: seg[1] <= 18 * 60, clocked: clocked.has(p.id) };
+      return { id: p.id, name: p.name, gender: p.gender, role: p.role, team: p.team, zone: p.zone || '', zone_id: p.zone_id, shift: p.segs.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(' + '), short: !(ctpl && ctpl.phase === 'close') && seg[1] <= 18 * 60, clocked: clocked.has(p.id) };
     }).sort((a, b) => (!a.zone - !b.zone) || (a.zone || '').localeCompare(b.zone || '', 'vi') || a.team.localeCompare(b.team) || a.name.localeCompare(b.name, 'vi'));
     const pv = people.filter((x) => /phục vụ|phuc vu/i.test(x.team)).length;
     const zones = [...new Set(people.map((x) => x.zone || 'Chưa phân khu'))].map((z) => ({ name: z, people: people.filter((x) => (x.zone || 'Chưa phân khu') === z) }));
     // Người vào sau khung đầu ca (vd 16h, 17h): để chủ quán giao thêm việc khi họ còn trống (chủ quán 27/10)
-    const later = [...by.values()].filter((p) => !inOpen(p) && Math.min(...p.segs.map(([a]) => a)) >= to).map((p) => ({ id: p.id, name: p.name, gender: p.gender, role: p.role, team: p.team, zone: p.zone || '', zone_id: p.zone_id,
+    const later = ctpl && ctpl.phase === 'close' ? [] : [...by.values()].filter((p) => !inOpen(p) && Math.min(...p.segs.map(([a]) => a)) >= to).map((p) => ({ id: p.id, name: p.name, gender: p.gender, role: p.role, team: p.team, zone: p.zone || '', zone_id: p.zone_id,
       start: hm(Math.min(...p.segs.map(([a]) => a))), shift: p.segs.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(' + '), clocked: clocked.has(p.id) }))
       .sort((a, b) => a.start.localeCompare(b.start, 'vi', { numeric: true }) || a.name.localeCompare(b.name, 'vi'));
     // Tổng phút việc đã giao trong ngày (mọi checklist giao việc) của từng người

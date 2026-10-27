@@ -178,7 +178,7 @@ export function ChecklistView({ me }) {
         <span class=${`pill ${r.total && r.done === r.total ? 'ok' : r.done ? 'warn' : ''}`}>${r.total ? `${r.done}/${r.total}` : '—'}</span></div>
       <p class="small muted">Mỗi việc đã giao cho từng bạn theo khu. Nhân viên làm ở <b>Việc ca</b> (Nhận → Xong).</p>
       <div class="row wrap"><${Link} href="/viec-ca" class="btn-link">✋ Việc của tôi<//>${atLeast(me, 'team_lead') ? html`<${Link} href="/viec-ca?tab=khu" class="btn-link">📋 Bảng khu (ai làm gì)<//>` : null}</div>
-      ${r.opening_tpl ? html`<${ZoneTasks} r=${r} o=${st.data.opening} me=${me} today=${date === me.today} canEdit=${!old && canEditTpl(me, r.team_id)} />`
+      ${r.opening_tpl ? html`<${ZoneTasks} r=${r} o=${r.win || st.data.opening} me=${me} today=${date === me.today} canEdit=${!old && canEditTpl(me, r.team_id)} />`
         : !old && canEditTpl(me, r.team_id) ? html`<${AddItemInline} templateId=${r.template_id} />` : null}
       ${!old && atLeast(me, 'shift_lead') ? html`<button class="link small" onClick=${() => confirm(`Thôi giao việc từng người cho "${r.title}"? Checklist quay về kiểu cũ (ai cũng tick).`) && act(() => api('PATCH', `/api/checklist-templates/${r.template_id}`, { job_mode: false }), 'Đã chuyển về checklist chung')}>↩ Thôi giao việc từng người</button>` : null}
     </section>`)}
