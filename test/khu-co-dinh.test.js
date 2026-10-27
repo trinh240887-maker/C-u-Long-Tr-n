@@ -94,3 +94,26 @@ test('Phục vụ: ca 14–23 → Full ca, giờ khác → Ca gãy (gán theo ca
   assert.equal(wt(a), 'full'); assert.equal(wt(b), 'gay'); assert.equal(wt(c), 'gay');
   app.close();
 });
+
+test('Chấm công theo ngày: có ca mà chưa chấm (bỏ người đã chấm, nghỉ đã duyệt)', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const a = (await O('POST', '/api/staff', { name: 'Có chấm', team_id: pv, pin: '5931' })).data.id;
+  const b = (await O('POST', '/api/staff', { name: 'Không chấm', team_id: pv, pin: '5932' })).data.id;
+  const d = addDays(app.ctx.today(), -1);
+  for (const sid of [a, b]) db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES (?, ?, ?, ?, 840, 1380, 0)').run(`g${sid}`, sid, pv, d);
+  db.prepare('INSERT INTO attendance (staff_id, date, clock_in, clock_out) VALUES (?, ?, ?, ?)').run(a, d, Date.now() - 86_400_000, Date.now() - 80_000_000);
+  const r = await O('GET', `/api/attendance/missing?date=${d}`);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.deepEqual(r.data.map((x) => x.staff_name), ['Không chấm']);
+  assert.equal(r.data[0].status, 'missed');
+  assert.equal(r.data[0].shift, '14:00–23:00');
+});

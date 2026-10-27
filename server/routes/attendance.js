@@ -345,6 +345,26 @@ export default function (r, ctx) {
       });
   });
 
+  // Có ca trong lịch mà không có lượt chấm công nào trong ngày (chủ quán 27/10: để kiểm tra lại). Bỏ ca nghỉ đã duyệt
+  r.get('/api/attendance/missing', 'shift_lead', ({ query }) => {
+    const date = query.get('date') || ctx.today();
+    if (!isDate(date)) fail(400, 'Ngày không hợp lệ');
+    const clock = ctx.clock(), now = ctx.now();
+    const rows = db.prepare(`SELECT a.group_id, a.staff_id, a.start_min, a.end_min, s.name AS staff_name, s.role, COALESCE(t.name, '') AS team_name, z.name AS zone_name
+      FROM assignments a JOIN staff s ON s.id = a.staff_id AND s.active = 1 LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN zones z ON z.id = a.zone_id
+      WHERE a.date = ? AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved')
+      AND NOT EXISTS (SELECT 1 FROM attendance x WHERE x.staff_id = a.staff_id AND x.date = a.date) ORDER BY a.start_min`).all(date);
+    const by = new Map();
+    for (const x of rows) { const p = by.get(x.staff_id) || { staff_id: x.staff_id, staff_name: x.staff_name, role_label: ROLE_LABEL[x.role] || '', team_name: x.team_name, zone_name: x.zone_name || '', segs: [] }; p.segs.push([x.start_min, x.end_min]); if (!p.zone_name && x.zone_name) p.zone_name = x.zone_name; by.set(x.staff_id, p); }
+    const fmt = (m) => `${String(Math.floor((m % 1440) / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    return [...by.values()].map((p) => {
+      const start = Math.min(...p.segs.map(([a]) => a)), endRaw = Math.max(...p.segs.map(([a, b]) => (b <= a ? b + 1440 : b)));
+      const startAt = clock.toEpoch(date, start), endAt = clock.toEpoch(date, endRaw % 1440) + (endRaw >= 1440 ? 86_400_000 : 0);
+      const status = now < startAt ? 'upcoming' : now < endAt ? 'late' : 'missed'; // chưa tới giờ · đã tới giờ mà chưa chấm · hết ca không chấm
+      return { ...p, shift: p.segs.map(([a, b]) => `${fmt(a)}–${fmt(b)}`).join(' + '), start_at: startAt, end_at: endAt, status, late_min: status === 'late' ? Math.round((now - startAt) / 60000) : 0 };
+    });
+  });
+
   // Chủ quán duyệt / không duyệt giờ tăng ca (ở lại sau giờ ca)
   r.post('/api/attendance/:id/overtime', 'manager', ({ me, params, body }) => {
     if (me.role !== 'owner') fail(403, 'Chỉ chủ quán');

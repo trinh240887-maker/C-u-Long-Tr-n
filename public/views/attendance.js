@@ -62,6 +62,25 @@ export function groupByTeam(rows) {
   });
 }
 
+// Có ca mà chưa chấm (chủ quán 27/10): ⏳ đã tới giờ chưa chấm · ❌ hết ca không chấm · chưa tới giờ để mờ
+const MISS = { late: ['⏳ Tới giờ chưa chấm', 'warn'], missed: ['❌ Hết ca, không chấm', 'bad'], upcoming: ['Chưa tới giờ', 'muted'] };
+function MissingCard({ date, onAdd }) {
+  const d = useData(`/api/attendance/missing?date=${date}`);
+  if (!d.data) return null;
+  const list = d.data;
+  const due = list.filter((m) => m.status !== 'upcoming');
+  if (!list.length) return html`<section class="card hint"><span>✅ Ai có ca ngày này cũng đã chấm công (hoặc nghỉ đã duyệt).</span></section>`;
+  return html`<details class="card stack att-miss" open=${due.length > 0}>
+    <summary><b>⚠ Có ca nhưng chưa chấm: ${due.length} người</b>${list.length > due.length ? html` <small class="muted">· ${list.length - due.length} chưa tới giờ</small>` : null}</summary>
+    ${[...due, ...list.filter((m) => m.status === 'upcoming')].map((m) => html`<div class="row between wrap att-miss-row">
+      <span class="grow"><b>${m.staff_name}</b> <small class="muted">${[m.role_label, m.team_name, m.zone_name].filter(Boolean).join(' · ')}</small><br />
+        <small>Ca <b>${m.shift}</b></small> <span class=${`pill ${MISS[m.status][1]}`}>${MISS[m.status][0]}${m.late_min ? ` ${m.late_min}′` : ''}</span></span>
+      ${m.status !== 'upcoming' ? html`<button class="small" onClick=${() => onAdd(m)}>+ Thêm tay</button>` : null}
+    </div>`)}
+    <small class="muted">Nghỉ có báo đã duyệt thì không hiện ở đây. Quên chấm thì bấm "+ Thêm tay" (giờ vào / ra điền sẵn theo ca, sửa nếu cần).</small>
+  </details>`;
+}
+
 function Records({ me }) {
   const [date, setDate] = useState(me.today);
   const st = useData(`/api/attendance?from=${date}&to=${date}`);
@@ -77,6 +96,7 @@ function Records({ me }) {
       </div>
       <button onClick=${() => setEdit({})}>+ Thêm tay</button>
     </div>
+    <${MissingCard} date=${date} onAdd=${(m) => setEdit({ staff_id: m.staff_id, clock_in: m.start_at, clock_out: m.status === 'missed' ? m.end_at : null, note: 'Thêm tay: có ca nhưng không chấm' })} />
     ${!st.data ? html`<${Loading} state=${st} />` : st.data.length ? html`<div class="table-wrap"><table class="list">
       <thead><tr><th>Nhân viên</th><th>Ca</th><th>Vào</th><th>Ra</th><th class="r">Giờ tính</th><th class="r">Tổng giờ ngày</th><th>Ghi chú</th></tr></thead>
       <tbody>${groupByTeam(st.data).map((g) => [html`<tr class="att-group"><td colspan="7" style=${`background:${g.color};color:#fff;font-weight:700;padding:8px 12px`}>
