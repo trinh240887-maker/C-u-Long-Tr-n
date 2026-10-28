@@ -465,7 +465,7 @@ export default function (r, ctx) {
   // Người kiểm tra: Đạt / Làm lại (trả về đúng người, đồng hồ chạy lại)
   r.post('/api/jobs/:id/check', 'staff', ({ me, params, body }) => {
     const j = getJob(params.id);
-    if (!canCheck(me, j.date, j.zone_id)) fail(403, 'Chỉ tổ trưởng khu / trưởng ca kiểm tra việc này');
+    if (!canCheck(me, j.date, j.zone_id) && !(tplOf(j)?.job_lead_pool && poolLead(me, j.date, j.zone_id))) fail(403, 'Chỉ tổ trưởng khu / trưởng ca kiểm tra việc này');
     if (j.staff_id === me.id && rank(me.role) < rank('manager')) fail(403, 'Không tự kiểm việc của mình');
     if (!['done', 'ok'].includes(j.status)) fail(409, 'Việc chưa báo xong');
     const ok = v.bool(body.ok);
@@ -475,7 +475,9 @@ export default function (r, ctx) {
     if (ok) db.prepare("UPDATE jobs SET status = 'ok', checked_by = ?, checked_at = ?, check_note = ? WHERE id = ?").run(me.id, at, note, j.id);
     else {
       const it = itemOf(j);
-      db.prepare("UPDATE jobs SET status = 'doing', redo_count = redo_count + 1, claimed_at = ?, due_at = ?, done_at = NULL, alerted = 0, checked_by = ?, checked_at = ?, check_note = ? WHERE id = ?")
+      // Làm lại: bỏ ảnh cũ để người làm chụp lại (chủ quán 28/10)
+      db.prepare('DELETE FROM job_photos WHERE job_id = ?').run(j.id);
+      db.prepare("UPDATE jobs SET status = 'doing', photo = NULL, redo_count = redo_count + 1, claimed_at = ?, due_at = ?, done_at = NULL, alerted = 0, checked_by = ?, checked_at = ?, check_note = ? WHERE id = ?")
         .run(at, it.job_minutes ? at + it.job_minutes * 60_000 : null, me.id, at, note, j.id);
       if (j.staff_id) ctx.notify([j.staff_id], { title: `↩ Làm lại: ${it.text}`, body: `${me.name}: ${note}`, link: '/viec-ca', urgent: true });
     }

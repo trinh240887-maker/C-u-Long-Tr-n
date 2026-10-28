@@ -65,5 +65,13 @@ test('Trưởng ca + tổ trưởng điều phối: việc không chia từng ng
   const img = 'data:image/jpeg;base64,' + Buffer.alloc(800, 7).toString('base64');
   assert.equal((await TC('POST', `/api/jobs/${jC.id}/shot`, { data: img })).status, 200);
   assert.equal((await TC('POST', `/api/jobs/${jC.id}/done`, {})).status, 200);
+  // Chưa đạt → Làm lại: bỏ ảnh cũ, trả về đúng người, phải chụp lại
+  assert.equal((await A('POST', `/api/jobs/${jC.id}/check`, { ok: false, note: 'chưa sạch' })).status, 200);
+  const back = db.prepare('SELECT * FROM jobs WHERE id = ?').get(jC.id);
+  assert.equal(back.status, 'doing'); assert.equal(back.staff_id, tc); assert.equal(back.photo, null);
+  assert.equal((await TC('POST', `/api/jobs/${jC.id}/done`, {})).status, 400);
+  await TC('POST', `/api/jobs/${jC.id}/shot`, { data: img });
+  assert.equal((await TC('POST', `/api/jobs/${jC.id}/done`, {})).status, 200);
+  assert.equal((await A('POST', `/api/jobs/${jC.id}/check`, { ok: true })).status, 200);
   void ttB;
 });

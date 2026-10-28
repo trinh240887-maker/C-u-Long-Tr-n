@@ -259,10 +259,16 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
   const loadOf = new Map();
   for (const j of r.job_rows || []) { if (!j.staff_id) continue; const l = loadOf.get(j.staff_id) || { min: 0, n: 0, noMin: 0, done: 0 }; l.min += minOf.get(j.item_id) || 0; l.n++; if (!minOf.get(j.item_id)) l.noMin++; if (['done', 'ok'].includes(j.status)) l.done++; loadOf.set(j.staff_id, l); }
   // Ảnh + ghi chú của 1 thẻ việc đã làm (chủ quán 28/10: xem ngay trong thẻ)
-  const Done = (jj) => (jj && (jj.has_photo || jj.extra_photos?.length || jj.done_note) ? html`<div class="zt-done">
+  // Kiểm: Đạt / Làm lại (chủ quán 28/10: việc chưa đạt → bạn đó chụp lại)
+  const redo = (jj) => { const n = prompt(`Làm lại "${jj.staff_name || ''}" — lý do (vd chưa sạch, chụp chưa rõ):`, ''); if (n && n.trim()) act(() => api('POST', `/api/jobs/${jj.id}/check`, { ok: false, note: n.trim() }), 'Đã trả về làm lại, bạn đó được báo'); };
+  const Check = (jj) => (atLeast(me, 'team_lead') && jj.staff_id && (jj.status === 'done' || jj.status === 'ok') ? html`<div class="row tight">
+      ${jj.status === 'ok' ? html`<span class="pill ok">✓ Đạt</span>` : html`<button class="small primary" onClick=${() => act(() => api('POST', `/api/jobs/${jj.id}/check`, { ok: true }), 'Đã duyệt đạt')}>✓ Đạt</button>`}
+      <button class="small" onClick=${() => redo(jj)}>↩ Làm lại</button></div>` : null);
+  const Done = (jj) => (jj && jj.status === 'doing' && jj.redo_count ? html`<div class="zt-done"><small class="warn-text">↩ Đang làm lại${jj.check_note ? `: ${jj.check_note}` : ''} (${jj.staff_name || ''})</small></div>`
+    : jj && (jj.has_photo || jj.extra_photos?.length || jj.done_note) ? html`<div class="zt-done">
       ${jj.has_photo || jj.extra_photos?.length ? html`<div class="zt-pics">${jj.has_photo ? html`<a href=${`/api/jobs/${jj.id}/photo`} target="_blank"><img src=${`/api/jobs/${jj.id}/photo`} loading="lazy" /></a>` : null}${(jj.extra_photos || []).map((id) => html`<a href=${`/api/jobs/photo-extra/${id}`} target="_blank"><img src=${`/api/jobs/photo-extra/${id}`} loading="lazy" /></a>`)}</div>` : null}
       <small class="muted">${jj.staff_name || ''}${jj.done_at ? ` · xong ${hm(jj.done_at)}` : ''}</small>
-      ${jj.done_note ? html`<small class="job-note">📝 ${jj.done_note}</small>` : null}</div>` : null);
+      ${jj.done_note ? html`<small class="job-note">📝 ${jj.done_note}</small>` : null}${Check(jj)}</div>` : null);
   const Load = (x) => { const l = loadOf.get(x.id); if (!l) return html`<small class="zt-load free">0′ · 0 việc</small>`; const over = l.min > span; return html`<small class=${`zt-load ${over ? 'over' : l.min < span / 2 ? 'free' : ''}`}>⏱ ${l.min}′ · ${l.n} việc</small>`; };
   const noZone = people.filter((x) => !x.zone_id);
   const LEADR = ['team_lead', 'shift_lead', 'manager'];
