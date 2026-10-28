@@ -207,11 +207,6 @@ export default function (r, ctx) {
     return Boolean(bip && net.ip === bip && ctx.now() - Number(ctx.setting('shop_bridge_ip_at') || 0) < 15 * 60_000);
   }
   ctx.onShopWifi = onShopWifi;
-  // 1 lần (chủ quán 28/10): DB đang chạy thật (đã có chấm công) → bật "chỉ người đang trong ca mới order"; DB mới / thử thì để tắt
-  if (!ctx.setting('pos_need_shift_v1')) {
-    if (!ctx.setting('pos_need_shift') && db.prepare('SELECT 1 FROM attendance LIMIT 1').get()) ctx.setSetting('pos_need_shift', '1');
-    ctx.setSetting('pos_need_shift_v1', '1');
-  }
   function checkNetwork(net, me, body = {}) {
     const p = place();
     if (!p.gps && !p.prefixes.length) return 'không giới hạn';
