@@ -117,3 +117,22 @@ test('Chấm công theo ngày: có ca mà chưa chấm (bỏ người đã chấ
   assert.equal(r.data[0].status, 'missed');
   assert.equal(r.data[0].shift, '14:00–23:00');
 });
+
+test('2 ca trong 1 ngày (8–12 và 13:30–23): thêm ca thứ 2 không xoá ca đầu', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const id = (await O('POST', '/api/staff', { name: 'Kim Anh', team_id: pv, pin: '5941' })).data.id;
+  const d = addDays(app.ctx.today(), 1);
+  assert.equal((await O('POST', '/api/shifts', { staff_id: id, date: d, team_id: pv, label: 'Ca', segments: [{ start: '13:30', end: '23:00' }] })).status, 200);
+  assert.equal((await O('POST', '/api/shifts', { staff_id: id, date: d, team_id: pv, label: 'Ca', segments: [{ start: '08:00', end: '12:00' }] })).status, 200);
+  const rows = db.prepare('SELECT start_min, end_min FROM assignments WHERE staff_id = ? AND date = ? ORDER BY start_min').all(id, d);
+  assert.deepEqual(rows.map((r) => [r.start_min, r.end_min]), [[480, 720], [810, 1380]]);
+});

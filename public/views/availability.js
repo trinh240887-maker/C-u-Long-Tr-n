@@ -172,6 +172,8 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = ''
         <div class="row wrap">
         ${x.segments.length === 1 ? html`<button class="primary" onClick=${() => { setEdit({ p: cell.p, date: cell.x, range: `${x.segments[0].start}-${x.segments[0].end === '00:00' ? '24:00' : x.segments[0].end}`, id: x.group_id }); setCell(null); }}>✎ Sửa giờ</button>` : null}
         <button onClick=${() => act(() => api('POST', '/api/shifts/delete', { group_id: x.group_id }), `Đã bỏ ca ${cell.p.name}`).then((r) => r && setCell(null))}>✕ Bỏ ca</button></div></div>`)}
+      <button onClick=${() => { const first = Math.min(...cell.sh.flatMap((x) => x.segments.map((sg) => Number(sg.start.slice(0, 2))))); setEdit({ p: cell.p, date: cell.x, range: first >= 12 ? '08:00-12:00' : '17:00-23:00', id: null }); setCell(null); }}>+ Thêm 1 ca nữa trong ngày</button>
+      <small class="muted">Vd làm 2 ca 8–12h và 13:30–23h: giữ ca đang có, bấm "+ Thêm 1 ca nữa" chọn 8:00 → 12:00. Bạn ấy chấm vào / ra riêng từng ca.</small>
     </div><//>` : null}
     ${!groups.length ? html`<p class="muted">${kind === 'full' ? 'Chưa có ai có khu. Bấm tên người để chọn khu.' : 'Không có ai.'}</p>` : null}
     ${edit ? html`<${AddShift} p=${edit.p} date=${edit.date} range=${edit.range} replaceId=${edit.id} onClose=${() => setEdit(null)} />` : null}
