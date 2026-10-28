@@ -257,15 +257,19 @@ function Debts({ me }) {
   const st = useData('/api/suppliers/debts');
   const [pay, setPay] = useState(null);
   const [stmt, setStmt] = useState(null);
+  const [q, setQ] = useState(''); // tìm NCC (chủ quán 28/10)
   if (!st.data) return html`<${Loading} state=${st} />`;
   const d = st.data;
+  const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase();
   return html`<div class="stack">
     <section class="kpis"><div class="kpi main"><small>Tổng nợ NCC (bill đã duyệt)</small><b>${money(d.total)}</b><small class="muted">Chi trên ${money(d.approve_over)} cần chủ / quản lý duyệt</small></div></section>
     ${d.waiting.length ? html`<section class="card stack"><b>Khoản chi chờ duyệt</b>${d.waiting.map((p) => html`<div class="row between wrap">
       <span>${p.supplier_name} · <b>${money(p.amount)}</b> · ${p.method === 'cash' ? 'tiền mặt' : 'CK'} · ${p.created_by_name}</span>
       ${d.is_boss ? html`<div class="row"><button class="primary small" onClick=${() => act(() => api('POST', `/api/supplier-payments/${p.id}/approve`), 'Đã duyệt chi')}>Duyệt</button>
         <button class="small" onClick=${() => act(() => api('POST', `/api/supplier-payments/${p.id}/approve`, { reject: true }), 'Đã từ chối')}>Từ chối</button></div>` : html`<small class="muted">chờ chủ duyệt</small>`}</div>`)}</section>` : null}
-    ${[...d.suppliers].sort((a, b) => b.debt - a.debt).map((s) => html`<section class="card stack">
+    <input type="search" placeholder="🔍 Tìm nhà cung cấp" value=${q} onInput=${(e) => setQ(e.target.value)} />
+    ${q && !d.suppliers.some((s) => fold(s.name).includes(fold(q))) ? html`<p class="muted">Không thấy NCC nào tên "${q}".</p>` : null}
+    ${[...d.suppliers].filter((s) => !q || fold(s.name).includes(fold(q))).sort((a, b) => b.debt - a.debt).map((s) => html`<section class="card stack">
       <div class="row between"><b>${s.name}</b><b class=${s.debt > 0 ? 'danger-text' : 'muted'}>${money(s.debt)}</b></div>
       <small class="muted">${s.last_bill ? `Lần mua cuối ${dayLabel(s.last_bill)}` : 'Chưa mua'}${s.pending.n ? ` · ${s.pending.n} bill chưa duyệt ${money(s.pending.t)}` : ''}</small>
       ${(s.open_bills || []).length ? html`<small>Phiếu còn nợ: ${s.open_bills.map((b) => `#${b.id} (${b.date.slice(8)}/${b.date.slice(5, 7)}) ${money(b.remaining)}`).join(' · ')}</small>` : null}
