@@ -266,7 +266,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
           if (!(req.headers['content-type'] || '').startsWith('application/json')) fail(415, 'Cần gửi dữ liệu dạng JSON');
         }
         // Bill mua hàng gửi kèm tới 8 ảnh (bill + hàng, mỗi ảnh ~1 MB) → cho phép 16 MB khi đã đăng nhập (chủ quán 26/10: "Dữ liệu gửi lên quá lớn")
-        const big = me && /^\/api\/(purchases|supplier-payments|suppliers\/\d+\/pay|sapo)/.test(pathname);
+        const big = me && /^\/api\/(purchases|supplier-payments|suppliers\/\d+\/pay|sapo|jobs|checklists|checklist-|attendance|expenses)/.test(pathname); // việc ca báo xong nhiều ảnh (chủ quán 28/10)
         const body = req.method === 'GET' ? {} : await readJson(req, big ? 16_000_000 : 2_000_000);
         const out = await route.fn({ req, res, url, query: url.searchParams, params, body, me, token, net });
         if (out && out.__binary) {
