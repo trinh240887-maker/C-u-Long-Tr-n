@@ -87,11 +87,35 @@ function JobCard({ j, now, mine }) {
   </div>`;
 }
 
-function Mine() {
+// Trưởng ca / tổ trưởng điều phối (chủ quán 28/10): thấy cả danh sách việc khu mình + việc chung, tự làm hoặc giao người; mọi việc chụp ảnh khi xong
+function PoolList({ pool, crew, me }) {
+  const groups = [];
+  for (const j of pool) { const k = `${j.template_title}|${j.zone_id}`; let g = groups.find((x) => x.k === k); if (!g) { g = { k, title: j.template_title, zone: j.zone_id ? j.zone_name : 'Việc chung của quán', zone_id: j.zone_id, jobs: [] }; groups.push(g); } g.jobs.push(j); }
+  const assign = (j, sid) => act(() => api('PATCH', `/api/jobs/${j.id}`, { staff_id: sid || null }), sid ? 'Đã giao việc' : 'Đã bỏ giao');
+  return html`<div class="stack">
+    <h3>📋 Việc điều phối <small class="muted">${pool.filter((j) => !['done', 'ok'].includes(j.status)).length} việc chưa xong</small></h3>
+    <small class="muted">Trưởng ca và tổ trưởng cùng thấy. Tự làm thì bấm <b>Tôi làm</b>, hoặc giao cho 1 bạn. Xong việc phải chụp ảnh báo cáo.</small>
+    ${groups.map((g) => { const ok = g.jobs.filter((j) => ['done', 'ok'].includes(j.status)).length; return html`<details class="card stack" open=${ok < g.jobs.length}>
+      <summary class="row between"><b>${g.zone} <small class="muted">· ${g.title}</small></b><span class=${`pill ${ok === g.jobs.length ? 'ok' : 'warn'}`}>${ok}/${g.jobs.length}</span></summary>
+      ${g.jobs.map((j) => { const [label, cls] = ST[j.status]; const done = ['done', 'ok'].includes(j.status); const ppl = crew.filter((p) => !g.zone_id || !p.zone_id || p.zone_id === g.zone_id); return html`<div class="job-row stack tight">
+        <div class="row"><span class="grow"><b>${j.title}</b>${j.qty ? ` · ${j.qty}` : ''}${j.deadline ? html` <small class="muted">· trước ${j.deadline}</small>` : ''}</span><span class=${`pill ${cls}`}>${j.staff_id ? `${label} · ${j.staff_name}` : label}</span></div>
+        ${done ? html`<div class="row wrap tight">${j.has_photo ? html`<a href=${`/api/jobs/${j.id}/photo`} target="_blank"><img class="job-photo" src=${`/api/jobs/${j.id}/photo`} /></a>` : null}${(j.extra_photos || []).map((id) => html`<a href=${`/api/jobs/photo-extra/${id}`} target="_blank"><img class="job-photo" src=${`/api/jobs/photo-extra/${id}`} /></a>`)}${j.done_note ? html`<small class="job-note">📝 ${j.done_note}</small>` : null}</div>`
+          : j.staff_id === me.id ? html`<small class="ok-text">↑ Việc bạn đang làm: xem ở "Việc của tôi" để chụp ảnh & báo xong</small>`
+          : html`<div class="row wrap tight">
+            ${!j.staff_id ? html`<button class="primary small" onClick=${() => act(() => api('POST', `/api/jobs/${j.id}/claim`), 'Đã nhận: chụp ảnh khi xong')}>✋ Tôi làm</button>` : null}
+            <select class="small" value=${j.staff_id || ''} onChange=${(e) => assign(j, e.target.value)}>
+              <option value="">${j.staff_id ? '(bỏ giao)' : '👉 Giao cho…'}</option>${ppl.map((p) => html`<option value=${p.id}>${p.name}${p.zone_name ? ` · ${p.zone_name}` : ''}${p.team_name ? ` · ${p.team_name}` : ''}</option>`)}
+              ${j.staff_id && !ppl.some((p) => p.id === j.staff_id) ? html`<option value=${j.staff_id}>${j.staff_name}</option>` : null}</select></div>`}
+      </div>`; })}
+    </details>`; })}
+  </div>`;
+}
+
+function Mine({ me }) {
   const d = useData('/api/jobs/mine');
   const now = useNow();
   if (!d.data) return html`<${Loading} state=${d} />`;
-  const { mine, open, to_check, on_shift } = d.data;
+  const { mine, open, to_check, on_shift, pool = [], crew = [] } = d.data;
   const left = mine.filter((j) => ['todo', 'doing'].includes(j.status));
   return html`<div class="stack">
     ${[...new Set(mine.map((j) => j.template_note).filter(Boolean))].map((n) => html`<section class="card hint"><b>📌 Lưu ý chung</b><span style="white-space:pre-line">${n}</span></section>`)}
@@ -99,6 +123,7 @@ function Mine() {
     ${!on_shift && !mine.length ? html`<p class="muted">Hôm nay bạn không có ca nên chưa có việc.</p>` : null}
     ${mine.length ? html`<h3>Việc của tôi <small class="muted">${left.length ? `còn ${left.length}` : 'đã xong hết 👍'}</small></h3>` : on_shift ? html`<p class="muted">Chưa có việc nào giao cho bạn.</p>` : null}
     ${[...left, ...mine.filter((j) => !left.includes(j))].map((j) => html`<${JobCard} j=${j} now=${now} mine=${true} />`)}
+    ${pool.length ? html`<${PoolList} pool=${pool} crew=${crew} me=${me} />` : null}
     ${open.length ? html`<h3>Việc còn trống <small class="muted">nhận để hỗ trợ</small></h3>${open.map((j) => html`<${JobCard} j=${j} now=${now} />`)}` : null}
   </div>`;
 }
@@ -205,7 +230,7 @@ export function JobsView({ me, query }) {
   const tabs = [['toi', 'Việc của tôi'], ['khu', 'Bảng khu'], ...(['shift_lead', 'manager', 'owner'].includes(me.role) ? [['bc', 'Báo cáo']] : [])];
   return html`<div class="stack">
     <div class="row wrap">${tabs.map(([k, n]) => html`<button class=${`chip ${tab === k ? 'on' : ''}`} onClick=${() => navigate(`/viec-ca?tab=${k}`)}>${n}</button>`)}</div>
-    ${tab === 'khu' ? html`<${Board} me=${me} />` : tab === 'bc' ? html`<${Report} />` : html`<${Mine} />`}
+    ${tab === 'khu' ? html`<${Board} me=${me} />` : tab === 'bc' ? html`<${Report} />` : html`<${Mine} me=${me} />`}
   </div>`;
 }
 
@@ -215,8 +240,9 @@ export function MyJobsCard() {
   if (!d.data) return null;
   const left = d.data.mine.filter((j) => ['todo', 'doing'].includes(j.status));
   const over = left.filter((j) => j.overdue).length;
-  if (!left.length && !d.data.open.length && !d.data.to_check) return null;
+  const poolLeft = (d.data.pool || []).filter((j) => !j.staff_id && j.status === 'todo').length;
+  if (!left.length && !d.data.open.length && !d.data.to_check && !poolLeft) return null;
   return html`<button class=${`card hint ${over ? 'bad' : ''}`} onClick=${() => navigate(d.data.to_check && !left.length ? '/viec-ca?tab=khu' : '/viec-ca')}>
     <span>📋 ${left.length ? html`<b>${left.length} việc của bạn</b>${over ? ` · ${over} quá giờ` : ''}: ${left.slice(0, 3).map((j) => j.title).join(', ')}${left.length > 3 ? '…' : ''}` : ''}
-    ${!left.length && d.data.open.length ? `${d.data.open.length} việc còn trống, nhận để hỗ trợ` : ''}${d.data.to_check ? ` · ${d.data.to_check} việc chờ bạn kiểm` : ''} →</span></button>`;
+    ${!left.length && d.data.open.length ? `${d.data.open.length} việc còn trống, nhận để hỗ trợ` : ''}${d.data.to_check ? ` · ${d.data.to_check} việc chờ bạn kiểm` : ''}${poolLeft ? ` · ${poolLeft} việc chưa giao ai (bạn điều phối)` : ''} →</span></button>`;
 }
