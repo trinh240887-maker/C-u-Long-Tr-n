@@ -42,6 +42,9 @@ test('IP người dùng: không tin cf-connecting-ip / X-Forwarded-For do ngư�
   assert.equal(resolveClientIp({ 'cf-connecting-ip': '1.2.3.4' }, '127.0.0.1', false).ip, '1.2.3.4');
   // Sau proxy Railway: lấy chặng do proxy ghi (phải nhất, bỏ qua mạng nội bộ), không lấy mục đầu người dùng tự ghi
   assert.equal(resolveClientIp({ 'x-forwarded-for': '6.6.6.6, 9.9.9.9, 10.0.0.2' }, '10.1.1.1', true).ip, '9.9.9.9');
+  // Railway: X-Real-IP do edge đặt được ưu tiên; người dùng tự ghi X-Forwarded-For không có tác dụng
+  assert.equal(resolveClientIp({ 'x-real-ip': '9.9.9.9', 'x-forwarded-for': '6.6.6.6' }, '10.1.1.1', true).ip, '9.9.9.9');
+  assert.equal(resolveClientIp({ 'x-real-ip': '9.9.9.9' }, '10.1.1.1', false).ip, '10.1.1.1');
   assert.equal(resolveClientIp({ 'x-forwarded-for': '6.6.6.6, 9.9.9.9', 'cf-connecting-ip': '7.7.7.7' }, '10.1.1.1', true).ip, '9.9.9.9');
   // Tên miền riêng sau Cloudflare → Railway: chặng cuối là Cloudflare → tin cf-connecting-ip
   assert.deepEqual(resolveClientIp({ 'x-forwarded-for': '6.6.6.6, 172.70.1.1', 'cf-connecting-ip': '7.7.7.7' }, '10.1.1.1', true), { ip: '7.7.7.7', remote: true });

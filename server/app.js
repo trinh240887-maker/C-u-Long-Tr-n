@@ -328,7 +328,10 @@ export const isCloudflareIp = (ip) => inList(CF_LIST, normIp(ip));
 export function resolveClientIp(headers, socketAddr, trustProxy) {
   const sock = normIp(socketAddr);
   let peer = sock;
-  if (trustProxy) {
+  // Railway (tài liệu public-networking): IP thật của khách nằm ở X-Real-IP do edge Railway đặt → ưu tiên
+  const realIp = trustProxy ? normIp(Array.isArray(headers['x-real-ip']) ? headers['x-real-ip'][0] : headers['x-real-ip']) : '';
+  if (realIp && nodeNet.isIP(realIp)) peer = realIp;
+  else if (trustProxy) {
     const hops = String(headers['x-forwarded-for'] || '').split(',').map(normIp).filter(Boolean);
     for (let i = hops.length - 1; i >= 0; i--) {
       if (!nodeNet.isIP(hops[i])) break; // giá trị lạ: dừng, không đi tiếp vào phần người dùng tự ghi
