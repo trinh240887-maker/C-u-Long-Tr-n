@@ -1,6 +1,7 @@
 import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, money, hm, dayLabel, addDays, Modal, Field, navigate, toast, can as canAct } from '../ui.js';
 import { compressImage } from './checklists.js';
+import { Conversions } from './stock.js';
 
 // Mua hàng: khu nhận hàng chụp bill NCC (ký nhận) → thu ngân duyệt → công nợ NCC → trả NCC / tạm ứng đi chợ
 const STATUS = { received: ['Chờ thu ngân duyệt', 'warn'], approved: ['Đã duyệt', 'ok'], returned: ['Bị trả lại, cần sửa', 'bad'], void: ['Đã huỷ', 'muted'] };
@@ -338,6 +339,30 @@ function SettleModal({ a, onClose }) {
     <button class="primary" onClick=${async () => { if (await act(() => api('POST', `/api/advances/${a.id}/settle`, { returned: num(v) }), 'Đã quyết toán')) onClose(); }}>Xác nhận</button><//>`;
 }
 
+// ⚖ Quy đổi ở Mua hàng (chủ quán 28/10): dòng bill nhập đúng như bill → nhập 1 mẹt = ? kg là app tự sửa kho + bill, nhớ cho lần sau
+function ConvTab({ meta }) {
+  const st = useData('/api/purchases/unconverted');
+  const [f, setF] = useState({});
+  const rows = st.data || [];
+  return html`<div class="stack">
+    <section class="card stack"><h3>Bill chưa quy đổi ${rows.length ? html`<span class="pill warn">${rows.length}</span>` : null}</h3>
+      ${!st.data ? html`<${Loading} state=${st} />` : !rows.length ? html`<p class="ok-text small">✓ Không còn dòng bill nào chưa quy đổi</p>`
+        : html`<small class="muted">Nhập 1 đơn vị trên bill bằng bao nhiêu → app tự sửa số kho, đơn giá trên bill và nhớ cho các bill sau.</small>
+        ${rows.map((l) => { const u = l.purchase_unit || l.use_unit; return html`<div class="stack tight" style="border-bottom:1px solid var(--line, #eee);padding-bottom:10px">
+          <div class="row between wrap"><b>${l.name}</b><small class="muted">#${l.bill_id} · ${l.supplier_name} · ${dayLabel(l.date)}</small></div>
+          <small>Bill ghi <b>${l.qty} ${l.bill_unit}</b> × ${money(l.price)} = ${money(l.amount)}</small>
+          <div class="row wrap tight" style="align-items:center"><span class="small">1 ${l.bill_unit} =</span>
+            <input inputmode="decimal" style="width:6em" placeholder="?" value=${f[l.id] || ''} onInput=${(e) => setF({ ...f, [l.id]: e.target.value })} /><span class="small">${u}</span>
+            <button class="primary small" disabled=${!qtyNum(f[l.id])} onClick=${() => act(() => api('POST', `/api/purchases/lines/${l.id}/convert`, { factor: String(f[l.id]).replace(',', '.') }), `Đã quy đổi ${l.name}`)}>Lưu</button>
+            <button class="small" onClick=${() => act(() => api('POST', `/api/purchases/lines/${l.id}/convert`, { factor: 1 }), 'Đã ghi: không quy đổi')}>1 ${l.bill_unit} = 1 ${u}</button></div>
+          ${qtyNum(f[l.id]) ? html`<small class="ok-text">→ kho ${Math.round(l.qty * qtyNum(f[l.id]) * 1000) / 1000} ${u} · ${money(Math.round(l.price / qtyNum(f[l.id])))}/${u}</small>` : null}
+        </div>`; })}`}
+    </section>
+    <h3>Quy đổi từng nguyên liệu</h3>
+    <${Conversions} meta=${meta} />
+  </div>`;
+}
+
 export function PurchasesView({ me, query }) {
   const meta0 = useData('/api/stock/meta');
   const list = useData('/api/purchases');
@@ -351,7 +376,7 @@ export function PurchasesView({ me, query }) {
   const mineReturned = L.bills.filter((b) => b.status === 'returned' && b.received_by === me.id);
   // Công nợ NCC / Tạm ứng: theo Phân quyền (chủ quán tick từng người)
   const can = (k) => (Array.isArray(me.pages) ? me.pages.includes(`/mua-hang#${k}`) : k === 'congno' ? isCashier : true);
-  const tabs = [...(canAct(me, 'mh.nhap') ? [['nhan', '📥 Nhập kho']] : []), ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ['lichsu', 'Bill đã nhận'], ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : [])];
+  const tabs = [...(canAct(me, 'mh.nhap') ? [['nhan', '📥 Nhập kho']] : []), ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ['lichsu', 'Bill đã nhận'], ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : []), ...(['manager', 'owner'].includes(me.role) ? [['quydoi', '⚖ Quy đổi']] : [])];
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/mua-hang?tab=${k}`)}>${l}</button>`)}</div>
     ${mineReturned.length && tab !== 'lichsu' ? html`<section class="card warn-card small">${mineReturned.length} bill bạn nhận bị thu ngân trả lại. <button class="small" onClick=${() => navigate('/mua-hang?tab=lichsu')}>Xem & sửa</button></section>` : null}
@@ -359,6 +384,7 @@ export function PurchasesView({ me, query }) {
     ${tab === 'duyet' ? (waiting.length ? html`<p class="small muted">So ảnh bill với số khu nhập: số lượng, đơn giá, tổng, chữ ký người nhận. Dòng đỏ = app thấy lệch.</p>${waiting.map((b) => html`<${BillCard} key=${b.id} b=${b} canApprove=${isCashier} me=${me} />`)}` : html`<div class="empty">Không có bill chờ duyệt.</div>`) : null}
     ${tab === 'lichsu' ? (L.bills.length ? L.bills.map((b) => html`<${BillCard} key=${b.id} b=${b} canApprove=${isCashier} me=${me} />`) : html`<div class="empty">Chưa có bill trong 30 ngày.</div>`) : null}
     ${tab === 'congno' && can('congno') ? html`<${Debts} me=${me} />` : null}
+    ${tab === 'quydoi' && ['manager', 'owner'].includes(me.role) ? html`<${ConvTab} meta=${meta} />` : null}
     ${tab === 'tamung' && can('tamung') ? html`<${Advances} me=${me} isCashier=${isCashier} advances=${advances} />` : null}
   </div>`;
 }

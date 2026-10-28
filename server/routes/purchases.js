@@ -60,6 +60,8 @@ export default function (r, ctx) {
   const r3 = (x) => Math.round(x * 1000) / 1000;
   const vnd = (n) => `${Number(n || 0).toLocaleString('vi-VN')}đ`;
   const money = (x, name, { min = 0 } = {}) => v.int(Number(String(x ?? '').replace(/[.,\s]/g, '') || 0), { min, max: 2_000_000_000, name });
+  // bill_unit: dòng nhập đúng như bill, chưa quy đổi (vd 3 mẹt) → chủ quán quy đổi sau ở Mua hàng → ⚖ Quy đổi (chủ quán 28/10)
+  if (!db.prepare('PRAGMA table_info(purchase_bill_lines)').all().some((c) => c.name === 'bill_unit')) db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN bill_unit TEXT');
   if (!db.prepare('PRAGMA table_info(purchase_bill_lines)').all().some((c) => c.name === 'old_price')) db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN old_price INTEGER'); // giá trước khi nhập bill này (huỷ bill thì trả lại)
   const isCashier = (me) => rank(me.role) >= rank('shift_lead') || !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id);
   const isBoss = (me) => rank(me.role) >= rank('manager');
@@ -151,6 +153,8 @@ export default function (r, ctx) {
     return f;
   }
 
+  const unitOf = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 20);
+  const unconvFlag = (name, qty, unit) => `${name}: bill ghi ${qty} ${unit}, chưa quy đổi, kiểm lại số kho`;
   const supplierRow = (id) => db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
 
   // ---------- Khu nhận hàng ----------
@@ -204,12 +208,12 @@ export default function (r, ctx) {
       const { oldPrice } = ctx.stockReceive(me, { poId, storeId, lines: lines.filter((l) => l.ingredient_id).map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, price: l.price, expires_on: l.raw.expires_on })) });
       const flags = flagsOf({ total, lines, po, oldPrice });
       // Dòng chưa quy đổi: nhập đúng như bill, chủ quán kiểm & quy đổi sau (chủ quán 28/10)
-      for (const l of lines) if (l.ingredient_id && l.raw?.unconv) flags.push(`${l.name}: bill ghi ${l.qty} ${l.raw.unit || l.unit}, chưa quy đổi, kiểm lại số kho`);
+      for (const l of lines) if (l.ingredient_id && l.raw?.unconv) flags.push(unconvFlag(l.name, l.qty, unitOf(l.raw.unit) || l.unit));
       const id = Number(db.prepare(`INSERT INTO purchase_bills (supplier_id, supplier_name, store_id, po_id, date, total, lines_total, paid_now, paid_method, advance_id, signer_name, note, flags, received_by, received_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(supplierId, supplierName, storeId, poId, date, total, lines.reduce((n, l) => n + l.amount, 0), paidNow, paidMethod, advanceId,
         signer, v.text(body.note, { name: 'Ghi chú', max: 200 }), JSON.stringify(flags), me.id, ctx.now()).lastInsertRowid);
-      const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-      for (const l of lines) add.run(id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, l.ingredient_id ? oldPrice.get(l.ingredient_id) ?? null : null);
+      const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price, bill_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const l of lines) add.run(id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, l.ingredient_id ? oldPrice.get(l.ingredient_id) ?? null : null, l.ingredient_id && l.raw?.unconv ? unitOf(l.raw.unit) : null);
       for (const ph of photos) savePhoto(id, ph, me);
       for (const ph of goodsPhotos) savePhoto(id, ph, me, 'goods');
       // Nhớ quy đổi nhân viên vừa nhập (1 két = 24 chai) cho lần đọc bill sau
@@ -260,12 +264,14 @@ export default function (r, ctx) {
         for (const l of lines) if (l.ingredient_id && l.price > 0) db.prepare('UPDATE ingredients SET price = ? WHERE id = ?').run(l.price, l.ingredient_id);
         const oldPrice = new Map(old.map((l) => [l.ingredient_id, l.old_price]));
         db.prepare('DELETE FROM purchase_bill_lines WHERE bill_id = ?').run(b.id);
-        const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-        for (const l of lines) add.run(b.id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, oldPrice.get(l.ingredient_id) ?? null);
+        const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price, bill_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        const oldUnit = new Map(old.filter((l) => l.bill_unit).map((l) => [l.ingredient_id, l.bill_unit]));
+        for (const l of lines) add.run(b.id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, oldPrice.get(l.ingredient_id) ?? null, oldUnit.get(l.ingredient_id) ?? null);
       }
       for (const ph of Array.isArray(body.photos) ? body.photos.slice(0, 4) : []) savePhoto(b.id, ph, me);
       const ls = db.prepare('SELECT * FROM purchase_bill_lines WHERE bill_id = ?').all(b.id);
       const flags = flagsOf({ total, lines: ls, po: null, oldPrice: new Map(ls.filter((l) => l.old_price != null).map((l) => [l.ingredient_id, l.old_price])) });
+      for (const l of ls) if (l.ingredient_id && l.bill_unit) flags.push(unconvFlag(l.name, l.qty, l.bill_unit));
       db.prepare(`UPDATE purchase_bills SET total = ?, lines_total = ?, signer_name = ?, note = ?, flags = ?, status = ${b.status === 'approved' ? "'approved'" : "'received'"} WHERE id = ?`)
         .run(total, ls.reduce((n, l) => n + l.amount, 0), body.signer_name ? v.text(body.signer_name, { name: 'Tên người ký', max: 60 }) : b.signer_name, body.note === undefined ? b.note : v.text(body.note, { max: 200 }), JSON.stringify(flags), b.id);
     });
@@ -322,6 +328,38 @@ export default function (r, ctx) {
         return { ...base, factor: al.factor, qty: r3((l.qty * al.factor) / base.pf), price: Math.round((l.price * base.pf) / al.factor) };
       }),
     };
+  });
+
+  // ⚖ Quy đổi ở Mua hàng (chủ quán 28/10): các dòng bill nhập đúng như bill, chưa quy đổi
+  r.get('/api/purchases/unconverted', 'manager', () => db.prepare(`SELECT l.id, l.bill_id, l.ingredient_id, l.name, l.qty, l.price, l.amount, l.bill_unit, g.purchase_unit, g.unit AS use_unit, g.purchase_factor, b.date, b.supplier_name
+    FROM purchase_bill_lines l JOIN purchase_bills b ON b.id = l.bill_id JOIN ingredients g ON g.id = l.ingredient_id WHERE l.bill_unit IS NOT NULL AND b.status != 'void' ORDER BY b.id DESC LIMIT 200`).all());
+  // Nhập "1 mẹt = 2,5 kg" → app tự sửa số kho + dòng bill và nhớ cho lần đọc bill sau
+  r.post('/api/purchases/lines/:id/convert', 'manager', ({ me, params, body }) => {
+    const l = db.prepare('SELECT l.*, g.purchase_factor, g.purchase_unit, g.unit AS use_unit, g.shelf_days FROM purchase_bill_lines l JOIN ingredients g ON g.id = l.ingredient_id WHERE l.id = ?').get(Number(params.id));
+    if (!l || !l.bill_unit) fail(404, 'Dòng này đã quy đổi rồi');
+    const b = load(l.bill_id);
+    if (b.status === 'void') fail(400, 'Bill đã huỷ');
+    const f = Number(String(body.factor ?? '').replace(',', '.'));
+    if (!(f > 0 && f <= 100000)) fail(400, `Nhập 1 ${l.bill_unit} = bao nhiêu ${l.purchase_unit || l.use_unit}`);
+    const pf = l.purchase_factor || 1;
+    const qty = Math.round(l.qty * f * 1000) / 1000;
+    const price = Math.round(l.price / f);
+    tx(db, () => {
+      const store = ctx.effectiveStore ? ctx.effectiveStore(b.store_id) : b.store_id;
+      const d = Math.round((qty - l.qty) * pf * 1000) / 1000;
+      const at = ctx.now(), date = ctx.today();
+      if (d > 0) addLot(db, { storeId: store, ingredientId: l.ingredient_id, qty: d, expiresOn: l.shelf_days > 0 ? addDays(date, l.shelf_days) : null, at });
+      else if (d < 0) takeLots(db, { storeId: store, ingredientId: l.ingredient_id, qty: -d, allowShort: true });
+      if (d) recordMove(db, { at, date, type: 'receive', ingredientId: l.ingredient_id, toStore: store, qty: d, cost: 0, ref: `fix-bill:${b.id}`, staffId: me.id, note: `Quy đổi bill #${b.id}: 1 ${l.bill_unit} = ${f} ${l.purchase_unit || l.use_unit}` });
+      db.prepare('UPDATE purchase_bill_lines SET qty = ?, price = ?, unit = ?, bill_unit = NULL WHERE id = ?').run(qty, price, l.purchase_unit || l.use_unit, l.id);
+      if (price > 0) db.prepare('UPDATE ingredients SET price = ? WHERE id = ?').run(price, l.ingredient_id);
+      db.prepare('INSERT INTO unit_aliases (ingredient_id, bill_unit, factor) VALUES (?, ?, ?) ON CONFLICT (ingredient_id, bill_unit) DO UPDATE SET factor = excluded.factor').run(l.ingredient_id, l.bill_unit, f * pf);
+      const flags = b.flags.filter((x) => x !== unconvFlag(l.name, l.qty, l.bill_unit));
+      db.prepare('UPDATE purchase_bills SET flags = ? WHERE id = ?').run(JSON.stringify(flags), b.id);
+    });
+    ctx.audit(me, 'purchase.convert', { line: l.id, bill: b.id, unit: l.bill_unit, factor: f });
+    ctx.broadcast('purchases');
+    return { ok: true, qty, price };
   });
 
   // Đơn vị trên bill đã học (vd bill ghi "thùng" = 150 vắt) → hiện ở Kho → ⚖ Quy đổi

@@ -46,4 +46,16 @@ test('nhập bill không cần quy đổi (dòng chưa quy đổi được cắm
   assert.equal(qty(pheo), 3000);
   const b = (await o('GET', '/api/purchases')).data.bills.find((x) => x.id === r.data.id);
   assert.deepEqual(b.lines.map((l) => l.name).sort(), ['Chẳng dừng', 'Phèo non']);
+  // Mua hàng → ⚖ Quy đổi: 1 mẹt = 2,5 kg → kho 7,5 kg, giá 60.000/kg, hết cờ, nhớ cho lần sau
+  const un = (await o('GET', '/api/purchases/unconverted')).data;
+  assert.equal(un.length, 1);
+  assert.equal(un[0].bill_unit, 'mẹt');
+  assert.equal((await o('POST', `/api/purchases/lines/${un[0].id}/convert`, { factor: '2,5' })).status, 200);
+  assert.equal(qty(pheo), 7500);
+  assert.equal((await o('GET', '/api/purchases/unconverted')).data.length, 0);
+  const b2 = (await o('GET', '/api/purchases')).data.bills.find((x) => x.id === r.data.id);
+  const ln = b2.lines.find((l) => l.ingredient_id === pheo);
+  assert.deepEqual([ln.qty, ln.price, ln.unit], [7.5, 60000, 'kg']);
+  assert.ok(!b2.flags.some((f) => /chưa quy đổi/.test(f)));
+  assert.equal(db.prepare("SELECT factor FROM unit_aliases WHERE ingredient_id = ? AND bill_unit = 'mẹt'").get(pheo).factor, 2500);
 });

@@ -608,7 +608,7 @@ export function StockView({ me, query }) {
 // ⚖ Quy đổi (chủ quán 26/10): 1 bảng mọi nguyên liệu — mua theo gì (trên bill) → dùng / bán theo gì (định lượng, kiểm kho)
 const PACK_UNITS = /^(gói|goi|thùng|thung|bao|hộp|hop|chai|lốc|loc|két|ket|túi|tui|can|hũ|hu|bịch|bich|xô|xo|khay|bó|bo|vỉ|vi|cuộn|cuon|bình|binh|keg|block|lô|lo)$/i;
 // ⚖ Quy đổi (chủ quán 26/10): mua theo gì → dùng theo gì; app chỉ ra món cần quy đổi
-function Conversions({ meta }) {
+export function Conversions({ meta }) {
   const al = useData('/api/stock/unit-aliases');
   const ru = useData('/api/stock/recipe-use');
   const [q, setQ] = useState('');
