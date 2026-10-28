@@ -1,5 +1,5 @@
 // Kho & Tài sản theo chứng từ (spec chủ quán 25/10). Mỗi vai trò chỉ thấy nút của mình; dùng tốt trên điện thoại ~380px.
-import { useState, useEffect } from '../vendor/hooks.js';
+import { useState, useEffect, useRef } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, Modal, Field, navigate, toast, dt, money, atLeast } from '../ui.js';
 import { compressImage } from './checklists.js';
 import qrcode from '../vendor/qrcode.js';
@@ -47,11 +47,27 @@ function Photos({ photos, setPhotos, need }) {
   return html`<div class="row wrap"><label class=${`button ${need && !photos.length ? 'primary' : ''}`}>📷 Chụp ảnh${need ? ' (bắt buộc)' : ''}<input type="file" accept="image/*" capture="environment" hidden onChange=${add} /></label>
     ${photos.map((p, i) => html`<img src=${p} style="width:56px;height:56px;object-fit:cover;border-radius:8px" onClick=${() => setPhotos(photos.filter((_, k) => k !== i))} />`)}</div>`;
 }
-// Lưu chứng từ: tạo nháp → gửi ảnh → gửi duyệt
-async function saveVoucher(body, photos = [], { submit = true } = {}) {
-  const v = await api('POST', '/api/wh/vouchers', { ...body, submit: false });
-  for (const p of photos) await api('POST', `/api/wh/vouchers/${v.id}/photo`, { data: p });
-  return submit ? api('POST', `/api/wh/vouchers/${v.id}/submit`) : v;
+// Lưu chứng từ: tạo nháp → gửi ảnh → gửi duyệt.
+// Chống bấm 2 lần + gửi lại không tạo trùng (rà soát 28/10): lỗi giữa chừng thì giữ nháp đã tạo; bấm lại (cùng nội dung) chỉ gửi tiếp ảnh còn thiếu rồi gửi duyệt
+function useSaver() {
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  const draft = useRef(null); // { key, id, v, sent: Set ảnh đã gửi }
+  const once = async (fn) => {
+    if (lock.current) return undefined;
+    lock.current = true; setBusy(true);
+    try { return await fn(); } finally { lock.current = false; setBusy(false); }
+  };
+  const saveVoucher = async (body, photos = [], { submit = true } = {}) => {
+    const key = JSON.stringify(body);
+    let d = draft.current;
+    if (!d || d.key !== key) { const v = await api('POST', '/api/wh/vouchers', { ...body, submit: false }); d = draft.current = { key, id: v.id, v, sent: new Set() }; }
+    for (const p of photos) if (!d.sent.has(p)) { await api('POST', `/api/wh/vouchers/${d.id}/photo`, { data: p }); d.sent.add(p); }
+    const out = submit ? await api('POST', `/api/wh/vouchers/${d.id}/submit`) : d.v;
+    draft.current = null;
+    return out;
+  };
+  return { busy, once, run: (body, photos, msg) => once(() => act(() => saveVoucher(body, photos), msg)) };
 }
 const clean = (lines) => lines.filter((l) => l.ingredient_id || l.name_free).map((l) => ({ ...l, qty: l.qty === '' ? null : l.qty }));
 
@@ -60,12 +76,13 @@ function WasteForm({ meta }) {
   const [store, setStore] = useState(meta.stores.find((s) => s.code === 'BEP')?.id);
   const [lines, setLines] = useState([{ ingredient_id: null, qty: '', reason: '' }]);
   const [photos, setPhotos] = useState([]);
-  const save = () => act(() => saveVoucher({ type: 'XH', from_store: store, lines: clean(lines) }, photos), 'Đã ghi, chờ quản lý ca duyệt').then((r) => r && (setLines([{ ingredient_id: null, qty: '', reason: '' }]), setPhotos([])));
+  const sv = useSaver();
+  const save = () => sv.run({ type: 'XH', from_store: store, lines: clean(lines) }, photos, 'Đã ghi, chờ quản lý ca duyệt').then((r) => r && (setLines([{ ingredient_id: null, qty: '', reason: '' }]), setPhotos([])));
   return html`<div class="stack"><h3>🗑 Ghi huỷ / bể vỡ</h3><p class="small muted">Ghi ngay khi phát hiện. Ảnh bắt buộc. Bể vỡ ghi người làm bể. Người khác (quản lý ca) duyệt.</p>
     <${StorePick} stores=${meta.stores} value=${store} onChange=${setStore} />
     <${Lines} meta=${meta} lines=${lines} setLines=${setLines} opts=${{ reason: true }} />
     <${Photos} photos=${photos} setPhotos=${setPhotos} need />
-    <button class="primary big" disabled=${!photos.length} onClick=${save}>Gửi duyệt</button></div>`;
+    <button class="primary big" disabled=${!photos.length || sv.busy} onClick=${save}>${sv.busy ? 'Đang gửi…' : 'Gửi duyệt'}</button></div>`;
 }
 
 function IssueForm() {
@@ -82,12 +99,13 @@ function IssueForm() {
       stream.getTracks().forEach((t) => t.stop());
     } catch { toast('Không mở được camera', true); }
   };
-  const save = () => act(() => api('POST', '/api/wh/assets/issue', { code, description: desc, photo: photos[0] }), 'Đã báo hỏng').then((r) => r && (setCode(''), setDesc(''), setPhotos([])));
+  const sv = useSaver();
+  const save = () => sv.once(() => act(() => api('POST', '/api/wh/assets/issue', { code, description: desc, photo: photos[0] }), 'Đã báo hỏng')).then((r) => r && (setCode(''), setDesc(''), setPhotos([])));
   return html`<div class="stack"><h3>🔧 Báo hỏng tài sản</h3>
     <div class="row"><input class="grow" placeholder="Mã trên tem (vd BAN-012)" value=${code} onInput=${(e) => setCode(e.target.value.toUpperCase())} /><button onClick=${scan}>📷 Quét QR</button></div>
     <textarea placeholder="Hỏng gì? (vd chân bàn lung lay)" value=${desc} onInput=${(e) => setDesc(e.target.value)}></textarea>
     <${Photos} photos=${photos} setPhotos=${setPhotos} />
-    <button class="primary big" disabled=${!code || !desc} onClick=${save}>Báo hỏng</button></div>`;
+    <button class="primary big" disabled=${!code || !desc || sv.busy} onClick=${save}>Báo hỏng</button></div>`;
 }
 
 function MyItems() {
@@ -140,8 +158,10 @@ function Receive({ meta, me }) {
   const [supplier, setSupplier] = useState('');
   const [lines, setLines] = useState([]);
   const [photos, setPhotos] = useState([]);
-  const pickRef = async (id) => { const v = await api('GET', `/api/wh/vouchers/${id}`); setRef(v); setLines(v.lines.map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, qty_expected: l.qty, price: l.price }))); setSupplier(v.supplier_id || ''); };
-  const save = () => act(() => saveVoucher({ type: 'NM', ref_id: ref?.id, to_store: store, supplier_id: supplier || undefined, lines: clean(lines) }, photos), 'Đã lưu, chờ người dùng hàng cân / đếm ký nhận').then((r) => r && (setLines([]), setPhotos([]), setRef(null)));
+  // Lỗi mạng khi chọn đề nghị → báo lỗi, không văng (rà soát 28/10)
+  const pickRef = (id) => act(async () => { const v = await api('GET', `/api/wh/vouchers/${id}`); setRef(v); setLines(v.lines.map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, qty_expected: l.qty, price: l.price }))); setSupplier(v.supplier_id || ''); });
+  const sv = useSaver();
+  const save = () => sv.run({ type: 'NM', ref_id: ref?.id, to_store: store, supplier_id: supplier || undefined, lines: clean(lines) }, photos, 'Đã lưu, chờ người dùng hàng cân / đếm ký nhận').then((r) => r && (setLines([]), setPhotos([]), setRef(null)));
   return html`<div class="stack"><h3>📥 Nhận hàng (nhập mua)</h3>
     <p class="small muted">2 người: thủ kho lập phiếu + chụp ảnh số cân / hàng; bếp / bar cân đếm lại rồi ký nhận trên máy họ. Nhận khác số đặt phải ghi lý do. Hàng lạnh nhập nhiệt độ + hạn dùng.</p>
     <b class="small">Theo đề nghị mua đã duyệt:</b>
@@ -150,7 +170,7 @@ function Receive({ meta, me }) {
     <select value=${supplier} onChange=${(e) => setSupplier(e.target.value)}><option value="">(nhà cung cấp)</option>${meta.suppliers.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select>
     <${Lines} meta=${meta} lines=${lines} setLines=${setLines} opts=${{ price: true, cold: true, showExpected: true, qtyLabel: 'Thực nhận', notePh: 'Lý do nếu khác số đặt' }} />
     <${Photos} photos=${photos} setPhotos=${setPhotos} need />
-    <button class="primary big" disabled=${!lines.length || !photos.length} onClick=${save}>Lưu & gửi ký nhận</button></div>`;
+    <button class="primary big" disabled=${!lines.length || !photos.length || sv.busy} onClick=${save}>${sv.busy ? 'Đang lưu…' : 'Lưu & gửi ký nhận'}</button></div>`;
 }
 
 function Restock({ meta }) {
@@ -158,11 +178,12 @@ function Restock({ meta }) {
   const d = useData(store ? `/api/wh/restock?store=${store}` : null);
   const [lines, setLines] = useState(null);
   useEffect(() => { if (d.data) setLines(d.data.map((x) => ({ ingredient_id: x.ingredient_id, qty: x.give, note: `mức chuẩn ${x.par}, đang có ${x.have}` }))); }, [d.data]);
-  const save = () => act(() => saveVoucher({ type: 'XB', to_store: store, lines: clean(lines) }), 'Đã xuất, chờ bếp trưởng / trưởng quầy ký nhận');
+  const sv = useSaver();
+  const save = () => sv.run({ type: 'XB', to_store: store, lines: clean(lines) }, [], 'Đã xuất, chờ bếp trưởng / trưởng quầy ký nhận');
   return html`<div class="stack"><h3>📤 Xuất bù đầu ca</h3><p class="small muted">App tự tính = mức chuẩn − tồn hiện tại (không vượt tồn kho chính).</p>
     <${StorePick} stores=${meta.stores} value=${store} onChange=${setStore} codes=${['BEP', 'BAR']} />
     ${!lines ? html`<${Loading} state=${d} />` : html`${lines.length ? null : html`<p class="muted">Đã đủ mức chuẩn (hoặc chưa đặt mức chuẩn).</p>`}<${Lines} meta=${meta} lines=${lines} setLines=${setLines} />
-      <button class="primary big" disabled=${!lines.length} onClick=${save}>Xuất kho</button>`}</div>`;
+      <button class="primary big" disabled=${!lines.length || sv.busy} onClick=${save}>Xuất kho</button>`}</div>`;
 }
 
 function Prep({ meta }) {
@@ -173,7 +194,8 @@ function Prep({ meta }) {
   const recipes = d.data || [];
   const p = recipes.find((x) => x.id === pick);
   const std = p && inQty ? Math.round((Number(inQty) * p.output_qty / p.input_qty) * 100) / 100 : null;
-  const save = () => act(() => saveVoucher({ type: 'NSX', lines: [{ ingredient_id: p.input_id, kind: 'in', qty: inQty }, { ingredient_id: p.output_id, kind: 'out', qty: outQty || std }] }), 'Đã ghi sơ chế, chờ quản lý ca duyệt').then((r) => r && (setInQty(''), setOutQty('')));
+  const sv = useSaver();
+  const save = () => sv.run({ type: 'NSX', lines: [{ ingredient_id: p.input_id, kind: 'in', qty: inQty }, { ingredient_id: p.output_id, kind: 'out', qty: outQty || std }] }, [], 'Đã ghi sơ chế, chờ quản lý ca duyệt').then((r) => r && (setInQty(''), setOutQty('')));
   return html`<div class="stack"><h3>🔪 Sơ chế / nấu mẻ</h3>
     ${!recipes.length ? html`<p class="muted">Chưa có công thức bán thành phẩm (quản lý vào Cấu hình → Bán thành phẩm).</p>` : null}
     <div class="row wrap">${recipes.map((x) => html`<button class=${`chip ${pick === x.id ? 'on' : ''}`} onClick=${() => setPick(x.id)}>${x.output_name}</button>`)}</div>
@@ -181,7 +203,7 @@ function Prep({ meta }) {
       <label class="row">${p.input_name} dùng <input class="num-in" type="number" inputmode="decimal" value=${inQty} onInput=${(e) => setInQty(e.target.value)} /> ${p.input_unit}</label>
       <label class="row">Ra được thực tế <input class="num-in" type="number" inputmode="decimal" placeholder=${std ?? ''} value=${outQty} onInput=${(e) => setOutQty(e.target.value)} /> ${p.output_unit}</label>
       ${std != null ? html`<small class=${outQty && Number(outQty) < std * 0.97 ? 'warn-text' : 'muted'}>Chuẩn ra ${std} ${p.output_unit}${outQty ? ` · thực tế ${Math.round((Number(outQty) / std) * 1000) / 10}% chuẩn` : ''}</small>` : null}
-      <button class="primary big" disabled=${!inQty} onClick=${save}>Gửi</button>` : null}</div>`;
+      <button class="primary big" disabled=${!inQty || sv.busy} onClick=${save}>Gửi</button>` : null}</div>`;
 }
 
 function Count({ meta, me, query }) {
@@ -193,10 +215,11 @@ function Count({ meta, me, query }) {
   const [qty, setQty] = useState({});
   const [extra, setExtra] = useState([]);
   useEffect(() => setQty({}), [store, type]);
+  const sv = useSaver();
   if (!d.data) return html`<${Loading} state=${d} />`;
   const h = d.data;
   const items = h.items;
-  const save = () => act(() => saveVoucher({ type, from_store: store, lines: [...items.filter((x) => qty[x.id] !== undefined && qty[x.id] !== '').map((x) => ({ ingredient_id: x.id, qty: qty[x.id] })), ...extra.filter((x) => x.name_free && x.qty !== '')] }), 'Đã gửi kiểm kê').then((r) => r && go('ct', `&v=${r.id}`));
+  const save = () => sv.run({ type, from_store: store, lines: [...items.filter((x) => qty[x.id] !== undefined && qty[x.id] !== '').map((x) => ({ ingredient_id: x.id, qty: qty[x.id] })), ...extra.filter((x) => x.name_free && x.qty !== '')] }, [], 'Đã gửi kiểm kê').then((r) => r && go('ct', `&v=${r.id}`));
   return html`<div class="stack"><h3>🔢 Kiểm kê</h3>
     <div class="row wrap">${types.map(([k, n]) => html`<button class=${`chip ${type === k ? 'on' : ''}`} onClick=${() => setType(k)}>${n}</button>`)}</div>
     <${StorePick} stores=${meta.stores} value=${store} onChange=${setStore} />
@@ -207,7 +230,7 @@ function Count({ meta, me, query }) {
       ${items.map((x) => html`<div class="row"><span class="grow">${x.name}</span><input class="num-in" type="number" inputmode="decimal" value=${qty[x.id] ?? ''} onInput=${(e) => setQty({ ...qty, [x.id]: e.target.value })} /><small style="width:36px">${x.unit}</small></div>`)}
       ${type === 'KK_DAU_KY' ? html`<b class="small">Hàng chưa có trong danh mục</b>${extra.map((x, i) => html`<div class="row"><input class="grow" placeholder="Tên" value=${x.name_free} onInput=${(e) => setExtra(extra.map((y, k) => (k === i ? { ...y, name_free: e.target.value } : y)))} /><input class="num-in" type="number" value=${x.qty} onInput=${(e) => setExtra(extra.map((y, k) => (k === i ? { ...y, qty: e.target.value } : y)))} /></div>`)}
         <button class="small" onClick=${() => setExtra([...extra, { name_free: '', qty: '' }])}>+ Mặt hàng mới</button><small class="muted">Hàng hỏng / hết hạn phát hiện khi đếm: vào "Ghi huỷ" tạo phiếu huỷ.</small>` : null}
-      <button class="primary big" onClick=${save}>Gửi kết quả đếm</button>`}</div>`;
+      <button class="primary big" disabled=${sv.busy} onClick=${save}>${sv.busy ? 'Đang gửi…' : 'Gửi kết quả đếm'}</button>`}</div>`;
 }
 
 function SimpleVoucher({ meta, type, title, hint, storeFrom, storeTo, extraFields, opts }) {
@@ -215,23 +238,25 @@ function SimpleVoucher({ meta, type, title, hint, storeFrom, storeTo, extraField
   const [to, setTo] = useState(storeTo ? meta.stores.find((s) => s.code === storeTo)?.id : null);
   const [lines, setLines] = useState([{ ingredient_id: null, qty: '' }]);
   const [f, setF] = useState({});
-  const save = () => act(() => saveVoucher({ type, from_store: from, to_store: to, lines: clean(lines), ...f }), 'Đã gửi').then((r) => r && setLines([{ ingredient_id: null, qty: '' }]));
+  const sv = useSaver();
+  const save = () => sv.run({ type, from_store: from, to_store: to, lines: clean(lines), ...f }, [], 'Đã gửi').then((r) => r && setLines([{ ingredient_id: null, qty: '' }]));
   return html`<div class="stack"><h3>${title}</h3>${hint ? html`<p class="small muted">${hint}</p>` : null}
     ${storeFrom !== undefined ? html`<b class="small">Từ kho</b><${StorePick} stores=${meta.stores} value=${from} onChange=${setFrom} />` : null}
     ${storeTo !== undefined ? html`<b class="small">Đến kho</b><${StorePick} stores=${meta.stores} value=${to} onChange=${setTo} />` : null}
     ${extraFields ? extraFields(f, setF) : null}
     <${Lines} meta=${meta} lines=${lines} setLines=${setLines} opts=${opts || {}} />
-    <button class="primary big" onClick=${save}>Gửi</button></div>`;
+    <button class="primary big" disabled=${sv.busy} onClick=${save}>Gửi</button></div>`;
 }
 
 function Purchase({ meta }) {
   const sug = useData('/api/wh/suggest-purchase');
   const [lines, setLines] = useState([]);
   useEffect(() => { if (sug.data && !lines.length) setLines(sug.data.map((x) => ({ ingredient_id: x.id, qty: x.suggest, price: x.price, note: `còn ${x.have}, tối thiểu ${x.min_stock}` }))); }, [sug.data]);
-  const save = () => act(() => saveVoucher({ type: 'DNM', lines: clean(lines) }), 'Đã gửi đề nghị, chờ quản lý duyệt').then((r) => r && setLines([]));
+  const sv = useSaver();
+  const save = () => sv.run({ type: 'DNM', lines: clean(lines) }, [], 'Đã gửi đề nghị, chờ quản lý duyệt').then((r) => r && setLines([]));
   return html`<div class="stack"><h3>🛒 Đề nghị mua</h3><p class="small muted">App gợi ý sẵn hàng dưới tồn tối thiểu. Duyệt xong thủ kho nhận hàng theo đề nghị này (người đề nghị không tự nhận).</p>
     <${Lines} meta=${meta} lines=${lines} setLines=${setLines} opts=${{ price: true }} />
-    <button class="primary big" disabled=${!lines.length} onClick=${save}>Gửi đề nghị</button></div>`;
+    <button class="primary big" disabled=${!lines.length || sv.busy} onClick=${save}>Gửi đề nghị</button></div>`;
 }
 
 function Issue({ meta }) {
@@ -239,25 +264,27 @@ function Issue({ meta }) {
   const [kind, setKind] = useState('CAP_MOI');
   const [lines, setLines] = useState([{ ingredient_id: null, qty: 1 }]);
   const [note, setNote] = useState('');
-  const save = () => act(() => saveVoucher({ type: 'XCP', target_staff_id: staff, kind, note, lines: clean(lines) }), 'Đã cấp, chờ nhân viên xác nhận trên máy của họ');
-  const back = () => act(() => saveVoucher({ type: 'NTL', kind: 'staff', target_staff_id: staff, note: note || 'Thu hồi đồ nhân viên', lines: clean(lines) }), 'Đã ghi thu hồi, chờ người giữ kho nhận');
+  const sv = useSaver();
+  const save = () => sv.run({ type: 'XCP', target_staff_id: staff, kind, note, lines: clean(lines) }, [], 'Đã cấp, chờ nhân viên xác nhận trên máy của họ');
+  const back = () => sv.run({ type: 'NTL', kind: 'staff', target_staff_id: staff, note: note || 'Thu hồi đồ nhân viên', lines: clean(lines) }, [], 'Đã ghi thu hồi, chờ người giữ kho nhận');
   return html`<div class="stack"><h3>👕 Cấp phát / đổi / thu hồi đồ nhân viên</h3>
     <select value=${staff} onChange=${(e) => setStaff(e.target.value)}><option value="">(chọn nhân viên)</option>${meta.staff.map((s) => html`<option value=${s.id}>${s.name}${s.team_name ? ` · ${s.team_name}` : ''}</option>`)}</select>
     <div class="row wrap">${[['CAP_MOI', 'Cấp mới'], ['DOI_CU_LAY_MOI', 'Đổi cũ lấy mới'], ['BU_MAT', 'Bù mất']].map(([k, n]) => html`<button class=${`chip ${kind === k ? 'on' : ''}`} onClick=${() => setKind(k)}>${n}</button>`)}</div>
     <${Lines} meta=${meta} lines=${lines} setLines=${setLines} opts=${{ filter: (x) => ['NHAN_SU', ''].includes(x.group_code || '') }} />
     <input placeholder=${kind === 'DOI_CU_LAY_MOI' ? 'Đã thu món cũ nào (bắt buộc)' : 'Ghi chú'} value=${note} onInput=${(e) => setNote(e.target.value)} />
-    <div class="row"><button disabled=${!staff} onClick=${back}>↩ Thu hồi</button><button class="primary grow" disabled=${!staff} onClick=${save}>Cấp phát</button></div></div>`;
+    <div class="row"><button disabled=${!staff || sv.busy} onClick=${back}>↩ Thu hồi</button><button class="primary grow" disabled=${!staff || sv.busy} onClick=${save}>Cấp phát</button></div></div>`;
 }
 
 function Towels() {
   const d = useData('/api/wh/towels');
   const [f, setF] = useState({ issued: '', returned: '', to_laundry: '', from_laundry: '', explain: '' });
   const diff = (Number(f.issued) || 0) - (Number(f.returned) || 0);
-  const save = () => act(() => api('POST', '/api/wh/towels', f), 'Đã ghi').then((r) => r && setF({ issued: '', returned: '', to_laundry: '', from_laundry: '', explain: '' }));
+  const sv = useSaver();
+  const save = () => sv.once(() => act(() => api('POST', '/api/wh/towels', f), 'Đã ghi')).then((r) => r && setF({ issued: '', returned: '', to_laundry: '', from_laundry: '', explain: '' }));
   return html`<div class="stack"><h3>🧺 Khăn luân chuyển</h3>
     ${[['issued', 'Phát đầu ca'], ['returned', 'Thu về cuối ca'], ['to_laundry', 'Gửi giặt'], ['from_laundry', 'Nhận về từ giặt']].map(([k, n]) => html`<label class="row"><span class="grow">${n}</span><input class="num-in" type="number" inputmode="numeric" value=${f[k]} onInput=${(e) => setF({ ...f, [k]: e.target.value })} /></label>`)}
     ${diff ? html`<p class=${diff > 0 ? 'warn-text' : 'muted'}>Chênh lệch: ${diff}</p><input placeholder="Giải trình" value=${f.explain} onInput=${(e) => setF({ ...f, explain: e.target.value })} />` : null}
-    <button class="primary" onClick=${save}>Lưu</button>
+    <button class="primary" disabled=${sv.busy} onClick=${save}>Lưu</button>
     ${(d.data || []).slice(0, 14).map((x) => html`<small class=${x.diff ? 'warn-text' : 'muted'}>${x.date} ${x.shift}: phát ${x.issued}, thu ${x.returned}${x.diff ? `, lệch ${x.diff} · ${x.explain}` : ''} (${x.staff_name})</small>`)}</div>`;
 }
 

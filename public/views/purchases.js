@@ -115,7 +115,7 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
     const confirm_mismatch = mismatch ? okMismatch : false;
     if (mismatch && !okMismatch) { toast(`Cộng các dòng ${money(sum)} lệch tổng bill ${money(tot)}: sửa lại các dòng, hoặc tick "Đúng như bill" phía trên nút`, true); return; }
     const r = await act(() => api('POST', '/api/purchases', { confirm_mismatch, pre_bill: pre || undefined,
-      ...f, ...(pre ? { po_id: '' } : {}), store_id: Number(f.store_id), po_id: f.po_id ? Number(f.po_id) : undefined, supplier_id: f.supplier_id ? Number(f.supplier_id) : undefined,
+      ...f, store_id: Number(f.store_id), po_id: !pre && f.po_id ? Number(f.po_id) : undefined, // bill gửi trước: không theo đơn (rà soát 28/10) supplier_id: f.supplier_id ? Number(f.supplier_id) : undefined,
       advance_id: f.advance_id ? Number(f.advance_id) : undefined, paid_method: f.advance_id ? undefined : f.paid_method,
       total: f.total === '' ? undefined : num(f.total), photos, goods_photos: goods,
       lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: qtyNum(l.qty), price: num(l.price), create_new: !l.ingredient_id && !!l.create_new, unconv: !!l.unconv })),
@@ -131,7 +131,7 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
       ${arriving.map((b) => html`<button class="link-btn" style="text-align:left" onClick=${() => navigate('/mua-hang?tab=cho')}><b>${b.supplier_name}</b> · ${b.lines.map((l) => `${l.name} ${l.qty} ${l.unit}`).join(', ')}</button>`)}</section>` : null}
     ${canAct(me, 'mh.apbill') ? html`<div class="chips">
       <button class=${`chip ${!pre ? 'on' : ''}`} onClick=${() => setPre(false)}>📥 Hàng đã về, nhận ngay</button>
-      <button class=${`chip ${pre ? 'on' : ''}`} onClick=${() => { setPre(true); if (f.paid_method === 'cash' || f.advance_id) setF({ ...f, paid_method: '', advance_id: '' }); }}>📩 Bill NCC gửi trước, hàng chưa về</button></div>` : null}
+      <button class=${`chip ${pre ? 'on' : ''}`} onClick=${() => { setPre(true); setF({ ...f, po_id: '', ...(f.paid_method === 'cash' || f.advance_id ? { paid_method: '', advance_id: '' } : {}) }); }}>📩 Bill NCC gửi trước, hàng chưa về</button></div>` : null}
     ${pre ? html`<p class="hint card small">Lưu bill để <b>chờ nhận hàng</b>: kho chưa cộng. Bếp / khu nhận hàng kiểm, chụp ảnh hàng rồi bấm <b>Đã nhận hàng</b> thì kho mới cộng. Nhận đủ: bill tự duyệt. Nhận thiếu: chờ thu ngân duyệt.</p>` : null}
     <section class="card stack"><h3>1 · ${pre ? 'Ảnh bill NCC gửi' : 'Chụp ảnh'}</h3>
       <${PhotoPicker} photos=${photos} setPhotos=${setPhotos} onAdded=${onBill} first=${pre ? '📷 Chụp / chọn ảnh BILL' : '📷 Chụp BILL (bắt buộc)'} more="📷 Thêm trang bill" gallery=${pre || ['manager', 'owner'].includes(me.role)} />
@@ -219,7 +219,7 @@ function EditBill({ b, onClose }) {
   const set = (i, k, v0) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: v0 } : l)));
   const sum = lines.reduce((n, l) => n + Math.round((Number(String(l.qty).replace(',', '.')) || 0) * (num(l.price) || 0)), 0);
   const save = async () => {
-    const r = await act(() => api('PATCH', `/api/purchases/${b.id}`, { total: num(total), lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: String(l.qty).replace(',', '.'), price: num(l.price), create_new: !l.ingredient_id && !!l.create_new })) }), 'Đã sửa bill');
+    const r = await act(() => api('PATCH', `/api/purchases/${b.id}`, { total: num(total), lines: lines.map((l) => ({ id: l.id, ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: String(l.qty).replace(',', '.'), price: num(l.price), create_new: !l.ingredient_id && !!l.create_new })) }), 'Đã sửa bill');
     if (r) onClose();
   };
   return html`<${Modal} title=${`Sửa bill ${b.supplier_name}`} onClose=${onClose} wide>
@@ -355,10 +355,14 @@ function SettleModal({ a, onClose }) {
 
 // ⏳ Chờ nhận hàng (chủ quán 28/10): bill chủ quán áp trước → bếp kiểm hàng, chụp ảnh, sửa số thực nhận → Đã nhận hàng
 function ArriveCard({ b, me }) {
-  const [got, setGot] = useState(() => Object.fromEntries(b.lines.map((l) => [l.id, String(l.qty)])));
+  // Số nhận lưu theo "id dòng/số bill": sửa bill (đổi dòng / số) thì ô tự về số mới trên bill, không gửi "undefined" (rà soát 28/10)
+  const [got, setGot] = useState({});
+  const k = (l) => `${l.id}/${l.qty}`;
+  const val = (l) => got[k(l)] ?? String(l.qty);
   const [goods, setGoods] = useState([]);
   const [edit, setEdit] = useState(false);
-  const short = b.lines.filter((l) => qtyNum(got[l.id]) < l.qty - 1e-9);
+  const [busy, setBusy] = useState(false);
+  const short = b.lines.filter((l) => qtyNum(val(l)) < l.qty - 1e-9);
   const boss = ['manager', 'owner'].includes(me.role) || me.role === 'shift_lead';
   return html`<section class="card stack warn-card">
     <div class="row between wrap"><b>${b.supplier_name} · ${money(b.total)}</b><span class="pill warn">⏳ Chờ nhận hàng</span></div>
@@ -367,11 +371,11 @@ function ArriveCard({ b, me }) {
     <small class="muted">Kiểm từng món, sửa số thực nhận nếu thiếu:</small>
     ${b.lines.map((l) => html`<div class="row wrap tight edit-line"><b class="grow">${l.name}</b>
       <small class="muted">bill ${l.qty} ${l.unit}</small>
-      <label class="row tight small">nhận <input class="num-in" inputmode="decimal" value=${got[l.id]} onInput=${(e) => setGot({ ...got, [l.id]: e.target.value })} /> ${l.unit}</label>
-      ${qtyNum(got[l.id]) < l.qty - 1e-9 ? html`<small class="danger-text" style="flex-basis:100%">⚠ Thiếu ${Math.round((l.qty - qtyNum(got[l.id])) * 1000) / 1000} ${l.unit}</small>` : null}</div>`)}
+      <label class="row tight small">nhận <input class="num-in" inputmode="decimal" value=${val(l)} onInput=${(e) => setGot({ ...got, [k(l)]: e.target.value })} /> ${l.unit}</label>
+      ${qtyNum(val(l)) < l.qty - 1e-9 ? html`<small class="danger-text" style="flex-basis:100%">⚠ Thiếu ${Math.round((l.qty - qtyNum(val(l))) * 1000) / 1000} ${l.unit}</small>` : null}</div>`)}
     <${PhotoPicker} photos=${goods} setPhotos=${setGoods} first="📷 Chụp HÀNG thực nhận (bắt buộc)" more="📷 Thêm ảnh hàng" />
-    ${short.length ? html`<small class="danger-text">Nhận thiếu ${short.length} món → bill chờ thu ngân duyệt</small>` : html`<small class="ok-text">Nhận đủ → bill tự duyệt, cộng công nợ</small>`}
-    <button class="primary big" disabled=${!goods.length} onClick=${() => act(() => api('POST', `/api/purchases/${b.id}/arrive`, { goods_photos: goods, lines: b.lines.map((l) => ({ id: l.id, qty: String(got[l.id]).replace(',', '.') })) }), short.length ? 'Đã nhận hàng (thiếu), chờ thu ngân duyệt' : 'Đã nhận đủ hàng, kho đã cộng')}>✓ Đã nhận hàng</button>
+    ${short.length ? html`<small class="danger-text">Nhận thiếu ${short.length} món → bill chờ thu ngân duyệt</small>` : html`<small class="ok-text">Nhận đủ → bill tự duyệt, cộng công nợ (giá tăng / tổng lệch thì chờ thu ngân duyệt)</small>`}
+    <button class="primary big" disabled=${!goods.length || busy} onClick=${async () => { setBusy(true); try { await act(() => api('POST', `/api/purchases/${b.id}/arrive`, { goods_photos: goods, lines: b.lines.map((l) => ({ id: l.id, qty: String(val(l)).replace(',', '.') })) }), short.length ? 'Đã nhận hàng (thiếu), chờ thu ngân duyệt' : 'Đã nhận hàng, kho đã cộng'); } finally { setBusy(false); } }}>${busy ? 'Đang lưu…' : '✓ Đã nhận hàng'}</button>
     ${boss ? html`<div class="row"><button class="small" onClick=${() => setEdit(true)}>✏️ Sửa bill</button>
       <button class="link small danger-text" onClick=${() => { const r0 = prompt('Huỷ bill chờ nhận này? Lý do:', 'NCC không giao'); if (r0) act(() => api('POST', `/api/purchases/${b.id}/void`, { reason: r0 }), 'Đã huỷ bill'); }}>🗑 Huỷ</button></div>` : null}
     ${edit ? html`<${EditBill} b=${b} onClose=${() => setEdit(false)} />` : null}

@@ -65,6 +65,8 @@ export default function (r, ctx) {
   if (!db.prepare('PRAGMA table_info(purchase_bills)').all().some((c) => c.name === 'pre_by')) db.exec('ALTER TABLE purchase_bills ADD COLUMN pre_by INTEGER');
   // bill_unit: dòng nhập đúng như bill, chưa quy đổi (vd 3 mẹt) → chủ quán quy đổi sau ở Mua hàng → ⚖ Quy đổi (chủ quán 28/10)
   if (!db.prepare('PRAGMA table_info(purchase_bill_lines)').all().some((c) => c.name === 'bill_unit')) db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN bill_unit TEXT');
+  // Ngày hàng thực về (bill áp trước): giữ nguyên date = ngày áp bill để CK đã ghi không nhảy sang ngày khác (rà soát 28/10)
+  if (!db.prepare('PRAGMA table_info(purchase_bills)').all().some((c) => c.name === 'received_date')) db.exec('ALTER TABLE purchase_bills ADD COLUMN received_date TEXT');
   if (!db.prepare('PRAGMA table_info(purchase_bill_lines)').all().some((c) => c.name === 'old_price')) db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN old_price INTEGER'); // giá trước khi nhập bill này (huỷ bill thì trả lại)
   const isCashier = (me) => rank(me.role) >= rank('shift_lead') || !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id);
   const isBoss = (me) => rank(me.role) >= rank('manager');
@@ -159,6 +161,37 @@ export default function (r, ctx) {
   const receiversOf = (storeId) => db.prepare('SELECT id, role, team_id FROM staff WHERE active = 1').all().filter((x) => { try { return ctx.canReceiveStore(x, storeId); } catch { return false; } }).map((x) => x.id);
   const unitOf = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 20);
   const unconvFlag = (name, qty, unit) => `${name}: bill ghi ${qty} ${unit}, chưa quy đổi, kiểm lại số kho`;
+  // Cờ tính lại được từ dòng bill (tổng lệch, giá tăng, chưa quy đổi); cờ khác (Nhận thiếu, lệch đơn đặt…) giữ nguyên khi sửa (rà soát 28/10)
+  const isUnconvFlag = (x) => /: bill ghi .*, chưa quy đổi, kiểm lại số kho$/.test(x);
+  const isCalcFlag = (x) => isUnconvFlag(x) || /^Tổng bill .* khác cộng các dòng /.test(x) || /: giá tăng -?\d+% \(/.test(x);
+  const unconvFlags = (billId) => db.prepare('SELECT name, qty, bill_unit FROM purchase_bill_lines WHERE bill_id = ? AND ingredient_id IS NOT NULL AND bill_unit IS NOT NULL ORDER BY id').all(billId).map((l) => unconvFlag(l.name, l.qty, l.bill_unit));
+  // 1 nguyên liệu 2 dòng → lúc nhận hàng kho báo "nhập 2 lần" (rà soát 28/10): bắt gộp ngay khi lưu
+  const noDupIng = (lines) => {
+    const seen = new Set();
+    for (const l of lines) { if (!l.ingredient_id) continue; if (seen.has(l.ingredient_id)) fail(400, `${l.name} có 2 dòng trên bill: gộp thành 1 dòng (cộng số lượng)`); seen.add(l.ingredient_id); }
+  };
+  // Có bill khác nhận nguyên liệu này sau bill b không (để khỏi ghi đè giá mới bằng giá bill cũ) (rà soát 28/10)
+  const newerReceive = (ingId, b) => !!db.prepare("SELECT 1 FROM purchase_bill_lines x JOIN purchase_bills y ON y.id = x.bill_id WHERE x.ingredient_id = ? AND y.id != ? AND y.status NOT IN ('void','waiting') AND (y.received_at > ? OR (y.received_at = ? AND y.id > ?)) LIMIT 1")
+    .get(ingId, b.id, b.received_at, b.received_at, b.id);
+  // Sửa bill: giữ id dòng cũ (khớp theo id, không có id thì theo nguyên liệu) → giữ dấu "chưa quy đổi" đúng dòng, màn nhận hàng không bị lệch id (rà soát 28/10)
+  function writeLines(billId, lines, old) {
+    const byId = new Map(old.map((o) => [o.id, o]));
+    const used = new Set();
+    const pair = lines.map((l) => { const o = byId.get(Number(l.raw?.id)); if (o && !used.has(o.id)) { used.add(o.id); return o; } return null; });
+    lines.forEach((l, i) => { if (pair[i] || !l.ingredient_id) return; const o = old.find((x) => !used.has(x.id) && x.ingredient_id === l.ingredient_id); if (o) { used.add(o.id); pair[i] = o; } });
+    const priceByIng = new Map(old.filter((o) => o.ingredient_id).map((o) => [o.ingredient_id, o.old_price]));
+    for (const o of old) if (!used.has(o.id)) db.prepare('DELETE FROM purchase_bill_lines WHERE id = ?').run(o.id);
+    const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price, bill_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const upd = db.prepare('UPDATE purchase_bill_lines SET ingredient_id = ?, name = ?, qty = ?, unit = ?, price = ?, amount = ?, old_price = ?, bill_unit = ? WHERE id = ?');
+    lines.forEach((l, i) => {
+      const o = pair[i];
+      const same = o && o.ingredient_id === l.ingredient_id; // đổi sang hàng khác → bỏ dấu chưa quy đổi
+      const oldPrice = same ? o.old_price : l.ingredient_id ? priceByIng.get(l.ingredient_id) ?? null : null;
+      const billUnit = same && l.ingredient_id ? o.bill_unit : null;
+      if (o) upd.run(l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, oldPrice, billUnit, o.id);
+      else add.run(billId, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, oldPrice, billUnit);
+    });
+  }
   const supplierRow = (id) => db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
 
   // ---------- Khu nhận hàng ----------
@@ -189,6 +222,7 @@ export default function (r, ctx) {
       lines = po.lines.map((pl) => lines.find((l) => l.ingredient_id === pl.ingredient_id) || { ingredient_id: pl.ingredient_id, name: pl.name, qty: pl.qty, unit: pl.purchase_unit || pl.unit, price: pl.price, amount: Math.round(pl.qty * pl.price), raw: {} })
         .concat(lines.filter((l) => !l.ingredient_id || !po.lines.some((pl) => pl.ingredient_id === l.ingredient_id)));
     }
+    noDupIng(lines);
     const total = body.total === undefined || body.total === '' ? lines.reduce((n, l) => n + l.amount, 0) : money(body.total, 'Tổng tiền bill');
     // Cộng các dòng lệch nhiều so với tổng bill (vd gõ / đọc mất dấu phẩy: 28,1 → 281) → phải xác nhận mới lưu (chủ quán 26/10)
     const linesSum = lines.reduce((n, l) => n + l.amount, 0);
@@ -262,9 +296,8 @@ export default function (r, ctx) {
       if (lines && b.status === 'waiting') {
         // Hàng chưa về: chỉ sửa dòng bill, chưa đụng kho
         created = createNew(lines, b.store_id);
-        db.prepare('DELETE FROM purchase_bill_lines WHERE bill_id = ?').run(b.id);
-        const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount) VALUES (?, ?, ?, ?, ?, ?, ?)');
-        for (const l of lines) add.run(b.id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount);
+        noDupIng(lines);
+        writeLines(b.id, lines, db.prepare('SELECT * FROM purchase_bill_lines WHERE bill_id = ?').all(b.id));
       } else if (lines) {
         created = createNew(lines, b.store_id);
         // Kho đã cộng theo số cũ lúc gửi bill → cộng / trừ phần chênh theo số mới
@@ -281,17 +314,13 @@ export default function (r, ctx) {
           else takeLots(db, { storeId: store, ingredientId: id, qty: -d, allowShort: true });
           recordMove(db, { at, date, type: 'receive', ingredientId: id, toStore: store, qty: d, cost: 0, ref: `fix-bill:${b.id}`, staffId: me.id, note: `Sửa bill nhập #${b.id}` });
         }
-        for (const l of lines) if (l.ingredient_id && l.price > 0) db.prepare('UPDATE ingredients SET price = ? WHERE id = ?').run(l.price, l.ingredient_id);
-        const oldPrice = new Map(old.map((l) => [l.ingredient_id, l.old_price]));
-        db.prepare('DELETE FROM purchase_bill_lines WHERE bill_id = ?').run(b.id);
-        const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price, bill_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-        const oldUnit = new Map(old.filter((l) => l.bill_unit).map((l) => [l.ingredient_id, l.bill_unit]));
-        for (const l of lines) add.run(b.id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, oldPrice.get(l.ingredient_id) ?? null, oldUnit.get(l.ingredient_id) ?? null);
+        writeLines(b.id, lines, old);
+        // Giá nguyên liệu: chỉ theo dòng đã quy đổi và khi bill này là lần nhập mới nhất (rà soát 28/10)
+        for (const l of db.prepare('SELECT * FROM purchase_bill_lines WHERE bill_id = ?').all(b.id)) if (l.ingredient_id && l.price > 0 && !l.bill_unit && !newerReceive(l.ingredient_id, b)) db.prepare('UPDATE ingredients SET price = ? WHERE id = ?').run(l.price, l.ingredient_id);
       }
       for (const ph of Array.isArray(body.photos) ? body.photos.slice(0, 4) : []) savePhoto(b.id, ph, me);
       const ls = db.prepare('SELECT * FROM purchase_bill_lines WHERE bill_id = ?').all(b.id);
-      const flags = flagsOf({ total, lines: ls, po: null, oldPrice: new Map(ls.filter((l) => l.old_price != null).map((l) => [l.ingredient_id, l.old_price])) });
-      for (const l of ls) if (l.ingredient_id && l.bill_unit) flags.push(unconvFlag(l.name, l.qty, l.bill_unit));
+      const flags = [...b.flags.filter((x) => !isCalcFlag(x)), ...flagsOf({ total, lines: ls, po: null, oldPrice: new Map(ls.filter((l) => l.old_price != null).map((l) => [l.ingredient_id, l.old_price])) }), ...unconvFlags(b.id)];
       db.prepare(`UPDATE purchase_bills SET total = ?, lines_total = ?, signer_name = ?, note = ?, flags = ?, status = ${b.status === 'approved' ? "'approved'" : b.status === 'waiting' ? "'waiting'" : "'received'"} WHERE id = ?`)
         .run(total, ls.reduce((n, l) => n + l.amount, 0), body.signer_name ? v.text(body.signer_name, { name: 'Tên người ký', max: 150 }) : b.signer_name, body.note === undefined ? b.note : v.text(body.note, { max: 1000 }), JSON.stringify(flags), b.id);
     });
@@ -312,8 +341,9 @@ export default function (r, ctx) {
       .all(...[from, to, ...(status ? [status] : []), ...(mine ? [me.id] : [])]).map((x) => x.id);
     const pending = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS t FROM purchase_bills WHERE status = 'received'").get();
     // Bill chờ nhận hàng: ai nhận hàng được cho khu đó đều thấy
-    const arriving = db.prepare("SELECT id, store_id FROM purchase_bills WHERE status = 'waiting' ORDER BY id").all()
-      .filter((x) => isCashier(me) || ctx.canReceiveStore(me, x.store_id)).map((x) => load(x.id));
+    // + bill chính mình áp trước (rà soát 28/10)
+    const arriving = db.prepare("SELECT id, store_id, pre_by FROM purchase_bills WHERE status = 'waiting' ORDER BY id").all()
+      .filter((x) => isCashier(me) || x.pre_by === me.id || ctx.canReceiveStore(me, x.store_id)).map((x) => load(x.id));
     return { bills: ids.map(load).filter((b) => b.status !== 'waiting'), arriving, pending: pending.n, pending_total: pending.t, can_approve: isCashier(me), is_boss: isBoss(me), bill_reader: billReaderReady(ctx) };
   });
 
@@ -367,17 +397,22 @@ export default function (r, ctx) {
     const pf = l.purchase_factor || 1;
     const qty = Math.round(l.qty * f * 1000) / 1000;
     const price = Math.round(l.price / f);
+    // Bill chờ nhận hàng: kho chưa cộng → chỉ sửa dòng bill, không cộng / trừ kho, không đổi giá (lúc nhận hàng mới tính) (rà soát 28/10)
+    const waiting = b.status === 'waiting';
+    // Bill cũ: chỉ đổi giá nguyên liệu khi đây là lần nhập mới nhất của nguyên liệu đó (rà soát 28/10)
+    const newer = newerReceive(l.ingredient_id, b);
     tx(db, () => {
       const store = ctx.effectiveStore ? ctx.effectiveStore(b.store_id) : b.store_id;
-      const d = Math.round((qty - l.qty) * pf * 1000) / 1000;
+      const d = waiting ? 0 : Math.round((qty - l.qty) * pf * 1000) / 1000;
       const at = ctx.now(), date = ctx.today();
       if (d > 0) addLot(db, { storeId: store, ingredientId: l.ingredient_id, qty: d, expiresOn: l.shelf_days > 0 ? addDays(date, l.shelf_days) : null, at });
       else if (d < 0) takeLots(db, { storeId: store, ingredientId: l.ingredient_id, qty: -d, allowShort: true });
       if (d) recordMove(db, { at, date, type: 'receive', ingredientId: l.ingredient_id, toStore: store, qty: d, cost: 0, ref: `fix-bill:${b.id}`, staffId: me.id, note: `Quy đổi bill #${b.id}: 1 ${l.bill_unit} = ${f} ${l.purchase_unit || l.use_unit}` });
       db.prepare('UPDATE purchase_bill_lines SET qty = ?, price = ?, unit = ?, bill_unit = NULL WHERE id = ?').run(qty, price, l.purchase_unit || l.use_unit, l.id);
-      if (price > 0) db.prepare('UPDATE ingredients SET price = ? WHERE id = ?').run(price, l.ingredient_id);
+      if (price > 0 && !waiting && !newer) db.prepare('UPDATE ingredients SET price = ? WHERE id = ?').run(price, l.ingredient_id);
       db.prepare('INSERT INTO unit_aliases (ingredient_id, bill_unit, factor) VALUES (?, ?, ?) ON CONFLICT (ingredient_id, bill_unit) DO UPDATE SET factor = excluded.factor').run(l.ingredient_id, l.bill_unit, f * pf);
-      const flags = b.flags.filter((x) => x !== unconvFlag(l.name, l.qty, l.bill_unit));
+      // Bỏ cờ "chưa quy đổi" theo mẫu (không so nguyên chuỗi: số lượng có thể đã sửa), dựng lại cho dòng còn chưa quy đổi (rà soát 28/10)
+      const flags = [...b.flags.filter((x) => !isUnconvFlag(x)), ...unconvFlags(b.id)];
       db.prepare('UPDATE purchase_bills SET flags = ? WHERE id = ?').run(JSON.stringify(flags), b.id);
     });
     ctx.audit(me, 'purchase.convert', { line: l.id, bill: b.id, unit: l.bill_unit, factor: f });
@@ -413,24 +448,41 @@ export default function (r, ctx) {
     const goods = Array.isArray(body.goods_photos) ? body.goods_photos.slice(0, 4) : [];
     if (!goods.length) fail(400, 'Chụp ảnh hàng thực nhận trước khi bấm Đã nhận');
     const got = new Map((Array.isArray(body.lines) ? body.lines : []).map((x) => [Number(x.id), x.qty]));
-    const short = [];
+    const short = [], over = [];
     const lines = b.lines.map((l) => {
-      const raw = got.has(l.id) ? Number(String(got.get(l.id) ?? '').replace(',', '.')) : l.qty;
+      // Không gửi số (vd màn hình cũ) → coi như nhận đúng số trên bill (rà soát 28/10)
+      const v0 = got.get(l.id);
+      const raw = v0 === undefined || v0 === null || String(v0).trim() === '' || String(v0) === 'undefined' ? l.qty : Number(String(v0).replace(',', '.'));
       if (!Number.isFinite(raw) || raw < 0 || raw > 1e6) fail(400, `Số lượng ${l.name} không hợp lệ`);
       const qty = r3(raw);
       if (qty < l.qty - 1e-9) short.push(`${l.name}: bill ${l.qty} ${l.unit}, nhận ${qty} ${l.unit}`);
+      else if (qty > l.qty + 1e-9) over.push(`${l.name}: bill ${l.qty} ${l.unit}, nhận ${qty} ${l.unit}`);
       return { ...l, qty, amount: Math.round(qty * l.price) };
     });
+    // Bill cũ có 2 dòng cùng nguyên liệu → gộp khi cộng kho (cộng SL, giá bình quân) để khỏi bị chặn "nhập 2 lần" (rà soát 28/10)
+    const merged = new Map();
+    for (const l of lines) {
+      if (!l.ingredient_id || !(l.qty > 0)) continue;
+      const m = merged.get(l.ingredient_id) || { ingredient_id: l.ingredient_id, qty: 0, amount: 0, unconv: false };
+      m.qty += l.qty; m.amount += l.amount; if (l.bill_unit) m.unconv = true; // dòng chưa quy đổi: giá theo đơn vị bill, không ghi vào giá kho
+      merged.set(l.ingredient_id, m);
+    }
     const at = ctx.now();
+    let status = 'approved', serious = [];
     tx(db, () => {
-      const { oldPrice } = ctx.stockReceive(me, { poId: null, storeId: b.store_id, lines: lines.filter((l) => l.ingredient_id && l.qty > 0).map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, price: l.price })) });
+      const { oldPrice } = ctx.stockReceive(me, { poId: null, storeId: b.store_id, lines: [...merged.values()].map((m) => ({ ingredient_id: m.ingredient_id, qty: r3(m.qty), price: m.unconv ? undefined : m.qty > 0 ? Math.round(m.amount / m.qty) : 0 })) });
       for (const l of lines) db.prepare('UPDATE purchase_bill_lines SET qty = ?, amount = ?, old_price = ? WHERE id = ?').run(l.qty, l.amount, l.ingredient_id ? oldPrice.get(l.ingredient_id) ?? null : null, l.id);
-      const flags = [...b.flags, ...short.map((x) => `Nhận thiếu: ${x}`)];
-      db.prepare(`UPDATE purchase_bills SET status = ?, received_by = ?, received_at = ?, date = ?, lines_total = ?, flags = ?, approved_by = ?, approved_at = ? WHERE id = ?`)
-        .run(short.length ? 'received' : 'approved', me.id, at, ctx.today(), lines.reduce((n, l) => n + l.amount, 0), JSON.stringify(flags), short.length ? null : b.pre_by || me.id, short.length ? null : at, b.id);
+      // Lúc áp bill chưa có giá cũ → kiểm lại giá tăng / tổng lệch với giá thật lúc nhận; có cờ mới thì chờ thu ngân duyệt (rà soát 28/10)
+      const cmp = new Map([...oldPrice].filter(([id]) => !merged.get(id)?.unconv));
+      serious = [...flagsOf({ total: b.total, lines, po: null, oldPrice: cmp }).filter((x) => !b.flags.includes(x)), ...over.map((x) => `Nhận thừa: ${x}`)];
+      const flags = [...b.flags, ...short.map((x) => `Nhận thiếu: ${x}`), ...serious];
+      status = short.length || serious.length ? 'received' : 'approved';
+      // Giữ date = ngày áp bill (CK đã ghi theo ngày đó); ngày hàng về ghi riêng received_date (rà soát 28/10)
+      db.prepare(`UPDATE purchase_bills SET status = ?, received_by = ?, received_at = ?, received_date = ?, lines_total = ?, flags = ?, approved_by = ?, approved_at = ? WHERE id = ?`)
+        .run(status, me.id, at, ctx.today(), lines.reduce((n, l) => n + l.amount, 0), JSON.stringify(flags), status === 'received' ? null : b.pre_by || me.id, status === 'received' ? null : at, b.id);
       for (const ph of goods) savePhoto(b.id, ph, me, 'goods');
     });
-    if (short.length) ctx.notify([...new Set([...cashiers(), ...(b.pre_by ? [b.pre_by] : [])])].filter((x) => x !== me.id), { title: `Nhận thiếu hàng: ${b.supplier_name}`, body: `${me.name} nhận:\n${short.join('\n')}\nBill chờ duyệt (sửa tổng tiền nếu NCC trừ lại).`, link: '/mua-hang?tab=duyet', urgent: true });
+    if (status === 'received') ctx.notify([...new Set([...cashiers(), ...(b.pre_by ? [b.pre_by] : [])])].filter((x) => x !== me.id), { title: `${short.length ? 'Nhận thiếu hàng' : 'Nhận hàng cần xem lại'}: ${b.supplier_name}`, body: `${me.name} nhận:\n${[...short, ...serious].join('\n')}\nBill chờ duyệt${short.length ? ' (sửa tổng tiền nếu NCC trừ lại)' : ''}.`, link: '/mua-hang?tab=duyet', urgent: true });
     else if (b.pre_by && b.pre_by !== me.id) ctx.notify([b.pre_by], { title: `Đã nhận đủ hàng: ${b.supplier_name} ${vnd(b.total)}`, body: `${me.name} đã kiểm & nhận. Bill tự duyệt, cộng công nợ.`, link: '/mua-hang?tab=lichsu' });
     ctx.audit(me, 'purchase.arrive', { id: b.id, short: short.length });
     ctx.broadcast('purchases'); ctx.broadcast('stock');
@@ -497,7 +549,7 @@ export default function (r, ctx) {
       }
       db.prepare("UPDATE purchase_bills SET status = 'void', return_reason = ?, returned_by = ?, returned_at = ? WHERE id = ?").run(`Huỷ: ${reason}`, me.id, at, b.id);
     });
-    ctx.notify(bosses().filter((x) => x !== me.id), { title: `Huỷ bill nhập ${b.supplier_name} ${vnd(b.total)}`, body: `${me.name}: ${reason}. Hàng đã trừ lại khỏi kho.`, link: '/mua-hang' });
+    ctx.notify(bosses().filter((x) => x !== me.id), { title: `Huỷ bill nhập ${b.supplier_name} ${vnd(b.total)}`, body: `${me.name}: ${reason}. ${b.status === 'waiting' ? 'Bill chờ nhận hàng, kho chưa cộng nên không trừ.' : 'Hàng đã trừ lại khỏi kho.'}`, link: '/mua-hang' }); // (rà soát 28/10)
     ctx.audit(me, 'purchase.void', { id: b.id, reason });
     ctx.broadcast('purchases'); ctx.broadcast('stock');
     return load(b.id);
