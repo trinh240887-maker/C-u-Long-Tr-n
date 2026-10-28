@@ -52,8 +52,11 @@ export default function (r, ctx) {
     return 'bep';
   };
   // Rau củ (chủ quán 28/10: chỉ rau củ mới tính "đã dùng trong ngày" khi kiểm tối)
-  const VEG_RE = /(^|\s)(rau|củ|cải|hành|hẹ|ngò|mùi|giá|nấm|cà chua|cà rốt|cà tím|chanh|ớt|tỏi|gừng|sả|riềng|xà lách|xà lách|bắp cải|bắp chuối|bắp non|khoai|dưa leo|dưa chuột|bí|mướp|đậu bắp|đậu que|đậu đũa|măng|me|tắc|quất|thơm|dứa|húng|tía tô|kinh giới|lá|bông|ngó|su su|su hào|củ cải|rau muống|cần|tần ô|mồng tơi|cải thảo)/i;
-  const isVeg = (i) => VEG_RE.test(` ${i.name}`) && ingKindOf(i) !== 'finished' && ingKindOf(i) !== 'supply';
+  const VEG_RE = /(^|\s)(rau|củ|cải|hành|hẹ|ngò|mùi|giá|nấm|cà chua|cà rốt|cà tím|chanh|ớt|tỏi|gừng|sả|riềng|xà lách|xà lách|bắp cải|bắp chuối|bắp non|khoai|dưa leo|dưa chuột|bí|mướp|đậu bắp|đậu que|đậu đũa|măng|me|tắc|quất|thơm|dứa|húng|tía tô|kinh giới|lá|bông|ngó|su su|su hào|củ cải|rau muống|cần|tần ô|mồng tơi|cải thảo)(?=\s|$|[,.()/-])/i;
+  // rà soát 28/10: hết từ mới khớp ("bí" ≠ "bít tết", "me" ≠ "Men bia"); đồ đã chế biến (sốt, hành phi, ớt bột…) không phải rau củ
+  const NOT_VEG_RE = /^(sốt|tương|bột|hành phi|tỏi phi|nước sốt|dầu|giăm bông)|(^|\s)(phi|bột|sấy)(?=\s|$|[,.()/-])/i;
+  const isVeg = (i) => { const n = String(i.name || '').normalize('NFC').trim(); return VEG_RE.test(` ${n}`) && !NOT_VEG_RE.test(n) && ingKindOf(i) !== 'finished' && ingKindOf(i) !== 'supply'; };
+  ctx.isVegName = (name) => isVeg({ name, kind: 'material' });
   const groupStaff = () => { try { return JSON.parse(ctx.setting('count_group_staff') || '{}') || {}; } catch { return {}; } };
   const myGroups = (me) => Object.keys(GROUP_LABEL).filter((g) => (groupStaff()[g] || []).includes(me.id));
   ctx.ingCountGroup = (i) => ingGroupOf(i);
@@ -178,8 +181,9 @@ export default function (r, ctx) {
   const kindOf = (m) => {
     if (m.type === 'receive') return 'nhap';
     if (m.type === 'consume') return /^sale:/.test(m.ref) ? 'ban' : 'xuat';
-    if (m.type === 'adjust') return /^cancel:/.test(m.ref) ? 'ban' : /^count:/.test(m.ref) ? 'lech' : 'nhap';
-    if (m.type === 'waste') return /^Lệch định lượng/.test(m.note) ? 'lech' : 'huy';
+    // rà soát 28/10: bù "kiểm kho trước khi úp Sapo" (recount:) và huỷ bù đó (cancel:recount:) bù vào cột Lệch (kiểm đã ghi thiếu cả phần bán) → không thổi phồng Nhập / Huỷ
+    if (m.type === 'adjust') return /^cancel:/.test(m.ref) ? 'ban' : /^(count|recount):/.test(m.ref) ? 'lech' : 'nhap';
+    if (m.type === 'waste') return /^Lệch định lượng/.test(m.note) || /^cancel:recount:/.test(m.ref || '') ? 'lech' : 'huy';
     return null; // chuyển kho trong quán: không đổi tồn chung
   };
   const sign = (m) => (m.type === 'receive' || m.type === 'adjust' ? 1 : m.type === 'transfer' ? 0 : -1);
@@ -349,13 +353,14 @@ export default function (r, ctx) {
   // Chuẩn = lượng bán theo định lượng (sale:…) · Hụt = thiếu khi kiểm kho − thừa khi kiểm − phần bù do úp Sapo sau khi kiểm
   // Thành phẩm: định mức 0 (thiếu là mất) · Vật liệu: so định mức % · Đồ dùng: phần "hụt" khi kiểm = đã dùng
   function lossReport(from, to) {
-    const rows = db.prepare(`SELECT ingredient_id,
-        SUM(CASE WHEN type = 'consume' AND ref LIKE 'sale:%' THEN qty ELSE 0 END) AS std,
+    const rows = db.prepare(`WITH cx AS MATERIALIZED (SELECT DISTINCT type, ingredient_id, ref FROM stock_moves WHERE ref LIKE 'cancel:%')
+      SELECT ingredient_id,
+        SUM(CASE WHEN type = 'consume' AND ref LIKE 'sale:%' AND NOT EXISTS (SELECT 1 FROM cx c WHERE c.type = 'adjust' AND c.ref = 'cancel:' || substr(m.ref, 6) AND c.ingredient_id = m.ingredient_id) THEN qty ELSE 0 END) AS std,
         SUM(CASE WHEN type = 'waste' AND ref LIKE 'count:%' THEN qty ELSE 0 END) AS short,
         SUM(CASE WHEN type = 'adjust' AND ref LIKE 'count:%' THEN qty ELSE 0 END) AS surplus,
-        SUM(CASE WHEN type = 'adjust' AND ref LIKE 'recount:%' THEN qty ELSE 0 END) AS recount,
+        SUM(CASE WHEN type = 'adjust' AND ref LIKE 'recount:%' AND NOT EXISTS (SELECT 1 FROM cx c WHERE c.type = 'waste' AND c.ref = 'cancel:' || m.ref AND c.ingredient_id = m.ingredient_id) THEN qty ELSE 0 END) AS recount,
         SUM(CASE WHEN type = 'receive' THEN qty ELSE 0 END) AS received
-      FROM stock_moves WHERE date BETWEEN ? AND ? GROUP BY ingredient_id`).all(from, to);
+      FROM stock_moves m WHERE date BETWEEN ? AND ? GROUP BY ingredient_id`).all(from, to); // rà soát 28/10: bỏ dòng bán / bù đã huỷ (bỏ nhập Sapo)
     // Chuẩn lấy từ lượng dùng theo định lượng của món đã bán (đủ số, không phụ thuộc kho trên sổ còn hay hết)
     let stdBy = new Map();
     try { stdBy = new Map(db.prepare('SELECT ingredient_id, SUM(qty) AS q FROM sale_usage WHERE date BETWEEN ? AND ? GROUP BY ingredient_id').all(from, to).map((x) => [x.ingredient_id, x.q])); } catch { /* chưa có bảng */ }
@@ -427,9 +432,13 @@ export default function (r, ctx) {
     return {
       store: st, can_count: !!canStore(me, st), last_count: last || null,
       // Đầu ngày = số đếm lần kiểm gần nhất trước hôm nay; Nhập = hàng nhập hôm nay → dùng trong ngày = đầu + nhập − còn (chủ quán 28/10)
-      lines: sheetFor(st).map((i) => ({ ingredient_id: i.id, name: i.name, unit: i.unit, freshness: i.freshness, kind: ingKindOf(i), group: ingGroupOf(i), veg: isVeg(i), expected: stockQty(db, st.id, i.id),
-        day_open: db.prepare('SELECT l.actual FROM stock_count_lines l JOIN stock_counts c ON c.id = l.count_id WHERE l.ingredient_id = ? AND c.date < ? ORDER BY c.at DESC LIMIT 1').get(i.id, today())?.actual ?? null,
-        day_in: db.prepare("SELECT COALESCE(SUM(qty), 0) AS q FROM stock_moves WHERE ingredient_id = ? AND date = ? AND type = 'receive' AND ref NOT LIKE 'void-bill:%'").get(i.id, today()).q })),
+      // rà soát 28/10: Nhập = mọi lần nhập SAU lần kiểm làm "đầu ngày" (có thể vài hôm trước); bill huỷ (dòng âm) tự trừ ra
+      lines: sheetFor(st).map((i) => {
+        const open = db.prepare('SELECT l.actual, c.at FROM stock_count_lines l JOIN stock_counts c ON c.id = l.count_id WHERE l.ingredient_id = ? AND c.date < ? ORDER BY c.at DESC LIMIT 1').get(i.id, today());
+        const dayIn = open ? db.prepare("SELECT COALESCE(SUM(qty), 0) AS q FROM stock_moves WHERE ingredient_id = ? AND at > ? AND type = 'receive'").get(i.id, open.at).q
+          : db.prepare("SELECT COALESCE(SUM(qty), 0) AS q FROM stock_moves WHERE ingredient_id = ? AND date = ? AND type = 'receive'").get(i.id, today()).q;
+        return { ingredient_id: i.id, name: i.name, unit: i.unit, freshness: i.freshness, kind: ingKindOf(i), group: ingGroupOf(i), veg: isVeg(i), expected: stockQty(db, st.id, i.id), day_open: open?.actual ?? null, day_in: dayIn };
+      }),
       shared: ingredients().filter((i) => i.home_store_id === null).map((i) => ({ ingredient_id: i.id, name: i.name, unit: i.unit })),
     };
   });

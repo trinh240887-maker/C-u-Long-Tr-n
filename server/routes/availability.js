@@ -96,6 +96,9 @@ export default function (r, ctx) {
     if (rank(me.role) < rank('shift_lead')) fail(403, 'Chỉ trưởng ca trở lên báo hộ');
     const st = ctx.staff(Number(id));
     if (!st || !st.active) fail(404, 'Không tìm thấy nhân viên');
+    // rà soát 28/10: quản lý / tổ trưởng có bộ phận chỉ xem / báo hộ người bộ phận mình (báo hộ = viết lại ca tự tạo của người đó)
+    const see = ctx.scheduleViewFilter?.(me);
+    if (see && !see(st.id, null)) fail(403, 'Bạn chỉ báo hộ người trong bộ phận mình');
     return st;
   };
 
@@ -327,7 +330,7 @@ export default function (r, ctx) {
       }
     });
     const locked = [];
-    for (const ws of weeks) { if (Number(ctx.setting(`published:${ws}`) || 0)) locked.push(ws); else ctx.availToShifts?.(staffId, ws, { id: null }); }
+    for (const ws of weeks) { if (ctx.weekPublishedAt ? ctx.weekPublishedAt(ws, staffId) : Number(ctx.setting(`published:${ws}`) || 0)) locked.push(ws); else ctx.availToShifts?.(staffId, ws, { id: null }); }
     // Tuần đã duyệt lịch: báo "nghỉ" ngày có ca → tự tạo đơn xin nghỉ (quản lý duyệt); đổi giờ → báo quản lý xếp lại (chủ quán 25/10)
     const leaves = [], noShift = [], changed = [];
     for (const d of dates.filter((x) => locked.includes(weekStart(x)))) {
@@ -472,7 +475,7 @@ export default function (r, ctx) {
         if (cur.length) {
           const by = new Map();
           for (const c of cur) by.set(c.date, [...(by.get(c.date) || []), `${String(Math.floor(c.start_min / 60)).padStart(2, '0')}${c.start_min % 60 ? ':' + String(c.start_min % 60).padStart(2, '0') : ''}–${String(Math.floor(c.end_min / 60) % 24).padStart(2, '0')}${c.end_min % 60 ? ':' + String(c.end_min % 60).padStart(2, '0') : ''}`]);
-          lines.push(`  ℹ️ Bot ghi cho TUẦN SAU (${ddmm(addDays(ws, 7))}–${ddmm(addDays(ws, 13))}). Tuần này bạn đã có lịch${Number(ctx.setting(`published:${ws}`) || 0) ? ' đã duyệt' : ''}: ${[...by].map(([d, x]) => `${dayTxt(d)} ${x.join(' + ')}`).join(', ')}. Muốn đổi tuần này: ghi ngày cụ thể, vd "${ddmm(addDays(today, 1))} nghỉ" hoặc "${ddmm(addDays(today, 1))} 18-23".`);
+          lines.push(`  ℹ️ Bot ghi cho TUẦN SAU (${ddmm(addDays(ws, 7))}–${ddmm(addDays(ws, 13))}). Tuần này bạn đã có lịch${(ctx.weekPublishedAt ? ctx.weekPublishedAt(ws, person.id) : Number(ctx.setting(`published:${ws}`) || 0)) ? ' đã duyệt' : ''}: ${[...by].map(([d, x]) => `${dayTxt(d)} ${x.join(' + ')}`).join(', ')}. Muốn đổi tuần này: ghi ngày cụ thể, vd "${ddmm(addDays(today, 1))} nghỉ" hoặc "${ddmm(addDays(today, 1))} 18-23".`);
         }
       }
     }
@@ -521,7 +524,9 @@ export default function (r, ctx) {
           continue;
         }
         // Nhóm Zalo của nhà cung cấp: "@bot thăn 10kg, bắp 5kg" → đơn chờ nhận (server/routes/zalo-orders.js)
-        if (!groupOf(u.chat.id) && ctx.zaloOrderMsg) {
+        // rà soát 28/10: chỉ tin trong NHÓM mới là đặt hàng NCC; tin nhắn riêng với bot không bao giờ thành đơn
+        const isGroupChat = !/private|user/i.test(u.chat.type || '') && (/group/i.test(u.chat.type || '') || !!ctx.supplierGroupOf?.(u.chat.id));
+        if (!groupOf(u.chat.id) && isGroupChat && ctx.zaloOrderMsg) {
           let reply = null;
           try { reply = ctx.zaloOrderMsg(u, stripBotName(u.text)); } catch (e) { reply = `⚠ Lỗi khi ghi đơn: ${e.message}`; }
           if (reply) { logMsg(u, reply.split('\n')[0]); await ctx.zaloBot.send(u.chat.id, reply).catch((e) => console.error('Bot trả lời lỗi:', e.message)); continue; }

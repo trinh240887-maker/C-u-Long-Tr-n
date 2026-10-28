@@ -203,16 +203,20 @@ function Count({ meta, me }) {
       </div>`) : html`<p class="muted">${meta.single ? 'Chưa có hàng loại này. Chủ quán / quản lý bấm ⚙ Xếp loại hàng để chọn.' : 'Kho này chưa có nguyên liệu nào.'}</p>`}
       ${(() => {
         // Thêm nguyên liệu chưa có trong phiếu: dùng chung trước, rồi mọi nguyên liệu khác (chủ quán 27/10)
-        const have = new Set(lines.map((l) => l.ingredient_id));
-        const shared = sheet.data.shared.filter((x) => !have.has(x.ingredient_id));
-        const others = (meta.ingredients || []).filter((i) => i.active !== false && i.active !== 0 && !have.has(i.id) && !shared.some((x) => x.ingredient_id === i.id)).map((i) => ({ ingredient_id: i.id, name: i.name, unit: i.unit }));
-        const add = (id) => { const it = [...shared, ...others].find((x) => x.ingredient_id === id); if (it) setExtra([...extra, it]); };
+        // rà soát 28/10: "đã có" tính trên cả phiếu (mọi khung), hàng thêm vào khung đang mở; người kiểm khung chỉ thêm hàng thuộc khung mình
+        const have = new Set(allLines.map((l) => l.ingredient_id));
+        const onlyMine = meta.single && !atLeast(me, 'team_lead') && meta.my_groups?.length ? new Set(meta.my_groups) : null;
+        const gOf = (id) => (meta.ingredients || []).find((i) => i.id === id)?.group_eff;
+        const okG = (id) => !onlyMine || onlyMine.has(gOf(id));
+        const shared = sheet.data.shared.filter((x) => !have.has(x.ingredient_id) && okG(x.ingredient_id));
+        const others = (meta.ingredients || []).filter((i) => i.active !== false && i.active !== 0 && !have.has(i.id) && okG(i.id) && !shared.some((x) => x.ingredient_id === i.id)).map((i) => ({ ingredient_id: i.id, name: i.name, unit: i.unit }));
+        const add = (id) => { const it = [...shared, ...others].find((x) => x.ingredient_id === id); if (it) setExtra([...extra, meta.single ? { ...it, group: kindTab } : it]); };
         return shared.length || others.length ? html`<div class="row"><select id="ck-add" class="auto" onChange=${(e) => { add(Number(e.target.value)); e.target.value = ''; }}>
           <option value="">+ Thêm nguyên liệu khác vào phiếu kiểm</option>
           ${shared.length ? html`<optgroup label="Dùng chung (đá, chanh…)">${shared.map((x) => html`<option value=${x.ingredient_id}>${x.name}</option>`)}</optgroup>` : null}
           ${others.length ? html`<optgroup label="Nguyên liệu khác">${others.sort((a, b) => a.name.localeCompare(b.name, 'vi')).map((x) => html`<option value=${x.ingredient_id}>${x.name} (${x.unit})</option>`)}</optgroup>` : null}
         </select></div>` : null; })()}
-      ${atLeast(me, 'manager') && store ? html`<${NewIng} store=${store} onAdded=${(it) => setExtra([...extra, it])} />` : null}
+      ${atLeast(me, 'manager') && store ? html`<${NewIng} store=${store} onAdded=${(it) => setExtra([...extra, meta.single ? { ...it, group: kindTab } : it])} />` : null}
       <div class="row end"><button class="primary" disabled=${!filled || !store} onClick=${async () => {
         const body = { store_id: store.id, lines: Object.entries(vals).filter(([, x]) => x !== '').map(([id, x]) => ({ ingredient_id: Number(id), actual: String(x).replace(',', '.') })) };
         const r = await act(() => api('POST', '/api/stock/count', body), 'Đã lưu kiểm kho');
