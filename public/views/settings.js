@@ -658,18 +658,30 @@ function ActsFor({ id, staff, onDone }) {
       <button class="primary" disabled=${busy || !changed} onClick=${save}>${changed ? `Lưu ${changed} thay đổi` : 'Đã lưu'}</button></div>
   </div>`;
 }
+// Theo từng người (chủ quán 28/10): danh sách nhân sự theo bộ phận, bấm tên để phân quyền
+const TEAM_ORDER = ['Quản lý', 'Bếp', 'Lẩu', 'Bar', 'Thu ngân', 'Tiếp thực', 'Phục vụ', 'Tạp vụ'];
 function UserActs({ staffId }) {
   const st = useData('/api/staff');
   const [id, setId] = useState(staffId || '');
   const [q, setQ] = useState('');
   if (!st.data) return html`<${Loading} state=${st} />`;
   const staff = st.data.filter((s) => s.active && s.role !== 'owner').sort((a, b) => a.name.localeCompare(b.name, 'vi'));
-  const list = staff.filter((s) => !q || s.name.toLowerCase().includes(q.toLowerCase()));
+  if (id) return html`<div class="stack">
+    <button class="small" style="align-self:flex-start" onClick=${() => setId('')}>← Danh sách nhân sự</button>
+    <${ActsFor} key=${id} id=${id} staff=${staff} /></div>`;
+  const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase();
+  const list = staff.filter((s) => !q || fold(s.name).includes(fold(q)));
+  const groupOf = (s) => (s.team_name ? s.team_name : ['manager', 'shift_lead'].includes(s.role) ? 'Quản lý' : 'Chưa có bộ phận');
+  const groups = [...new Set(list.map(groupOf))].sort((a, b) => ((TEAM_ORDER.indexOf(a) + 1) || 99) - ((TEAM_ORDER.indexOf(b) + 1) || 99) || a.localeCompare(b, 'vi'));
+  const rk = { manager: 0, shift_lead: 1, team_lead: 2, staff: 3 };
   return html`<div class="stack">
-    <div class="row wrap"><input id="acts-q" class="grow" placeholder="Tìm người" value=${q} onInput=${(e) => setQ(e.target.value)} />
-      <select id="acts-who" class="grow" value=${id} onChange=${(e) => setId(Number(e.target.value) || '')}>
-        <option value="">Chọn người để phân quyền…</option>${list.map((s) => html`<option value=${s.id}>${s.name}${s.team_name ? ` · ${s.team_name}` : ''}</option>`)}</select></div>
-    ${id ? html`<${ActsFor} key=${id} id=${id} staff=${staff} />` : html`<p class="muted">Chọn 1 người: hiện mọi việc trong từng mục để tick bật / tắt riêng cho người đó.</p>`}
+    <input id="acts-q" placeholder="🔍 Tìm tên" value=${q} onInput=${(e) => setQ(e.target.value)} />
+    <small class="muted">Bấm vào tên 1 người để tick bật / tắt từng việc cho người đó.</small>
+    ${groups.map((g) => { const ps = list.filter((s) => groupOf(s) === g).sort((a, b) => (rk[a.role] ?? 9) - (rk[b.role] ?? 9) || a.name.localeCompare(b.name, 'vi')); return html`<section class="card stack tight">
+      <div class="row between"><b>${g}</b><small class="muted">${ps.length} người</small></div>
+      <div class="row wrap tight">${ps.map((s) => html`<button class="chip" onClick=${() => setId(s.id)}>${s.name}${s.role !== 'staff' ? html` <small class="muted">· ${ROLE_SHORT[s.role] || s.role}</small>` : null}</button>`)}</div>
+    </section>`; })}
+    ${!list.length ? html`<p class="muted">Không tìm thấy ai.</p>` : null}
   </div>`;
 }
 function PermTabs({ staffId }) {
