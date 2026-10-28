@@ -76,11 +76,23 @@ export default function (r, ctx) {
   // Người chưa có bộ phận vẫn hiện để xếp được (vd phục vụ part-time chưa gán bộ phận)
   const teamScope = (me) => (me && me.role !== 'owner' && me.team_id && (me.role === 'manager' || allowedPages(ctx, me).includes('/lich#xep')) ? me.team_id : null);
   const staffTeam = (id) => db.prepare('SELECT team_id FROM staff WHERE id = ?').get(id)?.team_id ?? null;
-  const inScope = (me, staffId, teamId) => { const sc = teamScope(me); if (!sc) return true; const st = staffTeam(staffId); return staffId === me.id || teamId === sc || st === sc || (st == null && (teamId == null || teamId === sc)); };
+  // Xem: thấy cả ca gắn bộ phận mình (người bộ phận khác sang làm)
+  const canSee = (me, staffId, teamId) => { const sc = teamScope(me); if (!sc) return true; const st = staffTeam(staffId); return staffId === me.id || teamId === sc || st === sc || (st == null && (teamId == null || teamId === sc)); };
+  // Sửa / xoá / gửi (rà soát 28/10): theo bộ phận GỐC của người đó, không theo bộ phận ghi trên ca (tránh gắn bộ phận mình để xếp người bộ phận khác)
+  const inScope = (me, staffId, teamId) => { const sc = teamScope(me); if (!sc) return true; const st = staffTeam(staffId); return staffId === me.id || st === sc || (st == null && (teamId == null || teamId === sc)); };
   const mustScope = (me, staffId, teamId) => { if (!inScope(me, staffId, teamId)) fail(403, 'Bạn chỉ xếp ca cho người trong bộ phận mình'); };
   ctx.scheduleTeamScope = teamScope;
+  ctx.scheduleInScope = inScope;
+  // Tuần đã duyệt với 1 người (rà soát 28/10): duyệt cả quán HOẶC đã duyệt bộ phận của người đó
+  const weekPublishedAt = (start, staffId) => {
+    const all = Number(ctx.setting(`published:${start}`) || 0);
+    if (all || !staffId) return all;
+    const t = staffTeam(staffId);
+    return t ? Number(ctx.setting(`published:${start}:t${t}`) || 0) : 0;
+  };
+  ctx.weekPublishedAt = weekPublishedAt;
   function viewFilter(me) {
-    if (teamScope(me)) return (staffId, teamId) => inScope(me, staffId, teamId);
+    if (teamScope(me)) return (staffId, teamId) => canSee(me, staffId, teamId);
     if (rank(me.role) >= rank('manager') || allowedPages(ctx, me).includes('/lich#xep')) return null;
     if ((me.role === 'shift_lead' || me.role === 'team_lead') && me.team_id) {
       const mine = new Set(db.prepare('SELECT id FROM staff WHERE team_id = ?').all(me.team_id).map((x) => x.id));
@@ -122,6 +134,8 @@ export default function (r, ctx) {
     const shifts = [...groups.values()].filter((g) => !see || see(g.staff_id, g.team_id)).map((g) => ({ ...g, text: describeGroup(g.segments) }));
 
     // Cảnh báo thiếu người theo số tối thiểu của từng tổ
+    // Quản lý có bộ phận: chỉ cảnh báo bộ phận mình (ca bộ phận khác đã lọc bỏ → không báo thiếu giả) (rà soát 28/10)
+    const sc = teamScope(me);
     const teams = db.prepare('SELECT id, name, min_staff FROM teams WHERE active = 1 ORDER BY sort, id').all();
     const positions = db.prepare('SELECT p.id, p.name, p.team_id, p.min_staff FROM positions p JOIN teams t ON t.id = p.team_id WHERE p.active = 1 AND t.active = 1').all();
     const warnings = [];
@@ -131,14 +145,14 @@ export default function (r, ctx) {
       for (const t of teams) {
         const people = new Set(shifts.filter((s) => s.date === d && s.team_id === t.id && s.leave?.status !== 'approved').map((s) => s.staff_id));
         coverage[d][t.id] = people.size;
-        if (t.min_staff && people.size < t.min_staff) {
+        if (t.min_staff && people.size < t.min_staff && (!sc || t.id === sc)) {
           warnings.push({ date: d, team_id: t.id, text: `${WEEKDAY[isoWeekday(d)]} ${d.slice(8)}/${d.slice(5, 7)}: ${t.name} có ${people.size}/${t.min_staff} người` });
         }
       }
       for (const p of positions) {
         const n = new Set(shifts.filter((s) => s.date === d && s.position_id === p.id && s.leave?.status !== 'approved').map((s) => s.staff_id)).size;
         coverage[d][`p${p.id}`] = n;
-        if (p.min_staff && n < p.min_staff) {
+        if (p.min_staff && n < p.min_staff && (!sc || p.team_id === sc)) {
           warnings.push({ date: d, team_id: p.team_id, position_id: p.id, text: `${WEEKDAY[isoWeekday(d)]} ${d.slice(8)}/${d.slice(5, 7)}: ${p.name} có ${n}/${p.min_staff} người` });
         }
       }
@@ -150,7 +164,8 @@ export default function (r, ctx) {
       if (r && (!see || see(a.staff_id, null))) ((availability[a.staff_id] ||= {})[a.date] ||= []).push(`${String(Math.floor(r.start / 60)).padStart(2, '0')}:${String(r.start % 60).padStart(2, '0')}-${String(Math.floor(r.end / 60)).padStart(2, '0')}:${String(r.end % 60).padStart(2, '0')}`);
     }
     const submitted = db.prepare('SELECT staff_id FROM availability_weeks WHERE week_start = ?').all(start).map((x) => x.staff_id);
-    return { week_start: start, week_zones: weekZones(start), days, shifts, coverage, availability, avail_submitted: submitted, slots: ctx.availSlots(), warnings, published_at: Number(ctx.setting(`published:${start}`) || 0) };
+    return { week_start: start, week_zones: weekZones(start), days, shifts, coverage, availability, avail_submitted: submitted, slots: ctx.availSlots(), warnings,
+      published_at: Number(ctx.setting(`published:${start}`) || 0) || (me.team_id ? Number(ctx.setting(`published:${start}:t${me.team_id}`) || 0) : 0) };
   });
 
   // Phân khu theo tuần (chủ quán 24/10): mỗi người 1 khu cho cả tuần → mọi ca trong tuần nhận khu đó
@@ -281,7 +296,7 @@ export default function (r, ctx) {
   // Gửi lại → thay các ca tự tạo (note 'Theo lịch rảnh') của tuần đó; ca quản lý tự xếp / đã sửa giữ nguyên. Tuần đã duyệt thì không tự đổi
   const AUTO_NOTE = 'Theo lịch rảnh';
   function availToShifts(staffId, start, me, { force = false } = {}) {
-    if (!force && Number(ctx.setting(`published:${start}`) || 0)) return { made: 0, skipped: 0 };
+    if (!force && weekPublishedAt(start, staffId)) return { made: 0, skipped: 0 };
     const end = addDays(start, 6);
     const rows = db.prepare('SELECT date, slot FROM availability WHERE staff_id = ? AND date BETWEEN ? AND ? ORDER BY date, slot').all(staffId, start, end);
     let made = 0, skipped = 0;
@@ -468,7 +483,10 @@ export default function (r, ctx) {
     if (!isDate(body.week)) fail(400, 'Tuần không hợp lệ');
     const start = weekStart(body.week);
     // Quản lý có bộ phận: chỉ gửi lịch cho người bộ phận mình
-    const rows = db.prepare(`SELECT a.* FROM assignments a WHERE a.date BETWEEN ? AND ? ORDER BY a.date, a.start_min`).all(start, addDays(start, 6)).filter((a) => inScope(me, a.staff_id, a.team_id));
+    // Duyệt theo bộ phận: chỉ báo người thuộc bộ phận mình (người chưa có bộ phận để chủ / quản lý chung gửi, tránh nhận lịch thiếu từ từng quản lý) (rà soát 28/10)
+    const sc = teamScope(me);
+    const rows = db.prepare(`SELECT a.* FROM assignments a WHERE a.date BETWEEN ? AND ? ORDER BY a.date, a.start_min`).all(start, addDays(start, 6))
+      .filter((a) => inScope(me, a.staff_id, a.team_id) && (!sc || staffTeam(a.staff_id) === sc));
     const byStaff = new Map();
     for (const a of rows) {
       const m = byStaff.get(a.staff_id) || new Map();
