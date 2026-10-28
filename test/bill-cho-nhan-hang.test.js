@@ -37,6 +37,14 @@ test('bill NCC gửi trước: chủ quán áp bill (kho chưa cộng) → bếp
   const pre = { pre_bill: true, store_id: lau.id, supplier_name: 'Sạp bò A', signer_name: 'Chủ', photos: [IMG], lines: [{ ingredient_id: bo, qty: 10, price: 260000 }] };
   // Nhân viên không áp bill trước được
   assert.equal((await tai('POST', '/api/purchases', pre)).status, 403);
+  // Trưởng ca mặc định cũng không; chủ quán tick riêng → được
+  const sl = (await o('POST', '/api/staff', { name: 'Hà', role: 'shift_lead', team_id: teams.find((x) => x.name === 'Thu ngân').id, pin: '736259' })).data;
+  const ha = await login('736259', '918279');
+  assert.equal((await ha('POST', '/api/purchases', pre)).status, 403);
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('perm_user', ?)").run(JSON.stringify({ [sl.id]: { 'mh.apbill': true } }));
+  const bx = (await ha('POST', '/api/purchases', pre)).data;
+  assert.equal(bx.status, 'waiting');
+  assert.equal((await o('POST', `/api/purchases/${bx.id}/void`, { reason: 'thử' })).status, 200);
   const b1 = (await o('POST', '/api/purchases', pre)).data;
   assert.equal(b1.status, 'waiting');
   assert.equal(qty(), 0);

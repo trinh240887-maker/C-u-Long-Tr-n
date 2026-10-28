@@ -7,6 +7,7 @@ import { tx, rank } from '../db.js';
 import { isDate, addDays } from '../lib/time.js';
 import { makeXlsx } from '../lib/xlsx.js';
 import { takeLots, recordMove, addLot } from '../lib/stock.js';
+import { can as canPerm } from '../lib/perms.js';
 import { readBill, billReaderReady, billReaderKey } from '../lib/bill-reader.js';
 
 // Hoá đơn mua hàng + công nợ NCC + tạm ứng đi chợ.
@@ -163,7 +164,7 @@ export default function (r, ctx) {
   // ---------- Khu nhận hàng ----------
   r.post('/api/purchases', 'staff', ({ me, body }) => {
     const pre = !!body.pre_bill;
-    if (pre && !isCashier(me)) fail(403, 'Áp bill trước (hàng chưa về): thu ngân / trưởng ca trở lên');
+    if (pre && !canPerm(ctx, me, 'mh.apbill')) fail(403, 'Chỉ người được chủ quán chỉ định mới áp bill trước (hàng chưa về)');
     const poId = !pre && body.po_id ? v.int(body.po_id, { min: 1, name: 'Đơn đặt hàng' }) : null;
     const po = poId ? ctx.loadPo(poId) : null;
     const storeId = po ? po.store_id : v.int(body.store_id, { min: 1, name: 'Khu nhận' });
@@ -249,7 +250,7 @@ export default function (r, ctx) {
   r.patch('/api/purchases/:id', 'staff', ({ me, params, body }) => {
     const b = load(params.id);
     // Sửa bill: người nhận sửa bill bị trả lại; thu ngân / trưởng ca trở lên sửa ngay trong mục duyệt (chủ quán 26/10)
-    if (b.status === 'waiting') { if (!isCashier(me)) fail(403, 'Thu ngân / trưởng ca trở lên mới sửa bill chờ nhận hàng'); }
+    if (b.status === 'waiting') { if (!isCashier(me) && !canPerm(ctx, me, 'mh.apbill')) fail(403, 'Thu ngân / trưởng ca trở lên mới sửa bill chờ nhận hàng'); }
     else if (b.status === 'returned') { if (b.received_by !== me.id && rank(me.role) < rank('shift_lead')) fail(403, 'Người nhận hàng sửa lại'); }
     else if (b.status === 'received') { if (!isCashier(me)) fail(403, 'Thu ngân / trưởng ca trở lên mới sửa bill đang chờ duyệt'); }
     else if (b.status === 'approved') { if (rank(me.role) < rank('manager')) fail(403, 'Bill đã duyệt: quản lý / chủ quán mới sửa được'); } // chủ quán 26/10: gắn dòng "hàng khác" vào kho

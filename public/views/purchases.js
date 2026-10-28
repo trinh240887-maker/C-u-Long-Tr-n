@@ -126,7 +126,7 @@ function Receive({ me, meta, advances, onDone }) {
   if (!stores.length) return html`<div class="empty">Bạn chưa phụ trách khu nào để nhận hàng.</div>`;
   const myPos = (pos.data || []).filter((p) => stores.some((s) => s.id === p.store_id));
   return html`<div class="stack">
-    ${meta.is_cashier ? html`<div class="chips">
+    ${canAct(me, 'mh.apbill') ? html`<div class="chips">
       <button class=${`chip ${!pre ? 'on' : ''}`} onClick=${() => setPre(false)}>📥 Hàng đã về, nhận ngay</button>
       <button class=${`chip ${pre ? 'on' : ''}`} onClick=${() => { setPre(true); if (f.paid_method === 'cash' || f.advance_id) setF({ ...f, paid_method: '', advance_id: '' }); }}>📩 Bill NCC gửi trước, hàng chưa về</button></div>` : null}
     ${pre ? html`<p class="hint card small">Lưu bill để <b>chờ nhận hàng</b>: kho chưa cộng. Bếp / khu nhận hàng kiểm, chụp ảnh hàng rồi bấm <b>Đã nhận hàng</b> thì kho mới cộng. Nhận đủ: bill tự duyệt. Nhận thiếu: chờ thu ngân duyệt.</p>` : null}
