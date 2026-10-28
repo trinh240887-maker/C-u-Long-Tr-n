@@ -183,3 +183,25 @@ test('Đọc ảnh chấm công tay: kết quả máy đọc → chữ DD/MM : g
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(r.data.text, '14/10 : 13h - 21h'); assert.equal(r.data.note, 'mờ dòng cuối');
 });
+
+test('Nhập chấm công tay vào ngày đã có ca: tự gắn vào ca (không còn báo "không chấm")', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const id = (await O('POST', '/api/staff', { name: 'Tuyết Vân', team_id: pv, pin: '5961' })).data.id;
+  const d = addDays(app.ctx.today(), -3);
+  db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES (?, ?, ?, ?, 480, 720, 0), (?, ?, ?, ?, 840, 1380, 0)').run('g', id, pv, d, 'g', id, pv, d);
+  for (const [a, b] of [['08:00', '12:00'], ['14:00', '22:30']]) assert.equal((await O('POST', '/api/attendance', { staff_id: id, clock_in: `${d}T${a}`, clock_out: `${d}T${b}`, note: 'Nhập từ chấm công tay' })).status, 200);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM attendance WHERE staff_id = ? AND assignment_id IS NOT NULL').get(id).n, 2);
+  const w = (await O('GET', `/api/attendance/week?week=${d}`)).data;
+  const c = w.cells[`${id}:${d}`];
+  assert.equal(c.shifts[0].status === 'missing', false);
+  assert.equal(c.extra.length, 0);
+});

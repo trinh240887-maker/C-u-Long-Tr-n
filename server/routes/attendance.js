@@ -110,6 +110,24 @@ export default function (r, ctx) {
       ORDER BY a.date, a.start_min`).all(staffId, addDays(date, -1), addDays(date, 1));
   }
 
+  // Lượt chấm thêm tay / nhập từ chấm công tay: gắn vào ca trùng giờ nhiều nhất (≥ 30 phút) chưa có lượt chấm (chủ quán 28/10)
+  function linkSeg(staffId, cin, cout) {
+    const clock = ctx.clock();
+    const taken = new Set(db.prepare('SELECT assignment_id FROM attendance WHERE staff_id = ? AND assignment_id IS NOT NULL').all(staffId).map((x) => x.assignment_id));
+    let best = null, bestOv = 0;
+    for (const a of mySegments(staffId, clock.businessDate(cin))) {
+      if (taken.has(a.id)) continue;
+      const { start, end } = rangeOf(clock, a);
+      const ov = Math.min(end, cout ?? end) - Math.max(start, cin);
+      if (ov > bestOv) { bestOv = ov; best = a; }
+    }
+    return best && bestOv >= 30 * 60_000 ? best.id : null;
+  }
+  if (!ctx.setting('att_link_v1')) {
+    tx(db, () => { for (const r of db.prepare('SELECT id, staff_id, clock_in, clock_out FROM attendance WHERE assignment_id IS NULL AND clock_out IS NOT NULL ORDER BY clock_in').all()) { const id = linkSeg(r.staff_id, r.clock_in, r.clock_out); if (id) db.prepare('UPDATE attendance SET assignment_id = ? WHERE id = ?').run(id, r.id); } });
+    ctx.setSetting('att_link_v1', '1');
+  }
+
   // Tự đóng các lượt chấm công bị quên chấm ra
   ctx.autoCloseAttendance = function autoClose() {
     const clock = ctx.clock();
@@ -442,8 +460,8 @@ export default function (r, ctx) {
     if (cout !== null && cout <= cin) fail(400, 'Giờ ra phải sau giờ vào');
     if (cout !== null && cout - cin > 20 * 3600_000) fail(400, 'Một lượt chấm công không quá 20 giờ');
     const note = v.text(body.note, { name: 'Ghi chú', max: 200 }) || 'Quản lý thêm tay';
-    const id = Number(db.prepare(`INSERT INTO attendance (staff_id, date, clock_in, clock_out, edited_by, note, source) VALUES (?, ?, ?, ?, ?, ?, 'manual')`)
-      .run(staffId, clock.businessDate(cin), cin, cout, me.id, note).lastInsertRowid);
+    const id = Number(db.prepare(`INSERT INTO attendance (staff_id, date, clock_in, clock_out, edited_by, note, source, assignment_id) VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)`)
+      .run(staffId, clock.businessDate(cin), cin, cout, me.id, note, linkSeg(staffId, cin, cout)).lastInsertRowid);
     ctx.audit(me, 'attendance.create', { id, staffId });
     ctx.broadcast('attendance');
     return { id };
