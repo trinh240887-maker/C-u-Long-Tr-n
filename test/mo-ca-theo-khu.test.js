@@ -40,7 +40,8 @@ test('Mở ca phục vụ theo khu: việc riêng từng khu chỉ sinh thẻ ch
   assert.deepEqual(zonesOf, [za]);
   assert.ok(!zonesOf.includes(zb));
   assert.equal((await O('POST', `/api/checklist-items/${add.data.id}/delete`, {})).status, 200);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM checklist_items WHERE id = ?').get(add.data.id).n, 0);
+  // Xoá mềm (rà soát 28/10): ẩn khỏi checklist, giữ dòng để còn lịch sử
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM checklist_items WHERE id = ? AND deleted_at IS NULL').get(add.data.id).n, 0);
 });
 
 test('Đầu ca khăn + nón theo khu: thẻ có ảnh từng khu, giao người cho việc; hết 15h30 khu chưa có ảnh → báo chủ quán', async (t) => {

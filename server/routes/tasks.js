@@ -17,12 +17,16 @@ export default function (r, ctx) {
 
   r.get('/api/tasks', 'staff', ({ me, query }) => {
     const status = query.get('status');
+    // Lọc quyền xem ngay trong SQL trước LIMIT (rà soát 28/10: trước đây lọc sau LIMIT 300 → nhân viên có thể mất việc của mình)
+    const lead = rank(me.role) >= rank('shift_lead');
+    const vis = lead ? '1' : `(k.assignee_id = ? OR k.created_by = ? OR (k.team_id = ? AND k.assignee_id IS NULL)${me.role === 'team_lead' ? ' OR k.team_id = ?' : ''})`;
+    const visArgs = lead ? [] : [me.id, me.id, me.team_id ?? -1, ...(me.role === 'team_lead' ? [me.team_id ?? -1] : [])];
     const rows = db.prepare(`SELECT k.*, a.name AS assignee_name, t.name AS team_name, c.name AS created_by_name, d.name AS done_by_name
       FROM tasks k LEFT JOIN staff a ON a.id = k.assignee_id LEFT JOIN teams t ON t.id = k.team_id
       LEFT JOIN staff c ON c.id = k.created_by LEFT JOIN staff d ON d.id = k.done_by
-      WHERE ${status === 'open' ? "k.status != 'done'" : status ? 'k.status = ?' : '1'} AND (k.status != 'done' OR k.done_at > ?)
+      WHERE ${status === 'open' ? "k.status != 'done'" : status ? 'k.status = ?' : '1'} AND (k.status != 'done' OR k.done_at > ?) AND ${vis}
       ORDER BY CASE k.status WHEN 'done' THEN 1 ELSE 0 END, k.priority, COALESCE(k.due_at, 9e15), k.id DESC LIMIT 300`)
-      .all(...(status && status !== 'open' ? [status] : []), ctx.now() - 14 * 86_400_000);
+      .all(...(status && status !== 'open' ? [status] : []), ctx.now() - 14 * 86_400_000, ...visArgs);
     return rows.filter((t) => visible(me, t)).map((t) => ({ ...t, overdue: t.status !== 'done' && t.due_at && t.due_at < ctx.now() }));
   });
 
@@ -66,9 +70,18 @@ export default function (r, ctx) {
       if (body.due_at !== undefined) dueAt = parseDue(body.due_at);
       if (body.assignee_id !== undefined) assignee = v.optInt(body.assignee_id, { min: 1, name: 'Người nhận' });
     }
+    // Đổi người nhận: cùng quy tắc như khi giao việc + báo người mới (rà soát 28/10)
+    const newAssignee = assignee && assignee !== t.assignee_id;
+    if (newAssignee) {
+      const person = ctx.staff(assignee);
+      if (!person || !person.active) fail(400, 'Người nhận không hợp lệ');
+      if (rank(me.role) < rank('shift_lead') && person.team_id !== me.team_id) fail(403, 'Tổ trưởng chỉ giao việc trong tổ của mình');
+    }
+    if (!assignee && !t.team_id) fail(400, 'Chọn người nhận hoặc tổ nhận việc');
     const doneNow = status === 'done' && t.status !== 'done';
     db.prepare('UPDATE tasks SET title = ?, detail = ?, priority = ?, due_at = ?, assignee_id = ?, status = ?, done_by = ?, done_at = ? WHERE id = ?')
       .run(title, detail, priority, dueAt, assignee, status, status === 'done' ? (doneNow ? me.id : t.done_by) : null, status === 'done' ? (doneNow ? ctx.now() : t.done_at) : null, t.id);
+    if (newAssignee && assignee !== me.id && status !== 'done') ctx.notify([assignee], { title: `Việc mới: ${title}`, body: [detail, dueAt ? `Hạn: ${ctx.clock().fmt(dueAt)}` : ''].filter(Boolean).join('\n'), link: '/viec', urgent: priority === 1 });
     if (doneNow && t.created_by && t.created_by !== me.id) ctx.notify(t.created_by, { title: `${me.name} đã xong: ${title}`, link: '/viec' });
     ctx.broadcast('tasks');
     return { ok: true };
