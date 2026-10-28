@@ -269,6 +269,12 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
           if (gate && route.role !== 'owner') me = { ...me, role: gate, real_role: me.role };
         }
         if (route.role) ctx.need(me, route.role);
+        // Chủ quán 28/10: chỉ người ĐANG TRONG CA (đã chấm công vào, chưa chấm ra) mới gọi món / gửi bếp / huỷ / tính tiền.
+        // Chủ quán + quản lý không bị chặn. Bật / tắt ở Cài đặt → Chấm công (pos_need_shift)
+        if (me && req.method !== 'GET' && /^\/api\/(pos|payments)\//.test(pathname) && rank(me.real_role || me.role) < rank('manager')
+          && ctx.setting('pos_need_shift') === '1' && !db.prepare('SELECT 1 FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id)) {
+          fail(403, 'Bạn chưa chấm công vào ca (hoặc đã chấm ra) nên chưa thao tác order / tính tiền được. Chấm công vào ở trang Hôm nay.');
+        }
         try { ctx.seenAtShop?.(me, net); } catch { /* không chặn lệnh */ }
         if (req.method !== 'GET') {
           // Chỉ nhận JSON để chặn trang web lạ gửi lệnh thay người dùng
