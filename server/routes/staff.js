@@ -101,6 +101,7 @@ export default function (r, ctx) {
   r.post('/api/staff/:id/device', 'manager', ({ me, params, body }) => {
     const st = db.prepare('SELECT * FROM staff WHERE id = ?').get(params.id);
     if (!st) fail(404, 'Không tìm thấy nhân viên');
+    if (!canManage(me, st.role) && !(st.id === me.id && rank(realRole(me)) >= rank('manager'))) fail(403, 'Bạn không thể đổi máy chấm công của tài khoản này'); // rà soát 28/10
     if (body.action === 'allow' && st.device_pending) db.prepare("UPDATE staff SET device_id = device_pending, device_pending = '', device_at = ? WHERE id = ?").run(ctx.now(), st.id);
     else db.prepare("UPDATE staff SET device_id = '', device_pending = '', device_at = NULL WHERE id = ?").run(st.id);
     ctx.audit(me, 'staff.device', { id: st.id, action: body.action || 'reset' });
@@ -109,9 +110,17 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
+  // Xét theo chức vụ THẬT (rà soát 28/10): người được nâng quyền (cấp riêng) không đặt PIN / sửa người cùng cấp hoặc cao hơn mình
+  const realRole = (me) => me.real_role || me.role;
   function canManage(me, role) {
     if (me.role === 'owner') return true;
-    return rank(role) < rank(me.role);
+    return rank(role) < rank(realRole(me));
+  }
+  // Đổi lương (rà soát 28/10): chỉ quản lý thật trở lên; lương của chính mình hoặc của quản lý / chủ chỉ chủ quán đổi
+  function canSetPay(me, target) {
+    if (me.role === 'owner') return true;
+    if (rank(realRole(me)) < rank('manager')) return false;
+    return target.id !== me.id && rank(target.role) < rank('manager');
   }
 
   function staffFields(body, current = {}) {
@@ -175,6 +184,7 @@ export default function (r, ctx) {
   r.post('/api/staff', 'manager', ({ me, body }) => {
     const f = staffFields(body);
     if (!canManage(me, f.role)) fail(403, `Bạn không thể tạo tài khoản ${ROLE_LABEL[f.role]}`);
+    if (!canSetPay(me, { id: 0, role: f.role })) { f.payType = 'hour'; f.payRate = 0; } // người được nâng quyền không đặt lương (rà soát 28/10)
     const lookup = validatePin(db, body.pin, f.role);
     const id = tx(db, () => {
       const id = Number(db.prepare(`INSERT INTO staff (name, phone, role, team_id, pin_lookup, pay_type, pay_rate, weekly_limit_hours, zalo_user_id, must_change_pin, created_at)
@@ -202,8 +212,14 @@ export default function (r, ctx) {
     }
     // Đổi lương: ghi lịch sử theo tháng áp dụng; mức đang dùng = mức của tháng hiện tại (đặt trước cho tháng sau không đổi tháng này)
     const thisMonth = ctx.today().slice(0, 7);
-    const payChanged = f.payType !== cur.pay_type || f.payRate !== cur.pay_rate || body.pay_from;
-    if (payChanged && rank(me.role) >= rank('manager')) {
+    let payChanged = f.payType !== cur.pay_type || f.payRate !== cur.pay_rate || body.pay_from;
+    const payOk = canSetPay(me, cur);
+    if (payChanged && !payOk) {
+      // Quản lý thật thấy lương nên báo rõ; người được nâng quyền (không thấy lương) thì giữ nguyên lương cũ (rà soát 28/10)
+      if (rank(realRole(me)) >= rank('manager') && (f.payType !== cur.pay_type || f.payRate !== cur.pay_rate)) fail(403, cur.id === me.id ? 'Chỉ chủ quán đổi được lương của bạn' : 'Chỉ chủ quán đổi được lương của tài khoản này');
+      f.payType = cur.pay_type; f.payRate = cur.pay_rate; payChanged = false;
+    }
+    if (payChanged) {
       const from = body.pay_from && /^\d{4}-\d{2}$/.test(body.pay_from) ? body.pay_from : thisMonth;
       if (!db.prepare('SELECT 1 FROM pay_history WHERE staff_id = ?').get(cur.id)) db.prepare("INSERT INTO pay_history (staff_id, from_month, pay_type, pay_rate, by_staff, at) VALUES (?, '0000-00', ?, ?, ?, ?)").run(cur.id, cur.pay_type || 'hour', cur.pay_rate || 0, me.id, ctx.now());
       db.prepare('INSERT INTO pay_history (staff_id, from_month, pay_type, pay_rate, by_staff, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (staff_id, from_month) DO UPDATE SET pay_type = excluded.pay_type, pay_rate = excluded.pay_rate, by_staff = excluded.by_staff, at = excluded.at')
@@ -225,7 +241,7 @@ export default function (r, ctx) {
         db.prepare('UPDATE staff SET home_zone_id = ? WHERE id = ?').run(hz, cur.id);
         if (hz) db.prepare('UPDATE assignments SET zone_id = ? WHERE staff_id = ? AND date >= ?').run(hz, cur.id, ctx.today()); // ca từ hôm nay trở đi vào khu cố định
       }
-      if (body.pay_rule !== undefined && rank(me.role) >= rank('manager')) db.prepare('UPDATE staff SET pay_rule = ? WHERE id = ?').run(body.pay_rule === null || body.pay_rule === '' ? null : (v.bool(body.pay_rule) ? 1 : 0), cur.id);
+      if (body.pay_rule !== undefined && payOk) db.prepare('UPDATE staff SET pay_rule = ? WHERE id = ?').run(body.pay_rule === null || body.pay_rule === '' ? null : (v.bool(body.pay_rule) ? 1 : 0), cur.id);
       if (body.pin) {
         db.prepare('UPDATE staff SET pin_lookup = ?, must_change_pin = 1 WHERE id = ?').run(validatePin(db, body.pin, f.role, cur.id), cur.id);
       }

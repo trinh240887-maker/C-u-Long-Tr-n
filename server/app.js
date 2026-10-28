@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { brotliCompressSync, gzipSync, constants as zlibConstants } from 'node:zlib';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import nodeNet from 'node:net';
 import { HttpError, fail, createRouter, readJson, readCookie, sendJson } from './http.js';
 import { rank, ROLE_LABEL } from './db.js';
 import { makeClock } from './lib/time.js';
@@ -124,11 +125,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   }
 
   function clientIp(req) {
-    // Qua Cloudflare Tunnel: có header cf-connecting-ip → là truy cập từ xa
-    const cf = req.headers['cf-connecting-ip'];
-    // Chạy sau proxy của nhà cung cấp cloud (Railway, Render…): đặt TRUST_PROXY=1 để lấy IP thật của người dùng
-    const fwd = process.env.TRUST_PROXY === '1' ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
-    return { ip: String(cf || fwd || req.socket.remoteAddress || '').replace(/^::ffff:/, ''), remote: Boolean(cf) };
+    return resolveClientIp(req.headers, req.socket.remoteAddress, process.env.TRUST_PROXY === '1');
   }
 
   ctx.login = (req, res, staff) => {
@@ -139,15 +136,25 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   };
   // Chặn đoán PIN. Cả quán dùng chung wifi (chung IP) nên khoá theo IP + SỐ ĐIỆN THOẠI: 1 bạn nhập sai 5 lần chỉ khoá
   // số của bạn đó 2 phút; cả IP chỉ bị khoá khi sai rất nhiều (30 lần / 10 phút, dấu hiệu dò mã)
+  // Dọn các lượt sai đã hết hạn để Map không phình mãi (rà soát 28/10)
+  let lastPrune = 0;
+  const pruneFailed = () => {
+    const t = now();
+    if (t - lastPrune < 60_000 && failedLogins.size < 5000) return;
+    lastPrune = t;
+    for (const [k, f] of failedLogins) if (f.until <= t && t - (f.first || 0) > 15 * 60_000) failedLogins.delete(k);
+  };
   ctx.loginGuard = {
     key: (ip, phone) => `${ip}|${phone || ''}`,
     check(ip, phone) {
+      pruneFailed();
       for (const k of [ctx.loginGuard.key(ip, phone), `${ip}|*`]) {
         const f = failedLogins.get(k);
         if (f && f.until > now()) fail(429, `Nhập sai quá nhiều lần. Thử lại sau ${Math.ceil((f.until - now()) / 60000)} phút`);
       }
     },
     failed(ip, phone) {
+      pruneFailed();
       const bump = (k, max, lockMs, windowMs) => {
         let f = failedLogins.get(k);
         if (!f || (f.first && now() - f.first > windowMs)) f = { count: 0, until: 0, first: now() };
@@ -159,6 +166,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
       bump(`${ip}|*`, 30, 5 * 60_000, 10 * 60_000);
     },
     ok(ip, phone) { failedLogins.delete(ctx.loginGuard.key(ip, phone)); },
+    size: () => failedLogins.size,
   };
 
   // File giao diện: nén (brotli / gzip) + ETag → lần sau điện thoại chỉ hỏi "có đổi không" (304), không tải lại.
@@ -257,7 +265,8 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
           // Phân quyền từng mục (Cài đặt → Phân quyền): chặn mục bị bỏ, nâng quyền cho người được cấp riêng (không bao giờ thành chủ)
           const gate = apiGate(ctx, me, req.method, pathname);
           if (gate === 'deny') fail(403, 'Bạn chưa được cấp quyền mục này');
-          if (gate && route.role !== 'owner') me = { ...me, role: gate };
+          // real_role = chức vụ thật (rà soát 28/10): lệnh nhạy cảm (đặt PIN, lương, sửa người cấp cao) xét theo chức vụ thật, không theo quyền được nâng
+          if (gate && route.role !== 'owner') me = { ...me, role: gate, real_role: me.role };
         }
         if (route.role) ctx.need(me, route.role);
         try { ctx.seenAtShop?.(me, net); } catch { /* không chặn lệnh */ }
@@ -292,4 +301,42 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
   }
 
   return { handler, close, ctx };
+}
+
+// IP thật của người dùng (rà soát 28/10). Trước đây tin thẳng header cf-connecting-ip / X-Forwarded-For đầu tiên → ai cũng giả được IP
+// (vượt khoá dò PIN, giả wifi quán khi chấm công). Giờ:
+// - Sau proxy cloud (TRUST_PROXY=1, Railway): lấy X-Forwarded-For từ PHẢI sang, bỏ qua các chặng mạng nội bộ của proxy → địa chỉ do proxy ghi thêm.
+// - Chỉ tin cf-connecting-ip khi chặng ngay trước là máy của Cloudflare (dải IP công bố bên dưới), hoặc cloudflared chạy ngay trên máy này (127.0.0.1, máy chủ ở quán).
+// Dải IP Cloudflare: https://www.cloudflare.com/ips-v4 và /ips-v6 (cập nhật khi Cloudflare đổi).
+export const CLOUDFLARE_RANGES = [
+  '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20',
+  '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+  '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32', '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32',
+];
+const PRIVATE_RANGES = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', 'fc00::/7', 'fe80::/10', '::1/128'];
+const mkList = (ranges) => {
+  const bl = new nodeNet.BlockList();
+  for (const r of ranges) { const [a, n] = r.split('/'); bl.addSubnet(a, Number(n), nodeNet.isIPv6(a) ? 'ipv6' : 'ipv4'); }
+  return bl;
+};
+const CF_LIST = mkList(CLOUDFLARE_RANGES);
+const PRIVATE_LIST = mkList(PRIVATE_RANGES);
+const normIp = (x) => String(x || '').trim().replace(/^::ffff:(?=\d+\.)/i, '');
+const inList = (bl, ip) => { const f = nodeNet.isIP(ip); return f ? bl.check(ip, f === 6 ? 'ipv6' : 'ipv4') : false; };
+export const isCloudflareIp = (ip) => inList(CF_LIST, normIp(ip));
+
+export function resolveClientIp(headers, socketAddr, trustProxy) {
+  const sock = normIp(socketAddr);
+  let peer = sock;
+  if (trustProxy) {
+    const hops = String(headers['x-forwarded-for'] || '').split(',').map(normIp).filter(Boolean);
+    for (let i = hops.length - 1; i >= 0; i--) {
+      if (!nodeNet.isIP(hops[i])) break; // giá trị lạ: dừng, không đi tiếp vào phần người dùng tự ghi
+      peer = hops[i];
+      if (!inList(PRIVATE_LIST, hops[i])) break;
+    }
+  }
+  const cf = normIp(Array.isArray(headers['cf-connecting-ip']) ? headers['cf-connecting-ip'][0] : headers['cf-connecting-ip']);
+  const viaCf = Boolean(cf && nodeNet.isIP(cf) && (isCloudflareIp(peer) || (!trustProxy && /^(127\.|::1$)/.test(sock))));
+  return { ip: viaCf ? cf : peer, remote: viaCf };
 }

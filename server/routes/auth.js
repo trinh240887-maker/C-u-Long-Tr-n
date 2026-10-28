@@ -7,6 +7,9 @@ export function pinRule(role) {
   return rank(role) >= rank('manager') ? { min: 6, label: '6 đến 8 chữ số' } : { min: 4, label: '4 đến 8 chữ số' };
 }
 
+// Trùng PIN người khác: báo chung chung, không lộ "đã có người dùng" (chống dò PIN của người khác, rà soát 28/10)
+export const PIN_TAKEN_MSG = 'Mã PIN này không dùng được, chọn mã khác';
+
 export function validatePin(db, pin, role, exceptStaffId = null) {
   const s = String(pin ?? '');
   const rule = pinRule(role);
@@ -14,12 +17,21 @@ export function validatePin(db, pin, role, exceptStaffId = null) {
   if (/^(\d)\1+$/.test(s) || '0123456789'.includes(s) || '9876543210'.includes(s)) fail(400, 'Mã PIN quá dễ đoán (số lặp lại hoặc liên tiếp)');
   const lookup = pinLookup(db, s);
   const taken = db.prepare('SELECT id FROM staff WHERE pin_lookup = ? AND id IS NOT ?').get(lookup, exceptStaffId);
-  if (taken) fail(400, 'Mã PIN này đã có người dùng, hãy chọn mã khác');
+  if (taken) fail(400, PIN_TAKEN_MSG);
   return lookup;
 }
 
 export default function (r, ctx) {
   const { db } = ctx;
+  // Đổi PIN: tối đa 5 lần bị từ chối (sai PIN hiện tại / PIN mới không dùng được) mỗi 10 phút / người (rà soát 28/10)
+  const pinTries = new Map();
+  const PIN_MAX = 5, PIN_WINDOW = 10 * 60_000;
+  const pinTry = (id) => {
+    const t = ctx.now();
+    for (const [k, f] of pinTries) if (t - f.first > PIN_WINDOW) pinTries.delete(k);
+    return pinTries.get(id);
+  };
+  const pinFail = (id) => { const f = pinTry(id) || { n: 0, first: ctx.now() }; f.n++; pinTries.set(id, f); };
 
   r.post('/api/login', null, ({ req, res, body, net }) => {
     const pin = String(body.pin ?? '');
@@ -41,7 +53,8 @@ export default function (r, ctx) {
     }
     if (!st) {
       ctx.loginGuard.failed(net.ip, phone);
-      fail(401, st0 && !phone ? 'Nhập số điện thoại của bạn rồi nhập PIN' : phone ? 'Số điện thoại hoặc mã PIN không đúng. Nếu bạn đã đổi PIN lần đầu, nhập PIN mới; quên PIN thì nhờ quản lý đặt lại' : 'Mã PIN không đúng');
+      // Không gõ SĐT: PIN đúng (tài khoản cần SĐT) hay sai đều báo cùng 1 câu → không dò được PIN có tồn tại (rà soát 28/10)
+      fail(401, phone ? 'Số điện thoại hoặc mã PIN không đúng. Nếu bạn đã đổi PIN lần đầu, nhập PIN mới; quên PIN thì nhờ quản lý đặt lại' : 'Nhập số điện thoại rồi nhập mã PIN của bạn (tài khoản chưa có số điện thoại: mã PIN không đúng, kiểm tra lại)');
     }
     ctx.loginGuard.ok(net.ip, phone);
     ctx.login(req, res, st);
@@ -68,11 +81,16 @@ export default function (r, ctx) {
     };
   });
 
-  r.post('/api/me/pin', 'staff', ({ me, body }) => {
+  r.post('/api/me/pin', 'staff', ({ me, body, token }) => {
+    const tries = pinTry(me.id);
+    if (tries && tries.n >= PIN_MAX) fail(429, `Bạn đổi PIN sai quá nhiều lần. Thử lại sau ${Math.max(1, Math.ceil((tries.first + PIN_WINDOW - ctx.now()) / 60000))} phút`);
     const current = db.prepare('SELECT pin_lookup FROM staff WHERE id = ?').get(me.id).pin_lookup;
-    if (pinLookup(db, String(body.current_pin ?? '')) !== current) fail(400, 'Mã PIN hiện tại không đúng');
-    const lookup = validatePin(db, body.new_pin, me.role, me.id);
+    if (pinLookup(db, String(body.current_pin ?? '')) !== current) { pinFail(me.id); fail(400, 'Mã PIN hiện tại không đúng'); }
+    let lookup;
+    try { lookup = validatePin(db, body.new_pin, me.real_role || me.role, me.id); } catch (e) { if (e.message === PIN_TAKEN_MSG) pinFail(me.id); throw e; }
     db.prepare('UPDATE staff SET pin_lookup = ?, must_change_pin = 0 WHERE id = ?').run(lookup, me.id);
+    // Đổi PIN → đăng xuất các máy khác của người này, giữ phiên đang dùng (rà soát 28/10)
+    db.prepare('DELETE FROM sessions WHERE staff_id = ? AND token IS NOT ?').run(me.id, token ?? null);
     ctx.audit(me, 'pin.change');
     return { ok: true };
   });
