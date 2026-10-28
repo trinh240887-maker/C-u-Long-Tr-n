@@ -626,7 +626,10 @@ function ActsFor({ id, staff, onDone }) {
   const d = useData(`/api/permissions/acts?staff_id=${id}`);
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (d.data) setDraft(Object.fromEntries(d.data.groups.flatMap((g) => g.acts.map((a) => [a.key, a.on])))); }, [d.data]);
+  // Chỉ lấy lại từ máy chủ khi chưa có bản nháp (mở lần đầu / vừa lưu): app tự tải lại mỗi khi có thao tác trong quán,
+  // trước đây làm mất các ô vừa tick chưa kịp lưu (chủ quán 28/10)
+  const noDraft = draft === null;
+  useEffect(() => { if (d.data && noDraft) setDraft(Object.fromEntries(d.data.groups.flatMap((g) => g.acts.map((a) => [a.key, a.on])))); }, [d.data, noDraft]);
   if (!d.data || !draft) return html`<${Loading} state=${d} />`;
   const x = d.data;
   if (x.owner) return html`<p class="muted">Chủ quán luôn có mọi quyền.</p>`;
@@ -634,7 +637,7 @@ function ActsFor({ id, staff, onDone }) {
   const changed = all.filter((a) => draft[a.key] !== a.on).length;
   const save = async () => {
     setBusy(true);
-    try { await act(() => api('PUT', '/api/permissions/acts', { staff_id: id, overrides: Object.fromEntries(all.map((a) => [a.key, draft[a.key] === a.def ? null : draft[a.key]])) }), `Đã lưu quyền của ${x.staff.name}`); } finally { setBusy(false); }
+    try { const r = await act(() => api('PUT', '/api/permissions/acts', { staff_id: id, overrides: Object.fromEntries(all.map((a) => [a.key, draft[a.key] === a.def ? null : draft[a.key]])) }), `Đã lưu quyền của ${x.staff.name}`); void r; } finally { setBusy(false); }
   };
   const copyFrom = async (otherId) => {
     if (!otherId) return;
@@ -658,7 +661,7 @@ function ActsFor({ id, staff, onDone }) {
         <span class="grow">${a.label}${(draft[a.key] !== a.def) ? html` <b class="warn-text">•</b>` : null}</span></label>`)}
     </details>`; })}
     <div class="row wrap end" style="position:sticky;bottom:0;background:var(--bg, #fff);padding:8px 0">
-      <button class="link small" onClick=${async () => { if (await act(() => api('PUT', '/api/permissions/acts', { staff_id: id, reset: true }), 'Đã về mặc định')) setDraft(null); }}>↺ Về hết mặc định</button>
+      <button class="link small" onClick=${async () => { if (await act(() => api('PUT', '/api/permissions/acts', { staff_id: id, reset: true }), 'Đã về mặc định')) setDraft(Object.fromEntries(all.map((a) => [a.key, a.def]))); }}>↺ Về hết mặc định</button>
       <button class="primary" disabled=${busy || !changed} onClick=${save}>${changed ? `Lưu ${changed} thay đổi` : 'Đã lưu'}</button></div>
   </div>`;
 }
@@ -704,7 +707,9 @@ function Perms({ staffId }) {
   const [cfg, setCfg] = useState(null);
   const [who, setWho] = useState(staffId || null);
   const [matrix, setMatrix] = useState(false);
-  useEffect(() => { if (d.data) setCfg(Object.fromEntries(d.data.pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny, teams: p.teams }]))); }, [d.data]);
+  // Chỉ nạp lần đầu: tải lại tự động không được xoá phần đang sửa chưa lưu (chủ quán 28/10)
+  const noCfg = cfg === null;
+  useEffect(() => { if (d.data && noCfg) setCfg(Object.fromEntries(d.data.pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny, teams: p.teams }]))); }, [d.data, noCfg]);
   if (!d.data || !cfg) return html`<${Loading} state=${d} />`;
   const { roles, pages, staff, teams = [] } = d.data;
   const orig = JSON.stringify(Object.fromEntries(pages.map((p) => [p.path, { roles: p.roles, allow: p.allow, deny: p.deny, teams: p.teams }])));

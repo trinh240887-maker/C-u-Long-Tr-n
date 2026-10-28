@@ -177,7 +177,10 @@ function Restock({ meta }) {
   const [store, setStore] = useState(meta.stores.find((s) => s.code === 'BEP')?.id);
   const d = useData(store ? `/api/wh/restock?store=${store}` : null);
   const [lines, setLines] = useState(null);
-  useEffect(() => { if (d.data) setLines(d.data.map((x) => ({ ingredient_id: x.ingredient_id, qty: x.give, note: `mức chuẩn ${x.par}, đang có ${x.have}` }))); }, [d.data]);
+  // Chỉ nạp gợi ý khi đổi kho, không xoá phần đang sửa khi app tự tải lại (chủ quán 28/10)
+  const [loadedFor, setLoadedFor] = useState(null);
+  const rKey = d.data ? `${store}|${d.data.map((x) => x.ingredient_id).join(',')}` : null;
+  useEffect(() => { if (d.data && loadedFor !== rKey) { setLoadedFor(rKey); setLines(d.data.map((x) => ({ ingredient_id: x.ingredient_id, qty: x.give, note: `mức chuẩn ${x.par}, đang có ${x.have}` }))); } }, [d.data, rKey]);
   const sv = useSaver();
   const save = () => sv.run({ type: 'XB', to_store: store, lines: clean(lines) }, [], 'Đã xuất, chờ bếp trưởng / trưởng quầy ký nhận');
   return html`<div class="stack"><h3>📤 Xuất bù đầu ca</h3><p class="small muted">App tự tính = mức chuẩn − tồn hiện tại (không vượt tồn kho chính).</p>

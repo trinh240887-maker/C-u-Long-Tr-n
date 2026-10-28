@@ -15,7 +15,10 @@ function Mine({ week, onWeek, staffId = null, onDone = null }) {
   const [fixed, setFixed] = useState(false);
   const tplD = useData('/api/shift-templates');
   const [editDay, setEditDay] = useState(null);
-  useEffect(() => { if (st.data) { setPicks(st.data.picks); setNote(st.data.auto ? '' : st.data.note); setFixed(Object.keys(st.data.fixed || {}).length > 0); } }, [st.data]);
+  // Chỉ nạp lại khi đổi tuần / đổi người: app tự tải lại mỗi khi có thao tác, không được xoá ô đang tick dở (chủ quán 28/10)
+  const [loaded, setLoaded] = useState('');
+  const key = `${qs}|${st.data?.week_start || ''}`;
+  useEffect(() => { if (st.data && loaded !== key) { setLoaded(key); setPicks(st.data.picks); setNote(st.data.auto ? '' : st.data.note); setFixed(Object.keys(st.data.fixed || {}).length > 0); } }, [st.data, key]);
   if (!st.data || !picks) return html`<${Loading} state=${st} />`;
   const d = st.data;
   // Mỗi ngày bấm chọn KHUNG GIỜ LÀM CỦA QUÁN (loại ca: 06h–14h, 14h–22h…), chọn được nhiều (không cho tự ghi giờ, chủ quán chốt). Không chọn = bận
