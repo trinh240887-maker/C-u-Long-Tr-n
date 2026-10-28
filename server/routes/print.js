@@ -167,6 +167,13 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
+  // Màn Phiếu bếp (nhân viên bếp / bar) chỉ cần biết cầu in còn chạy không (rà soát 28/10):
+  // /api/print/status cần trưởng ca (có mã khoá, IP máy in) → bếp bị 403, không hiện cảnh báo mất máy in
+  r.get('/api/print/online', 'staff', () => {
+    const seen = Number(ctx.setting('print_bridge_seen') || 0);
+    return { bridge_online: !!seen && ctx.now() - seen < 20_000 };
+  });
+
   // ---------- Quản lý xem ----------
   r.get('/api/print/status', 'shift_lead', ({ me }) => {
     const seen = Number(ctx.setting('print_bridge_seen') || 0);

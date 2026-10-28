@@ -24,6 +24,9 @@ export default function (r, ctx) {
       s.pay_method, s.bill_snapshot, s.opened_by, st.name AS opened_by_name
     FROM table_sessions s LEFT JOIN staff st ON st.id = s.opened_by WHERE s.status = 'closed' AND s.closed_date BETWEEN ? AND ?`).all(from, to);
 
+  // Khoảng thời gian theo ngày kinh doanh (mốc 5h sáng, rà soát 28/10), giống closed_date của bill
+  const dayRange = (from, to) => { const c = ctx.clock(); return [c.toEpoch(from, c.cutoffHour * 60), c.toEpoch(addDays(to, 1), c.cutoffHour * 60)]; };
+
   function summary(from, to, list = bills(from, to)) {
     const sum = (f) => list.reduce((n, b) => n + (Number(f(b)) || 0), 0);
     const snap = (b) => { try { return JSON.parse(b.bill_snapshot || '{}'); } catch { return {}; } };
@@ -31,7 +34,7 @@ export default function (r, ctx) {
     const revenue = sum((b) => b.paid_total);
     const dwell = list.map((b) => (b.closed_at - b.opened_at) / 60_000).filter((d) => d > 5 && d < 300);
     const cancelled = db.prepare(`SELECT COUNT(*) AS c, COALESCE(SUM(i.unit_price * i.qty), 0) AS v FROM table_sessions s JOIN order_items i ON i.session_id = s.id
-      WHERE s.status = 'cancelled' AND i.sent_at IS NOT NULL AND s.closed_at >= ? AND s.closed_at < ?`).get(ctx.clock().toEpoch(from, 0), ctx.clock().toEpoch(addDays(to, 1), 0));
+      WHERE s.status = 'cancelled' AND i.sent_at IS NOT NULL AND s.closed_at >= ? AND s.closed_at < ?`).get(...dayRange(from, to));
     return {
       bills: list.length,
       gross: sum((b) => snap(b).subtotal ?? b.paid_total),
@@ -94,7 +97,11 @@ export default function (r, ctx) {
         lineDisc.set(itemId, (lineDisc.get(itemId) || 0) + p.amount);
         const x = promos.get(p.name) || { name: p.name, count: 0, amount: 0 }; x.count++; x.amount += p.amount; promos.set(p.name, x);
       }
-      if (s.bill?.amount) { const x = promos.get(s.bill.name) || { name: s.bill.name, count: 0, amount: 0 }; x.count++; x.amount += s.bill.amount; promos.set(s.bill.name, x); }
+      // KM bill: bản chụp lưu dạng mảng [bill] (lib/promo.js), bill cũ có thể là 1 đối tượng (rà soát 28/10)
+      for (const bp of [].concat(s.bill || [])) {
+        if (!bp?.amount) continue;
+        const x = promos.get(bp.name) || { name: bp.name, count: 0, amount: 0 }; x.count++; x.amount += bp.amount; promos.set(bp.name, x);
+      }
     }
     const items = new Map();
     const cats = new Map();

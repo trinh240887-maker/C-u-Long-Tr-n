@@ -44,6 +44,7 @@ export function PayModal({ me, id, onClose, onDone, defaultMethod = 'transfer' }
   const [cashPart, setCashPart] = useState('');
   const [keep, setKeep] = useState(false);
   const [tipCk, setTipCk] = useState('');
+  const [busy, setBusy] = useState(false); // chống bấm 2 lần khi đang gửi (rà soát 28/10)
   if (!st.data) return html`<${Modal} title="Tính tiền" onClose=${onClose}><${Loading} state=${st} /><//>`;
   const b = st.data;
   // Ngân hàng báo tiền về trong lúc đang mở bảng này → bill tự đóng
@@ -59,19 +60,23 @@ export function PayModal({ me, id, onClose, onDone, defaultMethod = 'transfer' }
   }
   const cash = num(given);
   const part = Math.min(num(cashPart), b.total);
+  // Đã nhận CK một phần (ngân hàng báo về): tiền mặt chỉ thu phần còn lại (rà soát 28/10)
+  const due = Math.max(0, b.total - (b.bank_received || 0));
   const pay = async (confirm = false) => {
-    const body = { method, cash_given: method === 'cash' ? cash || '' : undefined, keep_change: method === 'cash' && keep && cash > b.total, cash_amount: method === 'mixed' ? part : undefined, confirm_unserved: confirm, tip_transfer: method !== 'cash' && num(tipCk) ? num(tipCk) : undefined, print: cashier && method !== 'transfer' };
+    if (busy && !confirm) return;
+    const body = { method, cash_given: method === 'cash' ? cash || '' : undefined, keep_change: method === 'cash' && keep && cash > due, cash_amount: method === 'mixed' ? part : undefined, confirm_unserved: confirm, tip_transfer: method !== 'cash' && num(tipCk) ? num(tipCk) : undefined, print: cashier && method !== 'transfer' };
+    setBusy(true);
     try {
       const r = await api('POST', `/api/pos/sessions/${id}/pay`, body);
       if (r.waiting) { toast('Đã báo thu ngân, chờ xác nhận tiền về'); onClose(); return; }
       onDone(r);
     } catch (e) {
-      if (e.status === 409 && confirm_(e.message)) return pay(true);
-      if (e.status !== 409) act(() => Promise.reject(e));
-    }
+      if (e.status === 409 && /chưa bấm/.test(e.message)) { if (confirm_(e.message)) return pay(true); return; }
+      act(() => Promise.reject(e));
+    } finally { setBusy(false); }
   };
   const printBill = () => act(() => api('POST', `/api/pos/sessions/${id}/print-bill`), 'Đã gửi in bill');
-  const rounds = [...new Set([b.total, Math.ceil(b.total / 50000) * 50000, Math.ceil(b.total / 100000) * 100000, Math.ceil(b.total / 500000) * 500000, 1000000].filter((x) => x >= b.total))].slice(0, 4);
+  const rounds = [...new Set([due, Math.ceil(due / 50000) * 50000, Math.ceil(due / 100000) * 100000, Math.ceil(due / 500000) * 500000, 1000000].filter((x) => x >= due))].slice(0, 4);
   const qrData = method === 'mixed' ? null : b.qr;
   return html`<${Modal} title=${`Tính tiền bàn ${b.header} · bill ${b.bill_no}`} onClose=${onClose}>
     <div class="stack">
@@ -88,26 +93,28 @@ export function PayModal({ me, id, onClose, onDone, defaultMethod = 'transfer' }
           : html`<p class="muted small">Khách quét mã trên màn hình hoặc bill in. Thấy màn hình app ngân hàng của khách báo chuyển thành công thì bấm nút dưới. Thu ngân đối soát với sao kê sau.</p>`}
         ${!b.sepay ? html`<${Field} label="Khách CK thêm tip (nếu có)" hint="Thu ngân lấy đúng số này tiền mặt trong két bỏ thùng tip. App tự trừ khỏi két phải có.">
           <input inputmode="numeric" placeholder="0" value=${tipCk} onInput=${(e) => setTipCk(e.target.value)} /><//>` : null}
-        ${cashier ? html`<button class=${`${b.sepay ? '' : 'primary'} big`} disabled=${b.unsent} onClick=${() => pay()}>${b.sepay ? 'Khách đã CK, chờ tiền về · mở bàn' : '✓ Đã nhận CK · đóng bill'}</button>`
+        ${cashier ? html`<button class=${`${b.sepay ? '' : 'primary'} big`} disabled=${b.unsent || busy} onClick=${() => pay()}>${b.sepay ? 'Khách đã CK, chờ tiền về · mở bàn' : '✓ Đã nhận CK · đóng bill'}</button>`
           : html`<p class="hint card small">Khách CK xong: <b>chụp màn hình chuyển khoản gửi nhóm thu ngân</b>. Thu ngân duyệt là bill đóng, bàn trống.</p>`}
       </div>` : null}
       ${method === 'cash' && !cashier ? html`<div class="stack center">
-        <div class="total-big">Báo khách: <b>${money(b.total)}</b></div>
+        <div class="total-big">Báo khách: <b>${money(due)}</b></div>
+        ${b.bank_received ? html`<p class="warn-text small">Ngân hàng đã báo nhận CK ${money(b.bank_received)}: chỉ thu tiền mặt phần còn lại.</p>` : null}
         <p class="hint card small">Nhận tiền của khách, <b>đem lại quầy cho thu ngân</b>. Thu ngân xác nhận là in bill đưa khách, bàn trống.</p>
       </div>` : null}
       ${method === 'cash' && cashier ? html`<div class="stack">
-        <${Field} label="Khách đưa"><input inputmode="numeric" placeholder=${money(b.total)} value=${given} onInput=${(e) => setGiven(e.target.value)} /><//>
+        ${b.bank_received ? html`<p class="warn-text small">Ngân hàng đã báo nhận CK ${money(b.bank_received)}: chỉ thu tiền mặt <b>${money(due)}</b>.</p>` : null}
+        <${Field} label="Khách đưa"><input inputmode="numeric" placeholder=${money(due)} value=${given} onInput=${(e) => setGiven(e.target.value)} /><//>
         <div class="chips">${rounds.map((x) => html`<button class="chip" onClick=${() => setGiven(String(x))}>${money(x)}</button>`)}</div>
-        ${cash ? html`<div class="row between total"><b>Tiền thối</b><b class=${`num ${cash < b.total ? 'danger-text' : ''}`}>${cash < b.total ? `Thiếu ${money(b.total - cash)}` : keep ? '0đ (tip)' : money(cash - b.total)}</b></div>` : null}
-        ${cash > b.total ? html`<label class="check-row"><input type="checkbox" checked=${keep} onChange=${(e) => setKeep(e.target.checked)} /> Khách không lấy tiền thối → ${money(cash - b.total)} vào tip quỹ chung</label>` : null}
+        ${cash ? html`<div class="row between total"><b>Tiền thối</b><b class=${`num ${cash < due ? 'danger-text' : ''}`}>${cash < due ? `Thiếu ${money(due - cash)}` : keep ? '0đ (tip)' : money(cash - due)}</b></div>` : null}
+        ${cash > due ? html`<label class="check-row"><input type="checkbox" checked=${keep} onChange=${(e) => setKeep(e.target.checked)} /> Khách không lấy tiền thối → ${money(cash - due)} vào tip quỹ chung</label>` : null}
         <p class="muted small">Tiền vào thẳng két. Bấm xong máy <b>tự in bill</b> đưa khách.</p>
-        <button class="primary big" disabled=${b.unsent || (cash && cash < b.total)} onClick=${() => pay()}>✓ Đã thu tiền mặt · đóng bill + in bill</button>
+        <button class="primary big" disabled=${b.unsent || busy || (cash && cash < due)} onClick=${() => pay()}>✓ Đã thu tiền mặt · đóng bill + in bill</button>
       </div>` : null}
       ${method === 'mixed' && cashier ? html`<div class="stack">
         <${Field} label="Phần tiền mặt"><input inputmode="numeric" placeholder="vd 100000" value=${cashPart} onInput=${(e) => setCashPart(e.target.value)} /><//>
         ${part > 0 && part < b.total ? html`<div class="stack center"><div>Chuyển khoản phần còn lại: <b>${money(b.total - part)}</b></div>
           <${MixedQR} id=${id} amount=${b.total - part} b=${b} /></div>` : html`<p class="muted small">Nhập số tiền mặt khách đưa, phần còn lại khách chuyển khoản.</p>`}
-        <button class="primary big" disabled=${b.unsent || !(part > 0 && part < b.total)} onClick=${() => pay()}>✓ Đã thu đủ · đóng bill</button>
+        <button class="primary big" disabled=${b.unsent || busy || !(part > 0 && part < b.total)} onClick=${() => pay()}>✓ Đã thu đủ · đóng bill</button>
       </div>` : null}
       <div class="row between"><button onClick=${printBill}>🖨 In bill${method === 'transfer' ? ' (có QR)' : ''}</button><button onClick=${onClose}>Thôi</button></div>
     </div>
@@ -281,6 +288,13 @@ export function CashierView({ me }) {
   const groups = Object.values(d.held.reduce((g, x) => { (g[x.closed_by] ||= { name: x.staff_name, bills: [] }).bills.push(x); return g; }, {}));
   const unmatched = d.txns.filter((t) => t.direction === 'in' && ['unmatched', 'review'].includes(t.status));
   const outs = d.txns.filter((t) => t.direction === 'out');
+  // Còn bàn đang mở: máy chủ chặn (409); chủ quán được chọn vẫn chốt, tiền bàn trả sau ghi sang ngày mai (rà soát 28/10)
+  const closeDay = async () => {
+    try { await api('POST', '/api/payments/close-day', { date }); toast('Đã chốt doanh thu, đã báo chủ quán'); bump(); } catch (e) {
+      if (e.status === 409 && me.role === 'owner' && window.confirm(`${e.message}\n\nVẫn chốt ngày?`)) return act(() => api('POST', '/api/payments/close-day', { date, force: true }), 'Đã chốt doanh thu');
+      toast(e.message, true);
+    }
+  };
   const blockers = [
     s.opening == null && 'nhập tiền két đầu ngày',
     groups.length && `xác nhận tiền mặt của ${groups.length} người`,
@@ -299,6 +313,7 @@ export function CashierView({ me }) {
     <div class="card row wrap between tip-strip"><span>Doanh thu <b class="num">${money(s.net)}</b> <small class="muted">(${s.bills} bill)</small></span>
       <span>💰 Tip hôm nay <b class="num">${money((s.tip_cash || 0) + (s.tip_transfer || 0))}</b> <small class="muted">TM ${money(s.tip_cash || 0)} · CK ${money(s.tip_transfer || 0)}</small></span></div>
     ${d.open_tables ? html`<p class="muted small">Đang còn ${d.open_tables} bàn chưa tính tiền.</p>` : null}
+    ${locked && date === me.today ? html`<button class="link small" onClick=${() => setDate(addDays(date, 1))}>Ngày này đã chốt: bill / hoàn tiền / nhận tiền sau giờ chốt ghi sang ngày ${dayLabel(addDays(date, 1))} › xem</button>` : null}
     ${!locked ? html`<${WaitingTables} me=${me} />` : null}
 
     <section class=${`card stack ${s.opening == null && !locked ? 'warn-card' : ''}`}>
@@ -371,7 +386,7 @@ export function CashierView({ me }) {
 
     ${!locked ? html`<section class="card stack">
       ${blockers.length ? html`<b>Trước khi chốt ngày còn phải:</b>${blockers.map((x) => html`<div class="small warn-text">• ${x}</div>`)}` : html`<span class="ok-text small">Đủ điều kiện chốt ngày.</span>`}
-      <button class="primary big" disabled=${blockers.length > 0} onClick=${() => confirm(`Chốt doanh thu ${money(s.net)}? Sau khi chốt không sửa được nữa, chủ quán nhận báo cáo.`) && act(() => api('POST', '/api/payments/close-day', { date }), 'Đã chốt doanh thu, đã báo chủ quán')}>✓ Xác nhận & chốt doanh thu ngày</button>
+      <button class="primary big" disabled=${blockers.length > 0} onClick=${() => confirm(`Chốt doanh thu ${money(s.net)}? Sau khi chốt không sửa được nữa, chủ quán nhận báo cáo.`) && closeDay()}>✓ Xác nhận & chốt doanh thu ngày</button>
     </section>` : null}
 
     <section class="card stack"><h3>Tất cả bill (${d.bills.length})</h3>

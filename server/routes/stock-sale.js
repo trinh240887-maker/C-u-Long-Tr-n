@@ -106,15 +106,45 @@ export default function (r, ctx) {
   };
 
   // Huỷ trong thời gian ân hạn → trả lại kho
-  ctx.restoreSale = (me, item) => {
+  // fraction (rà soát 28/10): trả 1 phần (vd hoàn 1/3 phần của món); tính trên phần CHƯA trả kho = đã trừ − đã trả (ref cancel:<id>)
+  ctx.restoreSale = (me, item, { fraction = 1 } = {}) => {
     if (!enabled() || !item.menu_item_id) return;
-    const moves = db.prepare("SELECT * FROM stock_moves WHERE ref = ? AND type = 'consume'").all(`sale:${item.id}`);
-    db.prepare('DELETE FROM sale_usage WHERE ref = ?').run(`sale:${item.id}`);
-    for (const m of moves) {
-      addLot(db, { storeId: m.from_store, ingredientId: m.ingredient_id, qty: m.qty, at: ctx.now() });
-      recordMove(db, { at: ctx.now(), date: ctx.today(), type: 'adjust', ingredientId: m.ingredient_id, toStore: m.from_store, qty: m.qty, ref: `cancel:${item.id}`, staffId: me?.id ?? null, note: `Huỷ ${item.name} trước khi làm` });
+    const f = Math.max(0, Math.min(1, fraction));
+    if (f <= 0) return;
+    const ref = `sale:${item.id}`;
+    const groups = db.prepare(`SELECT ingredient_id, from_store, SUM(qty) AS q FROM stock_moves WHERE ref = ? AND type = 'consume' GROUP BY ingredient_id, from_store`).all(ref);
+    const back = db.prepare("SELECT COALESCE(SUM(qty), 0) AS q FROM stock_moves WHERE ref = ? AND type = 'adjust' AND ingredient_id = ? AND to_store IS ?");
+    if (f >= 1) db.prepare('DELETE FROM sale_usage WHERE ref = ?').run(ref);
+    else db.prepare('UPDATE sale_usage SET qty = qty * ? WHERE ref = ?').run(1 - f, ref);
+    for (const g of groups) {
+      const left = g.q - back.get(`cancel:${item.id}`, g.ingredient_id, g.from_store).q;
+      const qty = Math.round(left * f * 1000) / 1000;
+      if (qty <= 1e-9) continue;
+      addLot(db, { storeId: g.from_store, ingredientId: g.ingredient_id, qty, at: ctx.now() });
+      recordMove(db, { at: ctx.now(), date: ctx.today(), type: 'adjust', ingredientId: g.ingredient_id, toStore: g.from_store, qty, ref: `cancel:${item.id}`, staffId: me?.id ?? null, note: `Huỷ ${item.name} trước khi làm` });
     }
     ctx.refreshAvailability();
+  };
+
+  // Tách 1 phần số lượng món sang dòng mới (tách bàn) (rà soát 28/10): chuyển đúng phần trừ kho sang mã dòng mới,
+  // để huỷ dòng nào trả kho đúng phần dòng đó. fraction = số tách / số lượng ban đầu.
+  ctx.splitSale = (fromId, toId, fraction) => {
+    const f = Math.max(0, Math.min(1, fraction));
+    if (f <= 0) return;
+    const from = `sale:${fromId}`;
+    const to = `sale:${toId}`;
+    for (const m of db.prepare("SELECT * FROM stock_moves WHERE ref = ? AND type = 'consume'").all(from)) {
+      const q = Math.round(m.qty * f * 1000) / 1000;
+      const c = Math.round((m.cost || 0) * f);
+      if (q <= 1e-9) continue;
+      db.prepare('UPDATE stock_moves SET qty = ?, cost = ? WHERE id = ?').run(Math.round((m.qty - q) * 1000) / 1000, (m.cost || 0) - c, m.id);
+      db.prepare(`INSERT INTO stock_moves (at, date, type, ingredient_id, from_store, to_store, qty, cost, ref, staff_id, note) VALUES (?, ?, 'consume', ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(m.at, m.date, m.ingredient_id, m.from_store, m.to_store, q, c, to, m.staff_id, m.note);
+    }
+    for (const u of db.prepare('SELECT * FROM sale_usage WHERE ref = ?').all(from)) {
+      db.prepare('UPDATE sale_usage SET qty = ? WHERE id = ?').run(u.qty * (1 - f), u.id);
+      db.prepare('INSERT INTO sale_usage (date, ingredient_id, qty, ref) VALUES (?, ?, ?, ?)').run(u.date, u.ingredient_id, u.qty * f, to);
+    }
   };
 
   // Tự khoá / tự mở món theo tồn kho, báo "sắp hết" 1 lần mỗi ngày
