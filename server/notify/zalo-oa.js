@@ -4,6 +4,8 @@
 
 const SEND_URL = 'https://openapi.zalo.me/v3.0/oa/message/cs';
 const TOKEN_URL = 'https://oauth.zaloapp.com/v4/oa/access_token';
+// Zalo treo → bỏ sau 15 giây, không làm kẹt hàng đợi gửi tin (rà soát 28/10)
+export const ZALO_TIMEOUT_MS = 15_000;
 
 export function createZaloOaTransport(ctx, { fetchImpl = globalThis.fetch } = {}) {
   async function refreshToken() {
@@ -15,6 +17,7 @@ export function createZaloOaTransport(ctx, { fetchImpl = globalThis.fetch } = {}
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', secret_key: secret },
       body: new URLSearchParams({ refresh_token: refresh, app_id: appId, grant_type: 'refresh_token' }),
+      signal: AbortSignal.timeout(ZALO_TIMEOUT_MS),
     });
     const data = await res.json().catch(() => ({}));
     if (!data.access_token) throw new Error(`Không làm mới được token Zalo: ${data.error_description || data.message || res.status}`);
@@ -36,6 +39,7 @@ export function createZaloOaTransport(ctx, { fetchImpl = globalThis.fetch } = {}
       method: 'POST',
       headers: { 'Content-Type': 'application/json', access_token: await token() },
       body: JSON.stringify({ recipient: { user_id: userId }, message: { text: text.slice(0, 2000) } }),
+      signal: AbortSignal.timeout(ZALO_TIMEOUT_MS),
     });
     const data = await res.json().catch(() => ({}));
     if (data.error !== 0) throw new Error(`Zalo từ chối: ${data.message || res.status} (mã ${data.error})`);

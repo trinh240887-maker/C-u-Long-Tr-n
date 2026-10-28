@@ -24,12 +24,12 @@ const photoDir = process.env.PHOTO_DIR || path.join(dataDir, 'photos');
 const app = createApp({ db, publicDir: path.join(here, 'public'), backupDir, photoDir });
 app.ctx.notifier.start();
 
-// Sao lưu mỗi giờ, giữ 7 ngày; tự đóng ca quên chấm ra mỗi 5 phút
+// Sao lưu mỗi giờ (dữ liệu không đổi thì bỏ qua), giữ 24 bản gần nhất + 1 bản / ngày 14 ngày; tự đóng ca quên chấm ra mỗi 5 phút
 // BACKUP_COPY_DIR (vd thư mục Google Drive trên máy quán): mỗi lần sao lưu chép thêm 1 bản "quanly-moi-nhat.db" + giữ 1 bản / ngày 30 ngày
 const copyDir = process.env.BACKUP_COPY_DIR;
 const backup = () => {
   try {
-    const file = runBackup(db, backupDir);
+    const file = runBackup(db, backupDir, { skipUnchanged: true });
     if (copyDir) {
       fs.mkdirSync(copyDir, { recursive: true });
       fs.copyFileSync(file, path.join(copyDir, 'quanly-moi-nhat.db'));
@@ -40,13 +40,24 @@ const backup = () => {
   } catch (e) { console.error('Sao lưu lỗi:', e.message); }
 };
 backup();
-try { app.ctx.cleanupPhotos(); app.ctx.promoTick(); } catch (e) { console.error(e); }
+// Rà soát 28/10: mỗi việc định kỳ chạy riêng — 1 việc lỗi (đồng bộ hay promise) không chặn các việc sau
+const safe = (name) => {
+  const fn = app.ctx[name];
+  if (typeof fn !== 'function') return;
+  try {
+    const r = fn.call(app.ctx);
+    if (r && typeof r.catch === 'function') r.catch((e) => console.error(`[${name}] lỗi:`, e?.stack || e));
+  } catch (e) { console.error(`[${name}] lỗi:`, e?.stack || e); }
+};
+const runAll = (names) => () => names.forEach(safe);
+const hourly = runAll(['cleanupPhotos', 'promoTick']);
+hourly();
 const timers = [
   setInterval(backup, 3600_000),
-  setInterval(() => app.ctx.zaloBotPoll?.().catch((e) => console.error(e)), 3_000), // bot đọc tin liên tục (mỗi lần chờ tới 25 giây, không chạy chồng)
-  setInterval(() => { try { app.ctx.printTick(); app.ctx.bookingGuardTick(); app.ctx.waitTick().catch((e) => console.error(e)); app.ctx.purchaseReportTick(); app.ctx.availBotTick?.().catch((e) => console.error(e)); app.ctx.stockCountRemindTick?.(); app.ctx.utensilCountTick?.(); app.ctx.jobsTick?.(); app.ctx.openingTick?.(); app.ctx.lossAlertTick?.(); app.ctx.arriveRemindTick?.(); app.ctx.jobsLeftTick?.(); } catch (e) { console.error(e); } }, 60_000),
-  setInterval(() => { try { app.ctx.autoCloseAttendance(); app.ctx.syncPay?.(); app.ctx.payTick(); app.ctx.reviewTick(); app.ctx.laborWeeklyTick(); app.ctx.bookingTick?.().catch((e) => console.error(e)); } catch (e) { console.error(e); } }, 5 * 60_000),
-  setInterval(() => { try { app.ctx.cleanupPhotos(); app.ctx.promoTick(); } catch (e) { console.error(e); } }, 3600_000),
+  setInterval(() => safe('zaloBotPoll'), 3_000), // bot đọc tin liên tục (mỗi lần chờ tới 25 giây, không chạy chồng)
+  setInterval(runAll(['printTick', 'bookingGuardTick', 'waitTick', 'purchaseReportTick', 'availBotTick', 'stockCountRemindTick', 'utensilCountTick', 'jobsTick', 'openingTick', 'lossAlertTick', 'arriveRemindTick', 'jobsLeftTick']), 60_000),
+  setInterval(runAll(['autoCloseAttendance', 'syncPay', 'payTick', 'reviewTick', 'laborWeeklyTick', 'bookingTick']), 5 * 60_000),
+  setInterval(hourly, 3600_000),
 ];
 
 const server = http.createServer(app.handler);

@@ -11,6 +11,24 @@ const ORDER_LINE = new RegExp(`\\d+(?:[.,]\\d+)?\\s*${UNIT_RE}(?![\\p{L}])`, 'iu
 const UNIT_ALIAS = { 'ký': 'kg', 'kí': 'kg', gr: 'g', gram: 'g', lit: 'lít', l: 'lít', 'hủ': 'hũ' };
 const u0 = (x) => { const k = String(x || '').trim().toLowerCase(); return UNIT_ALIAS[k] || k; };
 
+// Gắn NCC theo tên nhóm Zalo (rà soát 28/10): tên NCC (bỏ dấu) phải nằm TRONG tên nhóm, ≥ 4 ký tự hoặc trùng nguyên từ; không khớp ngược.
+// Nhiều NCC khớp → lấy tên dài nhất; dài bằng nhau → không gắn (để chủ quán chọn)
+export function matchSupplierByGroupName(groupName, list) {
+  const gn = norm(groupName || '').replace(/\s+/g, ' ').trim();
+  if (!gn) return null;
+  const words = ` ${gn.replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
+  const hits = [];
+  for (const s of list) {
+    const sn = norm(s.name || '').replace(/\s+/g, ' ').trim();
+    if (!sn) continue;
+    const snw = sn.replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    if ((sn.length >= 4 && gn.includes(sn)) || (snw && words.includes(` ${snw} `))) hits.push({ s, n: sn.length });
+  }
+  hits.sort((a, b) => b.n - a.n);
+  if (!hits.length || (hits[1] && hits[1].n === hits[0].n)) return null;
+  return hits[0].s;
+}
+
 export default function (r, ctx) {
   const { db } = ctx;
   if (!db.prepare('PRAGMA table_info(purchase_orders)').all().some((c) => c.name === 'zalo_chat')) db.exec("ALTER TABLE purchase_orders ADD COLUMN zalo_chat TEXT NOT NULL DEFAULT ''");
@@ -68,14 +86,20 @@ export default function (r, ctx) {
     let g = ctx.supplierGroupOf(u.chat.id);
     if (!ORDER_LINE.test(text)) return g ? (/^\s*(đơn|don)\s*$/i.test(text) ? lastOrders(g) : null) : null;
     if (!g) {
+      // Chat riêng 1:1 không bao giờ tự thành nhóm NCC (rà soát 28/10); không rõ loại chat thì giữ như cũ
+      if (u.chat.type && !/group/i.test(u.chat.type)) return null;
       // Nhóm mới: tự gắn NCC theo tên nhóm Zalo
-      const gn = norm(u.chat.name || '');
-      const sup = gn ? suppliers().find((s) => { const sn = norm(s.name); return sn && (gn.includes(sn) || sn.includes(gn)); }) : null;
+      const sup = matchSupplierByGroupName(u.chat.name, suppliers());
       g = { id: String(u.chat.id), name: u.chat.name || 'Nhóm NCC', supplier_id: sup?.id || null };
       saveGroups([...groups().filter((x) => x.id !== g.id), g]);
       if (!sup) {
-        const owners = db.prepare("SELECT id FROM staff WHERE role IN ('owner','manager') AND active = 1").all().map((x) => x.id);
-        ctx.notify(owners, { title: `Nhóm Zalo "${g.name}" chưa gắn nhà cung cấp`, body: 'Vào Cài đặt → Zalo Bot → Nhóm nhà cung cấp, chọn NCC cho nhóm này rồi nhắn lại đơn.', link: '/cai-dat?tab=bot', urgent: true });
+        // Báo 1 lần / nhóm, không khẩn (rà soát 28/10: trước báo khẩn mỗi lần)
+        const key = `zalo_unmatched_notified:${g.id}`;
+        if (!ctx.setting(key)) {
+          ctx.setSetting(key, String(ctx.now()));
+          const owners = db.prepare("SELECT id FROM staff WHERE role IN ('owner','manager') AND active = 1").all().map((x) => x.id);
+          ctx.notify(owners, { title: `Nhóm Zalo "${g.name}" chưa gắn nhà cung cấp`, body: 'Vào Cài đặt → Zalo Bot → Nhóm nhà cung cấp, chọn NCC cho nhóm này rồi nhắn lại đơn.', link: '/cai-dat?tab=bot' });
+        }
         return `Nhóm này chưa gắn nhà cung cấp trong app. Chủ quán vào Cài đặt → Zalo Bot chọn NCC cho nhóm "${g.name}", rồi nhắn lại đơn.`;
       }
     }
@@ -101,26 +125,35 @@ export default function (r, ctx) {
       || db.prepare("SELECT id FROM stores WHERE kind = 'main' ORDER BY id").get()?.id
       || db.prepare('SELECT id FROM stores ORDER BY id').get()?.id;
     if (!storeId) return 'App chưa có kho để nhận hàng.';
-    const by = u.from.id ? db.prepare('SELECT staff_id FROM zalo_bot_users WHERE uid = ?').get(u.from.id)?.staff_id || null : null;
+    // Người nhắn: tài khoản Zalo đã gắn nhân viên đang làm. Chỉ chủ quán / quản lý mới tự duyệt đơn; còn lại (kể cả NCC trong nhóm) → chờ duyệt (rà soát 28/10)
+    const sender = u.from.id ? db.prepare("SELECT s.id, s.role FROM zalo_bot_users z JOIN staff s ON s.id = z.staff_id WHERE z.uid = ? AND s.active = 1").get(u.from.id) : null;
+    const by = sender?.id || null;
+    const auto = !!sender && ['owner', 'manager'].includes(sender.role);
     const now = ctx.now();
     const poId = tx(db, () => {
-      const id = Number(db.prepare("INSERT INTO purchase_orders (supplier_id, store_id, status, note, created_by, created_at, submitted_by, submitted_at, approved_by, approved_at, zalo_chat) VALUES (?, ?, 'approved', ?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(g.supplier_id, storeId, `Đặt qua Zalo (${u.from.name || ''} · nhóm ${g.name})`.slice(0, 200), by, now, by, now, by, now, String(u.chat.id)).lastInsertRowid);
+      const id = Number(db.prepare("INSERT INTO purchase_orders (supplier_id, store_id, status, note, created_by, created_at, submitted_by, submitted_at, approved_by, approved_at, zalo_chat) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(g.supplier_id, storeId, auto ? 'approved' : 'submitted', `Đặt qua Zalo (${u.from.name || ''} · nhóm ${g.name})`.slice(0, 200), by, now, by, now, auto ? by : null, auto ? now : null, String(u.chat.id)).lastInsertRowid);
       const add = db.prepare('INSERT INTO po_lines (po_id, ingredient_id, qty, suggested, price) VALUES (?, ?, ?, 0, ?)');
       for (const { ing, qty } of lines.values()) add.run(id, ing.id, qty, ing.price || 0);
       return id;
     });
     const po = ctx.loadPo(poId);
     ctx.audit({ id: by, role: 'staff', name: u.from.name }, 'po.zalo_order', { po: poId, chat: g.name });
-    const holder = Number(ctx.setting('kho_tong_staff_id') || 0);
-    const to = [...new Set([...(holder ? [holder] : []), ...db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager','shift_lead')").all().map((x) => x.id)])];
-    ctx.notify(to, { title: `Đơn chờ nhận #${poId}: ${sup.name}`, body: po.lines.map((l) => `• ${l.name}: ${fmt(l.qty)} ${l.purchase_unit || l.unit}`).join('\n'), link: '/mua-hang' });
+    const body = po.lines.map((l) => `• ${l.name}: ${fmt(l.qty)} ${l.purchase_unit || l.unit}`).join('\n');
+    if (auto) {
+      const holder = Number(ctx.setting('kho_tong_staff_id') || 0);
+      const to = [...new Set([...(holder ? [holder] : []), ...db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager','shift_lead')").all().map((x) => x.id)])];
+      ctx.notify(to, { title: `Đơn chờ nhận #${poId}: ${sup.name}`, body, link: '/mua-hang' });
+    } else {
+      ctx.notify(ctx.managers(), { title: `Đơn Zalo #${poId} chờ duyệt: ${sup.name}`, body: `Người nhắn: ${u.from.name || 'chưa rõ'} (Zalo chưa gắn quản lý)\n${body}`, link: '/kho?tab=dat' });
+    }
     ctx.broadcast('stock');
     return [`📝 Đơn #${poId} · ${sup.name} · nhận tại ${po.store_name}`,
       ...po.lines.map((l) => `• ${l.name}: ${fmt(l.qty)} ${l.purchase_unit || l.unit}`),
       miss.length ? `⚠ Chưa có trong kho (không ghi vào đơn): ${miss.join(', ')}` : '',
       unitWarn.length ? `⚠ Kiểm đơn vị: ${unitWarn.join('; ')}` : '',
-      '⏳ Hàng CHƯA nhận. Khi nhận, nhân viên kiểm thiếu / đủ và bot báo lại ở đây. Công nợ ghi theo số thực nhận.'].filter(Boolean).join('\n');
+      auto ? '⏳ Hàng CHƯA nhận. Khi nhận, nhân viên kiểm thiếu / đủ và bot báo lại ở đây. Công nợ ghi theo số thực nhận.'
+        : '🕒 Đơn CHỜ quản lý duyệt trong app. Duyệt xong bot gửi lại đơn vào nhóm này.'].filter(Boolean).join('\n');
   };
 
   function lastOrders(g) {

@@ -5,7 +5,7 @@
 //   thành công: { error: 0, data: { msg_id, sent_time, quota } }. Chế độ development chỉ gửi tới quản trị viên App / OA, không tính phí.
 // Điều kiện phía chủ quán: OA đã xác thực, nối tài khoản Zalo Cloud (ZCA) + nạp ví, App được cấp quyền ZNS,
 // tạo mẫu tin "Giao dịch" và chờ duyệt; tham số mẫu phải đúng tên bên dưới. Zalo chỉ gửi trong khung 6:00–22:00.
-import { createZaloOaTransport } from './zalo-oa.js';
+import { createZaloOaTransport, ZALO_TIMEOUT_MS } from './zalo-oa.js';
 
 const URL_ = 'https://business.openapi.zalo.me/message/template';
 export const ZNS_PARAMS = {
@@ -36,7 +36,7 @@ export function createZns(ctx, { fetchImpl = globalThis.fetch, oa } = {}) {
     if (ctx.setting('zns_mode') !== 'production') body.mode = 'development';
     let res;
     try {
-      res = await fetchImpl(URL_, { method: 'POST', headers: { 'Content-Type': 'application/json', access_token: await tok() }, body: JSON.stringify(body) });
+      res = await fetchImpl(URL_, { method: 'POST', headers: { 'Content-Type': 'application/json', access_token: await tok() }, body: JSON.stringify(body), signal: AbortSignal.timeout(ZALO_TIMEOUT_MS) }); // rà soát 28/10: không chờ Zalo treo
     } catch (e) { return { ok: false, error: `Không gọi được Zalo: ${e.message}` }; }
     const j = await res.json().catch(() => ({}));
     if (j.error === 0) return { ok: true, msg_id: j.data?.msg_id || '' };

@@ -186,7 +186,7 @@ function Shell({ me, children, path, online }) {
       </header>
       ${window.__DEMO__ ? html`<div class="banner demo">Bản chạy thử · dữ liệu mẫu chỉ lưu trên máy này
         <button class="small" onClick=${() => window.__DEMO__.reset()}>Làm lại từ đầu</button>
-        <button class="small" onClick=${async () => { await api('POST', '/api/logout'); window.dispatchEvent(new Event('auth:lost')); }}>Đổi tài khoản</button></div>` : null}
+        <button class="small" onClick=${async () => { try { await api('POST', '/api/logout'); window.dispatchEvent(new Event('auth:lost')); } catch (e) { toast(`Chưa đăng xuất được: ${e.message}`, true); } }}>Đổi tài khoản</button></div>` : null}
       ${!online ? html`<div class="banner">Mất kết nối tới máy chủ của quán. Đang thử kết nối lại…</div>` : null}
       <main class="content"><${GroupTabs} me=${me} path=${path} />${children}</main>
     </div>
