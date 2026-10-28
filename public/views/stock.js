@@ -107,7 +107,7 @@ function LossReport({ me }) {
   const d = useData(`/api/stock/loss?from=${range.from}&to=${range.to}`);
   const pick = (k) => setRange(k === 'y' ? { from: y, to: y, k } : k === 't' ? { from: me.today, to: me.today, k } : k === 'w' ? { from: addDays(me.today, -7), to: y, k } : { from: `${me.today.slice(0, 7)}-01`, to: me.today, k });
   const ddmm = (x) => `${x.slice(8)}/${x.slice(5, 7)}`;
-  const KIND = [['finished', '🥤 Thành phẩm', 'định mức 0: thiếu là mất'], ['material', '🥩 Vật liệu', ''], ['supply', '🧻 Đồ dùng', 'phần hụt khi kiểm = đã dùng']];
+  const KIND = [['finished', '🥤 Thành phẩm', 'định mức 0: thiếu là mất'], ['material', '🥩 Vật liệu', ''], ['supply', '🔥 Tiêu hao', 'phần hụt khi kiểm = đã dùng']];
   return html`<div class="stack">
     <div class="chips">${[['y', 'Hôm qua'], ['t', 'Hôm nay'], ['w', '7 ngày'], ['m', 'Tháng này']].map(([k, l]) => html`<button class=${`chip ${range.k === k ? 'on' : ''}`} onClick=${() => pick(k)}>${l}</button>`)}</div>
     ${!d.data ? html`<${Loading} state=${d} />` : html`
@@ -127,18 +127,35 @@ function LossReport({ me }) {
 }
 
 // Xếp loại hàng: Thành phẩm / Vật liệu / Đồ dùng + định mức hao hụt riêng (chủ quán 28/10)
-const KIND_ICON = { finished: '🥤', material: '🥩', supply: '🧻' };
+const KIND_ICON = { finished: '🥤', material: '🥩', supply: '🔥' };
+const GROUP_ICON = { topping: '🍲', bep: '🥩', bar: '🍹', tieuhao: '🔥' };
+// Chọn nhân sự kiểm từng khung (chủ quán 28/10)
+function GroupStaff({ meta, g, onClose }) {
+  const st = useData('/api/staff');
+  const [sel, setSel] = useState(meta.group_staff?.[g] || []);
+  const [q, setQ] = useState('');
+  if (!st.data) return html`<${Modal} title="Chọn người kiểm" onClose=${onClose}><${Loading} state=${st} /><//>`;
+  const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase();
+  const list = st.data.filter((x) => x.active && x.role !== 'owner' && (!q || fold(x.name).includes(fold(q)))).sort((a, b) => (sel.includes(b.id) ? 1 : 0) - (sel.includes(a.id) ? 1 : 0) || (a.team_name || '').localeCompare(b.team_name || '', 'vi') || a.name.localeCompare(b.name, 'vi'));
+  return html`<${Modal} title=${`Người kiểm khung ${GROUP_ICON[g]} ${meta.groups[g]}`} onClose=${onClose}><div class="stack">
+    <small class="muted">Người được chọn thấy khung này ở Kiểm kho, kiểm được dù không phải tổ trưởng, và được nhắc lúc 22:30 nếu chưa kiểm.</small>
+    <input placeholder="🔍 Tìm tên" value=${q} onInput=${(e) => setQ(e.target.value)} />
+    <div class="sapo-list">${list.map((x) => html`<label class="check-row"><input type="checkbox" checked=${sel.includes(x.id)} onChange=${(e) => setSel(e.target.checked ? [...sel, x.id] : sel.filter((y) => y !== x.id))} /> <span>${x.name} <small class="muted">${x.team_name || ''}</small></span></label>`)}</div>
+    <button class="primary" onClick=${async () => { if (await act(() => api('PUT', '/api/stock/count-groups/staff', { group: g, staff_ids: sel }), 'Đã lưu người kiểm')) onClose(); }}>Lưu (${sel.length} người)</button>
+  </div><//>`;
+}
 function KindSetup({ meta, onClose }) {
   const [q, setQ] = useState('');
   const list = (meta.ingredients || []).filter((i) => i.active !== false && i.active !== 0 && (!q || i.name.toLowerCase().includes(q.toLowerCase())));
   const save = (i, body) => act(() => api('PUT', `/api/stock/ingredients/${i.id}/kind`, body));
   return html`<${Modal} title="⚙ Xếp loại hàng" onClose=${onClose}><div class="stack">
-    <small class="muted">🥤 <b>Thành phẩm</b>: mua về bán nguyên (bia, nước ngọt), lệch là mất. 🥩 <b>Vật liệu</b>: chế biến món theo định lượng (cả ly, ống hút có trong định lượng), hao hụt cho phép <b>${meta.loss_default}%</b>. 🧻 <b>Đồ dùng</b>: không nằm trong định lượng (ga, khăn giấy…), kiểm mỗi tuần. "tự xếp" = app đoán, bấm để sửa.</small>
+    <small class="muted">🥤 <b>Thành phẩm</b>: mua về bán nguyên (bia, nước ngọt), lệch là mất. 🥩 <b>Vật liệu</b>: chế biến món theo định lượng (cả ly, ống hút có trong định lượng), hao hụt cho phép <b>${meta.loss_default}%</b>. 🔥 <b>Tiêu hao</b>: dùng hết đi, không nằm trong định lượng (ga, khăn giấy, túi…). Cột cuối = <b>khung kiểm</b> mỗi tối (Topping / Bếp / Bar & pha chế / Tiêu hao). "tự xếp" = app đoán, bấm để sửa.</small>
     <input placeholder="🔍 Tìm hàng" value=${q} onInput=${(e) => setQ(e.target.value)} />
     ${['finished', 'material', 'supply'].map((k) => { const rows = list.filter((i) => i.kind_eff === k); return rows.length ? html`<b>${KIND_ICON[k]} ${meta.kinds[k]} (${rows.length})</b>
       <div class="sapo-list">${rows.map((i) => html`<div class="sapo-row"><span class="grow">${i.name} <small class="muted">${i.unit}${i.kind_auto ? ' · tự xếp' : ''}</small></span>
         ${k === 'material' ? html`<input class="num-in" style="width:4.5em" inputmode="decimal" placeholder=${`${meta.loss_default}%`} value=${i.loss_pct ?? ''} title="Định mức hao hụt riêng (%)" onChange=${(e) => save(i, { loss_pct: e.target.value })} />` : null}
-        <select value=${i.kind || ''} onChange=${(e) => save(i, { kind: e.target.value })}><option value="">Tự xếp (${meta.kinds[i.kind_eff]})</option><option value="finished">🥤 Thành phẩm</option><option value="material">🥩 Vật liệu</option><option value="supply">🧻 Đồ dùng</option></select></div>`)}</div>` : null; })}
+        <select value=${i.kind || ''} onChange=${(e) => save(i, { kind: e.target.value })}><option value="">Tự xếp (${meta.kinds[i.kind_eff]})</option><option value="finished">🥤 Thành phẩm</option><option value="material">🥩 Vật liệu</option><option value="supply">🔥 Tiêu hao</option></select>
+        ${meta.groups ? html`<select value=${i.count_group || ''} title="Khung kiểm" onChange=${(e) => save(i, { count_group: e.target.value })}><option value="">Tự xếp (${GROUP_ICON[i.group_eff]} ${meta.groups[i.group_eff]})</option>${Object.entries(meta.groups).map(([k, l]) => html`<option value=${k}>${GROUP_ICON[k]} ${l}</option>`)}</select>` : null}</div>`)}</div>` : null; })}
   </div><//>`;
 }
 
@@ -150,29 +167,37 @@ function Count({ meta, me }) {
   const [extra, setExtra] = useState([]);
   const [result, setResult] = useState(null);
   const [transfer, setTransfer] = useState(null);
-  const [kindTab, setKindTab] = useState('daily');
+  const groupKeys = Object.keys(meta.groups || {});
+  const visGroups = atLeast(me, 'team_lead') || !meta.my_groups?.length ? groupKeys : meta.my_groups;
+  const [kindTab, setKindTab] = useState(visGroups[0] || 'bep');
+  const [pickG, setPickG] = useState(null);
   const [setup, setSetup] = useState(false);
   useEffect(() => { setVals({}); setExtra([]); setResult(null); }, [storeId]);
   if (!mine.length) return html`<div class="empty">Bạn chưa được giao kiểm kho nào. Nhân viên kiểm kho của tổ mình; trưởng ca trở lên kiểm mọi kho.</div>`;
   const store = meta.stores.find((s) => s.id === Number(storeId));
   const allLines = sheet.data ? [...sheet.data.lines, ...extra.filter((x) => !sheet.data.lines.some((l) => l.ingredient_id === x.ingredient_id)).map((x) => ({ ...x, expected: 0 }))] : [];
   // Kho chung: kiểm theo loại hàng · mỗi tối Thành phẩm + Vật liệu, mỗi tuần Đồ dùng
-  const lines = meta.single ? allLines.filter((l) => (kindTab === 'supply' ? l.kind === 'supply' : l.kind !== 'supply')).sort((a, b) => (a.kind || '').localeCompare(b.kind || '') || a.name.localeCompare(b.name, 'vi')) : allLines;
+  // Kho chung: kiểm mỗi tối theo 4 khung Topping / Bếp / Bar & pha chế / Tiêu hao (chủ quán 28/10)
+  const lines = meta.single ? allLines.filter((l) => (l.group || 'bep') === kindTab).sort((a, b) => a.name.localeCompare(b.name, 'vi')) : allLines;
+  const nm = (id) => meta.staff_names?.[id];
   const filled = Object.values(vals).filter((x) => x !== '').length;
   return html`<div class="stack">
-    ${meta.single ? html`<div class="row wrap"><div class="tabs"><button class=${kindTab === 'daily' ? 'on' : ''} onClick=${() => setKindTab('daily')}>🥤 Thành phẩm + 🥩 Vật liệu <small>(mỗi tối)</small></button>
-      <button class=${kindTab === 'supply' ? 'on' : ''} onClick=${() => setKindTab('supply')}>🧻 Đồ dùng <small>(mỗi tuần)</small></button></div>
-      ${atLeast(me, 'manager') ? html`<button class="small" onClick=${() => setSetup(true)}>⚙ Xếp loại hàng</button>` : null}</div>` : null}
+    ${meta.single ? html`<div class="row wrap"><div class="tabs scroll">${visGroups.map((k) => html`<button class=${kindTab === k ? 'on' : ''} onClick=${() => setKindTab(k)}>${GROUP_ICON[k]} ${meta.groups[k]}</button>`)}</div>
+      ${atLeast(me, 'manager') ? html`<button class="small" onClick=${() => setSetup(true)}>⚙ Xếp loại hàng</button>` : null}</div>
+      <div class="row wrap tight"><small class="muted">👤 Người kiểm khung ${meta.groups[kindTab]}: <b>${(meta.group_staff?.[kindTab] || []).map((id) => nm(id) || `#${id}`).join(', ') || 'chưa chọn (tổ trưởng / trưởng ca kiểm)'}</b></small>
+        ${atLeast(me, 'manager') ? html`<button class="link small" onClick=${() => setPickG(kindTab)}>✎ Chọn người</button>` : null}</div>` : null}
+    ${pickG ? html`<${GroupStaff} meta=${meta} g=${pickG} onClose=${() => setPickG(null)} />` : null}
     ${setup ? html`<${KindSetup} meta=${meta} onClose=${() => setSetup(false)} />` : null}
     <div class="row wrap">
-      <select id="ck-store" class="auto" value=${storeId} onChange=${(e) => setStoreId(Number(e.target.value))}>${mine.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select>
+      ${mine.length > 1 ? html`<select id="ck-store" class="auto" value=${storeId} onChange=${(e) => setStoreId(Number(e.target.value))}>${mine.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select>` : null}
       ${sheet.data?.last_count ? html`<span class="muted small">Lần kiểm trước: ${dt(sheet.data.last_count.at)} · ${sheet.data.last_count.staff_name || ''}</span>` : null}
     </div>
-    ${store?.kind === 'area' ? html`<p class="muted small">Cuối ca đếm số <b>còn lại thực tế</b>. Phần chênh lệch so với sổ được tính là lượng đã dùng trong ngày, dùng để gợi ý lĩnh và đặt hàng.</p>`
+    ${meta.single ? html`<p class="muted small">Mỗi tối đếm số <b>còn lại thực tế</b>. App tính <b>đã dùng trong ngày = đầu ngày + nhập − còn</b>.</p>` : store?.kind === 'area' ? html`<p class="muted small">Cuối ca đếm số <b>còn lại thực tế</b>. Phần chênh lệch so với sổ được tính là lượng đã dùng trong ngày, dùng để gợi ý lĩnh và đặt hàng.</p>`
       : html`<p class="muted small">Kiểm kho tổng: phần thiếu so với sổ được ghi là hao hụt.</p>`}
     ${!sheet.data ? html`<${Loading} state=${sheet} />` : html`<section class="card">
       ${lines.length ? lines.map((l) => html`<div class="line-in" key=${l.ingredient_id}>
-        <span class="grow"><b>${meta.single && l.kind ? `${KIND_ICON[l.kind]} ` : ''}${l.name}</b><br /><small class="muted">Sổ: ${qty(l.expected, l.unit)}</small></span>
+        <span class="grow"><b>${l.name}</b><br /><small class="muted">${l.day_open != null ? `Đầu ngày ${qty(l.day_open, l.unit)} · ` : ''}${l.day_in ? `nhập +${qty(l.day_in, l.unit)} · ` : ''}sổ ${qty(l.expected, l.unit)}</small>
+          ${vals[l.ingredient_id] !== undefined && vals[l.ingredient_id] !== '' ? (() => { const a = Number(String(vals[l.ingredient_id]).replace(',', '.')); if (!Number.isFinite(a)) return null; const base = l.day_open != null ? l.day_open + (l.day_in || 0) : l.expected; const used = Math.round((base - a) * 1000) / 1000; return html`<br /><small class=${used < 0 ? 'warn-text' : 'ok-text'}>→ ${used >= 0 ? `dùng trong ngày ${qty(used, l.unit)}` : `thừa ${qty(-used, l.unit)} so với đầu ngày + nhập`}</small>`; })() : null}</span>
         <input inputmode="decimal" class="num-in" placeholder="còn" value=${vals[l.ingredient_id] ?? ''} aria-label=${`Còn thực tế ${l.name}`}
           onInput=${(e) => setVals({ ...vals, [l.ingredient_id]: e.target.value })} /><span class="muted unit-l">${l.unit}</span>
       </div>`) : html`<p class="muted">${meta.single ? 'Chưa có hàng loại này. Chủ quán / quản lý bấm ⚙ Xếp loại hàng để chọn.' : 'Kho này chưa có nguyên liệu nào.'}</p>`}
