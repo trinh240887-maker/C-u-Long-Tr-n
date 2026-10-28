@@ -60,6 +60,8 @@ export default function (r, ctx) {
   const r3 = (x) => Math.round(x * 1000) / 1000;
   const vnd = (n) => `${Number(n || 0).toLocaleString('vi-VN')}đ`;
   const money = (x, name, { min = 0 } = {}) => v.int(Number(String(x ?? '').replace(/[.,\s]/g, '') || 0), { min, max: 2_000_000_000, name });
+  // Bill NCC gửi trước qua Zalo (chủ quán 28/10): status 'waiting' = có bill, hàng chưa về; pre_by = người áp bill
+  if (!db.prepare('PRAGMA table_info(purchase_bills)').all().some((c) => c.name === 'pre_by')) db.exec('ALTER TABLE purchase_bills ADD COLUMN pre_by INTEGER');
   // bill_unit: dòng nhập đúng như bill, chưa quy đổi (vd 3 mẹt) → chủ quán quy đổi sau ở Mua hàng → ⚖ Quy đổi (chủ quán 28/10)
   if (!db.prepare('PRAGMA table_info(purchase_bill_lines)').all().some((c) => c.name === 'bill_unit')) db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN bill_unit TEXT');
   if (!db.prepare('PRAGMA table_info(purchase_bill_lines)').all().some((c) => c.name === 'old_price')) db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN old_price INTEGER'); // giá trước khi nhập bill này (huỷ bill thì trả lại)
@@ -153,16 +155,19 @@ export default function (r, ctx) {
     return f;
   }
 
+  const receiversOf = (storeId) => db.prepare('SELECT id, role, team_id FROM staff WHERE active = 1').all().filter((x) => { try { return ctx.canReceiveStore(x, storeId); } catch { return false; } }).map((x) => x.id);
   const unitOf = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 20);
   const unconvFlag = (name, qty, unit) => `${name}: bill ghi ${qty} ${unit}, chưa quy đổi, kiểm lại số kho`;
   const supplierRow = (id) => db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
 
   // ---------- Khu nhận hàng ----------
   r.post('/api/purchases', 'staff', ({ me, body }) => {
-    const poId = body.po_id ? v.int(body.po_id, { min: 1, name: 'Đơn đặt hàng' }) : null;
+    const pre = !!body.pre_bill;
+    if (pre && !isCashier(me)) fail(403, 'Áp bill trước (hàng chưa về): thu ngân / trưởng ca trở lên');
+    const poId = !pre && body.po_id ? v.int(body.po_id, { min: 1, name: 'Đơn đặt hàng' }) : null;
     const po = poId ? ctx.loadPo(poId) : null;
     const storeId = po ? po.store_id : v.int(body.store_id, { min: 1, name: 'Khu nhận' });
-    if (!ctx.canReceiveStore(me, storeId)) fail(403, 'Bạn không nhận hàng cho khu này');
+    if (!pre && !ctx.canReceiveStore(me, storeId)) fail(403, 'Bạn không nhận hàng cho khu này');
     let supplierId = po ? po.supplier_id : body.supplier_id ? v.int(body.supplier_id, { min: 1, name: 'NCC' }) : null;
     if (supplierId && !supplierRow(supplierId)) fail(404, 'Không tìm thấy NCC');
     const supplierName = supplierId ? supplierRow(supplierId).name : v.text(body.supplier_name, { name: 'Tên nơi bán', required: true, max: 80 });
@@ -191,6 +196,7 @@ export default function (r, ctx) {
       fail(409, `Cộng các dòng ${vnd(linesSum)} lệch tổng bill ${vnd(total)}${k >= 8 ? ` (gấp ~${Math.round(k)} lần: kiểm tra số lượng có mất dấu phẩy không, vd 28,1 kg)` : ''}. Sửa lại, hoặc xác nhận đúng như bill.`);
     }
     if (total <= 0) fail(400, 'Nhập tổng tiền trên bill');
+    if (pre && (body.advance_id || body.paid_method === 'cash')) fail(400, 'Bill chờ nhận hàng: chọn ghi nợ hoặc đã chuyển khoản');
     const advanceId = body.advance_id ? v.int(body.advance_id, { min: 1, name: 'Tạm ứng' }) : null;
     if (advanceId) {
       const a = db.prepare('SELECT * FROM cash_advances WHERE id = ?').get(advanceId);
@@ -205,13 +211,13 @@ export default function (r, ctx) {
     const created = [];
     const id = tx(db, () => {
       created.push(...createNew(lines, storeId));
-      const { oldPrice } = ctx.stockReceive(me, { poId, storeId, lines: lines.filter((l) => l.ingredient_id).map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, price: l.price, expires_on: l.raw.expires_on })) });
+      const { oldPrice } = pre ? { oldPrice: new Map() } : ctx.stockReceive(me, { poId, storeId, lines: lines.filter((l) => l.ingredient_id).map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, price: l.price, expires_on: l.raw.expires_on })) });
       const flags = flagsOf({ total, lines, po, oldPrice });
       // Dòng chưa quy đổi: nhập đúng như bill, chủ quán kiểm & quy đổi sau (chủ quán 28/10)
       for (const l of lines) if (l.ingredient_id && l.raw?.unconv) flags.push(unconvFlag(l.name, l.qty, unitOf(l.raw.unit) || l.unit));
-      const id = Number(db.prepare(`INSERT INTO purchase_bills (supplier_id, supplier_name, store_id, po_id, date, total, lines_total, paid_now, paid_method, advance_id, signer_name, note, flags, received_by, received_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(supplierId, supplierName, storeId, poId, date, total, lines.reduce((n, l) => n + l.amount, 0), paidNow, paidMethod, advanceId,
-        signer, v.text(body.note, { name: 'Ghi chú', max: 200 }), JSON.stringify(flags), me.id, ctx.now()).lastInsertRowid);
+      const id = Number(db.prepare(`INSERT INTO purchase_bills (supplier_id, supplier_name, store_id, po_id, date, total, lines_total, paid_now, paid_method, advance_id, signer_name, note, flags, received_by, received_at, status, pre_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(supplierId, supplierName, storeId, poId, date, total, lines.reduce((n, l) => n + l.amount, 0), paidNow, paidMethod, advanceId,
+        signer, v.text(body.note, { name: 'Ghi chú', max: 200 }), JSON.stringify(flags), pre ? null : me.id, ctx.now(), pre ? 'waiting' : 'received', pre ? me.id : null).lastInsertRowid);
       const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price, bill_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
       for (const l of lines) add.run(id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, l.ingredient_id ? oldPrice.get(l.ingredient_id) ?? null : null, l.ingredient_id && l.raw?.unconv ? unitOf(l.raw.unit) : null);
       for (const ph of photos) savePhoto(id, ph, me);
@@ -226,6 +232,12 @@ export default function (r, ctx) {
     });
     const b = load(id);
     notifyCreated(me, created, b);
+    if (pre) {
+      ctx.notify(receiversOf(storeId).filter((x) => x !== me.id), { title: `Hàng sắp về: ${b.supplier_name}`, body: `${b.lines.map((l) => `• ${l.name}: ${l.qty} ${l.unit}`).join('\n')}\nHàng về thì kiểm, chụp ảnh hàng rồi bấm "Đã nhận hàng" (Mua hàng → ⏳ Chờ nhận hàng).`, link: '/mua-hang?tab=cho' });
+      ctx.audit(me, 'purchase.pre_bill', { id, total, supplier: b.supplier_name });
+      ctx.broadcast('purchases');
+      return b;
+    }
     if (po && ctx.poReceivedReport) ctx.poReceivedReport(ctx.loadPo(po.id), lines, me).catch(() => {}); // bot báo đủ / thiếu vào nhóm Zalo của đơn
     ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Hoá đơn mua chờ duyệt: ${b.supplier_name} ${vnd(total)}`, body: `${b.store_name || ''} · nhận bởi ${me.name}, ký ${signer}${b.flags.length ? ` · ${b.flags.length} điểm cần xem` : ''}`, link: '/mua-hang', urgent: b.flags.length > 0 });
     ctx.audit(me, 'purchase.receive', { id, total, supplier: b.supplier_name });
@@ -237,7 +249,8 @@ export default function (r, ctx) {
   r.patch('/api/purchases/:id', 'staff', ({ me, params, body }) => {
     const b = load(params.id);
     // Sửa bill: người nhận sửa bill bị trả lại; thu ngân / trưởng ca trở lên sửa ngay trong mục duyệt (chủ quán 26/10)
-    if (b.status === 'returned') { if (b.received_by !== me.id && rank(me.role) < rank('shift_lead')) fail(403, 'Người nhận hàng sửa lại'); }
+    if (b.status === 'waiting') { if (!isCashier(me)) fail(403, 'Thu ngân / trưởng ca trở lên mới sửa bill chờ nhận hàng'); }
+    else if (b.status === 'returned') { if (b.received_by !== me.id && rank(me.role) < rank('shift_lead')) fail(403, 'Người nhận hàng sửa lại'); }
     else if (b.status === 'received') { if (!isCashier(me)) fail(403, 'Thu ngân / trưởng ca trở lên mới sửa bill đang chờ duyệt'); }
     else if (b.status === 'approved') { if (rank(me.role) < rank('manager')) fail(403, 'Bill đã duyệt: quản lý / chủ quán mới sửa được'); } // chủ quán 26/10: gắn dòng "hàng khác" vào kho
     else fail(400, 'Bill này không sửa được');
@@ -245,7 +258,13 @@ export default function (r, ctx) {
     let created = [];
     const total = body.total === undefined ? b.total : money(body.total, 'Tổng tiền bill');
     tx(db, () => {
-      if (lines) {
+      if (lines && b.status === 'waiting') {
+        // Hàng chưa về: chỉ sửa dòng bill, chưa đụng kho
+        created = createNew(lines, b.store_id);
+        db.prepare('DELETE FROM purchase_bill_lines WHERE bill_id = ?').run(b.id);
+        const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        for (const l of lines) add.run(b.id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount);
+      } else if (lines) {
         created = createNew(lines, b.store_id);
         // Kho đã cộng theo số cũ lúc gửi bill → cộng / trừ phần chênh theo số mới
         const old = db.prepare('SELECT l.*, g.purchase_factor FROM purchase_bill_lines l LEFT JOIN ingredients g ON g.id = l.ingredient_id WHERE l.bill_id = ?').all(b.id);
@@ -272,11 +291,11 @@ export default function (r, ctx) {
       const ls = db.prepare('SELECT * FROM purchase_bill_lines WHERE bill_id = ?').all(b.id);
       const flags = flagsOf({ total, lines: ls, po: null, oldPrice: new Map(ls.filter((l) => l.old_price != null).map((l) => [l.ingredient_id, l.old_price])) });
       for (const l of ls) if (l.ingredient_id && l.bill_unit) flags.push(unconvFlag(l.name, l.qty, l.bill_unit));
-      db.prepare(`UPDATE purchase_bills SET total = ?, lines_total = ?, signer_name = ?, note = ?, flags = ?, status = ${b.status === 'approved' ? "'approved'" : "'received'"} WHERE id = ?`)
+      db.prepare(`UPDATE purchase_bills SET total = ?, lines_total = ?, signer_name = ?, note = ?, flags = ?, status = ${b.status === 'approved' ? "'approved'" : b.status === 'waiting' ? "'waiting'" : "'received'"} WHERE id = ?`)
         .run(total, ls.reduce((n, l) => n + l.amount, 0), body.signer_name ? v.text(body.signer_name, { name: 'Tên người ký', max: 60 }) : b.signer_name, body.note === undefined ? b.note : v.text(body.note, { max: 200 }), JSON.stringify(flags), b.id);
     });
     notifyCreated(me, created, b);
-    if (b.status !== 'approved') ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Bill mua đã sửa, duyệt lại: ${b.supplier_name} ${vnd(total)}`, link: '/mua-hang' });
+    if (b.status !== 'approved' && b.status !== 'waiting') ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Bill mua đã sửa, duyệt lại: ${b.supplier_name} ${vnd(total)}`, link: '/mua-hang' });
     ctx.audit(me, 'purchase.fix', { id: b.id, total, was: b.status });
     ctx.broadcast('purchases');
     return load(b.id);
@@ -291,7 +310,10 @@ export default function (r, ctx) {
     const ids = db.prepare(`SELECT id FROM purchase_bills WHERE date BETWEEN ? AND ? ${status ? 'AND status = ?' : ''} ${mine ? 'AND received_by = ?' : ''} ORDER BY id DESC LIMIT 300`)
       .all(...[from, to, ...(status ? [status] : []), ...(mine ? [me.id] : [])]).map((x) => x.id);
     const pending = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS t FROM purchase_bills WHERE status = 'received'").get();
-    return { bills: ids.map(load), pending: pending.n, pending_total: pending.t, can_approve: isCashier(me), is_boss: isBoss(me), bill_reader: billReaderReady(ctx) };
+    // Bill chờ nhận hàng: ai nhận hàng được cho khu đó đều thấy
+    const arriving = db.prepare("SELECT id, store_id FROM purchase_bills WHERE status = 'waiting' ORDER BY id").all()
+      .filter((x) => isCashier(me) || ctx.canReceiveStore(me, x.store_id)).map((x) => load(x.id));
+    return { bills: ids.map(load).filter((b) => b.status !== 'waiting'), arriving, pending: pending.n, pending_total: pending.t, can_approve: isCashier(me), is_boss: isBoss(me), bill_reader: billReaderReady(ctx) };
   });
 
   // Đọc ảnh bill bằng AI → điền sẵn dòng hàng; nhân viên vẫn kiểm & sửa trước khi lưu. Giới hạn số lần / ngày để khỏi tốn tiền.
@@ -381,6 +403,39 @@ export default function (r, ctx) {
     return { __binary: buf, type: ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg' };
   });
 
+  // ---------- Hàng về theo bill đã áp trước (chủ quán 28/10) ----------
+  // Bếp / khu kiểm hàng, chụp ảnh hàng, sửa số thực nhận → cộng kho. Nhận đủ → tự duyệt; thiếu → chờ thu ngân duyệt
+  r.post('/api/purchases/:id/arrive', 'staff', ({ me, params, body }) => {
+    const b = load(params.id);
+    if (b.status !== 'waiting') fail(400, 'Bill này đã nhận hàng rồi');
+    if (!ctx.canReceiveStore(me, b.store_id)) fail(403, 'Bạn không nhận hàng cho khu này');
+    const goods = Array.isArray(body.goods_photos) ? body.goods_photos.slice(0, 4) : [];
+    if (!goods.length) fail(400, 'Chụp ảnh hàng thực nhận trước khi bấm Đã nhận');
+    const got = new Map((Array.isArray(body.lines) ? body.lines : []).map((x) => [Number(x.id), x.qty]));
+    const short = [];
+    const lines = b.lines.map((l) => {
+      const raw = got.has(l.id) ? Number(String(got.get(l.id) ?? '').replace(',', '.')) : l.qty;
+      if (!Number.isFinite(raw) || raw < 0 || raw > 1e6) fail(400, `Số lượng ${l.name} không hợp lệ`);
+      const qty = r3(raw);
+      if (qty < l.qty - 1e-9) short.push(`${l.name}: bill ${l.qty} ${l.unit}, nhận ${qty} ${l.unit}`);
+      return { ...l, qty, amount: Math.round(qty * l.price) };
+    });
+    const at = ctx.now();
+    tx(db, () => {
+      const { oldPrice } = ctx.stockReceive(me, { poId: null, storeId: b.store_id, lines: lines.filter((l) => l.ingredient_id && l.qty > 0).map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, price: l.price })) });
+      for (const l of lines) db.prepare('UPDATE purchase_bill_lines SET qty = ?, amount = ?, old_price = ? WHERE id = ?').run(l.qty, l.amount, l.ingredient_id ? oldPrice.get(l.ingredient_id) ?? null : null, l.id);
+      const flags = [...b.flags, ...short.map((x) => `Nhận thiếu: ${x}`)];
+      db.prepare(`UPDATE purchase_bills SET status = ?, received_by = ?, received_at = ?, date = ?, lines_total = ?, flags = ?, approved_by = ?, approved_at = ? WHERE id = ?`)
+        .run(short.length ? 'received' : 'approved', me.id, at, ctx.today(), lines.reduce((n, l) => n + l.amount, 0), JSON.stringify(flags), short.length ? null : b.pre_by || me.id, short.length ? null : at, b.id);
+      for (const ph of goods) savePhoto(b.id, ph, me, 'goods');
+    });
+    if (short.length) ctx.notify([...new Set([...cashiers(), ...(b.pre_by ? [b.pre_by] : [])])].filter((x) => x !== me.id), { title: `Nhận thiếu hàng: ${b.supplier_name}`, body: `${me.name} nhận:\n${short.join('\n')}\nBill chờ duyệt (sửa tổng tiền nếu NCC trừ lại).`, link: '/mua-hang?tab=duyet', urgent: true });
+    else if (b.pre_by && b.pre_by !== me.id) ctx.notify([b.pre_by], { title: `Đã nhận đủ hàng: ${b.supplier_name} ${vnd(b.total)}`, body: `${me.name} đã kiểm & nhận. Bill tự duyệt, cộng công nợ.`, link: '/mua-hang?tab=lichsu' });
+    ctx.audit(me, 'purchase.arrive', { id: b.id, short: short.length });
+    ctx.broadcast('purchases'); ctx.broadcast('stock');
+    return load(b.id);
+  });
+
   // ---------- Thu ngân duyệt ----------
   r.post('/api/purchases/:id/approve', 'staff', ({ me, params }) => {
     if (!isCashier(me)) fail(403, 'Chỉ thu ngân / trưởng ca trở lên duyệt hoá đơn mua');
@@ -411,12 +466,13 @@ export default function (r, ctx) {
     const b = load(params.id);
     if (b.status === 'void') fail(400, 'Bill đã huỷ');
     const boss = rank(me.role) >= rank('manager');
-    if (!boss && !(b.status !== 'approved' && (b.received_by === me.id || isCashier(me)))) fail(403, b.status === 'approved' ? 'Bill đã duyệt: chỉ quản lý / chủ quán huỷ được' : 'Chỉ người nhận, thu ngân hoặc quản lý huỷ được');
+    if (!boss && !(b.status !== 'approved' && (b.received_by === me.id || b.pre_by === me.id || isCashier(me)))) fail(403, b.status === 'approved' ? 'Bill đã duyệt: chỉ quản lý / chủ quán huỷ được' : 'Chỉ người nhận, thu ngân hoặc quản lý huỷ được');
     const reason = v.text(body.reason, { name: 'Lý do huỷ', required: true, max: 200 });
     const at = ctx.now(), date = ctx.today();
     const store = ctx.effectiveStore ? ctx.effectiveStore(b.store_id) : b.store_id;
     tx(db, () => {
-      for (const l of db.prepare('SELECT l.*, g.purchase_factor FROM purchase_bill_lines l LEFT JOIN ingredients g ON g.id = l.ingredient_id WHERE l.bill_id = ? AND l.ingredient_id IS NOT NULL').all(b.id)) {
+      // Bill chờ nhận hàng: kho chưa cộng → không trừ lại
+      for (const l of b.status === 'waiting' ? [] : db.prepare('SELECT l.*, g.purchase_factor FROM purchase_bill_lines l LEFT JOIN ingredients g ON g.id = l.ingredient_id WHERE l.bill_id = ? AND l.ingredient_id IS NOT NULL').all(b.id)) {
         const useQty = Math.round(l.qty * (l.purchase_factor || 1) * 1000) / 1000;
         if (!(useQty > 0)) continue;
         takeLots(db, { storeId: store, ingredientId: l.ingredient_id, qty: useQty, allowShort: true });

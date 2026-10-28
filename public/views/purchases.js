@@ -4,7 +4,7 @@ import { compressImage } from './checklists.js';
 import { Conversions } from './stock.js';
 
 // Mua hàng: khu nhận hàng chụp bill NCC (ký nhận) → thu ngân duyệt → công nợ NCC → trả NCC / tạm ứng đi chợ
-const STATUS = { received: ['Chờ thu ngân duyệt', 'warn'], approved: ['Đã duyệt', 'ok'], returned: ['Bị trả lại, cần sửa', 'bad'], void: ['Đã huỷ', 'muted'] };
+const STATUS = { waiting: ['⏳ Chờ nhận hàng', 'warn'], received: ['Chờ thu ngân duyệt', 'warn'], approved: ['Đã duyệt', 'ok'], returned: ['Bị trả lại, cần sửa', 'bad'], void: ['Đã huỷ', 'muted'] };
 const num = (s) => Number(String(s ?? '').replace(/[.\s]/g, '').replace(',', '.')) || 0; // tiền: dấu chấm = ngăn nghìn
 // Số lượng: dấu chấm hay dấu phẩy đều là số lẻ (28.1 / 28,1 = 28,1 kg). Trước đây dùng num() → 28.1 thành 281 (lỗi 26/10)
 const qtyNum = (s) => Number(String(s ?? '').replace(/\s/g, '').replace(',', '.')) || 0;
@@ -72,6 +72,8 @@ function Receive({ me, meta, advances, onDone }) {
   const [photos, setPhotos] = useState([]);
   const [goods, setGoods] = useState([]);
   const [more, setMore] = useState(false);
+  // 📩 Bill NCC gửi trước qua Zalo, hàng chưa về (chủ quán 28/10): lưu bill chờ nhận, kho chưa cộng; bếp nhận hàng mới cộng
+  const [pre, setPre] = useState(false);
   const set = (k, val) => setF({ ...f, [k]: val });
   const [reading, setReading] = useState(false);
   const [readNote, setReadNote] = useState('');
@@ -104,7 +106,7 @@ function Receive({ me, meta, advances, onDone }) {
   };
   const sum = lines.reduce((n, l) => n + Math.round(qtyNum(l.qty) * num(l.price)), 0);
   const warns = lines.filter((l) => l.warn).length;
-  const ready = photos.length && goods.length && lines.length && (f.supplier_id || f.supplier_name || f.po_id) && f.signer_name;
+  const ready = photos.length && (pre || goods.length) && lines.length && (f.supplier_id || f.supplier_name || f.po_id) && f.signer_name;
   const totNow = f.total === '' ? sum : num(f.total);
   const mismatch = f.total !== '' && Math.abs(sum - totNow) > Math.max(50000, totNow * 0.05);
   const [okMismatch, setOkMismatch] = useState(false);
@@ -112,20 +114,25 @@ function Receive({ me, meta, advances, onDone }) {
     const tot = f.total === '' ? sum : num(f.total);
     const confirm_mismatch = mismatch ? okMismatch : false;
     if (mismatch && !okMismatch) { toast(`Cộng các dòng ${money(sum)} lệch tổng bill ${money(tot)}: sửa lại các dòng, hoặc tick "Đúng như bill" phía trên nút`, true); return; }
-    const r = await act(() => api('POST', '/api/purchases', { confirm_mismatch,
-      ...f, store_id: Number(f.store_id), po_id: f.po_id ? Number(f.po_id) : undefined, supplier_id: f.supplier_id ? Number(f.supplier_id) : undefined,
+    const r = await act(() => api('POST', '/api/purchases', { confirm_mismatch, pre_bill: pre || undefined,
+      ...f, ...(pre ? { po_id: '' } : {}), store_id: Number(f.store_id), po_id: f.po_id ? Number(f.po_id) : undefined, supplier_id: f.supplier_id ? Number(f.supplier_id) : undefined,
       advance_id: f.advance_id ? Number(f.advance_id) : undefined, paid_method: f.advance_id ? undefined : f.paid_method,
       total: f.total === '' ? undefined : num(f.total), photos, goods_photos: goods,
       lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: qtyNum(l.qty), price: num(l.price), create_new: !l.ingredient_id && !!l.create_new, unconv: !!l.unconv })),
-    }), 'Đã nhập kho. Thu ngân sẽ duyệt công nợ');
+    }), pre ? 'Đã lưu bill chờ nhận hàng. Bếp nhận hàng xong kho mới cộng' : 'Đã nhập kho. Thu ngân sẽ duyệt công nợ');
+    if (r && pre) { setLines([]); setPhotos([]); setGoods([]); setF({ ...f, supplier_id: '', supplier_name: '', total: '', note: '', paid_method: '' }); navigate('/mua-hang?tab=cho'); return; }
     if (r) { setLines([]); setPhotos([]); setGoods([]); setF({ ...f, po_id: '', supplier_id: '', supplier_name: '', total: '', signer_name: me.name, note: '', advance_id: '', paid_method: '' }); onDone(); }
   };
   if (!stores.length) return html`<div class="empty">Bạn chưa phụ trách khu nào để nhận hàng.</div>`;
   const myPos = (pos.data || []).filter((p) => stores.some((s) => s.id === p.store_id));
   return html`<div class="stack">
-    <section class="card stack"><h3>1 · Chụp ảnh</h3>
-      <${PhotoPicker} photos=${photos} setPhotos=${setPhotos} onAdded=${onBill} first="📷 Chụp BILL (bắt buộc)" more="📷 Thêm trang bill" gallery=${['manager', 'owner'].includes(me.role)} />
-      <${PhotoPicker} photos=${goods} setPhotos=${setGoods} first="📷 Chụp HÀNG thực nhận (bắt buộc)" more="📷 Thêm ảnh hàng" />
+    ${meta.is_cashier ? html`<div class="chips">
+      <button class=${`chip ${!pre ? 'on' : ''}`} onClick=${() => setPre(false)}>📥 Hàng đã về, nhận ngay</button>
+      <button class=${`chip ${pre ? 'on' : ''}`} onClick=${() => { setPre(true); if (f.paid_method === 'cash' || f.advance_id) setF({ ...f, paid_method: '', advance_id: '' }); }}>📩 Bill NCC gửi trước, hàng chưa về</button></div>` : null}
+    ${pre ? html`<p class="hint card small">Lưu bill để <b>chờ nhận hàng</b>: kho chưa cộng. Bếp / khu nhận hàng kiểm, chụp ảnh hàng rồi bấm <b>Đã nhận hàng</b> thì kho mới cộng. Nhận đủ: bill tự duyệt. Nhận thiếu: chờ thu ngân duyệt.</p>` : null}
+    <section class="card stack"><h3>1 · ${pre ? 'Ảnh bill NCC gửi' : 'Chụp ảnh'}</h3>
+      <${PhotoPicker} photos=${photos} setPhotos=${setPhotos} onAdded=${onBill} first=${pre ? '📷 Chụp / chọn ảnh BILL' : '📷 Chụp BILL (bắt buộc)'} more="📷 Thêm trang bill" gallery=${pre || ['manager', 'owner'].includes(me.role)} />
+      ${!pre ? html`<${PhotoPicker} photos=${goods} setPhotos=${setGoods} first="📷 Chụp HÀNG thực nhận (bắt buộc)" more="📷 Thêm ảnh hàng" />` : null}
     </section>
     <section class="card stack"><h3>2 · Hàng nhận ${lines.length ? html`<small class="muted">${lines.length} dòng · ${money(sum)}</small>` : null}</h3>
       ${reading ? html`<p class="hint card">📖 Đang đọc bill… (10–40 giây)</p>` : null}
@@ -133,7 +140,7 @@ function Receive({ me, meta, advances, onDone }) {
         : photos.length && !reading ? html`<button class="small" onClick=${() => readBill()}>📖 Đọc lại bill</button>` : null}
       ${readNote ? html`<p class="warn-text small">⚠ ${readNote}</p>` : null}
       ${warns ? html`<p class="warn-text small">⚠ ${warns} dòng cần xem lại (tô vàng)</p>` : null}
-      ${myPos.length ? html`<${Field} label="Theo đơn đặt hàng đã duyệt"><select value=${f.po_id} onChange=${(e) => usePo(e.target.value)}>
+      ${myPos.length && !pre ? html`<${Field} label="Theo đơn đặt hàng đã duyệt"><select value=${f.po_id} onChange=${(e) => usePo(e.target.value)}>
         <option value="">Không theo đơn (mua lẻ)</option>${myPos.map((p) => html`<option value=${p.id}>#${p.id} · ${p.supplier_name || 'Chưa có NCC'} · ${money(p.total)}</option>`)}</select><//>` : null}
       ${!f.po_id ? html`<${Field} label="Nhà cung cấp"><select value=${f.supplier_id} onChange=${(e) => set('supplier_id', e.target.value)}>
           <option value="">Nơi khác (ghi tên) / đi chợ</option>${meta.suppliers.filter((s) => s.active).map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
@@ -147,8 +154,8 @@ function Receive({ me, meta, advances, onDone }) {
         <${Field} label="Tổng tiền ghi trên bill" hint=${`Cộng các dòng: ${money(sum)}. Để trống = lấy số cộng.`}><input inputmode="numeric" value=${f.total} placeholder=${String(sum || '')} onInput=${(e) => set('total', e.target.value)} /><//>
         <${Field} label="Người ký nhận trên bill"><input value=${f.signer_name} onInput=${(e) => set('signer_name', e.target.value)} /><//>
         <${Field} label="Thanh toán"><div class="chips">
-          ${[['', 'Ghi nợ'], ['transfer', 'Đã CK tại chỗ'], ...(meta.is_cashier ? [['cash', 'Trả tiền mặt từ két']] : [])].map(([k, l]) => html`<button class=${`chip ${!f.advance_id && f.paid_method === k ? 'on' : ''}`} onClick=${() => setF({ ...f, paid_method: k, advance_id: '' })}>${l}</button>`)}
-          ${myAdv.map((a) => html`<button class=${`chip ${Number(f.advance_id) === a.id ? 'on' : ''}`} onClick=${() => setF({ ...f, advance_id: String(a.id), paid_method: '' })}>Tiền tạm ứng ${money(a.amount)} (còn ${money(a.should_return)})</button>`)}
+          ${[['', 'Ghi nợ'], ['transfer', pre ? 'Đã chuyển khoản' : 'Đã CK tại chỗ'], ...(meta.is_cashier && !pre ? [['cash', 'Trả tiền mặt từ két']] : [])].map(([k, l]) => html`<button class=${`chip ${!f.advance_id && f.paid_method === k ? 'on' : ''}`} onClick=${() => setF({ ...f, paid_method: k, advance_id: '' })}>${l}</button>`)}
+          ${(pre ? [] : myAdv).map((a) => html`<button class=${`chip ${Number(f.advance_id) === a.id ? 'on' : ''}`} onClick=${() => setF({ ...f, advance_id: String(a.id), paid_method: '' })}>Tiền tạm ứng ${money(a.amount)} (còn ${money(a.should_return)})</button>`)}
         </div><//>
         <${Field} label="Ghi chú"><input value=${f.note} onInput=${(e) => set('note', e.target.value)} /><//>` : null}
     </section>
@@ -156,9 +163,9 @@ function Receive({ me, meta, advances, onDone }) {
       ${mismatch ? html`<div class="card tight stack" style="border:2px solid var(--danger, #c92a2a)"><b class="danger-text">⚠ Cộng các dòng ${money(sum)} ≠ tổng bill ${money(totNow)}${totNow && sum / totNow >= 8 ? ` (gấp ~${Math.round(sum / totNow)} lần: có dòng thừa số 0 hoặc mất dấu phẩy)` : ''}</b>
         <small>Sửa các dòng có cảnh báo đỏ. Nếu bill đúng như vậy thật thì tick ô dưới.</small>
         <label class="check-row"><input type="checkbox" checked=${okMismatch} onChange=${(e) => setOkMismatch(e.target.checked)} /> <span>Đúng như bill, vẫn lưu</span></label></div>` : null}
-      ${!ready ? html`<b class="danger-text">⚠ ${!photos.length ? 'Thiếu ảnh bill' : !goods.length ? 'Thiếu ảnh hàng thực nhận' : !lines.length ? 'Chưa có dòng hàng' : 'Chọn nhà cung cấp'}</b>` : null}
-      ${photos.length && !goods.length ? html`<${PhotoPicker} photos=${goods} setPhotos=${setGoods} first="📷 Chụp ảnh HÀNG ngay" more="📷 Thêm ảnh hàng" />` : null}
-      <button class="primary big" disabled=${!ready || reading} onClick=${save}>✓ Xác nhận nhập kho${lines.length ? ` · ${money(f.total === '' ? sum : num(f.total))}` : ''}</button>
+      ${!ready ? html`<b class="danger-text">⚠ ${!photos.length ? 'Thiếu ảnh bill' : !pre && !goods.length ? 'Thiếu ảnh hàng thực nhận' : !lines.length ? 'Chưa có dòng hàng' : 'Chọn nhà cung cấp'}</b>` : null}
+      ${photos.length && !goods.length && !pre ? html`<${PhotoPicker} photos=${goods} setPhotos=${setGoods} first="📷 Chụp ảnh HÀNG ngay" more="📷 Thêm ảnh hàng" />` : null}
+      <button class="primary big" disabled=${!ready || reading} onClick=${save}>${pre ? '📩 Lưu bill chờ nhận hàng' : '✓ Xác nhận nhập kho'}${lines.length ? ` · ${money(f.total === '' ? sum : num(f.total))}` : ''}</button>
     </div>
   </div>`;
 }
@@ -339,6 +346,31 @@ function SettleModal({ a, onClose }) {
     <button class="primary" onClick=${async () => { if (await act(() => api('POST', `/api/advances/${a.id}/settle`, { returned: num(v) }), 'Đã quyết toán')) onClose(); }}>Xác nhận</button><//>`;
 }
 
+// ⏳ Chờ nhận hàng (chủ quán 28/10): bill chủ quán áp trước → bếp kiểm hàng, chụp ảnh, sửa số thực nhận → Đã nhận hàng
+function ArriveCard({ b, me }) {
+  const [got, setGot] = useState(() => Object.fromEntries(b.lines.map((l) => [l.id, String(l.qty)])));
+  const [goods, setGoods] = useState([]);
+  const [edit, setEdit] = useState(false);
+  const short = b.lines.filter((l) => qtyNum(got[l.id]) < l.qty - 1e-9);
+  const boss = ['manager', 'owner'].includes(me.role) || me.role === 'shift_lead';
+  return html`<section class="card stack warn-card">
+    <div class="row between wrap"><b>${b.supplier_name} · ${money(b.total)}</b><span class="pill warn">⏳ Chờ nhận hàng</span></div>
+    <small class="muted">#${b.id} · áp bill ${dayLabel(b.date)} ${hm(b.received_at)}${b.paid_method === 'transfer' ? ` · đã CK ${money(b.paid_now)}` : ' · ghi nợ'}${b.note ? ` · ${b.note}` : ''}</small>
+    <${Photos} ids=${b.photos} />
+    <small class="muted">Kiểm từng món, sửa số thực nhận nếu thiếu:</small>
+    ${b.lines.map((l) => html`<div class="row wrap tight edit-line"><b class="grow">${l.name}</b>
+      <small class="muted">bill ${l.qty} ${l.unit}</small>
+      <label class="row tight small">nhận <input class="num-in" inputmode="decimal" value=${got[l.id]} onInput=${(e) => setGot({ ...got, [l.id]: e.target.value })} /> ${l.unit}</label>
+      ${qtyNum(got[l.id]) < l.qty - 1e-9 ? html`<small class="danger-text" style="flex-basis:100%">⚠ Thiếu ${Math.round((l.qty - qtyNum(got[l.id])) * 1000) / 1000} ${l.unit}</small>` : null}</div>`)}
+    <${PhotoPicker} photos=${goods} setPhotos=${setGoods} first="📷 Chụp HÀNG thực nhận (bắt buộc)" more="📷 Thêm ảnh hàng" />
+    ${short.length ? html`<small class="danger-text">Nhận thiếu ${short.length} món → bill chờ thu ngân duyệt</small>` : html`<small class="ok-text">Nhận đủ → bill tự duyệt, cộng công nợ</small>`}
+    <button class="primary big" disabled=${!goods.length} onClick=${() => act(() => api('POST', `/api/purchases/${b.id}/arrive`, { goods_photos: goods, lines: b.lines.map((l) => ({ id: l.id, qty: String(got[l.id]).replace(',', '.') })) }), short.length ? 'Đã nhận hàng (thiếu), chờ thu ngân duyệt' : 'Đã nhận đủ hàng, kho đã cộng')}>✓ Đã nhận hàng</button>
+    ${boss ? html`<div class="row"><button class="small" onClick=${() => setEdit(true)}>✏️ Sửa bill</button>
+      <button class="link small danger-text" onClick=${() => { const r0 = prompt('Huỷ bill chờ nhận này? Lý do:', 'NCC không giao'); if (r0) act(() => api('POST', `/api/purchases/${b.id}/void`, { reason: r0 }), 'Đã huỷ bill'); }}>🗑 Huỷ</button></div>` : null}
+    ${edit ? html`<${EditBill} b=${b} onClose=${() => setEdit(false)} />` : null}
+  </section>`;
+}
+
 // ⚖ Quy đổi ở Mua hàng (chủ quán 28/10): dòng bill nhập đúng như bill → nhập 1 mẹt = ? kg là app tự sửa kho + bill, nhớ cho lần sau
 function ConvTab({ meta }) {
   const st = useData('/api/purchases/unconverted');
@@ -376,7 +408,8 @@ export function PurchasesView({ me, query }) {
   const mineReturned = L.bills.filter((b) => b.status === 'returned' && b.received_by === me.id);
   // Công nợ NCC / Tạm ứng: theo Phân quyền (chủ quán tick từng người)
   const can = (k) => (Array.isArray(me.pages) ? me.pages.includes(`/mua-hang#${k}`) : k === 'congno' ? isCashier : true);
-  const tabs = [...(canAct(me, 'mh.nhap') ? [['nhan', '📥 Nhập kho']] : []), ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ['lichsu', 'Bill đã nhận'], ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : []), ...(['manager', 'owner'].includes(me.role) ? [['quydoi', '⚖ Quy đổi']] : [])];
+  const arriving = L.arriving || [];
+  const tabs = [...(canAct(me, 'mh.nhap') ? [['nhan', '📥 Nhập kho']] : []), ...(arriving.length || isCashier ? [['cho', `⏳ Chờ nhận hàng (${arriving.length})`]] : []), ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ['lichsu', 'Bill đã nhận'], ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : []), ...(['manager', 'owner'].includes(me.role) ? [['quydoi', '⚖ Quy đổi']] : [])];
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/mua-hang?tab=${k}`)}>${l}</button>`)}</div>
     ${mineReturned.length && tab !== 'lichsu' ? html`<section class="card warn-card small">${mineReturned.length} bill bạn nhận bị thu ngân trả lại. <button class="small" onClick=${() => navigate('/mua-hang?tab=lichsu')}>Xem & sửa</button></section>` : null}
@@ -384,6 +417,7 @@ export function PurchasesView({ me, query }) {
     ${tab === 'duyet' ? (waiting.length ? html`<p class="small muted">So ảnh bill với số khu nhập: số lượng, đơn giá, tổng, chữ ký người nhận. Dòng đỏ = app thấy lệch.</p>${waiting.map((b) => html`<${BillCard} key=${b.id} b=${b} canApprove=${isCashier} me=${me} />`)}` : html`<div class="empty">Không có bill chờ duyệt.</div>`) : null}
     ${tab === 'lichsu' ? (L.bills.length ? L.bills.map((b) => html`<${BillCard} key=${b.id} b=${b} canApprove=${isCashier} me=${me} />`) : html`<div class="empty">Chưa có bill trong 30 ngày.</div>`) : null}
     ${tab === 'congno' && can('congno') ? html`<${Debts} me=${me} />` : null}
+    ${tab === 'cho' ? (arriving.length ? arriving.map((b) => html`<${ArriveCard} key=${b.id} b=${b} me=${me} />`) : html`<div class="empty">Không có bill nào chờ nhận hàng.</div>`) : null}
     ${tab === 'quydoi' && ['manager', 'owner'].includes(me.role) ? html`<${ConvTab} meta=${meta} />` : null}
     ${tab === 'tamung' && can('tamung') ? html`<${Advances} me=${me} isCashier=${isCashier} advances=${advances} />` : null}
   </div>`;
