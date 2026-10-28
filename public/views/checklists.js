@@ -305,10 +305,10 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
       ${canEdit && own.length && zones.length > 1 ? html`<button class="link small" style="align-self:flex-start" onClick=${() => copyZone(z)}>📋 Chép ${own.length} việc này sang khu khác</button>` : null}
     </div>`; })}
     <div class="zt-zone">
-      <div class="zt-head">🔁 Việc chung cả quán <small>${common.length} việc · chọn 1 hoặc nhiều bạn cố định</small></div>
+      <div class="zt-head">🔁 Việc chung cả quán <small>${common.length} việc · ${r.lead_pool ? 'trưởng ca + tổ trưởng Phục vụ đang trong ca cùng thấy, tự điều người' : 'chọn 1 hoặc nhiều bạn cố định'}</small></div>
       ${common.length ? html`<ul class="zt-list">${common.map((i) => { const j = (r.job_rows || []).find((x) => x.item_id === i.id); return html`<li>
         <button class="grow zt-item" onClick=${() => setEdit(i)}>${i.text}${j && j.staff_id && j.staff_id !== i.job_fixed_staff ? html`<br /><small class="muted">hôm nay: ${j.staff_name}${['done', 'ok'].includes(j.status) ? ' ✅' : ''}</small>` : j && ['done', 'ok'].includes(j.status) ? html` ✅` : ''}</button>
-        ${(() => { const crew = i.job_crew?.length ? i.job_crew : i.job_fixed_staff ? [i.job_fixed_staff] : []; const nm = (id) => pool.find((x) => x.id === id)?.name || people.find((x) => x.id === id)?.name || (r.job_rows || []).find((x) => x.staff_id === id)?.staff_name || 'người đã nghỉ việc';
+        ${r.lead_pool ? null : (() => { const crew = i.job_crew?.length ? i.job_crew : i.job_fixed_staff ? [i.job_fixed_staff] : []; const nm = (id) => pool.find((x) => x.id === id)?.name || people.find((x) => x.id === id)?.name || (r.job_rows || []).find((x) => x.staff_id === id)?.staff_name || 'người đã nghỉ việc';
           const cards = (r.job_rows || []).filter((x) => x.item_id === i.id && x.owner_id); const doneN = cards.filter((x) => ['done', 'ok'].includes(x.status)).length;
           const label = crew.length > 1 ? `👥 ${crew.map(nm).join(', ')}${cards.length ? ` (${doneN}/${cards.length} xong)` : ''}` : crew.length ? `👤 ${nm(crew[0])}` : '👤 chọn người';
           return canEdit ? html`<button class="zt-sel zt-crew" onClick=${() => setPick({ title: `${i.text} · chọn 1 hoặc nhiều bạn`, multi: true, values: crew, gender: i.job_gender, lead: i.job_role === 'lead',

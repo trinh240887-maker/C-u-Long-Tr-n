@@ -53,10 +53,12 @@ export default function (r, ctx) {
   // Trưởng ca / tổ trưởng điều phối (chủ quán 28/10): ai thấy việc trống của khu nào
   const LEADS = ['team_lead', 'shift_lead', 'manager', 'owner'];
   const zonesOfToday = (staffId, date) => new Set(db.prepare('SELECT zone_id FROM assignments WHERE staff_id = ? AND date = ? AND zone_id IS NOT NULL').all(staffId, date).map((x) => x.zone_id));
-  const poolLead = (me, date, zoneId) => {
+  // t: checklist của việc → chỉ trưởng ca / tổ trưởng thuộc bộ phận của checklist (vd Phục vụ) đang có ca (chủ quán 28/10)
+  const poolLead = (me, date, zoneId, t) => {
     if (!LEADS.includes(me.role)) return false;
     if (rank(me.role) >= rank('manager')) return true;
     if (!db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(me.id, date)) return false; // phải có ca hôm đó
+    if (t && !people(date, t).some((p) => p.id === me.id)) return false;
     const zs = zonesOfToday(me.id, date);
     return !zoneId || !zs.size || zs.has(zoneId); // việc chung: mọi trưởng ca + tổ trưởng; việc khu: người của khu (không phân khu = thấy hết)
   };
@@ -378,7 +380,7 @@ export default function (r, ctx) {
       date, on_shift: onShift,
       mine: all.filter((j) => j.staff_id === me.id).map(fmt),
       // Việc điều phối: trưởng ca + tổ trưởng thấy cả danh sách (trống / đang làm / xong) để tự điều người
-      pool: all.filter((j) => tpl.get(j.template_id)?.job_lead_pool && !j.owner_id && poolLead(me, date, j.zone_id)).map((j) => ({ ...fmt(j), people: undefined })),
+      pool: all.filter((j) => tpl.get(j.template_id)?.job_lead_pool && !j.owner_id && poolLead(me, date, j.zone_id, tpl.get(j.template_id))).map((j) => ({ ...fmt(j), people: undefined })),
       open: onShift ? all.filter((j) => !j.staff_id && j.status === 'todo' && !tpl.get(j.template_id)?.job_lead_pool && inTeams(tpl.get(j.template_id)) && (!j.zone_id || !myZones.size || myZones.has(j.zone_id))).map(fmt) : [],
       to_check: all.filter((j) => j.status === 'done' && j.staff_id !== me.id && canCheck(me, date, j.zone_id)).length,
       // Người để giao việc điều phối: ai có ca hôm nay trong các bộ phận của checklist
@@ -465,7 +467,7 @@ export default function (r, ctx) {
   // Người kiểm tra: Đạt / Làm lại (trả về đúng người, đồng hồ chạy lại)
   r.post('/api/jobs/:id/check', 'staff', ({ me, params, body }) => {
     const j = getJob(params.id);
-    if (!canCheck(me, j.date, j.zone_id) && !(tplOf(j)?.job_lead_pool && poolLead(me, j.date, j.zone_id))) fail(403, 'Chỉ tổ trưởng khu / trưởng ca kiểm tra việc này');
+    if (!canCheck(me, j.date, j.zone_id) && !(tplOf(j)?.job_lead_pool && poolLead(me, j.date, j.zone_id, tplOf(j)))) fail(403, 'Chỉ tổ trưởng khu / trưởng ca kiểm tra việc này');
     if (j.staff_id === me.id && rank(me.role) < rank('manager')) fail(403, 'Không tự kiểm việc của mình');
     if (!['done', 'ok'].includes(j.status)) fail(409, 'Việc chưa báo xong');
     const ok = v.bool(body.ok);
@@ -489,7 +491,7 @@ export default function (r, ctx) {
   // Đổi người làm (việc chưa bắt đầu, hoặc đang làm mà người đó phải đi việc khác)
   r.patch('/api/jobs/:id', 'staff', ({ me, params, body }) => {
     const j = getJob(params.id);
-    if (!canCheck(me, j.date, j.zone_id) && !(tplOf(j)?.job_lead_pool && poolLead(me, j.date, j.zone_id))) fail(403, 'Chỉ tổ trưởng khu / trưởng ca đổi người');
+    if (!canCheck(me, j.date, j.zone_id) && !(tplOf(j)?.job_lead_pool && poolLead(me, j.date, j.zone_id, tplOf(j)))) fail(403, 'Chỉ tổ trưởng khu / trưởng ca đổi người');
     if (['done', 'ok'].includes(j.status)) fail(409, 'Việc đã xong, không đổi người');
     const sid = body.staff_id ? v.int(body.staff_id, { min: 1, name: 'Người làm' }) : null;
     if (sid && !db.prepare('SELECT 1 FROM staff WHERE id = ? AND active = 1').get(sid)) fail(404, 'Không tìm thấy nhân viên');
