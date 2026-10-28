@@ -56,7 +56,7 @@ function JobCard({ j, now, mine }) {
   return html`<div class=${`card tight stack job ${j.overdue ? 'bad' : ''}`}>
     <div class="row"><b class="grow">${j.title}${j.qty ? html` · <span class="muted">${j.qty}</span>` : ''}</b><span class=${`pill ${cls}`}>${j.redo_count && j.status === 'doing' ? 'Làm lại' : label}</span></div>
     <small class="muted">${j.zone_name || ''}${j.minutes ? ` · chuẩn ${j.minutes} phút` : ''}${j.template_title ? ` · ${j.template_title}` : ''}${j.claimed_at ? ` · nhận ${hm(j.claimed_at)}` : ''}${j.done_at ? ` · xong ${hm(j.done_at)} (${j.minutes_used}′)` : ''}</small>
-    ${j.deadline ? html`<small class=${j.status !== 'ok' && j.status !== 'done' && hmMin(new Date(now).getHours() * 60 + new Date(now).getMinutes()) > j.deadline ? 'warn-text' : ''}>🕐 Phải xong trước <b>${j.deadline}</b></small>` : null}
+    ${j.deadline ? html`<small class=${j.status !== 'ok' && j.status !== 'done' && hmMin(Math.floor(((now + 7 * 3600_000) % 86_400_000) / 60_000)) > j.deadline /* giờ VN (rà soát 28/10) */ ? 'warn-text' : ''}>🕐 Phải xong trước <b>${j.deadline}</b></small>` : null}
     ${j.guide || j.samples?.length ? html`<details class="job-guide" open=${mine && j.status !== 'ok'}><summary>📖 Hướng dẫn${j.samples?.length ? ` · ${j.samples.length} ảnh mẫu` : ''}</summary>
       ${j.guide ? html`<p class="small" style="white-space:pre-line">${j.guide}</p>` : null}
       ${j.samples?.length ? html`<div class="row wrap">${j.samples.map((id) => html`<a href=${`/api/checklist-samples/${id}`} target="_blank"><img class="job-photo" src=${`/api/checklist-samples/${id}`} /></a>`)}</div>` : null}

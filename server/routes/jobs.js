@@ -54,11 +54,12 @@ export default function (r, ctx) {
   const LEADS = ['team_lead', 'shift_lead', 'manager', 'owner'];
   const zonesOfToday = (staffId, date) => new Set(db.prepare('SELECT zone_id FROM assignments WHERE staff_id = ? AND date = ? AND zone_id IS NOT NULL').all(staffId, date).map((x) => x.zone_id));
   // t: checklist của việc → chỉ trưởng ca / tổ trưởng thuộc bộ phận của checklist (vd Phục vụ) đang có ca (chủ quán 28/10)
-  const poolLead = (me, date, zoneId, t) => {
+  // ps: danh sách people(date, t) tính sẵn (rà soát 28/10: tránh tính lại cho từng việc)
+  const poolLead = (me, date, zoneId, t, ps = null) => {
     if (!LEADS.includes(me.role)) return false;
     if (rank(me.role) >= rank('manager')) return true;
     if (!db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(me.id, date)) return false; // phải có ca hôm đó
-    if (t && !people(date, t).some((p) => p.id === me.id)) return false;
+    if (t && !(ps || people(date, t)).some((p) => p.id === me.id)) return false;
     const zs = zonesOfToday(me.id, date);
     return !zoneId || !zs.size || zs.has(zoneId); // việc chung: mọi trưởng ca + tổ trưởng; việc khu: người của khu (không phân khu = thấy hết)
   };
@@ -80,6 +81,7 @@ export default function (r, ctx) {
 
   const pvTeamIds = () => new Set(db.prepare('SELECT id, name FROM teams').all().filter((x) => /phục vụ|phuc vu/i.test(x.name)).map((x) => x.id));
   // Người đi làm hôm đó thuộc các bộ phận của checklist (gộp các khúc ca của 1 người)
+  const peopleAll = (date, t) => people(date, t);
   function people(date, t) {
     const teams = teamsOf(t);
     const rows = db.prepare(`SELECT a.staff_id, a.team_id, a.zone_id, a.start_min, a.end_min, s.name, s.role, s.gender, s.team_id AS home_team, (SELECT name FROM teams WHERE id = s.team_id) AS team_name FROM assignments a JOIN staff s ON s.id = a.staff_id
@@ -197,30 +199,38 @@ export default function (r, ctx) {
   }
   ctx.jobsZoneLead = (date, t, zoneId) => { let ps = people(date, t); if (t.phase === 'close' && t.job_from == null && ps.length) { const last = Math.max(...ps.map((p) => p.end)); ps = ps.filter((p) => p.end >= last - 90); } return zoneLeadOf(t, zoneId, ps); };
   // Hết khung giờ checklist (vd mở ca 15:30; đóng ca 23:30) mà còn việc dở → báo chủ + quản lý bộ phận + trưởng ca (khu mình + việc chung) (chủ quán 28/10)
+  // Phút tính từ 0h của ngày làm việc: qua nửa đêm (trước giờ chốt ngày 5h) cộng 24h → so được với khung ≥ 24:00 (rà soát 28/10)
+  const bizMin = () => { const c = ctx.clock(), m = c.minuteOf(ctx.now()); return m < c.cutoffHour * 60 ? m + 1440 : m; };
   ctx.jobsLeftTick = () => {
-    const date = ctx.today(), nowMin = ctx.clock().minuteOf(ctx.now());
+    const date = ctx.today(), nowMin = bizMin(), cut = ctx.clock().cutoffHour * 60;
     for (const t of jobTemplates()) {
-      const end = t.job_to ?? (t.phase === 'close' ? 23 * 60 + 30 : null);
+      let end = t.job_to ?? (t.phase === 'close' ? 23 * 60 + 30 : null);
+      if (end != null && end < cut) end += 1440; // khung kết thúc sau nửa đêm (vd 00:30)
       if (end == null || nowMin < end || nowMin > end + 120 || ctx.setting(`jobs_left:${date}:${t.id}`)) continue;
       ctx.setSetting(`jobs_left:${date}:${t.id}`, '1');
       const left = db.prepare("SELECT j.*, i.text FROM jobs j JOIN checklist_items i ON i.id = j.item_id WHERE j.date = ? AND j.template_id = ? AND j.status NOT IN ('done','ok')").all(date, t.id);
       if (!left.length) continue;
-      const ts = teamsOf(t) || [];
+      const all = !teamsOf(t); // checklist không gắn bộ phận = cả quán → mọi quản lý / trưởng ca (rà soát 28/10)
+      const ts = (teamsOf(t) || []).filter((x) => x > 0);
       const zn = new Map(zonesAll().map((z) => [z.id, z.name]));
       const line = (j) => `• ${j.zone_id ? zn.get(j.zone_id) || 'Khu' : 'Chung'}: ${j.text}${j.staff_id ? ` (${name(j.staff_id)})` : ' (chưa giao ai)'}`;
       const send = (ids, rows) => { if (ids.length && rows.length) ctx.notify(ids, { title: `⚠ ${t.title}: còn ${rows.length} việc chưa xong`, body: rows.slice(0, 15).map(line).join('\n') + (rows.length > 15 ? `\n… và ${rows.length - 15} việc nữa` : ''), link: '/quan-ly', urgent: true }); };
-      const bosses = db.prepare("SELECT id FROM staff WHERE active = 1 AND (role = 'owner' OR (role = 'manager' AND (team_id IS NULL OR team_id IN (" + (ts.length ? ts.map(() => '?').join(',') : 'NULL') + '))))').all(...ts).map((x) => x.id);
+      const bosses = db.prepare("SELECT id FROM staff WHERE active = 1 AND (role = 'owner' OR (role = 'manager' AND (" + (all ? '1' : 'team_id IS NULL OR team_id IN (' + (ts.length ? ts.map(() => '?').join(',') : 'NULL') + ')') + ')))').all(...(all ? [] : ts)).map((x) => x.id);
       send(bosses, left);
-      const sls = db.prepare("SELECT DISTINCT a.staff_id AS id, a.zone_id, s.team_id FROM assignments a JOIN staff s ON s.id = a.staff_id WHERE a.date = ? AND s.role = 'shift_lead' AND s.active = 1").all(date)
-        .filter((x) => (x.team_id ? ts.includes(x.team_id) : ts.some((y) => pvTeamIds().has(y))));
+      // Trưởng ca có ca hôm nay (bỏ người nghỉ đã duyệt); mọi khu của họ trong ngày (rà soát 28/10)
+      const sls = db.prepare(`SELECT DISTINCT a.staff_id AS id, a.zone_id, s.team_id FROM assignments a JOIN staff s ON s.id = a.staff_id WHERE a.date = ? AND s.role = 'shift_lead' AND s.active = 1
+        AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved')`).all(date)
+        .filter((x) => all || (x.team_id ? ts.includes(x.team_id) : ts.some((y) => pvTeamIds().has(y))));
       const byLead = new Map();
-      for (const x of sls) if (!byLead.has(x.id)) byLead.set(x.id, x.zone_id || null);
-      for (const [id, z] of byLead) if (!bosses.includes(id)) send([id], left.filter((j) => !z || !j.zone_id || j.zone_id === z));
+      for (const x of sls) { const zs = byLead.get(x.id) || new Set(); if (x.zone_id) zs.add(x.zone_id); byLead.set(x.id, zs); }
+      for (const [id, zs] of byLead) if (!bosses.includes(id)) send([id], left.filter((j) => !zs.size || !j.zone_id || zs.has(j.zone_id)));
     }
   };
 
   // 1 lần (chủ quán 28/10): checklist Phục vụ & Tiếp thực → trưởng ca + tổ trưởng điều phối; bỏ hết gán cố định
-  if (!ctx.setting('lead_pool_v1') && db.prepare('SELECT 1 FROM jobs LIMIT 1').get()) {
+  // DB mới (chưa có việc nào lúc khởi động) → đánh dấu đã làm, không xoá cấu hình chủ quán đặt sau này (rà soát 28/10)
+  if (!ctx.setting('lead_pool_v1') && !db.prepare('SELECT 1 FROM jobs LIMIT 1').get()) ctx.setSetting('lead_pool_v1', '1');
+  if (!ctx.setting('lead_pool_v1')) {
     const pvtt = new Set(db.prepare('SELECT id, name FROM teams').all().filter((x) => /phục vụ|phuc vu|tiếp thực|tiep thuc/i.test(x.name)).map((x) => x.id));
     tx(db, () => {
       for (const t of jobTemplates()) {
@@ -396,18 +406,22 @@ export default function (r, ctx) {
     const myZones = new Set(db.prepare('SELECT zone_id FROM assignments WHERE staff_id = ? AND date = ? AND zone_id IS NOT NULL').all(me.id, date).map((x) => x.zone_id));
     const onShift = !!db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(me.id, date);
     const all = db.prepare('SELECT * FROM jobs WHERE date = ? ORDER BY id').all(date).filter((j) => tpl.has(j.template_id));
-    const inTeams = (t) => { const ts = teamsOf(t); return !ts || ts.includes(me.team_id) || !!db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ? AND team_id IN (' + ts.map(() => '?').join(',') + ')').get(me.id, date, ...ts); };
+    // Nhớ kết quả theo checklist / khu trong 1 lần gọi (rà soát 28/10: trước đây tính people() cho từng việc)
+    const memo = (fn) => { const m = new Map(); return (k, ...a) => { if (!m.has(k)) m.set(k, fn(...a)); return m.get(k); }; };
+    const pplOf = memo((t) => people(date, t));
+    const canPool = memo((t, zid) => poolLead(me, date, zid, t, pplOf(t.id, t)));
+    const inTeams = memo((t) => { const ts = teamsOf(t); return !ts || ts.includes(me.team_id) || !!db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ? AND team_id IN (' + ts.map(() => '?').join(',') + ')').get(me.id, date, ...ts); });
     const zname = new Map(zonesAll().map((z) => [z.id, z.name]));
     const fmt = (j) => ({ ...jobRow(j, tpl.get(j.template_id)), zone_name: j.zone_id ? zname.get(j.zone_id) || '' : 'Cả quán' });
     return {
       date, on_shift: onShift,
       mine: all.filter((j) => j.staff_id === me.id).map(fmt),
       // Việc điều phối: trưởng ca + tổ trưởng thấy cả danh sách (trống / đang làm / xong) để tự điều người
-      pool: all.filter((j) => tpl.get(j.template_id)?.job_lead_pool && !j.owner_id && poolLead(me, date, j.zone_id, tpl.get(j.template_id))).map((j) => ({ ...fmt(j), people: undefined })),
-      open: onShift ? all.filter((j) => !j.staff_id && j.status === 'todo' && !tpl.get(j.template_id)?.job_lead_pool && inTeams(tpl.get(j.template_id)) && (!j.zone_id || !myZones.size || myZones.has(j.zone_id))).map(fmt) : [],
-      to_check: all.filter((j) => j.status === 'done' && j.staff_id !== me.id && canCheck(me, date, j.zone_id)).length,
+      pool: all.filter((j) => tpl.get(j.template_id)?.job_lead_pool && !j.owner_id && canPool(`${j.template_id}:${j.zone_id}`, tpl.get(j.template_id), j.zone_id)).map((j) => ({ ...fmt(j), people: undefined })),
+      open: onShift ? all.filter((j) => !j.staff_id && j.status === 'todo' && !tpl.get(j.template_id)?.job_lead_pool && inTeams(j.template_id, tpl.get(j.template_id)) && (!j.zone_id || !myZones.size || myZones.has(j.zone_id))).map(fmt) : [],
+      to_check: (() => { const cc = memo((zid) => canCheck(me, date, zid)); return all.filter((j) => j.status === 'done' && j.staff_id !== me.id && cc(j.zone_id, j.zone_id)).length; })(),
       // Người để giao việc điều phối: ai có ca hôm nay trong các bộ phận của checklist
-      crew: LEADS.includes(me.role) ? (() => { const m = new Map(); for (const t of tpl.values()) if (t.job_lead_pool) for (const p of people(date, t)) m.set(p.id, { id: p.id, name: p.name, role: p.role, zone_id: p.zone_id, zone_name: p.zone_id ? zname.get(p.zone_id) || '' : '', team_name: p.team_name, start: p.start, end: p.end }); return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'vi')); })() : [],
+      crew: LEADS.includes(me.role) ? (() => { const m = new Map(); for (const t of tpl.values()) if (t.job_lead_pool) for (const p of pplOf(t.id, t)) m.set(p.id, { id: p.id, name: p.name, role: p.role, zone_id: p.zone_id, zone_name: p.zone_id ? zname.get(p.zone_id) || '' : '', team_name: p.team_name, start: p.start, end: p.end }); return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'vi')); })() : [],
     };
   });
 
@@ -426,6 +440,9 @@ export default function (r, ctx) {
     if (j.status !== 'todo') fail(409, j.staff_id === me.id ? 'Bạn đã nhận việc này rồi' : `Việc đã có ${name(j.staff_id)} làm`);
     if (j.staff_id && j.staff_id !== me.id) fail(409, `Việc này đã giao cho ${name(j.staff_id)}. Nhờ tổ trưởng đổi người nếu bạn làm thay`);
     if (!db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(me.id, j.date) && !isLead(me)) fail(403, 'Bạn không có ca hôm nay');
+    // Việc điều phối chưa giao ai: chỉ trưởng ca / tổ trưởng điều phối tự nhận (rà soát 28/10)
+    const tp = tplOf(j);
+    if (!j.staff_id && !j.owner_id && tp?.job_lead_pool && !poolLead(me, j.date, j.zone_id, tp)) fail(403, 'Việc này do trưởng ca / tổ trưởng giao, nhờ họ giao cho bạn');
     const it = itemOf(j), at = ctx.now();
     db.prepare("UPDATE jobs SET staff_id = ?, claimed_at = ?, due_at = ?, status = 'doing' WHERE id = ?").run(me.id, at, it.job_minutes ? at + it.job_minutes * 60_000 : null, j.id);
     if (!j.staff_id) moveKids(j, me.id);
@@ -444,6 +461,7 @@ export default function (r, ctx) {
     fs.writeFileSync(path.join(photoDir, rel), buf);
     return rel;
   }
+  const rmPhoto = (rel) => { if (rel) try { fs.unlinkSync(path.join(photoDir, rel)); } catch { /* đã mất */ } };
   const sendPhoto = (rel) => {
     if (!rel) fail(404, 'Không có ảnh');
     let buf; try { buf = fs.readFileSync(path.join(photoDir, rel)); } catch { fail(410, 'Ảnh không còn'); }
@@ -463,21 +481,24 @@ export default function (r, ctx) {
     if (list.length + saved.length < need) fail(400, need > 1 ? `Việc này phải chụp đủ ${need} ảnh (đang có ${list.length + saved.length})` : 'Việc này phải chụp ảnh khi xong');
     const doneNote = v.text(body.note, { name: 'Ghi chú', max: 1000 });
     if (it.job_ask_note && !doneNote.trim()) fail(400, 'Việc này phải ghi chú khi xong (vd tình trạng, còn thiếu gì)');
-    const files = [...saved, ...list.map((d, k) => savePhoto(d, `j${j.id}-${k}`))].slice(0, 8);
-    db.prepare('DELETE FROM job_shots WHERE job_id = ?').run(j.id);
-    const photo = files[0] || null;
-    if (files.length > 1) { db.prepare('DELETE FROM job_photos WHERE job_id = ?').run(j.id); for (const f of files.slice(1)) db.prepare('INSERT INTO job_photos (job_id, file, at) VALUES (?, ?, ?)').run(j.id, f, ctx.now()); }
     // Việc có số phải đủ (vd giặt 2 khăn): nhập số thực tế, thiếu → ghi vào tên người làm (đền)
+    // Kiểm tra hết trước khi dùng ảnh chụp dở (rà soát 28/10: số sai không làm mất ảnh)
     let count = null, short = 0;
     if (it.job_expect) {
       if (body.count === undefined || body.count === '' || body.count === null) fail(400, `Nhập số ${it.unit || 'cái'} thực tế (phải đủ ${it.job_expect})`);
       count = v.int(body.count, { min: 0, max: 9999, name: 'Số lượng' });
       short = Math.max(0, it.job_expect - count);
     }
+    const files = [...saved, ...list.map((d, k) => savePhoto(d, `j${j.id}-${k}`))].slice(0, 8);
+    const photo = files[0] || null;
     const at = ctx.now();
     const late = j.due_at && at > j.due_at ? 1 : 0;
-    db.prepare("UPDATE jobs SET status = 'done', done_at = ?, minutes_used = ?, late = MAX(late, ?), photo = COALESCE(?, photo), count = ?, short = ? WHERE id = ?").run(at, Math.max(1, Math.round((at - j.claimed_at) / 60_000)), late, photo, count, short, j.id);
-    db.prepare('UPDATE jobs SET done_note = ? WHERE id = ?').run(doneNote, j.id);
+    tx(db, () => {
+      db.prepare('DELETE FROM job_shots WHERE job_id = ?').run(j.id);
+      if (files.length > 1) { db.prepare('DELETE FROM job_photos WHERE job_id = ?').run(j.id); for (const f of files.slice(1)) db.prepare('INSERT INTO job_photos (job_id, file, at) VALUES (?, ?, ?)').run(j.id, f, ctx.now()); }
+      db.prepare("UPDATE jobs SET status = 'done', done_at = ?, minutes_used = ?, late = MAX(late, ?), photo = COALESCE(?, photo), count = ?, short = ? WHERE id = ?").run(at, Math.max(1, Math.round((at - j.claimed_at) / 60_000)), late, photo, count, short, j.id);
+      db.prepare('UPDATE jobs SET done_note = ? WHERE id = ?').run(doneNote, j.id);
+    });
     if (short) {
       const ids = [...new Set([...checkerOf(j.date, j.zone_id), ...ctx.managers()])].filter((x) => x !== me.id);
       ctx.notify(ids, { title: `Thiếu ${short} ${it.unit || ''}: ${it.text}`.replace('  ', ' '), body: `${me.name}: ${count}/${it.job_expect} → ghi vào tên ${me.name} (đền)`, link: '/viec-ca?tab=khu', urgent: true });
@@ -500,7 +521,9 @@ export default function (r, ctx) {
     if (ok) db.prepare("UPDATE jobs SET status = 'ok', checked_by = ?, checked_at = ?, check_note = ? WHERE id = ?").run(me.id, at, note, j.id);
     else {
       const it = itemOf(j);
-      // Làm lại: bỏ ảnh cũ để người làm chụp lại (chủ quán 28/10)
+      // Làm lại: bỏ ảnh cũ để người làm chụp lại (chủ quán 28/10); xoá luôn file ảnh cũ (rà soát 28/10)
+      for (const x of db.prepare('SELECT file FROM job_photos WHERE job_id = ?').all(j.id)) rmPhoto(x.file);
+      if (j.photo) rmPhoto(j.photo);
       db.prepare('DELETE FROM job_photos WHERE job_id = ?').run(j.id);
       db.prepare("UPDATE jobs SET status = 'doing', photo = NULL, redo_count = redo_count + 1, claimed_at = ?, due_at = ?, done_at = NULL, alerted = 0, checked_by = ?, checked_at = ?, check_note = ? WHERE id = ?")
         .run(at, it.job_minutes ? at + it.job_minutes * 60_000 : null, me.id, at, note, j.id);
@@ -518,6 +541,14 @@ export default function (r, ctx) {
     if (['done', 'ok'].includes(j.status)) fail(409, 'Việc đã xong, không đổi người');
     const sid = body.staff_id ? v.int(body.staff_id, { min: 1, name: 'Người làm' }) : null;
     if (sid && !db.prepare('SELECT 1 FROM staff WHERE id = ? AND active = 1').get(sid)) fail(404, 'Không tìm thấy nhân viên');
+    // Việc điều phối: chỉ giao cho người có ca hôm đó thuộc bộ phận của checklist (hoặc quản lý / chủ) (rà soát 28/10)
+    const tp = tplOf(j);
+    if (sid && tp?.job_lead_pool && !people(j.date, tp).some((p) => p.id === sid) && !ctx.managers().includes(sid)) fail(400, 'Người này không có ca hôm đó trong bộ phận của checklist');
+    // Đổi người khi việc đang làm: bỏ ảnh chụp dở của người cũ
+    if (j.status === 'doing' && j.staff_id && j.staff_id !== sid) {
+      for (const x of db.prepare('SELECT file FROM job_shots WHERE job_id = ?').all(j.id)) rmPhoto(x.file);
+      db.prepare('DELETE FROM job_shots WHERE job_id = ?').run(j.id);
+    }
     db.prepare("UPDATE jobs SET staff_id = ?, status = 'todo', claimed_at = NULL, due_at = NULL, nudged = 0, alerted = 0, assigned_by = ?, assigned_at = ? WHERE id = ?").run(sid, me.id, ctx.now(), j.id);
     moveKids(j, sid, me.id);
     if (sid && sid !== me.id) ctx.notify([sid], { title: `Việc mới: ${itemOf(j).text}`, body: `${zoneLabel(j.zone_id)} · ${me.name} giao`, link: '/viec-ca' });
@@ -574,6 +605,7 @@ export default function (r, ctx) {
     const x = db.prepare('SELECT s.id, j.staff_id FROM job_shots s JOIN jobs j ON j.id = s.job_id WHERE s.id = ?').get(Number(params.sid));
     if (!x) fail(404, 'Không có ảnh');
     if (x.staff_id !== me.id) fail(403, 'Không phải ảnh của bạn');
+    rmPhoto(db.prepare('SELECT file FROM job_shots WHERE id = ?').get(x.id)?.file);
     db.prepare('DELETE FROM job_shots WHERE id = ?').run(x.id);
     ctx.broadcast('jobs');
     return { ok: true };
@@ -619,11 +651,44 @@ export default function (r, ctx) {
     if (t) for (let i = 0; i < 7; i++) materialize(addDays(ctx.today(), i), t, { mode: 'force' });
   }
 
+  // ---------- Dọn dẹp mỗi ngày 1 lần (rà soát 28/10) ----------
+  // - Ảnh việc ca (photos/viec/<ngày>) cũ hơn số ngày giữ ảnh checklist → xoá file + bỏ tham chiếu trong DB
+  // - Cờ nhắc theo ngày trong settings (jobs_left:<ngày>:…, noshow:…) cũ hơn 14 ngày; phiên đăng nhập hết hạn; thông báo cũ hơn 60 ngày
+  const DAILY_KEYS = /^(jobs_left|noshow|loss_alert|count_remind|dau_ca_photo|opening_note|avail_bot_sent|utensil_remind|jobs_cleanup):(\d{4}-\d{2}-\d{2})(:|$)/;
+  ctx.jobsCleanup = () => {
+    const today = ctx.today(), keep = ctx.photoKeepDays || 7;
+    const cut = addDays(today, -keep); // file lưu theo thư mục ngày: <ngày>/…
+    const old = (f) => !!f && /^\d{4}-\d{2}-\d{2}/.test(f) && f.slice(0, 10) < cut;
+    let n = 0;
+    const rm = (f) => { try { fs.unlinkSync(path.join(photoDir, f)); n++; } catch { /* đã mất */ } };
+    tx(db, () => {
+      for (const x of db.prepare('SELECT id, photo FROM jobs WHERE photo IS NOT NULL AND photo < ?').all(cut)) if (old(x.photo)) { rm(x.photo); db.prepare('UPDATE jobs SET photo = NULL WHERE id = ?').run(x.id); }
+      for (const tb of ['job_photos', 'job_shots', 'job_zone_photos']) {
+        for (const x of db.prepare(`SELECT id, file FROM ${tb} WHERE file < ?`).all(cut)) if (old(x.file)) { rm(x.file); db.prepare(`DELETE FROM ${tb} WHERE id = ?`).run(x.id); }
+      }
+    });
+    // File mồ côi (vd ảnh cũ) trong thư mục ngày cũ
+    try {
+      for (const d of fs.readdirSync(photoDir)) if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d < cut) fs.rmSync(path.join(photoDir, d), { recursive: true, force: true });
+    } catch { /* chưa có thư mục */ }
+    const keyCut = addDays(today, -14);
+    const keys = db.prepare('SELECT key FROM settings').all().map((x) => x.key).filter((k) => { const m = DAILY_KEYS.exec(k); return m && m[2] < keyCut; });
+    tx(db, () => { for (const k of keys) db.prepare('DELETE FROM settings WHERE key = ?').run(k); });
+    const now = ctx.now();
+    try { db.prepare('DELETE FROM sessions WHERE created_at < ?').run(now - 30 * 86_400_000); } catch { /* bảng chưa có */ } // = SESSION_DAYS trong app.js
+    try { db.prepare('DELETE FROM notifications WHERE created_at < ?').run(now - 60 * 86_400_000); } catch { /* bảng chưa có */ }
+    return { photos: n, keys: keys.length };
+  };
+
   // ---------- Nhắc giờ (mỗi phút) ----------
   ctx.jobsTick = () => {
     const date = ctx.today(), now = ctx.now(), c = ctx.clock();
+    if (!ctx.setting(`jobs_cleanup:${date}`)) { ctx.setSetting(`jobs_cleanup:${date}`, '1'); try { ctx.jobsCleanup(); } catch (e) { console.error('Dọn ảnh / cờ cũ lỗi:', e.message); } }
     const ts = jobTemplates();
     if (!ts.length) return;
+    // people() tính 1 lần / checklist trong 1 lượt (rà soát 28/10)
+    const pm = new Map();
+    const people = (d, t) => { if (d !== date) return peopleAll(d, t); if (!pm.has(t.id)) pm.set(t.id, peopleAll(d, t)); return pm.get(t.id); };
     // Tạo thẻ việc trong ngày từ 1 tiếng trước ca sớm nhất
     const nowMin = c.minuteOf(now);
     for (const t of ts) { const ps = people(date, t); if (ps.length && nowMin >= (t.job_from ?? Math.min(...ps.map((p) => p.start))) - 60) materialize(date, t); }
@@ -677,7 +742,8 @@ export default function (r, ctx) {
         const due = j.owner_id && t.phase === 'close' ? (p ? nowMin >= p.end - 20 : false) : t.job_from != null ? nowMin >= t.job_from + 10 : t.phase === 'close' ? (p ? nowMin >= p.end - 30 : false) : (att && now > att.clock_in + 10 * 60_000);
         if (due) { db.prepare('UPDATE jobs SET nudged = 1 WHERE id = ?').run(j.id); ctx.notify([j.staff_id], { title: `Việc của bạn: ${it.text}`, body: `${zoneLabel(j.zone_id)} · bấm Nhận rồi làm${it.job_minutes ? ` (chuẩn ${it.job_minutes} phút)` : ''}`, link: '/viec-ca' }); }
       } else {
-        // Chưa ai nhận 15 phút sau ca sớm nhất → báo người kiểm tra khu
+        // Chưa ai nhận 15 phút sau ca sớm nhất → báo người kiểm tra khu. Việc điều phối: trưởng ca tự giao, không báo từng việc (rà soát 28/10)
+        if (t.job_lead_pool) continue;
         const ps = people(date, t);
         if (ps.length && nowMin >= (t.job_from ?? Math.min(...ps.map((p) => p.start))) + 15) { db.prepare('UPDATE jobs SET nudged = 1 WHERE id = ?').run(j.id); ctx.notify(checkerOf(date, j.zone_id), { title: `Chưa ai nhận: ${it.text}`, body: zoneLabel(j.zone_id), link: '/viec-ca?tab=khu' }); }
       }

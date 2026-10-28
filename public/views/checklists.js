@@ -148,9 +148,10 @@ export function ChecklistView({ me }) {
   const [date, setDate] = useState(me.today);
   const st = useData(`/api/checklists?date=${date}`);
   // Đóng ca chỉ hiện từ 21h đến hết ngày làm việc (5h sáng); quản lý / chủ quán luôn thấy để soạn (chủ quán 28/10)
-  const hr = new Date().getHours();
+  // Giờ VN (UTC+7), không theo đồng hồ máy; xem ngày cũ thì luôn thấy Đóng ca (rà soát 28/10)
+  const hr = new Date(Date.now() + 7 * 3600_000).getUTCHours();
   const closeTime = hr >= 21 || hr < 5;
-  const closeOk = closeTime || atLeast(me, 'manager');
+  const closeOk = closeTime || date !== me.today || atLeast(me, 'manager');
   const [phase0, setPhase] = useState(() => (closeTime ? 'close' : 'open'));
   const phase = closeOk ? phase0 : 'open';
   const [sec, setSec] = useState('');

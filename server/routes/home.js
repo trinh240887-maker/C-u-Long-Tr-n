@@ -97,7 +97,8 @@ export default function (r, ctx) {
       (SELECT COUNT(*) FROM cover_offers o WHERE o.leave_id = l.id AND o.status = 'accepted') AS accepted
       , s.team_id, s.home_zone_id, (SELECT a.zone_id FROM assignments a WHERE a.group_id = l.group_id LIMIT 1) AS zone_id
       FROM leave_requests l JOIN staff s ON s.id = l.staff_id WHERE l.status = 'pending' ORDER BY l.date`).all()
-      .filter((l) => inScope(l.team_id) && (!myZone || (l.zone_id ?? l.home_zone_id) === myZone)); // trưởng ca khu A: đơn nghỉ của người khu A
+      // trưởng ca khu A: đơn nghỉ của người khu A + người chưa phân khu (giống danh sách người) (rà soát 28/10)
+      .filter((l) => inScope(l.team_id) && (!myZone || !(l.zone_id ?? l.home_zone_id) || (l.zone_id ?? l.home_zone_id) === myZone));
 
     // Thiếu người 7 ngày tới
     const upcoming = db.prepare(`SELECT a.date, a.team_id, COUNT(DISTINCT a.staff_id) AS n FROM assignments a
@@ -119,8 +120,8 @@ export default function (r, ctx) {
     const nm = (id) => (id ? db.prepare('SELECT name FROM staff WHERE id = ?').get(id)?.name || '' : '');
     const jobGroups = [];
     for (const tp of (ctx.checklistTemplates?.() || []).filter((x) => x.job_mode)) {
-      const ts = tp.job_teams?.length ? tp.job_teams : tp.team_id ? [tp.team_id] : [];
-      if (scope && !ts.some((x) => scope.has(x))) continue;
+      const ts = (tp.job_teams?.length ? tp.job_teams : tp.team_id ? [tp.team_id] : []).filter((x) => x > 0);
+      if (scope && ts.length && !ts.some((x) => scope.has(x))) continue; // không gắn bộ phận = việc cả quán: ai cũng thấy (rà soát 28/10)
       const js = db.prepare('SELECT j.*, i.text FROM jobs j JOIN checklist_items i ON i.id = j.item_id WHERE j.date = ? AND j.template_id = ? ORDER BY j.zone_id, j.id').all(today, tp.id);
       for (const zid of [...new Set(js.map((j) => j.zone_id))].filter((z) => !myZone || !z || z === myZone)) {
         const list = js.filter((j) => j.zone_id === zid);
@@ -137,8 +138,9 @@ export default function (r, ctx) {
       unscheduled: unscheduled.map((u) => ({ staff_name: u.staff_name, clock_in: u.clock_in, clock_out: u.clock_out })),
       checklists: checklistByTeam,
       overdue, open_tasks: openTasks, pending_leave: pendingLeave, gaps,
-      photos_pending: db.prepare(`SELECT tp.team_id FROM checklist_entries e JOIN checklist_runs r ON r.id = e.run_id JOIN checklist_items i ON i.id = e.item_id JOIN checklist_templates tp ON tp.id = r.template_id
-        WHERE r.date = ? AND i.photo_required = 1 AND e.review_status IS NULL`).all(today).filter((x) => !scope || scope.has(x.team_id)).length,
+      // Checklist không gắn tổ (cả quán) + bộ phận dùng chung (job_teams) cũng tính (rà soát 28/10)
+      photos_pending: db.prepare(`SELECT tp.team_id, tp.job_teams FROM checklist_entries e JOIN checklist_runs r ON r.id = e.run_id JOIN checklist_items i ON i.id = e.item_id JOIN checklist_templates tp ON tp.id = r.template_id
+        WHERE r.date = ? AND i.photo_required = 1 AND e.review_status IS NULL`).all(today).filter((x) => { if (!scope || x.team_id == null || scope.has(x.team_id)) return true; try { return JSON.parse(x.job_teams || '[]').some((y) => scope.has(y)); } catch { return false; } }).length,
       avail: (() => {
         const s = ctx.availabilitySummary(addDays(today, 7));
         return { week_start: s.week_start, missing: s.people.filter((p) => !p.submitted_at).length, total: s.people.length, deadline: s.deadline };

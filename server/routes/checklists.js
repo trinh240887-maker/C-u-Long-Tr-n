@@ -64,7 +64,8 @@ export default function (r, ctx) {
   addCol('checklist_items', 'job_gender', "TEXT NOT NULL DEFAULT ''");        // '' ai cũng được · nu chỉ nữ · nam chỉ nam
   addCol('checklist_items', 'job_fixed_staff', 'INTEGER');                   // việc chung: người làm cố định (chủ quán tự chọn), ngày nào có ca thì giao người này
   addCol('checklist_items', 'job_photos', 'INTEGER NOT NULL DEFAULT 0');      // số ảnh rộng phải chụp khi xong (0 = theo photo_required)                       // việc riêng của 1 khu (chủ quán 27/10); trống = khu nào cũng làm
-  addCol('checklist_items', 'job_expect', 'INTEGER NOT NULL DEFAULT 0');      // số phải đủ khi xong (vd 2 khăn); thiếu → ghi vào tên người làm       // hết đồ thì lấy ở đâu
+  addCol('checklist_items', 'job_expect', 'INTEGER NOT NULL DEFAULT 0');
+  addCol('checklist_items', 'deleted_at', 'INTEGER'); // xoá mềm (rà soát 28/10): giữ lịch sử đã làm, ảnh, việc ca cũ      // số phải đủ khi xong (vd 2 khăn); thiếu → ghi vào tên người làm       // hết đồ thì lấy ở đâu
   const hadMoCa = !!ctx.setting('mo_ca_pv_v1'); // DB đang chạy thật (đã qua bản 26/10) — DB mới tạo thì không ẩn gì
   // Chủ quán 26/10: 12 việc mở ca chung Phục vụ + Tiếp thực (14:00–15:30), giao từng người; làm 1 lần
   if (!ctx.setting('mo_ca_pv_v1')) {
@@ -151,7 +152,9 @@ export default function (r, ctx) {
     ctx.setSetting('pv_tt_restore_v1', '1');
   }
   // Chủ quán 27/10: ở Mở ca / Đầu ca phục vụ, việc không gắn khu = việc chung cả quán (1 người), không chia mỗi khu
-  if (!ctx.setting('common_shop_v1') && hadMoCa) { // chỉ DB đang chạy thật (DB mới giữ 12 việc mẫu chia mỗi khu)
+  // DB mới: đánh dấu đã làm luôn, không chạy ở lần khởi động sau (rà soát 28/10)
+  if (!ctx.setting('common_shop_v1') && !hadMoCa) ctx.setSetting('common_shop_v1', '1');
+  if (!ctx.setting('common_shop_v1')) { // chỉ DB đang chạy thật (DB mới giữ 12 việc mẫu chia mỗi khu)
     db.prepare(`UPDATE checklist_items SET job_scope = 'shop' WHERE job_zone_id IS NULL AND job_scope = 'zone' AND template_id IN
       (SELECT id FROM checklist_templates WHERE title LIKE '%ở ca phục vụ%' OR title LIKE '%ầu ca Phục vụ%' OR title LIKE '%ầu ca phục vụ%')`).run();
     try { db.prepare(`DELETE FROM jobs WHERE status = 'todo' AND zone_id != 0 AND item_id IN (SELECT id FROM checklist_items WHERE job_scope = 'shop')`).run(); } catch { /* chưa có bảng jobs */ }
@@ -194,7 +197,7 @@ export default function (r, ctx) {
       LEFT JOIN shift_templates st ON st.id = c.shift_template_id LEFT JOIN positions p ON p.id = c.position_id LEFT JOIN zones z ON z.id = c.zone_id
       ${activeOnly ? 'WHERE c.active = 1' : ''} ORDER BY t.sort, CASE c.phase WHEN 'open' THEN 0 WHEN 'during' THEN 1 ELSE 2 END, c.sort, c.id`).all();
     const items = db.prepare(`SELECT i.*, g.name AS ingredient_name, g.unit AS ingredient_unit, g.purchase_unit AS ingredient_pack, g.purchase_factor AS ingredient_factor, st.name AS store_name FROM checklist_items i
-      LEFT JOIN ingredients g ON g.id = i.ingredient_id LEFT JOIN stores st ON st.id = i.store_id ORDER BY i.sort, i.id`).all();
+      LEFT JOIN ingredients g ON g.id = i.ingredient_id LEFT JOIN stores st ON st.id = i.store_id WHERE i.deleted_at IS NULL ORDER BY i.sort, i.id`).all();
     const samples = db.prepare('SELECT id, template_id, item_id, note FROM checklist_samples ORDER BY id').all();
     const doerName = (d) => (d === 'lead' ? 'Trưởng ca' : d === 'manager' ? 'Quản lý' : /^staff:\d+$/.test(d || '') ? db.prepare('SELECT name FROM staff WHERE id = ?').get(Number(d.slice(6)))?.name || '?' : '');
     return tpls.map((c) => ({
@@ -207,12 +210,14 @@ export default function (r, ctx) {
 
   ctx.checklistTemplates = templates;
   // Chủ quán 27/10: Tạp vụ, Bar, Bếp — giữ checklist, chỉ bỏ các VIỆC để ghi lại (chuyển sang bản lưu ẩn "(việc cũ 27/10)"); giữ dòng kiểm kho (nối nguyên liệu)
-  if (!ctx.setting('tv_bar_bep_clear_v1') && hadMoCa) {
+  // DB mới: đánh dấu đã làm luôn — trước đây lần khởi động thứ 2 chuyển hết việc Bếp / Bar / Tạp vụ sang bản ẩn (rà soát 28/10)
+  if (!ctx.setting('tv_bar_bep_clear_v1') && !hadMoCa) ctx.setSetting('tv_bar_bep_clear_v1', '1');
+  if (!ctx.setting('tv_bar_bep_clear_v1')) {
     tx(db, () => {
       for (const t of templates()) {
         if (/\(việc cũ/i.test(t.title)) continue;
         if (!/^(bếp|bar|tạp vụ)/i.test(t.section_label || '') && !/bếp|lẩu|bar|tạp vụ/i.test(t.team_name || '')) continue;
-        const move = db.prepare('SELECT id FROM checklist_items WHERE template_id = ? AND ingredient_id IS NULL').all(t.id).map((x) => x.id);
+        const move = db.prepare('SELECT id FROM checklist_items WHERE template_id = ? AND ingredient_id IS NULL AND deleted_at IS NULL').all(t.id).map((x) => x.id);
         if (!move.length) continue;
         const arch = Number(db.prepare('INSERT INTO checklist_templates (team_id, phase, title, sort, active) VALUES (?, ?, ?, ?, 0)').run(t.team_id, t.phase, `${t.title} (việc cũ 27/10)`, t.sort).lastInsertRowid);
         for (const id of move) {
@@ -229,7 +234,7 @@ export default function (r, ctx) {
   function saveItems(templateId, items) {
     if (!Array.isArray(items) || !items.length) fail(400, 'Checklist cần ít nhất một việc');
     if (items.length > 60) fail(400, 'Tối đa 60 việc trong một checklist');
-    const existing = new Set(db.prepare('SELECT id FROM checklist_items WHERE template_id = ?').all(templateId).map((x) => x.id));
+    const existing = new Set(db.prepare('SELECT id FROM checklist_items WHERE template_id = ? AND deleted_at IS NULL').all(templateId).map((x) => x.id));
     const keep = new Set();
     const ids = [];
     items.forEach((it, i) => {
@@ -277,7 +282,12 @@ export default function (r, ctx) {
       if (w && items[ids.indexOf(w)]?.job_with_idx !== undefined && Number(items[ids.indexOf(w)].job_with_idx) === i) w = 0; // không cho 2 việc kèm nhau vòng tròn
       db.prepare('UPDATE checklist_items SET job_with = ? WHERE id = ?').run(w, ids[i]);
     });
-    for (const id of existing) if (!keep.has(id)) db.prepare('DELETE FROM checklist_items WHERE id = ?').run(id);
+    for (const id of existing) if (!keep.has(id)) softDelete(id);
+  }
+  // Xoá mềm 1 việc (rà soát 28/10): ẩn khỏi checklist, giữ lịch sử (đã làm, ảnh, việc ca cũ); chỉ bỏ việc ca chưa làm từ hôm nay
+  function softDelete(id) {
+    db.prepare('UPDATE checklist_items SET deleted_at = ? WHERE id = ?').run(ctx.now(), id);
+    try { db.prepare("DELETE FROM jobs WHERE item_id = ? AND status = 'todo' AND date >= ?").run(id, ctx.today()); } catch { /* chưa có bảng jobs */ }
   }
 
   function tplFields(body, cur = {}) {
@@ -334,7 +344,7 @@ export default function (r, ctx) {
     if (!cur) fail(404, 'Không tìm thấy checklist');
     canEditTpl(me, cur.team_id);
     const text = v.text(body.text, { name: 'Tên việc', required: true, max: 120 });
-    const n = db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(sort), -1) AS m FROM checklist_items WHERE template_id = ?').get(cur.id);
+    const n = db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(sort), -1) AS m FROM checklist_items WHERE template_id = ? AND deleted_at IS NULL').get(cur.id);
     if (n.n >= 60) fail(400, 'Tối đa 60 việc trong một checklist');
     const zoneId = body.zone_id ? v.int(body.zone_id, { min: 1, name: 'Khu' }) : null;
     if (zoneId && !db.prepare('SELECT 1 FROM zones WHERE id = ?').get(zoneId)) fail(400, 'Khu không tồn tại');
@@ -347,7 +357,7 @@ export default function (r, ctx) {
 
   // Sửa 1 việc ngay trên màn checklist: tên, hướng dẫn, số phút, phải xong trước, số ảnh phải chụp
   r.patch('/api/checklist-items/:id', 'team_lead', ({ me, params, body }) => {
-    const it = db.prepare('SELECT i.*, t.team_id FROM checklist_items i JOIN checklist_templates t ON t.id = i.template_id WHERE i.id = ?').get(params.id);
+    const it = db.prepare('SELECT i.*, t.team_id FROM checklist_items i JOIN checklist_templates t ON t.id = i.template_id WHERE i.id = ? AND i.deleted_at IS NULL').get(params.id);
     if (!it) fail(404, 'Không tìm thấy việc');
     canEditTpl(me, it.team_id);
     const text = body.text === undefined ? it.text : v.text(body.text, { name: 'Tên việc', required: true, max: 120 });
@@ -435,13 +445,13 @@ export default function (r, ctx) {
     const from = v.int(body.from, { min: 1, name: 'Khu gốc' });
     const to = (Array.isArray(body.to) ? body.to : []).map(Number).filter((z) => z && z !== from && db.prepare('SELECT 1 FROM zones WHERE id = ?').get(z));
     if (!to.length) fail(400, 'Chọn khu để chép sang');
-    const src = db.prepare('SELECT * FROM checklist_items WHERE template_id = ? AND job_zone_id = ? ORDER BY sort, id').all(t.id, from);
+    const src = db.prepare('SELECT * FROM checklist_items WHERE template_id = ? AND job_zone_id = ? AND deleted_at IS NULL ORDER BY sort, id').all(t.id, from);
     if (!src.length) fail(400, 'Khu này chưa có việc để chép');
     let n = 0;
     tx(db, () => {
       let sort = db.prepare('SELECT COALESCE(MAX(sort), -1) AS m FROM checklist_items WHERE template_id = ?').get(t.id).m;
       for (const z of to) {
-        const have = new Set(db.prepare('SELECT text FROM checklist_items WHERE template_id = ? AND job_zone_id = ?').all(t.id, z).map((x) => x.text.trim().toLowerCase()));
+        const have = new Set(db.prepare('SELECT text FROM checklist_items WHERE template_id = ? AND job_zone_id = ? AND deleted_at IS NULL').all(t.id, z).map((x) => x.text.trim().toLowerCase()));
         for (const it of src) {
           if (have.has(it.text.trim().toLowerCase())) continue;
           const id = Number(db.prepare(`INSERT INTO checklist_items (template_id, text, kind, unit, required, photo_required, extra_ingredient_ids, sort, job_minutes, job_scope, job_qty, job_per_table, fetch_where, job_expect, job_zone_id, job_guide, job_deadline, job_photos)
@@ -462,11 +472,10 @@ export default function (r, ctx) {
 
   // Xoá 1 việc ngay trên màn checklist (việc theo khu ở Mở ca phục vụ)
   r.post('/api/checklist-items/:id/delete', 'team_lead', ({ me, params }) => {
-    const it = db.prepare('SELECT i.*, t.team_id FROM checklist_items i JOIN checklist_templates t ON t.id = i.template_id WHERE i.id = ?').get(params.id);
+    const it = db.prepare('SELECT i.*, t.team_id FROM checklist_items i JOIN checklist_templates t ON t.id = i.template_id WHERE i.id = ? AND i.deleted_at IS NULL').get(params.id);
     if (!it) fail(404, 'Không tìm thấy việc');
     canEditTpl(me, it.team_id);
-    db.prepare("DELETE FROM jobs WHERE item_id = ? AND status = 'todo'").run(it.id);
-    db.prepare('DELETE FROM checklist_items WHERE id = ?').run(it.id);
+    softDelete(it.id);
     ctx.audit(me, 'checklist.item_delete', { template: it.template_id, text: it.text });
     ctx.broadcast('checklists');
     return { ok: true };
@@ -523,7 +532,7 @@ export default function (r, ctx) {
   function spotIds(runId, templateId, phase) {
     const n = spotN();
     if (!n || phase === 'during') return new Set();
-    const pool = db.prepare("SELECT id FROM checklist_items WHERE template_id = ? AND kind = 'check' AND photo_required = 0 ORDER BY id").all(templateId).map((x) => x.id);
+    const pool = db.prepare("SELECT id FROM checklist_items WHERE template_id = ? AND kind = 'check' AND photo_required = 0 AND deleted_at IS NULL ORDER BY id").all(templateId).map((x) => x.id);
     if (pool.length < 3) return new Set();
     const key = String(ctx.setting('pin_secret') || 'clt');
     const score = (id) => crypto.createHash('sha256').update(`${key}:${runId}:${id}`).digest().readUInt32BE(0);
@@ -650,7 +659,7 @@ export default function (r, ctx) {
 
   // Lượt checklist xong khi mọi việc bắt buộc đã làm và không có việc nào bị chấm "Làm lại"
   function updateRun(run, by) {
-    const left = db.prepare(`SELECT COUNT(*) AS n FROM checklist_items i WHERE i.template_id = ? AND i.required = 1
+    const left = db.prepare(`SELECT COUNT(*) AS n FROM checklist_items i WHERE i.template_id = ? AND i.required = 1 AND i.deleted_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM checklist_entries e WHERE e.run_id = ? AND e.item_id = i.id AND COALESCE(e.review_status, '') != 'redo')`).get(run.template_id, run.id).n;
     const cur = db.prepare('SELECT completed_at FROM checklist_runs WHERE id = ?').get(run.id);
     if (left === 0 && !cur.completed_at) db.prepare('UPDATE checklist_runs SET completed_at = ?, completed_by = ? WHERE id = ?').run(ctx.now(), by, run.id);
@@ -660,7 +669,7 @@ export default function (r, ctx) {
   function loadRunItem(me, runId, itemId) {
     const run = db.prepare('SELECT r.*, t.team_id, t.shift_template_id, t.position_id, t.zone_id, t.doer, t.title FROM checklist_runs r JOIN checklist_templates t ON t.id = r.template_id WHERE r.id = ?').get(runId);
     if (!run) fail(404, 'Không tìm thấy checklist');
-    const item = db.prepare('SELECT * FROM checklist_items WHERE id = ? AND template_id = ?').get(itemId, run.template_id);
+    const item = db.prepare('SELECT * FROM checklist_items WHERE id = ? AND template_id = ? AND deleted_at IS NULL').get(itemId, run.template_id);
     if (!item) fail(404, 'Không tìm thấy việc');
     if (!inScope(myScope(me, run.date), run)) fail(403, 'Checklist này không thuộc tổ hoặc ca của bạn hôm nay');
     if (run.date < ctx.today() && rank(me.role) < rank('shift_lead')) fail(403, 'Checklist ngày cũ chỉ trưởng ca trở lên mới sửa được');
@@ -670,6 +679,7 @@ export default function (r, ctx) {
   // ---------- Ảnh báo cáo ----------
   const photoDir = ctx.photoDir || path.join(os.tmpdir(), 'quanly-photos');
   const KEEP_DAYS = 7;
+  ctx.photoKeepDays = KEEP_DAYS; // jobs.js dọn ảnh việc ca cùng số ngày (rà soát 28/10)
 
   r.post('/api/checklists/photo', 'staff', ({ me, body }) => {
     const { run, item } = loadRunItem(me, v.int(body.run_id, { min: 1, name: 'Checklist' }), v.int(body.item_id, { min: 1, name: 'Việc' }));
@@ -720,7 +730,7 @@ export default function (r, ctx) {
     if (!t) fail(404, 'Không tìm thấy checklist');
     canEditTpl(me, t.team_id);
     const itemId = body.item_id ? v.int(body.item_id, { min: 1, name: 'Việc' }) : null;
-    if (itemId && !db.prepare('SELECT 1 FROM checklist_items WHERE id = ? AND template_id = ?').get(itemId, t.id)) fail(400, 'Việc không thuộc checklist này');
+    if (itemId && !db.prepare('SELECT 1 FROM checklist_items WHERE id = ? AND template_id = ? AND deleted_at IS NULL').get(itemId, t.id)) fail(400, 'Việc không thuộc checklist này');
     const m = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(body.data || ''));
     if (!m) fail(400, 'Ảnh không hợp lệ');
     const buf = Buffer.from(m[2], 'base64');
