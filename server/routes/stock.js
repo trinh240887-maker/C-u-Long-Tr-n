@@ -43,9 +43,27 @@ export default function (r, ctx) {
   addColI('count_group', "TEXT NOT NULL DEFAULT ''");
   const GROUP_LABEL = { topping: 'Topping', bep: 'Bếp', bar: 'Bar & pha chế', tieuhao: 'Tiêu hao' };
   const storeName = (id) => (id ? db.prepare('SELECT name FROM stores WHERE id = ?').get(id)?.name || '' : '');
+  // Khung theo điểm chế biến của các món dùng nguyên liệu (chủ quán 28/10: kho Lẩu đã gộp nên không dựa kho khu được nữa)
+  // Lẩu / Bò / Topping – Nướng – Rau → Topping · Steak / Ưu tiên → Bếp · Pha chế / Bar → Bar. Nhớ 3 giây (đủ cho 1 lần mở phiếu kiểm).
+  let stationVote = { at: 0, map: new Map() };
+  const groupByStation = (ingId) => {
+    if (Date.now() - stationVote.at > 3_000) {
+      const map = new Map();
+      for (const r of db.prepare('SELECT r.ingredient_id AS id, k.name AS st FROM menu_recipes r JOIN menu_items m ON m.id = r.item_id JOIN kitchen_stations k ON k.id = m.station_id WHERE m.active = 1').all()) {
+        const g = /pha chế|pha che|bar/i.test(r.st) ? 'bar' : /lẩu|lau|bò|topping|nướng|rau/i.test(r.st) ? 'topping' : /steak|ưu tiên|bếp/i.test(r.st) ? 'bep' : null;
+        if (!g) continue;
+        const v = map.get(r.id) || {}; v[g] = (v[g] || 0) + 1; map.set(r.id, v);
+      }
+      stationVote = { at: Date.now(), map };
+    }
+    const v = stationVote.map.get(ingId);
+    return v ? Object.entries(v).sort((a, b) => b[1] - a[1])[0][0] : null;
+  };
   const ingGroupOf = (i) => {
     if (GROUP_LABEL[i.count_group]) return i.count_group;
     if (ingKindOf(i) === 'supply') return 'tieuhao';
+    const bySt = groupByStation(i.id);
+    if (bySt) return bySt;
     const sn = storeName(i.home_store_id);
     if (/lẩu|lau/i.test(sn)) return 'topping';
     if (/bar/i.test(sn) || ingKindOf(i) === 'finished') return 'bar';

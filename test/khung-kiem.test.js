@@ -30,6 +30,17 @@ test('kiểm kho 4 khung: tự xếp khung, chọn người kiểm từng khung,
   const meta = (await o('GET', '/api/stock/meta')).data;
   const grp = (id) => meta.ingredients.find((i) => i.id === id).group_eff;
   assert.equal(grp(rau), 'bep'); assert.equal(grp(bo), 'topping'); assert.equal(grp(gas), 'tieuhao');
+  // Nguyên liệu dùng cho món ra ở điểm Topping / Bò / Nước lẩu → khung Topping dù khu chính cũ là Bếp
+  const nam = (await o('POST', '/api/stock/ingredients', { name: 'Nấm kim châm', unit: 'g', home_store_id: S['Kho Bếp steak'], purchase_unit: 'kg', purchase_factor: 1000, price: 60000, freshness: 'fresh' })).data.id;
+  const stTop = db.prepare("SELECT id FROM kitchen_stations WHERE name LIKE 'Topping%' OR name = 'Bò' OR name = 'Nước lẩu' LIMIT 1").get()?.id;
+  if (stTop) {
+    const mi = db.prepare('SELECT id FROM menu_items WHERE active = 1 LIMIT 1').get().id;
+    db.prepare('UPDATE menu_items SET station_id = ? WHERE id = ?').run(stTop, mi);
+    db.prepare('INSERT INTO menu_recipes (item_id, ingredient_id, qty) VALUES (?, ?, 50)').run(mi, nam);
+    await new Promise((r) => setTimeout(r, 3100));
+    const m2 = (await o('GET', '/api/stock/meta')).data;
+    assert.equal(m2.ingredients.find((i) => i.id === nam).group_eff, 'topping');
+  }
   // Nhân viên thường, được chọn kiểm khung Bếp
   const team = (await o('GET', '/api/teams')).data.find((x) => x.name === 'Phục vụ').id;
   const nvId = (await o('POST', '/api/staff', { name: 'Hà', role: 'staff', team_id: team, pin: '7365' })).data.id;
