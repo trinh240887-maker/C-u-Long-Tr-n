@@ -51,6 +51,9 @@ export default function (r, ctx) {
     if (/bar/i.test(sn) || ingKindOf(i) === 'finished') return 'bar';
     return 'bep';
   };
+  // Rau củ (chủ quán 28/10: chỉ rau củ mới tính "đã dùng trong ngày" khi kiểm tối)
+  const VEG_RE = /(^|\s)(rau|củ|cải|hành|hẹ|ngò|mùi|giá|nấm|cà chua|cà rốt|cà tím|chanh|ớt|tỏi|gừng|sả|riềng|xà lách|xà lách|bắp cải|bắp chuối|bắp non|khoai|dưa leo|dưa chuột|bí|mướp|đậu bắp|đậu que|đậu đũa|măng|me|tắc|quất|thơm|dứa|húng|tía tô|kinh giới|lá|bông|ngó|su su|su hào|củ cải|rau muống|cần|tần ô|mồng tơi|cải thảo)/i;
+  const isVeg = (i) => VEG_RE.test(` ${i.name}`) && ingKindOf(i) !== 'finished' && ingKindOf(i) !== 'supply';
   const groupStaff = () => { try { return JSON.parse(ctx.setting('count_group_staff') || '{}') || {}; } catch { return {}; } };
   const myGroups = (me) => Object.keys(GROUP_LABEL).filter((g) => (groupStaff()[g] || []).includes(me.id));
   ctx.ingCountGroup = (i) => ingGroupOf(i);
@@ -424,7 +427,7 @@ export default function (r, ctx) {
     return {
       store: st, can_count: !!canStore(me, st), last_count: last || null,
       // Đầu ngày = số đếm lần kiểm gần nhất trước hôm nay; Nhập = hàng nhập hôm nay → dùng trong ngày = đầu + nhập − còn (chủ quán 28/10)
-      lines: sheetFor(st).map((i) => ({ ingredient_id: i.id, name: i.name, unit: i.unit, freshness: i.freshness, kind: ingKindOf(i), group: ingGroupOf(i), expected: stockQty(db, st.id, i.id),
+      lines: sheetFor(st).map((i) => ({ ingredient_id: i.id, name: i.name, unit: i.unit, freshness: i.freshness, kind: ingKindOf(i), group: ingGroupOf(i), veg: isVeg(i), expected: stockQty(db, st.id, i.id),
         day_open: db.prepare('SELECT l.actual FROM stock_count_lines l JOIN stock_counts c ON c.id = l.count_id WHERE l.ingredient_id = ? AND c.date < ? ORDER BY c.at DESC LIMIT 1').get(i.id, today())?.actual ?? null,
         day_in: db.prepare("SELECT COALESCE(SUM(qty), 0) AS q FROM stock_moves WHERE ingredient_id = ? AND date = ? AND type = 'receive' AND ref NOT LIKE 'void-bill:%'").get(i.id, today()).q })),
       shared: ingredients().filter((i) => i.home_store_id === null).map((i) => ({ ingredient_id: i.id, name: i.name, unit: i.unit })),

@@ -41,7 +41,7 @@ test('kiểm kho 4 khung: tự xếp khung, chọn người kiểm từng khung,
   await o('POST', '/api/stock/receive', { store_id: main, lines: [{ ingredient_id: rau, qty: 10 }] });
   const sheet = (await nv('GET', `/api/stock/count-sheet?store=${main}`)).data;
   const l = sheet.lines.find((x) => x.ingredient_id === rau);
-  assert.equal(l.group, 'bep'); assert.equal(l.day_in, 10000); assert.equal(l.day_open, null);
+  assert.equal(l.group, 'bep'); assert.equal(l.veg, true); assert.equal(l.day_in, 10000); assert.equal(l.day_open, null);
   assert.equal((await nv('POST', '/api/stock/count', { store_id: main, lines: [{ ingredient_id: bo, actual: 1 }] })).status, 403);
   assert.equal((await nv('POST', '/api/stock/count', { store_id: main, lines: [{ ingredient_id: rau, actual: 3000 }] })).status, 200);
   // Chủ đổi khung của gas
