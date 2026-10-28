@@ -33,14 +33,6 @@ function PhotoPicker({ photos, setPhotos, first = '📷 Chụp bill NCC (bắt b
 
 function Lines({ lines, setLines, ingredients }) {
   const set = (i, k, val) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: val } : l)));
-  // Quy đổi đơn vị bill → đơn vị kho: 1 két = f chai → SL kho = SL bill × f ÷ (chai/đơn vị mua), giá theo đó
-  const convert = (i, raw) => setLines(lines.map((l, j) => {
-    if (j !== i) return l;
-    const f = num(raw);
-    if (!f) return { ...l, factor: raw === '' ? null : l.factor, warn: `Nhập quy đổi: 1 ${l.bill_unit} = bao nhiêu ${l.use_unit}` };
-    const pf = l.pf || 1;
-    return { ...l, factor: f, need_factor: false, qty: String(Math.round((l.bill_qty * f / pf) * 1000) / 1000), price: String(Math.round(l.bill_price * pf / f)), warn: '', conv_new: true };
-  }));
   return html`<div class="stack">
     ${lines.map((l, i) => html`<div class=${`pline ${l.warn ? "pline-warn" : ""}`}>
       ${l.ingredient_id ? html`<b>${l.name}</b>` : html`<input placeholder="Tên hàng (vd Cải thìa)" value=${l.name} onInput=${(e) => set(i, 'name', e.target.value)} />`}
@@ -49,12 +41,8 @@ function Lines({ lines, setLines, ingredients }) {
         <label>Đơn giá <input inputmode="numeric" style="width:7em" value=${l.price} onInput=${(e) => set(i, 'price', e.target.value)} /></label>
         <button class="small icon" aria-label="Xoá dòng" onClick=${() => setLines(lines.filter((_, j) => j !== i))}>✕</button>
       </div>
-      ${l.ingredient_id && l.bill_unit && (l.need_factor || (l.factor && l.factor !== 1)) ? html`<div class="conv">
-        <small>Bill: <b>${l.bill_qty} ${l.bill_unit}</b> × ${money(l.bill_price)}</small>
-        <label class="row tight">1 ${l.bill_unit} = <input inputmode="decimal" style="width:5em" value=${l.factor ?? ''} placeholder="?" onInput=${(e) => convert(i, e.target.value)} /> ${l.use_unit}</label>
-        ${!l.factor || l.factor !== (l.pf || 1) ? html`<button class="small" style="align-self:flex-start" onClick=${() => convert(i, String(l.pf || 1))}>✓ Không quy đổi (1 ${l.bill_unit} = 1 ${l.unit || l.use_unit}) · app tự nhớ</button>` : null}
-        ${l.factor ? html`<small class="ok-text">→ ${l.qty} ${l.unit}${l.pf > 1 ? ` (= ${Math.round(qtyNum(l.qty) * l.pf * 1000) / 1000} ${l.use_unit})` : ''} · <b>1 ${l.use_unit} = ${money(Math.round(num(l.price) / (l.pf || 1)))}</b></small>` : null}
-      </div>` : null}
+      ${l.unconv ? html`<small class="muted">Bill ghi ${l.bill_qty} ${l.bill_unit}: nhập đúng như bill, chủ quán quy đổi sau</small>`
+        : l.ingredient_id && l.bill_unit && l.factor && l.factor !== 1 ? html`<small class="muted">Bill ghi ${l.bill_qty} ${l.bill_unit} → app tự quy đổi ${l.qty} ${l.unit}</small>` : null}
       <small class="muted">= ${money(Math.round(qtyNum(l.qty) * num(l.price)))}${l.ordered != null ? ` · đặt ${l.ordered}` : ''}${l.ai ? ' · 📖 máy đọc' : ''}</small>
       ${l.warn ? html`<small class="warn-text">⚠ ${l.warn}</small>` : null}
       ${num(l.price) >= 5_000_000 || Math.round(qtyNum(l.qty) * num(l.price)) >= 50_000_000 ? html`<small class="danger-text">⚠ Số tiền dòng này quá lớn (${money(Math.round(qtyNum(l.qty) * num(l.price)))}): máy đọc có thể thừa số 0, sửa SL / đơn giá</small>` : null}
@@ -91,8 +79,10 @@ function Receive({ me, meta, advances, onDone }) {
     try {
       const r = await api('POST', '/api/purchases/read-bill', { photos: pics });
       const got = r.lines.map((l) => ({ ingredient_id: l.ingredient_id || undefined, name: l.name, unit: l.unit, qty: String(l.qty), price: String(l.price), ai: true,
-        bill_qty: l.bill_qty, bill_unit: l.bill_unit, bill_price: l.bill_price, use_unit: l.use_unit, pf: l.pf, factor: l.factor, need_factor: l.need_factor,
-        warn: !l.ingredient_id ? 'Chưa có trong kho' : l.need_factor ? `Nhập quy đổi: 1 ${l.bill_unit} = bao nhiêu ${l.use_unit}` : '' }));
+        bill_qty: l.bill_qty, bill_unit: l.bill_unit, bill_price: l.bill_price, factor: l.factor,
+        // Chưa biết quy đổi (bill ghi két, kho tính chai…): nhập đúng số trên bill, chủ quán quy đổi sau (chủ quán 28/10)
+        ...(l.need_factor ? { unconv: true, unit: l.bill_unit, qty: String(l.bill_qty), price: String(l.bill_price) } : {}),
+        warn: !l.ingredient_id ? 'Chưa có trong kho' : '' }));
       setLines((cur) => (f.po_id ? cur.map((l) => { const g = got.find((x) => x.ingredient_id && x.ingredient_id === l.ingredient_id); return g ? { ...l, qty: g.qty, price: g.price, ai: true, warn: g.warn } : l; }).concat(got.filter((g) => !cur.some((l) => l.ingredient_id && l.ingredient_id === g.ingredient_id))) : got));
       // Khu nhận tự chọn theo "khu chính" của các mặt hàng trên bill (vd nước ngọt → Bar, gas → Bếp) (chủ quán 26/10)
       const votes = new Map();
@@ -113,8 +103,7 @@ function Receive({ me, meta, advances, onDone }) {
   };
   const sum = lines.reduce((n, l) => n + Math.round(qtyNum(l.qty) * num(l.price)), 0);
   const warns = lines.filter((l) => l.warn).length;
-  const needConv = lines.filter((l) => l.need_factor).length;
-  const ready = photos.length && goods.length && lines.length && !needConv && (f.supplier_id || f.supplier_name || f.po_id) && f.signer_name;
+  const ready = photos.length && goods.length && lines.length && (f.supplier_id || f.supplier_name || f.po_id) && f.signer_name;
   const totNow = f.total === '' ? sum : num(f.total);
   const mismatch = f.total !== '' && Math.abs(sum - totNow) > Math.max(50000, totNow * 0.05);
   const [okMismatch, setOkMismatch] = useState(false);
@@ -126,8 +115,7 @@ function Receive({ me, meta, advances, onDone }) {
       ...f, store_id: Number(f.store_id), po_id: f.po_id ? Number(f.po_id) : undefined, supplier_id: f.supplier_id ? Number(f.supplier_id) : undefined,
       advance_id: f.advance_id ? Number(f.advance_id) : undefined, paid_method: f.advance_id ? undefined : f.paid_method,
       total: f.total === '' ? undefined : num(f.total), photos, goods_photos: goods,
-      lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: qtyNum(l.qty), price: num(l.price), create_new: !l.ingredient_id && !!l.create_new })),
-      conversions: lines.filter((l) => l.ingredient_id && l.conv_new && l.factor && l.bill_unit).map((l) => ({ ingredient_id: l.ingredient_id, bill_unit: l.bill_unit, factor: l.factor })),
+      lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: qtyNum(l.qty), price: num(l.price), create_new: !l.ingredient_id && !!l.create_new, unconv: !!l.unconv })),
     }), 'Đã nhập kho. Thu ngân sẽ duyệt công nợ');
     if (r) { setLines([]); setPhotos([]); setGoods([]); setF({ ...f, po_id: '', supplier_id: '', supplier_name: '', total: '', signer_name: me.name, note: '', advance_id: '', paid_method: '' }); onDone(); }
   };
@@ -167,7 +155,7 @@ function Receive({ me, meta, advances, onDone }) {
       ${mismatch ? html`<div class="card tight stack" style="border:2px solid var(--danger, #c92a2a)"><b class="danger-text">⚠ Cộng các dòng ${money(sum)} ≠ tổng bill ${money(totNow)}${totNow && sum / totNow >= 8 ? ` (gấp ~${Math.round(sum / totNow)} lần: có dòng thừa số 0 hoặc mất dấu phẩy)` : ''}</b>
         <small>Sửa các dòng có cảnh báo đỏ. Nếu bill đúng như vậy thật thì tick ô dưới.</small>
         <label class="check-row"><input type="checkbox" checked=${okMismatch} onChange=${(e) => setOkMismatch(e.target.checked)} /> <span>Đúng như bill, vẫn lưu</span></label></div>` : null}
-      ${!ready ? html`<b class="danger-text">⚠ ${!photos.length ? 'Thiếu ảnh bill' : !goods.length ? 'Thiếu ảnh hàng thực nhận' : !lines.length ? 'Chưa có dòng hàng' : needConv ? `Còn ${needConv} dòng chưa nhập quy đổi` : 'Chọn nhà cung cấp'}</b>` : null}
+      ${!ready ? html`<b class="danger-text">⚠ ${!photos.length ? 'Thiếu ảnh bill' : !goods.length ? 'Thiếu ảnh hàng thực nhận' : !lines.length ? 'Chưa có dòng hàng' : 'Chọn nhà cung cấp'}</b>` : null}
       ${photos.length && !goods.length ? html`<${PhotoPicker} photos=${goods} setPhotos=${setGoods} first="📷 Chụp ảnh HÀNG ngay" more="📷 Thêm ảnh hàng" />` : null}
       <button class="primary big" disabled=${!ready || reading} onClick=${save}>✓ Xác nhận nhập kho${lines.length ? ` · ${money(f.total === '' ? sum : num(f.total))}` : ''}</button>
     </div>
@@ -225,8 +213,10 @@ function EditBill({ b, onClose }) {
   };
   return html`<${Modal} title=${`Sửa bill ${b.supplier_name}`} onClose=${onClose} wide>
     <div class="stack">
-      <small class="muted">Sửa số lượng / đơn giá cho đúng ảnh bill (số lẻ dùng dấu phẩy, vd 28,1). Kho tự cộng / trừ phần chênh.</small>
-      ${lines.map((l, i) => html`<div class="row wrap tight edit-line"><b class="grow">${l.name}</b>
+      <small class="muted">Sửa tên hàng, số lượng, đơn giá cho đúng ảnh bill (số lẻ dùng dấu phẩy, vd 28,1). Kho tự trừ hàng cũ, cộng hàng đúng.</small>
+      ${lines.map((l, i) => html`<div class="row wrap tight edit-line">${l.ingredient_id ? html`<div class="grow stack tight"><b>${l.name}</b>
+          <select class="small" value="" onChange=${(e) => { const g = (ings.data?.ingredients || []).find((x) => x.id === Number(e.target.value)); if (g) setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit } : x))); }}>
+            <option value="">✏️ Sai tên? Đổi thành hàng khác…</option>${(ings.data?.ingredients || []).filter((g) => g.active !== 0 && g.id !== l.ingredient_id).map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select></div>` : html`<b class="grow">${l.name}</b>`}
         <label class="row tight small"><input class="num-in" inputmode="decimal" value=${l.qty} onInput=${(e) => set(i, 'qty', e.target.value)} /> ${l.unit}</label>
         <label class="row tight small">× <input class="num-in wide" inputmode="numeric" value=${l.price} onInput=${(e) => set(i, 'price', e.target.value)} />đ</label>
         <small class="muted">= ${money(Math.round((Number(String(l.qty).replace(',', '.')) || 0) * (num(l.price) || 0)))}</small>

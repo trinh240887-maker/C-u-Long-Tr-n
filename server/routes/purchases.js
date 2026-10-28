@@ -203,6 +203,8 @@ export default function (r, ctx) {
       created.push(...createNew(lines, storeId));
       const { oldPrice } = ctx.stockReceive(me, { poId, storeId, lines: lines.filter((l) => l.ingredient_id).map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, price: l.price, expires_on: l.raw.expires_on })) });
       const flags = flagsOf({ total, lines, po, oldPrice });
+      // Dòng chưa quy đổi: nhập đúng như bill, chủ quán kiểm & quy đổi sau (chủ quán 28/10)
+      for (const l of lines) if (l.ingredient_id && l.raw?.unconv) flags.push(`${l.name}: bill ghi ${l.qty} ${l.raw.unit || l.unit}, chưa quy đổi, kiểm lại số kho`);
       const id = Number(db.prepare(`INSERT INTO purchase_bills (supplier_id, supplier_name, store_id, po_id, date, total, lines_total, paid_now, paid_method, advance_id, signer_name, note, flags, received_by, received_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(supplierId, supplierName, storeId, poId, date, total, lines.reduce((n, l) => n + l.amount, 0), paidNow, paidMethod, advanceId,
         signer, v.text(body.note, { name: 'Ghi chú', max: 200 }), JSON.stringify(flags), me.id, ctx.now()).lastInsertRowid);
