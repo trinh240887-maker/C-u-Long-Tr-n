@@ -436,6 +436,20 @@ export default function (r, ctx) {
     return load(b.id);
   });
 
+  // Nhắc bill chờ nhận hàng quá 1 ngày (chủ quán 28/10): mỗi ngày 1 lần / bill, báo khu nhận + người áp bill + quản lý
+  ctx.arriveRemindTick = () => {
+    const n = ctx.now(), m = ctx.clock().minuteOf(n), d0 = ctx.today();
+    if (m < 9 * 60 || m > 22 * 60) return;
+    for (const b of db.prepare("SELECT id, store_id, supplier_name, total, pre_by, received_at FROM purchase_bills WHERE status = 'waiting' AND received_at <= ?").all(n - 24 * 3600e3)) {
+      const k = `arrive_remind:${b.id}`;
+      if (ctx.setting(k) === d0) continue;
+      ctx.setSetting(k, d0);
+      const days = Math.floor((n - b.received_at) / (24 * 3600e3));
+      ctx.notify([...new Set([...receiversOf(b.store_id), ...bosses(), ...(b.pre_by ? [b.pre_by] : [])])],
+        { title: `⏳ Bill ${b.supplier_name} ${vnd(b.total)} chờ nhận hàng ${days} ngày`, body: 'Hàng về rồi thì kiểm, chụp ảnh hàng và bấm "Đã nhận hàng". NCC không giao thì quản lý huỷ bill.', link: '/mua-hang?tab=cho', urgent: true });
+    }
+  };
+
   // ---------- Thu ngân duyệt ----------
   r.post('/api/purchases/:id/approve', 'staff', ({ me, params }) => {
     if (!isCashier(me)) fail(403, 'Chỉ thu ngân / trưởng ca trở lên duyệt hoá đơn mua');

@@ -7,13 +7,16 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { openDb, DEFAULT_OWNER_PIN } from '../server/db.js';
 import { createApp } from '../server/app.js';
+import { makeClock } from '../server/lib/time.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const IMG = `data:image/jpeg;base64,${Buffer.alloc(3000, 9).toString('base64')}`;
 
 test('bill NCC gửi trước: chủ quán áp bill (kho chưa cộng) → bếp nhận đủ: cộng kho + tự duyệt; nhận thiếu: chờ thu ngân duyệt', async (t) => {
-  const db = openDb(':memory:');
-  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), photoDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cn-')), zaloTransport: { send: async () => {} } });
+  const clock = makeClock({ offset: '+07:00' });
+  let now = clock.toEpoch('2026-10-28', 10 * 60);
+  const db = openDb(':memory:', { now });
+  const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), photoDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cn-')), zaloTransport: { send: async () => {} } });
   const server = http.createServer(app.handler);
   await new Promise((r) => server.listen(0, r));
   t.after(() => new Promise((r) => { app.close(); server.close(r); }));
@@ -62,4 +65,16 @@ test('bill NCC gửi trước: chủ quán áp bill (kho chưa cộng) → bếp
   assert.equal(qty(), 18000);
   L = (await tai('GET', '/api/purchases')).data;
   assert.equal(L.arriving.length, 0);
+  // Nhắc: bill chờ nhận quá 1 ngày → báo 1 lần / ngày
+  await o('POST', '/api/purchases', pre);
+  const nRem = () => db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE title LIKE '⏳ Bill%'").get().n;
+  app.ctx.arriveRemindTick();
+  assert.equal(nRem(), 0);
+  now += 25 * 3600e3;
+  app.ctx.arriveRemindTick();
+  const k = nRem();
+  assert.ok(k > 0);
+  now += 3600e3;
+  app.ctx.arriveRemindTick();
+  assert.equal(nRem(), k);
 });
