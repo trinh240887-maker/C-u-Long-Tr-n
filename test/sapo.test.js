@@ -56,3 +56,15 @@ test('Nhập bán hàng Sapo: đọc file mặt hàng, ghép món, trừ kho the
   const bad = await O('POST', '/api/sapo/preview', { data: inv });
   assert.equal(bad.status, 400); assert.match(bad.data.error, /MẶT HÀNG/);
 });
+
+test('Đọc bill: cộng dòng gấp nhiều lần tổng bill (thừa 3 số 0) → tự chia lại nếu khớp tổng', async () => {
+  const { readBill } = await import('../server/lib/bill-reader.js');
+  const out0 = { supplier_name: 'Tạp hoá Hiền', signer_name: '', total: 1_919_000, note: '', lines: [
+    { ingredient_id: null, name: 'Đường cát', unit: 'kg', qty: 10, price: 24_000_000, amount: 0 },
+    { ingredient_id: null, name: 'Muối', unit: 'kg', qty: 1000, price: 1_679_000, amount: 0 }] };
+  const fake = async () => ({ status: 200, json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(out0) }] }) });
+  const img = 'data:image/jpeg;base64,' + Buffer.alloc(800, 7).toString('base64');
+  const out = await readBill([img], [], { fetchImpl: fake, apiKey: 'k' });
+  assert.deepEqual(out.lines.map((l) => [l.qty, l.price]), [[10, 24_000], [1000, 1_679]]);
+  assert.match(out.note, /chia lại/);
+});

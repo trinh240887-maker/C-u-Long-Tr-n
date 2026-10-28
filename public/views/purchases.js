@@ -52,10 +52,12 @@ function Lines({ lines, setLines, ingredients }) {
       ${l.ingredient_id && l.bill_unit && (l.need_factor || (l.factor && l.factor !== 1)) ? html`<div class="conv">
         <small>Bill: <b>${l.bill_qty} ${l.bill_unit}</b> × ${money(l.bill_price)}</small>
         <label class="row tight">1 ${l.bill_unit} = <input inputmode="decimal" style="width:5em" value=${l.factor ?? ''} placeholder="?" onInput=${(e) => convert(i, e.target.value)} /> ${l.use_unit}</label>
+        ${!l.factor || l.factor !== (l.pf || 1) ? html`<button class="small" style="align-self:flex-start" onClick=${() => convert(i, String(l.pf || 1))}>✓ Không quy đổi (1 ${l.bill_unit} = 1 ${l.unit || l.use_unit}) · app tự nhớ</button>` : null}
         ${l.factor ? html`<small class="ok-text">→ ${l.qty} ${l.unit}${l.pf > 1 ? ` (= ${Math.round(qtyNum(l.qty) * l.pf * 1000) / 1000} ${l.use_unit})` : ''} · <b>1 ${l.use_unit} = ${money(Math.round(num(l.price) / (l.pf || 1)))}</b></small>` : null}
       </div>` : null}
       <small class="muted">= ${money(Math.round(qtyNum(l.qty) * num(l.price)))}${l.ordered != null ? ` · đặt ${l.ordered}` : ''}${l.ai ? ' · 📖 máy đọc' : ''}</small>
       ${l.warn ? html`<small class="warn-text">⚠ ${l.warn}</small>` : null}
+      ${num(l.price) >= 5_000_000 || Math.round(qtyNum(l.qty) * num(l.price)) >= 50_000_000 ? html`<small class="danger-text">⚠ Số tiền dòng này quá lớn (${money(Math.round(qtyNum(l.qty) * num(l.price)))}): máy đọc có thể thừa số 0, sửa SL / đơn giá</small>` : null}
       ${!l.ingredient_id && (l.name || '').trim() ? (l.create_new
         ? html`<small class="ok-text">✅ Lưu bill sẽ tạo mã mới trong kho: <b>${l.name}</b> (${l.unit || 'cái'}) · <button class="link small" onClick=${() => setLines(lines.map((x, j) => (j === i ? { ...x, create_new: false } : x)))}>bỏ</button></small>`
         : html`<div class="stack tight">
@@ -113,13 +115,13 @@ function Receive({ me, meta, advances, onDone }) {
   const warns = lines.filter((l) => l.warn).length;
   const needConv = lines.filter((l) => l.need_factor).length;
   const ready = photos.length && goods.length && lines.length && !needConv && (f.supplier_id || f.supplier_name || f.po_id) && f.signer_name;
+  const totNow = f.total === '' ? sum : num(f.total);
+  const mismatch = f.total !== '' && Math.abs(sum - totNow) > Math.max(50000, totNow * 0.05);
+  const [okMismatch, setOkMismatch] = useState(false);
   const save = async () => {
     const tot = f.total === '' ? sum : num(f.total);
-    let confirm_mismatch = false;
-    if (f.total !== '' && Math.abs(sum - tot) > Math.max(50000, tot * 0.05)) {
-      if (!confirm(`Cộng các dòng ${money(sum)} lệch tổng bill ${money(tot)}${tot && sum / tot >= 8 ? ` (gấp ~${Math.round(sum / tot)} lần, có thể mất dấu phẩy ở số lượng, vd 28,1 kg)` : ''}.\n\nBấm OK nếu vẫn đúng như bill, Huỷ để sửa lại.`)) return;
-      confirm_mismatch = true;
-    }
+    const confirm_mismatch = mismatch ? okMismatch : false;
+    if (mismatch && !okMismatch) { toast(`Cộng các dòng ${money(sum)} lệch tổng bill ${money(tot)}: sửa lại các dòng, hoặc tick "Đúng như bill" phía trên nút`, true); return; }
     const r = await act(() => api('POST', '/api/purchases', { confirm_mismatch,
       ...f, store_id: Number(f.store_id), po_id: f.po_id ? Number(f.po_id) : undefined, supplier_id: f.supplier_id ? Number(f.supplier_id) : undefined,
       advance_id: f.advance_id ? Number(f.advance_id) : undefined, paid_method: f.advance_id ? undefined : f.paid_method,
@@ -162,6 +164,9 @@ function Receive({ me, meta, advances, onDone }) {
         <${Field} label="Ghi chú"><input value=${f.note} onInput=${(e) => set('note', e.target.value)} /><//>` : null}
     </section>
     <div class="sum-bar stack">
+      ${mismatch ? html`<div class="card tight stack" style="border:2px solid var(--danger, #c92a2a)"><b class="danger-text">⚠ Cộng các dòng ${money(sum)} ≠ tổng bill ${money(totNow)}${totNow && sum / totNow >= 8 ? ` (gấp ~${Math.round(sum / totNow)} lần: có dòng thừa số 0 hoặc mất dấu phẩy)` : ''}</b>
+        <small>Sửa các dòng có cảnh báo đỏ. Nếu bill đúng như vậy thật thì tick ô dưới.</small>
+        <label class="check-row"><input type="checkbox" checked=${okMismatch} onChange=${(e) => setOkMismatch(e.target.checked)} /> <span>Đúng như bill, vẫn lưu</span></label></div>` : null}
       ${!ready ? html`<b class="danger-text">⚠ ${!photos.length ? 'Thiếu ảnh bill' : !goods.length ? 'Thiếu ảnh hàng thực nhận' : !lines.length ? 'Chưa có dòng hàng' : needConv ? `Còn ${needConv} dòng chưa nhập quy đổi` : 'Chọn nhà cung cấp'}</b>` : null}
       ${photos.length && !goods.length ? html`<${PhotoPicker} photos=${goods} setPhotos=${setGoods} first="📷 Chụp ảnh HÀNG ngay" more="📷 Thêm ảnh hàng" />` : null}
       <button class="primary big" disabled=${!ready || reading} onClick=${save}>✓ Xác nhận nhập kho${lines.length ? ` · ${money(f.total === '' ? sum : num(f.total))}` : ''}</button>

@@ -104,6 +104,20 @@ export async function readBill(photos, ingredients, { fetchImpl = globalThis.fet
     return { ...l, ingredient_id: ids.has(l.ingredient_id) ? l.ingredient_id : null, qty, price, amount };
   });
   if (fixed.length) out.note = [out.note, `App sửa số lượng theo thành tiền (nghi mất dấu phẩy): ${fixed.join('; ')}`].filter(Boolean).join(' · ');
+  // Lưới an toàn 2 (chủ quán 28/10: bill 1.919.000đ mà đọc ra 295 tỷ, giá 240.000.000đ, 1000 kg): cộng dòng gấp ≥ 20 lần tổng bill
+  // → thử chia giá / số lượng cho 1000 ở các dòng to bất thường; chỉ nhận khi cộng lại khớp tổng bill (±5%), không thì giữ nguyên + ghi chú
+  const sumOf = (ls) => ls.reduce((n, l) => n + (l.amount || Math.round(l.qty * l.price)), 0);
+  const total = Math.round(Number(out.total) || 0);
+  if (total > 0 && sumOf(out.lines) >= total * 20) {
+    const trial = out.lines.map((l) => {
+      let { qty, price } = l;
+      if (price >= 1_000_000 && price % 1000 === 0) price /= 1000;
+      if (qty >= 1000 && qty * price > total) qty /= 1000;
+      return { ...l, qty, price, amount: Math.round(qty * price) };
+    });
+    if (Math.abs(sumOf(trial) - total) <= total * 0.05) { out.lines = trial; out.note = [out.note, 'App đã chia lại giá / số lượng (máy đọc thừa 3 số 0) cho khớp tổng bill, kiểm tra lại'].filter(Boolean).join(' · '); }
+    else out.note = [out.note, `⚠ Cộng các dòng gấp ~${Math.round(sumOf(out.lines) / total)} lần tổng bill: nhiều số bị đọc thừa số 0, sửa tay từng dòng`].filter(Boolean).join(' · ');
+  }
   out.usage = r.data.usage || null;
   return out;
 }
