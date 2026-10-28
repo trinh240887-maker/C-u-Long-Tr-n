@@ -64,7 +64,7 @@ function Lines({ lines, setLines, ingredients }) {
 }
 
 // Nhập kho 3 bước: 📷 bill + 📷 hàng → app đọc bill tự điền → ✓ Xác nhận (cộng kho ngay, thu ngân duyệt công nợ sau)
-function Receive({ me, meta, advances, onDone }) {
+function Receive({ me, meta, advances, onDone, arriving = [] }) {
   const stores = meta.stores.filter((s) => s.can_count && (!meta.single || s.kind === 'main')); // kho chung: chỉ nhận vào Kho tổng
   const pos = useData('/api/stock/po?status=approved');
   const [f, setF] = useState({ store_id: stores[0]?.id || '', po_id: '', supplier_id: '', supplier_name: '', signer_name: me.name, total: '', paid_method: '', advance_id: '', note: '' });
@@ -126,6 +126,9 @@ function Receive({ me, meta, advances, onDone }) {
   if (!stores.length) return html`<div class="empty">Bạn chưa phụ trách khu nào để nhận hàng.</div>`;
   const myPos = (pos.data || []).filter((p) => stores.some((s) => s.id === p.store_id));
   return html`<div class="stack">
+    ${arriving.length && !pre ? html`<section class="card stack warn-card"><b>⏳ Hàng sắp về theo bill đã có (${arriving.length})</b>
+      <small>Hàng về thuộc các bill này thì <b>không nhập lại ở đây</b>: bấm vào bill để kiểm & nhận.</small>
+      ${arriving.map((b) => html`<button class="link-btn" style="text-align:left" onClick=${() => navigate('/mua-hang?tab=cho')}><b>${b.supplier_name}</b> · ${b.lines.map((l) => `${l.name} ${l.qty} ${l.unit}`).join(', ')}</button>`)}</section>` : null}
     ${canAct(me, 'mh.apbill') ? html`<div class="chips">
       <button class=${`chip ${!pre ? 'on' : ''}`} onClick=${() => setPre(false)}>📥 Hàng đã về, nhận ngay</button>
       <button class=${`chip ${pre ? 'on' : ''}`} onClick=${() => { setPre(true); if (f.paid_method === 'cash' || f.advance_id) setF({ ...f, paid_method: '', advance_id: '' }); }}>📩 Bill NCC gửi trước, hàng chưa về</button></div>` : null}
@@ -413,7 +416,7 @@ export function PurchasesView({ me, query }) {
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/mua-hang?tab=${k}`)}>${l}</button>`)}</div>
     ${mineReturned.length && tab !== 'lichsu' ? html`<section class="card warn-card small">${mineReturned.length} bill bạn nhận bị thu ngân trả lại. <button class="small" onClick=${() => navigate('/mua-hang?tab=lichsu')}>Xem & sửa</button></section>` : null}
-    ${tab === 'nhan' && canAct(me, 'mh.nhap') ? html`<${Receive} me=${me} meta=${meta} advances=${advances} onDone=${() => navigate('/mua-hang?tab=lichsu')} />` : null}
+    ${tab === 'nhan' && canAct(me, 'mh.nhap') ? html`<${Receive} me=${me} meta=${meta} advances=${advances} arriving=${arriving} onDone=${() => navigate('/mua-hang?tab=lichsu')} />` : null}
     ${tab === 'duyet' ? (waiting.length ? html`<p class="small muted">So ảnh bill với số khu nhập: số lượng, đơn giá, tổng, chữ ký người nhận. Dòng đỏ = app thấy lệch.</p>${waiting.map((b) => html`<${BillCard} key=${b.id} b=${b} canApprove=${isCashier} me=${me} />`)}` : html`<div class="empty">Không có bill chờ duyệt.</div>`) : null}
     ${tab === 'lichsu' ? (L.bills.length ? L.bills.map((b) => html`<${BillCard} key=${b.id} b=${b} canApprove=${isCashier} me=${me} />`) : html`<div class="empty">Chưa có bill trong 30 ngày.</div>`) : null}
     ${tab === 'congno' && can('congno') ? html`<${Debts} me=${me} />` : null}
