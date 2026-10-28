@@ -27,7 +27,22 @@ export default function (r, ctx) {
   });
 
   // Bảng việc của quản lý / trưởng ca
-  r.get('/api/dashboard', 'shift_lead', () => {
+  // Phạm vi màn Quản lý (chủ quán 28/10): chủ + quản lý không bộ phận = cả quán; quản lý / trưởng ca có bộ phận = bộ phận đó
+  // (Phục vụ và Tiếp thực tính chung); trưởng ca không bộ phận = Phục vụ & Tiếp thực. Tổ trưởng không vào màn này.
+  const pvttIds = () => db.prepare('SELECT id, name FROM teams').all().filter((x) => /phục vụ|phuc vu|tiếp thực|tiep thuc/i.test(x.name)).map((x) => x.id);
+  function scopeTeams(me) {
+    if (me.role === 'owner') return null;
+    const pv = pvttIds();
+    if (me.team_id) return pv.includes(me.team_id) ? new Set(pv) : new Set([me.team_id]);
+    return me.role === 'shift_lead' ? new Set(pv) : null;
+  }
+  ctx.dashboardScope = scopeTeams;
+
+  r.get('/api/dashboard', 'shift_lead', ({ me }) => {
+    const scope = scopeTeams(me);
+    // Trưởng ca có khu hôm nay (vd khu A): chỉ khu A + việc chung cả quán (chủ quán 28/10)
+    const myZone = me.role === 'shift_lead' ? db.prepare('SELECT zone_id FROM assignments WHERE staff_id = ? AND date = ? AND zone_id IS NOT NULL').get(me.id, ctx.today())?.zone_id || null : null;
+    const inScope = (teamId) => !scope || (teamId == null ? scope.has(pvttIds()[0]) && [...scope].some((x) => pvttIds().includes(x)) : scope.has(teamId));
     ctx.autoCloseAttendance();
     const clock = ctx.clock();
     const t = ctx.now();
@@ -38,9 +53,10 @@ export default function (r, ctx) {
       WHERE a.date = ? ORDER BY a.start_min`).all(today);
     const leaves = new Map(db.prepare("SELECT group_id, status, id FROM leave_requests WHERE date = ? AND status IN ('pending','approved')").all(today).map((l) => [l.group_id, l]));
     const att = db.prepare('SELECT * FROM attendance WHERE staff_id = ? AND (date = ? OR clock_out IS NULL) ORDER BY clock_in');
-    const teams = db.prepare('SELECT id, name, min_staff FROM teams WHERE active = 1 ORDER BY sort, id').all();
+    const teams = db.prepare('SELECT id, name, min_staff FROM teams WHERE active = 1 ORDER BY sort, id').all().filter((tm) => !scope || scope.has(tm.id));
+    const staffTeam = (id) => db.prepare('SELECT team_id FROM staff WHERE id = ?').get(id)?.team_id ?? null;
 
-    const people = groupsOf(rows).map((segs) => {
+    const people = groupsOf(rows).filter((segs) => inScope(segs[0].team_id ?? staffTeam(segs[0].staff_id)) && (!myZone || !segs[0].zone_id || segs[0].zone_id === myZone)).map((segs) => {
       const first = segs[0];
       const start = rangeOf(clock, first).start;
       const end = rangeOf(clock, segs.at(-1)).end;
@@ -65,7 +81,7 @@ export default function (r, ctx) {
     });
 
     const unscheduled = db.prepare(`SELECT at.*, s.name AS staff_name, s.team_id FROM attendance at JOIN staff s ON s.id = at.staff_id
-      WHERE at.assignment_id IS NULL AND (at.date = ? OR at.clock_out IS NULL)`).all(today);
+      WHERE at.assignment_id IS NULL AND (at.date = ? OR at.clock_out IS NULL)`).all(today).filter((u) => inScope(u.team_id));
 
     const runs = ctx.checklistDay(today);
     const checklistByTeam = teams.map((tm) => {
@@ -75,11 +91,11 @@ export default function (r, ctx) {
 
     const overdue = db.prepare(`SELECT k.id, k.title, k.due_at, k.priority, a.name AS assignee_name, tm.name AS team_name FROM tasks k
       LEFT JOIN staff a ON a.id = k.assignee_id LEFT JOIN teams tm ON tm.id = k.team_id
-      WHERE k.status != 'done' AND k.due_at IS NOT NULL AND k.due_at < ? ORDER BY k.due_at`).all(t);
+      WHERE k.status != 'done' AND k.due_at IS NOT NULL AND k.due_at < ? ORDER BY k.due_at`).all(t).filter((k) => !scope || !k.team_name || teams.some((tm) => tm.name === k.team_name));
     const openTasks = db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE status != 'done'").get().n;
     const pendingLeave = db.prepare(`SELECT l.id, l.date, l.reason, s.name AS staff_name,
       (SELECT COUNT(*) FROM cover_offers o WHERE o.leave_id = l.id AND o.status = 'accepted') AS accepted
-      FROM leave_requests l JOIN staff s ON s.id = l.staff_id WHERE l.status = 'pending' ORDER BY l.date`).all();
+      , s.team_id FROM leave_requests l JOIN staff s ON s.id = l.staff_id WHERE l.status = 'pending' ORDER BY l.date`).all().filter((l) => inScope(l.team_id));
 
     // Thiếu người 7 ngày tới
     const upcoming = db.prepare(`SELECT a.date, a.team_id, COUNT(DISTINCT a.staff_id) AS n FROM assignments a
@@ -95,15 +111,32 @@ export default function (r, ctx) {
       }
     }
 
+    // Việc ca hôm nay theo checklist + khu: đã xong / chưa xong (trưởng ca Phục vụ thấy cả việc chung của quán)
+    try { ctx.jobsEnsureDay?.(today); } catch { /* chưa có việc ca */ }
+    const zname = new Map(db.prepare('SELECT id, name FROM zones').all().map((z) => [z.id, z.name]));
+    const nm = (id) => (id ? db.prepare('SELECT name FROM staff WHERE id = ?').get(id)?.name || '' : '');
+    const jobGroups = [];
+    for (const tp of (ctx.checklistTemplates?.() || []).filter((x) => x.job_mode)) {
+      const ts = tp.job_teams?.length ? tp.job_teams : tp.team_id ? [tp.team_id] : [];
+      if (scope && !ts.some((x) => scope.has(x))) continue;
+      const js = db.prepare('SELECT j.*, i.text FROM jobs j JOIN checklist_items i ON i.id = j.item_id WHERE j.date = ? AND j.template_id = ? ORDER BY j.zone_id, j.id').all(today, tp.id);
+      for (const zid of [...new Set(js.map((j) => j.zone_id))].filter((z) => !myZone || !z || z === myZone)) {
+        const list = js.filter((j) => j.zone_id === zid);
+        jobGroups.push({ template_id: tp.id, title: tp.title, phase: tp.phase, zone_id: zid, zone_name: zid ? zname.get(zid) || 'Khu' : 'Việc chung của quán',
+          done: list.filter((j) => ['done', 'ok'].includes(j.status)).length, total: list.length,
+          items: list.map((j) => ({ id: j.id, title: j.text, status: j.status, staff_name: nm(j.staff_id), done_at: j.done_at, overdue: j.status === 'doing' && j.due_at && j.due_at < t, has_photo: !!j.photo })) });
+      }
+    }
     return {
-      today, now: t,
+      today, now: t, scope_label: (!scope ? 'Cả quán' : teams.map((tm) => tm.name).join(' + ')) + (myZone ? ` · ${zname.get(myZone) || 'khu'} + việc chung` : ''),
+      jobs: jobGroups,
       teams: teams.map((tm) => ({ ...tm, people: people.filter((p) => p.team_id === tm.id) })),
-      no_team: people.filter((p) => !p.team_id),
+      no_team: people.filter((p) => !p.team_id || !teams.some((tm) => tm.id === p.team_id)),
       unscheduled: unscheduled.map((u) => ({ staff_name: u.staff_name, clock_in: u.clock_in, clock_out: u.clock_out })),
       checklists: checklistByTeam,
       overdue, open_tasks: openTasks, pending_leave: pendingLeave, gaps,
-      photos_pending: db.prepare(`SELECT COUNT(*) AS n FROM checklist_entries e JOIN checklist_runs r ON r.id = e.run_id JOIN checklist_items i ON i.id = e.item_id
-        WHERE r.date = ? AND i.photo_required = 1 AND e.review_status IS NULL`).get(today).n,
+      photos_pending: db.prepare(`SELECT tp.team_id FROM checklist_entries e JOIN checklist_runs r ON r.id = e.run_id JOIN checklist_items i ON i.id = e.item_id JOIN checklist_templates tp ON tp.id = r.template_id
+        WHERE r.date = ? AND i.photo_required = 1 AND e.review_status IS NULL`).all(today).filter((x) => !scope || scope.has(x.team_id)).length,
       avail: (() => {
         const s = ctx.availabilitySummary(addDays(today, 7));
         return { week_start: s.week_start, missing: s.people.filter((p) => !p.submitted_at).length, total: s.people.length, deadline: s.deadline };

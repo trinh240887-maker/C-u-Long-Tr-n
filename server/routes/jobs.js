@@ -196,6 +196,29 @@ export default function (r, ctx) {
     return ps.find((p) => p.role === 'shift_lead')?.id || null;
   }
   ctx.jobsZoneLead = (date, t, zoneId) => { let ps = people(date, t); if (t.phase === 'close' && t.job_from == null && ps.length) { const last = Math.max(...ps.map((p) => p.end)); ps = ps.filter((p) => p.end >= last - 90); } return zoneLeadOf(t, zoneId, ps); };
+  // Hết khung giờ checklist (vd mở ca 15:30; đóng ca 23:30) mà còn việc dở → báo chủ + quản lý bộ phận + trưởng ca (khu mình + việc chung) (chủ quán 28/10)
+  ctx.jobsLeftTick = () => {
+    const date = ctx.today(), nowMin = ctx.clock().minuteOf(ctx.now());
+    for (const t of jobTemplates()) {
+      const end = t.job_to ?? (t.phase === 'close' ? 23 * 60 + 30 : null);
+      if (end == null || nowMin < end || nowMin > end + 120 || ctx.setting(`jobs_left:${date}:${t.id}`)) continue;
+      ctx.setSetting(`jobs_left:${date}:${t.id}`, '1');
+      const left = db.prepare("SELECT j.*, i.text FROM jobs j JOIN checklist_items i ON i.id = j.item_id WHERE j.date = ? AND j.template_id = ? AND j.status NOT IN ('done','ok')").all(date, t.id);
+      if (!left.length) continue;
+      const ts = teamsOf(t) || [];
+      const zn = new Map(zonesAll().map((z) => [z.id, z.name]));
+      const line = (j) => `• ${j.zone_id ? zn.get(j.zone_id) || 'Khu' : 'Chung'}: ${j.text}${j.staff_id ? ` (${name(j.staff_id)})` : ' (chưa giao ai)'}`;
+      const send = (ids, rows) => { if (ids.length && rows.length) ctx.notify(ids, { title: `⚠ ${t.title}: còn ${rows.length} việc chưa xong`, body: rows.slice(0, 15).map(line).join('\n') + (rows.length > 15 ? `\n… và ${rows.length - 15} việc nữa` : ''), link: '/quan-ly', urgent: true }); };
+      const bosses = db.prepare("SELECT id FROM staff WHERE active = 1 AND (role = 'owner' OR (role = 'manager' AND (team_id IS NULL OR team_id IN (" + (ts.length ? ts.map(() => '?').join(',') : 'NULL') + '))))').all(...ts).map((x) => x.id);
+      send(bosses, left);
+      const sls = db.prepare("SELECT DISTINCT a.staff_id AS id, a.zone_id, s.team_id FROM assignments a JOIN staff s ON s.id = a.staff_id WHERE a.date = ? AND s.role = 'shift_lead' AND s.active = 1").all(date)
+        .filter((x) => (x.team_id ? ts.includes(x.team_id) : ts.some((y) => pvTeamIds().has(y))));
+      const byLead = new Map();
+      for (const x of sls) if (!byLead.has(x.id)) byLead.set(x.id, x.zone_id || null);
+      for (const [id, z] of byLead) if (!bosses.includes(id)) send([id], left.filter((j) => !z || !j.zone_id || j.zone_id === z));
+    }
+  };
+
   // 1 lần (chủ quán 28/10): checklist Phục vụ & Tiếp thực → trưởng ca + tổ trưởng điều phối; bỏ hết gán cố định
   if (!ctx.setting('lead_pool_v1') && db.prepare('SELECT 1 FROM jobs LIMIT 1').get()) {
     const pvtt = new Set(db.prepare('SELECT id, name FROM teams').all().filter((x) => /phục vụ|phuc vu|tiếp thực|tiep thuc/i.test(x.name)).map((x) => x.id));

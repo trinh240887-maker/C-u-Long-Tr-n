@@ -9,7 +9,7 @@ import { createApp } from '../server/app.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 test('Trưởng ca + tổ trưởng điều phối: việc không chia từng người; lead khu thấy việc khu mình + việc chung; nhân viên không thấy; giao người; xong phải chụp ảnh', async (t) => {
-  const now = Date.parse('2026-10-28T14:10:00+07:00');
+  let now = Date.parse('2026-10-28T14:10:00+07:00');
   const db = openDb(':memory:', { now });
   const app = createApp({ db, now: () => now, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
   const server = http.createServer(app.handler);
@@ -73,5 +73,27 @@ test('Trưởng ca + tổ trưởng điều phối: việc không chia từng ng
   await TC('POST', `/api/jobs/${jC.id}/shot`, { data: img });
   assert.equal((await TC('POST', `/api/jobs/${jC.id}/done`, {})).status, 200);
   assert.equal((await A('POST', `/api/jobs/${jC.id}/check`, { ok: true })).status, 200);
+  // Màn Quản lý theo phạm vi: trưởng ca không khu thấy mọi khu; trưởng ca khu A chỉ khu A + việc chung; quản lý bếp không thấy việc phục vụ
+  const zonesSeen = async (c) => new Set((await c('GET', '/api/dashboard')).data.jobs.map((g) => g.zone_id));
+  const all = await zonesSeen(TC);
+  assert.ok(all.has(za) && all.has(zb) && all.has(0));
+  const tcA = await mkS('Trưởng ca A', 'shift_lead', '585511', '0900000055');
+  ins(tcA, za);
+  const TA = await login('585511', '0900000055');
+  const onlyA = await zonesSeen(TA);
+  assert.ok(onlyA.has(za) && onlyA.has(0) && !onlyA.has(zb));
+  const bep = db.prepare("SELECT id FROM teams WHERE name = 'Bếp'").get()?.id;
+  if (bep) {
+    await O('POST', '/api/staff', { name: 'QL bếp', role: 'manager', team_id: bep, pin: '585611', phone: '0900000056' });
+    const QB = await login('585611', '0900000056');
+    const dB = (await QB('GET', '/api/dashboard')).data;
+    assert.equal(dB.jobs.length, 0);
+    assert.ok(dB.teams.every((x) => x.id === bep));
+  }
+  assert.equal((await A('GET', '/api/dashboard')).status, 403); // tổ trưởng không vào màn Quản lý
+  // Hết khung 15:30 còn việc dở → báo
+  now = Date.parse('2026-10-28T15:31:00+07:00');
+  app.ctx.jobsLeftTick();
+  assert.ok(db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE title LIKE '%việc chưa xong%' AND staff_id = ?").get(tcA).n > 0);
   void ttB;
 });

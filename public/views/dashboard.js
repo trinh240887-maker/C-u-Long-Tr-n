@@ -5,6 +5,22 @@ const STATUS = {
   done: ['Đã xong', 'muted'], break: ['Nghỉ giữa ca', ''], leave: ['Nghỉ phép', 'muted'],
 };
 
+// Việc ca hôm nay theo khu: đã xong / còn dở (chủ quán 28/10)
+const JST = { todo: ['chưa làm', 'warn'], doing: ['đang làm', ''], done: ['xong', 'ok'], ok: ['đạt', 'ok'], redo: ['làm lại', 'bad'] };
+function JobsCard({ groups }) {
+  if (!groups?.length) return null;
+  const left = groups.reduce((n, g) => n + g.total - g.done, 0);
+  return html`<section class=${`card ${left ? 'attn' : ''}`}>
+    <div class="row between"><h3>📋 Việc ca hôm nay ${left ? html`<small class="warn-text">còn ${left} việc dở</small>` : html`<small class="ok-text">xong hết 👍</small>`}</h3><${Link} href="/viec-ca">Mở việc ca<//></div>
+    ${groups.map((g) => html`<details class="team-block" open=${g.done < g.total}>
+      <summary class="row between"><b>${g.zone_name} <small class="muted">· ${g.title}</small></b><span class=${`pill ${g.done === g.total ? 'ok' : 'warn'}`}>${g.done}/${g.total}</span></summary>
+      ${[...g.items].sort((a, b) => (['done', 'ok'].includes(a.status) ? 1 : 0) - (['done', 'ok'].includes(b.status) ? 1 : 0)).map((i) => html`<div class="person">
+        <span class="grow">${['done', 'ok'].includes(i.status) ? '✅' : i.overdue ? '⏰' : '⬜'} ${i.title} <small class="muted">${i.staff_name || 'chưa giao ai'}${i.done_at ? ` · xong ${hm(i.done_at)}` : ''}</small></span>
+        <span class=${`pill ${i.overdue ? 'bad' : JST[i.status]?.[1] || ''}`}>${i.overdue ? 'quá giờ' : JST[i.status]?.[0] || i.status}</span></div>`)}
+    </details>`)}
+  </section>`;
+}
+
 function StockCard() {
   const st = useData('/api/stock/alerts');
   if (!st.data) return null;
@@ -35,13 +51,14 @@ export function Dashboard() {
     ['Ảnh chờ duyệt', d.photos_pending, d.photos_pending ? 'warn' : '', '/duyet-anh'],
   ];
   return html`<div class="stack">
-    <div class="row between"><h2>${dayLabel(d.today, { long: true })}</h2><span class="muted">${d.counts.scheduled} người có lịch hôm nay</span></div>
+    <div class="row between"><h2>${dayLabel(d.today, { long: true })}</h2><span class="muted">${d.scope_label ? `${d.scope_label} · ` : ''}${d.counts.scheduled} người có lịch hôm nay</span></div>
     <div class="tiles">${tiles.map(([label, n, tone, href]) => (href
       ? html`<${Link} href=${href} class=${`tile ${tone}`}><div class="n">${n}</div><div class="l">${label} →</div><//>`
       : html`<div class=${`tile ${tone}`}><div class="n">${n}</div><div class="l">${label}</div></div>`))}</div>
     ${d.avail?.total ? html`<${Link} href=${`/ranh?tab=all&week=${d.avail.week_start}`} class=${`card hint ${d.avail.missing ? '' : 'ok'}`}><span>
       Lịch rảnh tuần sau: <b>${d.avail.total - d.avail.missing}/${d.avail.total}</b> người đã gửi${d.avail.missing ? ` · còn ${d.avail.missing} người chưa gửi (hạn ${d.avail.deadline.date.slice(8)}/${d.avail.deadline.date.slice(5, 7)} ${d.avail.deadline.time})` : ''} →</span><//>` : null}
 
+    <${JobsCard} groups=${d.jobs} />
     ${lateD.data?.length ? html`<section class="card attn">
       <h3>⏰ Món ra trễ (${lateD.data.length})</h3>
       <ul class="plain">${lateD.data.slice(0, 12).map((i) => html`<li class="row between">
