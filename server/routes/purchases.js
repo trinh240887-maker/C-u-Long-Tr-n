@@ -90,11 +90,11 @@ export default function (r, ctx) {
     return list.filter((l) => l && (l.name || l.ingredient_id)).slice(0, 60).map((l) => {
       const ing = l.ingredient_id ? db.prepare('SELECT * FROM ingredients WHERE id = ?').get(Number(l.ingredient_id)) : null;
       if (l.ingredient_id && !ing) fail(404, 'Không tìm thấy nguyên liệu');
-      const name = ing ? ing.name : v.text(l.name, { name: 'Tên hàng', required: true, max: 80 });
+      const name = ing ? ing.name : v.text(l.name, { name: 'Tên hàng', required: true, max: 300 });
       const qty = Number(String(l.qty ?? '').replace(',', '.'));
       if (!Number.isFinite(qty) || qty < 0 || qty > 1e6) fail(400, `Số lượng ${name} không hợp lệ`);
       const price = money(l.price, `Đơn giá ${name}`);
-      return { ingredient_id: ing?.id ?? null, name, qty, unit: ing ? ing.purchase_unit || ing.unit : v.text(l.unit, { name: 'Đơn vị', max: 12 }), price, amount: Math.round(qty * price), raw: l };
+      return { ingredient_id: ing?.id ?? null, name, qty, unit: ing ? ing.purchase_unit || ing.unit : v.text(l.unit, { name: 'Đơn vị', max: 40 }), price, amount: Math.round(qty * price), raw: l };
     });
   }
 
@@ -171,14 +171,14 @@ export default function (r, ctx) {
     if (!pre && !ctx.canReceiveStore(me, storeId)) fail(403, 'Bạn không nhận hàng cho khu này');
     let supplierId = po ? po.supplier_id : body.supplier_id ? v.int(body.supplier_id, { min: 1, name: 'NCC' }) : null;
     if (supplierId && !supplierRow(supplierId)) fail(404, 'Không tìm thấy NCC');
-    const supplierName = supplierId ? supplierRow(supplierId).name : v.text(body.supplier_name, { name: 'Tên nơi bán', required: true, max: 80 });
+    const supplierName = supplierId ? supplierRow(supplierId).name : v.text(body.supplier_name, { name: 'Tên nơi bán', required: true, max: 300 });
     // Nơi bán ghi tay: tìm NCC trùng tên, chưa có thì tạo mới → bill ghi nợ không bị sót khỏi công nợ
     if (!supplierId) {
       const norm = (x) => x.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
       supplierId = db.prepare('SELECT id, name FROM suppliers').all().find((x) => norm(x.name) === norm(supplierName))?.id
         ?? Number(db.prepare("INSERT INTO suppliers (name, note) VALUES (?, 'Tự tạo khi nhận hàng')").run(supplierName).lastInsertRowid);
     }
-    const signer = v.text(body.signer_name, { name: 'Tên người ký nhận trên bill', required: true, max: 60 });
+    const signer = v.text(body.signer_name, { name: 'Tên người ký nhận trên bill', required: true, max: 150 });
     const photos = Array.isArray(body.photos) ? body.photos.slice(0, 4) : [];
     if (!photos.length) fail(400, 'Chụp ảnh bill NCC (có chữ ký người nhận) trước khi lưu');
     const goodsPhotos = Array.isArray(body.goods_photos) ? body.goods_photos.slice(0, 4) : [];
@@ -218,7 +218,7 @@ export default function (r, ctx) {
       for (const l of lines) if (l.ingredient_id && l.raw?.unconv) flags.push(unconvFlag(l.name, l.qty, unitOf(l.raw.unit) || l.unit));
       const id = Number(db.prepare(`INSERT INTO purchase_bills (supplier_id, supplier_name, store_id, po_id, date, total, lines_total, paid_now, paid_method, advance_id, signer_name, note, flags, received_by, received_at, status, pre_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(supplierId, supplierName, storeId, poId, date, total, lines.reduce((n, l) => n + l.amount, 0), paidNow, paidMethod, advanceId,
-        signer, v.text(body.note, { name: 'Ghi chú', max: 200 }), JSON.stringify(flags), pre ? null : me.id, ctx.now(), pre ? 'waiting' : 'received', pre ? me.id : null).lastInsertRowid);
+        signer, v.text(body.note, { name: 'Ghi chú', max: 1000 }), JSON.stringify(flags), pre ? null : me.id, ctx.now(), pre ? 'waiting' : 'received', pre ? me.id : null).lastInsertRowid);
       const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price, bill_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
       for (const l of lines) add.run(id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, l.ingredient_id ? oldPrice.get(l.ingredient_id) ?? null : null, l.ingredient_id && l.raw?.unconv ? unitOf(l.raw.unit) : null);
       for (const ph of photos) savePhoto(id, ph, me);
@@ -293,7 +293,7 @@ export default function (r, ctx) {
       const flags = flagsOf({ total, lines: ls, po: null, oldPrice: new Map(ls.filter((l) => l.old_price != null).map((l) => [l.ingredient_id, l.old_price])) });
       for (const l of ls) if (l.ingredient_id && l.bill_unit) flags.push(unconvFlag(l.name, l.qty, l.bill_unit));
       db.prepare(`UPDATE purchase_bills SET total = ?, lines_total = ?, signer_name = ?, note = ?, flags = ?, status = ${b.status === 'approved' ? "'approved'" : b.status === 'waiting' ? "'waiting'" : "'received'"} WHERE id = ?`)
-        .run(total, ls.reduce((n, l) => n + l.amount, 0), body.signer_name ? v.text(body.signer_name, { name: 'Tên người ký', max: 60 }) : b.signer_name, body.note === undefined ? b.note : v.text(body.note, { max: 200 }), JSON.stringify(flags), b.id);
+        .run(total, ls.reduce((n, l) => n + l.amount, 0), body.signer_name ? v.text(body.signer_name, { name: 'Tên người ký', max: 150 }) : b.signer_name, body.note === undefined ? b.note : v.text(body.note, { max: 1000 }), JSON.stringify(flags), b.id);
     });
     notifyCreated(me, created, b);
     if (b.status !== 'approved' && b.status !== 'waiting') ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Bill mua đã sửa, duyệt lại: ${b.supplier_name} ${vnd(total)}`, link: '/mua-hang' });
@@ -467,7 +467,7 @@ export default function (r, ctx) {
     if (!isCashier(me)) fail(403, 'Chỉ thu ngân / trưởng ca trở lên');
     const b = load(params.id);
     if (b.status !== 'received') fail(400, 'Bill này không chờ duyệt');
-    const reason = v.text(body.reason, { name: 'Lý do trả lại', required: true, max: 200 });
+    const reason = v.text(body.reason, { name: 'Lý do trả lại', required: true, max: 500 });
     db.prepare("UPDATE purchase_bills SET status = 'returned', return_reason = ?, returned_by = ?, returned_at = ? WHERE id = ?").run(reason, me.id, ctx.now(), b.id);
     if (b.received_by) ctx.notify([b.received_by], { title: `Bill ${b.supplier_name} ${vnd(b.total)} bị trả lại`, body: `${reason}. Sửa lại rồi gửi duyệt.`, link: '/mua-hang', urgent: true });
     ctx.audit(me, 'purchase.return', { id: b.id, reason });
@@ -482,7 +482,7 @@ export default function (r, ctx) {
     if (b.status === 'void') fail(400, 'Bill đã huỷ');
     const boss = rank(me.role) >= rank('manager');
     if (!boss && !(b.status !== 'approved' && (b.received_by === me.id || b.pre_by === me.id || isCashier(me)))) fail(403, b.status === 'approved' ? 'Bill đã duyệt: chỉ quản lý / chủ quán huỷ được' : 'Chỉ người nhận, thu ngân hoặc quản lý huỷ được');
-    const reason = v.text(body.reason, { name: 'Lý do huỷ', required: true, max: 200 });
+    const reason = v.text(body.reason, { name: 'Lý do huỷ', required: true, max: 500 });
     const at = ctx.now(), date = ctx.today();
     const store = ctx.effectiveStore ? ctx.effectiveStore(b.store_id) : b.store_id;
     tx(db, () => {
@@ -598,7 +598,7 @@ export default function (r, ctx) {
     const id = tx(db, () => {
       const billIds = (Array.isArray(body.bill_ids) ? body.bill_ids : []).map(Number).filter((x) => Number.isInteger(x) && x > 0).slice(0, 100);
       const id0 = Number(db.prepare('INSERT INTO supplier_payments (supplier_id, amount, method, date, note, photo, bank_txn_id, status, created_by, created_at, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(s.id, amount, method, ctx.today(), v.text(body.note, { max: 200 }), photo, bankTxn?.id ?? null, needOk ? 'pending' : 'done', me.id, ctx.now(), needOk ? null : me.id, needOk ? null : ctx.now()).lastInsertRowid);
+        .run(s.id, amount, method, ctx.today(), v.text(body.note, { max: 1000 }), photo, bankTxn?.id ?? null, needOk ? 'pending' : 'done', me.id, ctx.now(), needOk ? null : me.id, needOk ? null : ctx.now()).lastInsertRowid);
       const id = id0;
       if (billIds.length) db.prepare('UPDATE supplier_payments SET bill_ids = ? WHERE id = ?').run(JSON.stringify(billIds), id);
       // Tiền mặt lấy từ két (thu ngân) hay tiền quản lý giữ (chỉ quản lý / chủ chọn được)

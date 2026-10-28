@@ -236,7 +236,7 @@ export default function (r, ctx) {
   // ---------- Nhà cung cấp, kho, nguyên liệu (quản lý) ----------
   r.post('/api/stock/suppliers', 'manager', ({ me, body }) => {
     const id = Number(db.prepare('INSERT INTO suppliers (name, phone, note) VALUES (?, ?, ?)').run(
-      v.text(body.name, { name: 'Tên NCC', required: true, max: 80 }), v.text(body.phone, { name: 'Số điện thoại', max: 30 }), v.text(body.note, { name: 'Ghi chú', max: 300 }),
+      v.text(body.name, { name: 'Tên NCC', required: true, max: 300 }), v.text(body.phone, { name: 'Số điện thoại', max: 30 }), v.text(body.note, { name: 'Ghi chú', max: 300 }),
     ).lastInsertRowid);
     ctx.audit(me, 'supplier.create', body.name);
     ctx.broadcast('stock');
@@ -247,7 +247,7 @@ export default function (r, ctx) {
     const s = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(params.id);
     if (!s) fail(404, 'Không tìm thấy NCC');
     db.prepare('UPDATE suppliers SET name = ?, phone = ?, note = ?, active = ? WHERE id = ?').run(
-      body.name === undefined ? s.name : v.text(body.name, { name: 'Tên NCC', required: true, max: 80 }),
+      body.name === undefined ? s.name : v.text(body.name, { name: 'Tên NCC', required: true, max: 300 }),
       body.phone === undefined ? s.phone : v.text(body.phone, { name: 'Số điện thoại', max: 30 }),
       body.note === undefined ? s.note : v.text(body.note, { name: 'Ghi chú', max: 300 }),
       body.active === undefined ? s.active : v.bool(body.active), s.id,
