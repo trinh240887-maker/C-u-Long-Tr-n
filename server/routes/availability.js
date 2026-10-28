@@ -240,7 +240,10 @@ export default function (r, ctx) {
     const missing = people.filter((p) => !p.submitted_at);
     const head = `📅 Lịch rảnh tuần ${ddmm(ws)}–${ddmm(addDays(ws, 6))}`;
     const base = (ctx.setting('public_url') || '').replace(/\/$/, '');
-    const how = `\n👉 Mọi người báo lịch rảnh TUẦN SAU, từ ${ddmm(ws)} đến ${ddmm(addDays(ws, 6))}, để bot ghi nhận. Nhắn: @bot Họ tên 14-23 (cả tuần); ngày khác ghi riêng: T7 nghỉ, CN 10-23; chỉ làm vài ngày: T2, T5, CN 14-22 (ngày không ghi = nghỉ).`;
+    // Tuần đang chạy thì ghi "TUẦN NÀY", tuần tới ghi "TUẦN SAU" (chủ quán 28/10: nhắc tuần 26/10 mà ghi tuần sau → nhân viên hiểu nhầm)
+    const cur = weekStart(ctx.today());
+    const which = ws === cur ? 'TUẦN NÀY' : ws === addDays(cur, 7) ? 'TUẦN SAU' : 'TUẦN';
+    const how = `\n👉 Mọi người báo lịch rảnh ${which}, từ ${ddmm(ws)} đến ${ddmm(addDays(ws, 6))}, để bot ghi nhận. Nhắn: @bot Họ tên 14-23 (cả tuần); ngày khác ghi riêng: T7 nghỉ, CN 10-23; chỉ làm vài ngày: T2, T5, CN 14-22 (ngày không ghi = nghỉ).`;
     const link = `${how}${base ? `\nHoặc vào app: ${base}/ranh?week=${ws}` : ''}`;
     if (!missing.length) return `${head}: ✅ đã báo đủ (${people.length} người). Cảm ơn mọi người!`;
     const byTeam = new Map();
@@ -597,6 +600,7 @@ export default function (r, ctx) {
 
   r.post('/api/availability/remind', 'manager', async ({ me, body }) => {
     const ws = readWeek(body.week);
+    if (ws < weekStart(ctx.today())) fail(400, 'Tuần này đã qua, không nhắc báo lịch rảnh nữa');
     const s = summary(ws);
     const ids = s.people.filter((p) => !p.submitted_at).map((p) => p.id);
     const dl = s.deadline;
@@ -604,7 +608,7 @@ export default function (r, ctx) {
     try { group = await sendGroup(ws, s.people); } catch (e) { group_error = e.message; }
     if (ids.length) {
       ctx.notify(ids, {
-        title: 'Báo lịch rảnh tuần sau',
+        title: ws === weekStart(ctx.today()) ? 'Báo lịch rảnh tuần này' : 'Báo lịch rảnh tuần sau',
         body: `Bạn chưa báo lịch rảnh tuần ${ws.slice(8)}/${ws.slice(5, 7)}. Hạn ${dl.time} ngày ${dl.date.slice(8)}/${dl.date.slice(5, 7)}.`,
         link: `/ranh?week=${ws}`,
       });
