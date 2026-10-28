@@ -1,5 +1,5 @@
 import { useState } from '../vendor/hooks.js';
-import { html, api, act, useData, Modal, Field, Loading, Confirm, hm, dt, dayLabel, addDays, hours, money, localInput, atLeast, navigate } from '../ui.js';
+import { html, api, act, useData, Modal, Field, Loading, Confirm, hm, dt, dayLabel, addDays, hours, money, localInput, atLeast, navigate, toast } from '../ui.js';
 
 function RecordForm({ init, staff, onClose, canDelete }) {
   const [f, setF] = useState({
@@ -81,11 +81,76 @@ function MissingCard({ date, onAdd }) {
   </details>`;
 }
 
+// Nhập chấm công tay cũ (chủ quán 28/10): dán chữ "16/10 : 8h - 12h , 14h - 22h30" → xem lại → lưu từng lượt
+export function parseManual(text, today) {
+  const [ty, tm] = today.split('-').map(Number);
+  const out = [];
+  const pad = (n) => String(n).padStart(2, '0');
+  for (const raw of String(text || '').split(/\n+/)) {
+    const line = raw.trim();
+    const dm = /^(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*(\d{2,4}))?/.exec(line);
+    if (!dm) { if (line) out.push({ line, error: 'Không đọc được ngày' }); continue; }
+    const d = Number(dm[1]), m = Number(dm[2]);
+    let y = dm[3] ? Number(dm[3].length === 2 ? `20${dm[3]}` : dm[3]) : (m > tm ? ty - 1 : ty);
+    const date = `${y}-${pad(m)}-${pad(d)}`;
+    const rest = line.slice(dm[0].length);
+    const re = /(\d{1,2})\s*(?:h|:|giờ)\s*(\d{1,2})?\s*[-–—đến]+\s*(\d{1,2})\s*(?:(?:h|:|giờ)\s*(\d{1,2})?)?/gi;
+    let mm, n = 0;
+    while ((mm = re.exec(rest))) {
+      n++;
+      const s0 = Number(mm[1]) * 60 + Number(mm[2] || 0);
+      let e0 = Number(mm[3]) * 60 + Number(mm[4] || 0), warn = '';
+      let nextDay = false;
+      if (e0 <= s0) {
+        if (e0 < 12 * 60 && e0 + 720 > s0) { e0 += 720; warn = `hiểu giờ ra là ${pad(Math.floor(e0 / 60))}:${pad(e0 % 60)} (chiều)`; }
+        else { nextDay = true; warn = 'ra qua đêm (hôm sau)'; }
+      }
+      const hm2 = (x) => `${pad(Math.floor(x / 60))}:${pad(x % 60)}`;
+      let outDate = date;
+      if (nextDay) { const t = new Date(`${date}T00:00:00Z`); t.setUTCDate(t.getUTCDate() + 1); outDate = t.toISOString().slice(0, 10); }
+      out.push({ line, date, clock_in: `${date}T${hm2(s0)}`, clock_out: `${outDate}T${hm2(e0)}`, minutes: (nextDay ? e0 + 1440 : e0) - s0, warn });
+    }
+    if (!n) out.push({ line, error: 'Không đọc được giờ (cần dạng 8h - 12h30)' });
+  }
+  return out;
+}
+function ImportManual({ me, staff, onClose }) {
+  const [sid, setSid] = useState('');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const rows = parseManual(text, me.today);
+  const ok = rows.filter((r) => !r.error);
+  const dates = ok.map((r) => r.date).sort();
+  const exist = useData(sid && dates.length ? `/api/attendance?from=${dates[0]}&to=${dates[dates.length - 1]}&staff_id=${sid}` : null);
+  const dup = (r) => (exist.data || []).some((x) => x.date === r.date);
+  const todo = ok.filter((r) => !dup(r));
+  const save = async () => {
+    setBusy(true);
+    let n = 0;
+    try { for (const r of todo) { await api('POST', '/api/attendance', { staff_id: Number(sid), clock_in: r.clock_in, clock_out: r.clock_out, note: 'Nhập từ chấm công tay' }); n++; } toast(`Đã nhập ${n} lượt chấm công`); onClose(); }
+    catch (e) { toast(`Đã nhập ${n} lượt, lỗi ở lượt tiếp theo: ${e.message}`, true); }
+    finally { setBusy(false); }
+  };
+  const total = todo.reduce((a, r) => a + r.minutes, 0);
+  return html`<${Modal} title="📋 Nhập chấm công tay" onClose=${onClose}><div class="stack">
+    <select value=${sid} onChange=${(e) => setSid(e.target.value)}><option value="">— Chọn nhân viên —</option>${staff.map((x) => html`<option value=${x.id}>${x.name}${x.team_name ? ` · ${x.team_name}` : ''}</option>`)}</select>
+    <textarea rows="8" placeholder=${'Dán chấm công tay, mỗi ngày 1 dòng, vd:\n14/10 : 13h - 21h\n16/10 : 8h - 12h , 15h - 23h30'} value=${text} onInput=${(e) => setText(e.target.value)}></textarea>
+    ${rows.length ? html`<div class="table-wrap"><table class="list small"><thead><tr><th>Ngày</th><th>Vào</th><th>Ra</th><th class="r">Giờ</th><th></th></tr></thead><tbody>
+      ${rows.map((r) => r.error ? html`<tr><td colspan="5" class="bad-text">⚠ "${r.line}": ${r.error}</td></tr>` : html`<tr class=${dup(r) ? 'muted' : ''}>
+        <td>${r.date.slice(8)}/${r.date.slice(5, 7)}</td><td>${r.clock_in.slice(11)}</td><td>${r.clock_out.slice(11)}${r.clock_out.slice(0, 10) !== r.date ? ' (+1)' : ''}</td>
+        <td class="r">${hours(r.minutes)}</td><td>${dup(r) ? html`<small>đã có chấm công ngày này, bỏ qua</small>` : r.warn ? html`<small class="warn-text">${r.warn}</small>` : '✓'}</td></tr>`)}
+    </tbody></table></div>
+    <small class="muted">Kiểm tra dòng màu cam (app tự đoán). Sai thì sửa chữ ở trên. Ngày đã có chấm công sẽ bỏ qua để không bị trùng. Lượt nhập tay tính lương theo giờ thực tế.</small>` : null}
+    <button class="primary big" disabled=${!sid || !todo.length || busy} onClick=${save}>${busy ? 'Đang nhập…' : `✓ Lưu ${todo.length} lượt (${hours(total)})`}</button>
+  </div><//>`;
+}
+
 function Records({ me }) {
   const [date, setDate] = useState(me.today);
   const st = useData(`/api/attendance?from=${date}&to=${date}`);
   const staff = useData('/api/staff');
   const [edit, setEdit] = useState(null);
+  const [imp, setImp] = useState(false);
   return html`<div class="stack">
     <div class="row between wrap">
       <div class="row">
@@ -94,7 +159,7 @@ function Records({ me }) {
         <button class="icon" aria-label="Hôm sau" onClick=${() => setDate(addDays(date, 1))}>›</button>
         <b>${dayLabel(date, { long: true })}</b>
       </div>
-      <button onClick=${() => setEdit({})}>+ Thêm tay</button>
+      <div class="row"><button onClick=${() => setEdit({})}>+ Thêm tay</button>${atLeast(me, 'manager') ? html`<button onClick=${() => setImp(true)}>📋 Nhập chấm công tay</button>` : null}</div>
     </div>
     <${MissingCard} date=${date} onAdd=${(m) => setEdit({ staff_id: m.staff_id, clock_in: m.start_at, clock_out: m.status === 'missed' ? m.end_at : null, note: 'Thêm tay: có ca nhưng không chấm' })} />
     ${!st.data ? html`<${Loading} state=${st} />` : st.data.length ? html`<div class="table-wrap"><table class="list">
@@ -123,6 +188,7 @@ function Records({ me }) {
         </tr>`;
       }))])}</tbody></table></div>` : html`<div class="empty">Chưa có ai chấm công ngày này.</div>`}
     ${edit && staff.data ? html`<${RecordForm} init=${edit} staff=${staff.data.filter((s) => s.active)} canDelete=${atLeast(me, 'manager')} onClose=${() => setEdit(null)} />` : null}
+    ${imp && staff.data ? html`<${ImportManual} me=${me} staff=${staff.data.filter((s) => s.active && s.role !== 'owner')} onClose=${() => setImp(false)} />` : null}
   </div>`;
 }
 
