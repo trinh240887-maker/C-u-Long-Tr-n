@@ -76,7 +76,7 @@ function Lines({ lines, setLines, ingredients }) {
 
 // Nhập kho 3 bước: 📷 bill + 📷 hàng → app đọc bill tự điền → ✓ Xác nhận (cộng kho ngay, thu ngân duyệt công nợ sau)
 function Receive({ me, meta, advances, onDone }) {
-  const stores = meta.stores.filter((s) => s.can_count);
+  const stores = meta.stores.filter((s) => s.can_count && (!meta.single || s.kind === 'main')); // kho chung: chỉ nhận vào Kho tổng
   const pos = useData('/api/stock/po?status=approved');
   const [f, setF] = useState({ store_id: stores[0]?.id || '', po_id: '', supplier_id: '', supplier_name: '', signer_name: me.name, total: '', paid_method: '', advance_id: '', note: '' });
   const [lines, setLines] = useState([]);

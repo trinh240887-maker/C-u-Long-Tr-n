@@ -29,6 +29,43 @@ export default function (r, ctx) {
   const hasRecipe = (id) => !!db.prepare('SELECT 1 FROM menu_recipes WHERE ingredient_id = ? LIMIT 1').get(id);
   ctx.singleStore = single;
   ctx.effectiveStore = (id) => (single() ? mainStore()?.id ?? id : id);
+
+  // ---------- 3 loại hàng + kho chung (chủ quán 28/10) ----------
+  // Thành phẩm: mua về bán nguyên (bia, nước ngọt…), lệch là mất · Vật liệu: chế biến món theo định lượng (cả ly nhựa, ống hút có trong định lượng)
+  // Đồ dùng: không nằm trong định lượng (ga, khăn giấy…), kiểm mỗi tuần. kind '' = app tự xếp
+  const addColI = (c, d) => { if (!db.prepare('PRAGMA table_info(ingredients)').all().some((x) => x.name === c)) db.exec(`ALTER TABLE ingredients ADD COLUMN ${c} ${d}`); };
+  addColI('kind', "TEXT NOT NULL DEFAULT ''");   // '' | finished | material | supply
+  addColI('loss_pct', 'REAL');                    // định mức hao hụt riêng (%), trống = theo mặc định
+  const FIN_RE = /(^|\s)(bia|heineken|heniken|tiger|sài gòn|saigon|333|larue|budweiser|coca|pepsi|sprite|fanta|7 ?up|sting|red ?bull|bò húc|nước suối|aquafina|lavie|dasani|c2|number ?1|revive|nước ngọt|nước tăng lực|soda|schweppes|trà xanh 0)/i;
+  const SUP_RE = /(^|\s)(ga|gas|bình ga|khăn|giấy|túi|bao rác|bao tay|găng|nước rửa|xà phòng|xà bông|nước lau|bột giặt|nước tẩy|chổi|cây lau|màng bọc|giấy bạc|than|cồn|đũa|muỗng|tăm|ống hút|ly nhựa|ly giấy|hộp|nắp ly|băng keo|pin|bóng đèn|bao bì)/i;
+  const KIND_LABEL = { finished: 'Thành phẩm', material: 'Vật liệu', supply: 'Đồ dùng' };
+  function autoKind(ingId, name) {
+    const uses = db.prepare('SELECT r.item_id, r.qty, (SELECT COUNT(*) FROM menu_recipes x WHERE x.item_id = r.item_id) AS n FROM menu_recipes r WHERE r.ingredient_id = ?').all(ingId);
+    if (FIN_RE.test(` ${name}`)) return 'finished';
+    if (uses.length && uses.every((u) => u.n === 1 && Math.abs(u.qty - 1) < 1e-9)) return 'finished'; // món = đúng 1 cái của hàng này
+    if (uses.length) return 'material';
+    // Chưa có trong định lượng: chỉ hàng rõ là đồ dùng mới xếp Đồ dùng; nguyên liệu chưa nhập định lượng vẫn là Vật liệu
+    return SUP_RE.test(` ${name}`) ? 'supply' : 'material';
+  }
+  const ingKindOf = (i) => (['finished', 'material', 'supply'].includes(i.kind) ? i.kind : autoKind(i.id, i.name));
+  ctx.ingKind = ingKindOf;
+  ctx.lossPct = (i) => (i.loss_pct != null ? i.loss_pct : ingKindOf(i) === 'finished' ? 0 : Number(ctx.setting('loss_pct_default') || 2));
+  // Gộp 1 kho chung (chủ quán 28/10: bỏ chia khu, bỏ xin lĩnh): chuyển hàng các kho khu về Kho tổng, bật chế độ 1 kho
+  if (!ctx.setting('kho_chung_v1') && ctx.setting('wh_live') !== '1') {
+    const main = mainStore();
+    const inUse = !!db.prepare('SELECT 1 FROM stock_moves LIMIT 1').get(); // DB đang dùng thật (DB mới / thử nghiệm giữ nguyên nhiều kho)
+    if (main && inUse) {
+      tx(db, () => {
+        const at = ctx.now(), date = today();
+        for (const x of db.prepare('SELECT store_id, ingredient_id, SUM(qty) AS q FROM stock_lots WHERE store_id != ? GROUP BY store_id, ingredient_id').all(main.id)) {
+          if (Math.abs(x.q) > 1e-9) recordMove(db, { at, date, type: 'transfer', ingredientId: x.ingredient_id, fromStore: x.store_id, toStore: main.id, qty: x.q, ref: 'kho_chung', note: 'Gộp về kho chung (28/10)' });
+        }
+        db.prepare('UPDATE stock_lots SET store_id = ? WHERE store_id != ?').run(main.id, main.id);
+      });
+      ctx.setSetting('single_store', '1');
+    }
+    ctx.setSetting('kho_chung_v1', '1');
+  }
   const ingredients = ({ all = false } = {}) => db.prepare(`SELECT i.*, hs.name AS home_name, hs.supplier_id AS home_supplier_id,
       COALESCE(i.supplier_id, hs.supplier_id) AS eff_supplier_id, p.name AS supplier_name
     FROM ingredients i LEFT JOIN stores hs ON hs.id = i.home_store_id
@@ -38,7 +75,8 @@ export default function (r, ctx) {
 
   const holderId = () => Number(ctx.setting('kho_tong_staff_id') || 0);
   const isHolder = (me) => me.id === holderId() || rank(me.role) >= rank('shift_lead');
-  const canStore = (me, st) => rank(me.role) >= rank('shift_lead') || (st.kind === 'main' ? isHolder(me) : st.team_id && st.team_id === me.team_id);
+  // Kho chung: ai trước đây nhận / kiểm kho khu (Bếp, Bar…) giờ nhận / kiểm kho chung
+  const canStore = (me, st) => rank(me.role) >= rank('shift_lead') || (st.kind === 'main' ? isHolder(me) || (single() && (rank(me.role) >= rank('team_lead') || !!db.prepare('SELECT 1 FROM stores WHERE active = 1 AND team_id = ? LIMIT 1').get(me.team_id || -1))) : st.team_id && st.team_id === me.team_id);
   const isLeadOf = (me, st) => rank(me.role) >= rank('shift_lead') || (me.role === 'team_lead' && st.team_id && st.team_id === me.team_id);
   const holderTargets = () => (holderId() ? [holderId(), ...ctx.managers()] : ctx.managers());
   const leadsOfStore = (st) => ctx.leadsOf(st.team_id);
@@ -106,10 +144,11 @@ export default function (r, ctx) {
     return {
       stores: sts.map((s) => ({ ...s, can_count: !!canStore(me, s), is_lead: !!isLeadOf(me, s) })),
       suppliers: db.prepare('SELECT * FROM suppliers ORDER BY active DESC, name').all(),
-      ingredients: ingredients({ all: rank(me.role) >= rank('manager') }),
+      ingredients: ingredients({ all: rank(me.role) >= rank('manager') }).map((i) => ({ ...i, kind_eff: ingKindOf(i), kind_auto: !i.kind })),
       is_holder: isHolder(me),
       holder_id: holderId() || null,
       freshness: FRESH_LABEL,
+      single: single(), kinds: KIND_LABEL, loss_default: Number(ctx.setting('loss_pct_default') || 2), supply_dow: Number(ctx.setting('supply_count_dow') || 1),
     };
   });
 
@@ -286,13 +325,25 @@ export default function (r, ctx) {
     return all.filter((i) => i.home_store_id === st.id || (i.home_store_id === null && used.has(i.id)) || used.has(i.id));
   }
 
+  // Xếp loại hàng (Thành phẩm / Vật liệu / Đồ dùng) và định mức hao hụt riêng
+  r.put('/api/stock/ingredients/:id/kind', 'manager', ({ me, params, body }) => {
+    const g = ingById(params.id);
+    if (!g) fail(404, 'Không tìm thấy nguyên liệu');
+    const kind = body.kind === undefined ? g.kind : v.oneOf(body.kind || '', ['', 'finished', 'material', 'supply'], { name: 'Loại hàng' });
+    const loss = body.loss_pct === undefined ? g.loss_pct : (body.loss_pct === '' || body.loss_pct === null ? null : num(body.loss_pct, 'Định mức hao hụt', { max: 100 }));
+    db.prepare('UPDATE ingredients SET kind = ?, loss_pct = ? WHERE id = ?').run(kind, loss, g.id);
+    ctx.audit(me, 'ingredient.kind', { id: g.id, kind, loss });
+    ctx.broadcast('stock');
+    return { ok: true, kind_eff: ingKindOf({ ...g, kind }) };
+  });
+
   r.get('/api/stock/count-sheet', 'staff', ({ me, query }) => {
     const st = storeById(Number(query.get('store')));
     if (!st) fail(404, 'Không tìm thấy kho');
     const last = db.prepare('SELECT c.*, s.name AS staff_name FROM stock_counts c LEFT JOIN staff s ON s.id = c.staff_id WHERE c.store_id = ? ORDER BY c.at DESC LIMIT 1').get(st.id);
     return {
       store: st, can_count: !!canStore(me, st), last_count: last || null,
-      lines: sheetFor(st).map((i) => ({ ingredient_id: i.id, name: i.name, unit: i.unit, freshness: i.freshness, expected: stockQty(db, st.id, i.id) })),
+      lines: sheetFor(st).map((i) => ({ ingredient_id: i.id, name: i.name, unit: i.unit, freshness: i.freshness, kind: ingKindOf(i), expected: stockQty(db, st.id, i.id) })),
       shared: ingredients().filter((i) => i.home_store_id === null).map((i) => ({ ingredient_id: i.id, name: i.name, unit: i.unit })),
     };
   });
@@ -373,6 +424,15 @@ export default function (r, ctx) {
   // Cuối ngày (mặc định 22:30) khu nào có bán theo định lượng mà chưa kiểm hôm nay → nhắc tổ trưởng / trưởng ca 1 lần
   ctx.stockCountRemindTick = () => {
     const c = ctx.clock(), n = ctx.now();
+    // Đồ dùng: kiểm mỗi tuần (mặc định thứ Hai, 10:00) → nhắc người giữ kho + quản lý 1 lần
+    try {
+      const dow = Number(ctx.setting('supply_count_dow') || 1), d0 = today();
+      const wd = ((new Date(`${d0}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
+      if (wd === dow && c.minuteOf(n) >= 10 * 60 && !ctx.setting(`supply_remind:${d0}`)) {
+        ctx.setSetting(`supply_remind:${d0}`, '1');
+        ctx.notify(holderTargets(), { title: '🧻 Hôm nay kiểm Đồ dùng (mỗi tuần)', body: 'Đếm ga, khăn giấy, túi… ở Kho → Kiểm kho → Đồ dùng.', link: '/kho?tab=kiem' });
+      }
+    } catch { /* không chặn nhắc kiểm cuối ngày */ }
     const at = ctx.setting('stock_count_remind_time') || '22:30';
     const [h, m] = at.split(':').map(Number);
     if (c.minuteOf(n) < h * 60 + (m || 0)) return;

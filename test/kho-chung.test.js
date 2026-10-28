@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { openDb, DEFAULT_OWNER_PIN } from '../server/db.js';
+import { createApp } from '../server/app.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+test('Kho chung + 3 loại hàng: gộp hàng các khu về kho tổng, tự xếp Thành phẩm / Vật liệu / Đồ dùng, sửa loại, định mức 2%', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } }).close();
+  const main = db.prepare("SELECT id FROM stores WHERE kind = 'main'").get().id;
+  const area = db.prepare("SELECT id FROM stores WHERE kind = 'area' LIMIT 1").get().id;
+  const ing = (name, unit) => Number(db.prepare('INSERT INTO ingredients (name, unit) VALUES (?, ?)').run(name, unit).lastInsertRowid);
+  const coca = ing('Coca lon', 'lon'), bo = ing('Thịt bò Úc', 'g'), ly = ing('Ly nhựa 500ml', 'cái'), gas = ing('Bình gas mini', 'bình'), bap = ing('Bắp bò', 'g');
+  const m1 = Number(db.prepare("INSERT INTO menu_items (name, price) VALUES ('Coca', 15000)").run().lastInsertRowid);
+  const m2 = Number(db.prepare("INSERT INTO menu_items (name, price) VALUES ('Trà đào', 25000)").run().lastInsertRowid);
+  const m3 = Number(db.prepare("INSERT INTO menu_items (name, price) VALUES ('Steak', 99000)").run().lastInsertRowid);
+  const tra = ing('Trà đen', 'g');
+  db.prepare('INSERT INTO menu_recipes (item_id, ingredient_id, qty) VALUES (?, ?, 1), (?, ?, 1), (?, ?, 10), (?, ?, 200)').run(m1, coca, m2, ly, m2, tra, m3, bo);
+  db.prepare('INSERT INTO stock_lots (store_id, ingredient_id, qty, received_at) VALUES (?, ?, 24, 0), (?, ?, 3000, 0)').run(area, coca, area, bo);
+  db.prepare("INSERT INTO stock_moves (at, date, type, ingredient_id, to_store, qty) VALUES (0, '2026-10-27', 'receive', ?, ?, 24)").run(coca, area);
+  db.prepare("DELETE FROM settings WHERE key IN ('kho_chung_v1', 'single_store')").run();
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  assert.equal(app.ctx.setting('single_store'), '1');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM stock_lots WHERE store_id != ?').get(main).n, 0);
+  assert.equal(db.prepare('SELECT SUM(qty) AS q FROM stock_lots WHERE ingredient_id = ?').get(coca).q, 24);
+  const meta = (await O('GET', '/api/stock/meta')).data;
+  assert.equal(meta.single, true); assert.equal(meta.loss_default, 2);
+  const k = (id) => meta.ingredients.find((i) => i.id === id).kind_eff;
+  assert.equal(k(coca), 'finished'); assert.equal(k(bo), 'material'); assert.equal(k(ly), 'material'); assert.equal(k(gas), 'supply'); assert.equal(k(bap), 'material');
+  assert.equal((await O('PUT', `/api/stock/ingredients/${bap}/kind`, { kind: 'supply', loss_pct: 5 })).status, 200);
+  const sheet = (await O('GET', `/api/stock/count-sheet?store=${main}`)).data;
+  assert.equal(sheet.lines.find((l) => l.ingredient_id === bap).kind, 'supply');
+  assert.equal(app.ctx.lossPct(db.prepare('SELECT * FROM ingredients WHERE id = ?').get(bap)), 5);
+  assert.equal(app.ctx.lossPct(db.prepare('SELECT * FROM ingredients WHERE id = ?').get(coca)), 0);
+});

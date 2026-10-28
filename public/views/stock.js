@@ -100,20 +100,44 @@ function NewIng({ store, onAdded }) {
     <button class="primary" disabled=${!f.name.trim()} onClick=${save}>Tạo</button><button onClick=${() => setOpen(false)}>Thôi</button></div>`;
 }
 
+// Xếp loại hàng: Thành phẩm / Vật liệu / Đồ dùng + định mức hao hụt riêng (chủ quán 28/10)
+const KIND_ICON = { finished: '🥤', material: '🥩', supply: '🧻' };
+function KindSetup({ meta, onClose }) {
+  const [q, setQ] = useState('');
+  const list = (meta.ingredients || []).filter((i) => i.active !== false && i.active !== 0 && (!q || i.name.toLowerCase().includes(q.toLowerCase())));
+  const save = (i, body) => act(() => api('PUT', `/api/stock/ingredients/${i.id}/kind`, body));
+  return html`<${Modal} title="⚙ Xếp loại hàng" onClose=${onClose}><div class="stack">
+    <small class="muted">🥤 <b>Thành phẩm</b>: mua về bán nguyên (bia, nước ngọt), lệch là mất. 🥩 <b>Vật liệu</b>: chế biến món theo định lượng (cả ly, ống hút có trong định lượng), hao hụt cho phép <b>${meta.loss_default}%</b>. 🧻 <b>Đồ dùng</b>: không nằm trong định lượng (ga, khăn giấy…), kiểm mỗi tuần. "tự xếp" = app đoán, bấm để sửa.</small>
+    <input placeholder="🔍 Tìm hàng" value=${q} onInput=${(e) => setQ(e.target.value)} />
+    ${['finished', 'material', 'supply'].map((k) => { const rows = list.filter((i) => i.kind_eff === k); return rows.length ? html`<b>${KIND_ICON[k]} ${meta.kinds[k]} (${rows.length})</b>
+      <div class="sapo-list">${rows.map((i) => html`<div class="sapo-row"><span class="grow">${i.name} <small class="muted">${i.unit}${i.kind_auto ? ' · tự xếp' : ''}</small></span>
+        ${k === 'material' ? html`<input class="num-in" style="width:4.5em" inputmode="decimal" placeholder=${`${meta.loss_default}%`} value=${i.loss_pct ?? ''} title="Định mức hao hụt riêng (%)" onChange=${(e) => save(i, { loss_pct: e.target.value })} />` : null}
+        <select value=${i.kind || ''} onChange=${(e) => save(i, { kind: e.target.value })}><option value="">Tự xếp (${meta.kinds[i.kind_eff]})</option><option value="finished">🥤 Thành phẩm</option><option value="material">🥩 Vật liệu</option><option value="supply">🧻 Đồ dùng</option></select></div>`)}</div>` : null; })}
+  </div><//>`;
+}
+
 function Count({ meta, me }) {
-  const mine = meta.stores.filter((s) => s.can_count);
+  const mine = meta.stores.filter((s) => s.can_count && (!meta.single || s.kind === 'main'));
   const [storeId, setStoreId] = useState(mine.find((s) => s.kind === 'area')?.id || mine[0]?.id || '');
   const sheet = useData(storeId ? `/api/stock/count-sheet?store=${storeId}` : null);
   const [vals, setVals] = useState({});
   const [extra, setExtra] = useState([]);
   const [result, setResult] = useState(null);
   const [transfer, setTransfer] = useState(null);
+  const [kindTab, setKindTab] = useState('daily');
+  const [setup, setSetup] = useState(false);
   useEffect(() => { setVals({}); setExtra([]); setResult(null); }, [storeId]);
   if (!mine.length) return html`<div class="empty">Bạn chưa được giao kiểm kho nào. Nhân viên kiểm kho của tổ mình; trưởng ca trở lên kiểm mọi kho.</div>`;
   const store = meta.stores.find((s) => s.id === Number(storeId));
-  const lines = sheet.data ? [...sheet.data.lines, ...extra.filter((x) => !sheet.data.lines.some((l) => l.ingredient_id === x.ingredient_id)).map((x) => ({ ...x, expected: 0 }))] : [];
+  const allLines = sheet.data ? [...sheet.data.lines, ...extra.filter((x) => !sheet.data.lines.some((l) => l.ingredient_id === x.ingredient_id)).map((x) => ({ ...x, expected: 0 }))] : [];
+  // Kho chung: kiểm theo loại hàng · mỗi tối Thành phẩm + Vật liệu, mỗi tuần Đồ dùng
+  const lines = meta.single ? allLines.filter((l) => (kindTab === 'supply' ? l.kind === 'supply' : l.kind !== 'supply')).sort((a, b) => (a.kind || '').localeCompare(b.kind || '') || a.name.localeCompare(b.name, 'vi')) : allLines;
   const filled = Object.values(vals).filter((x) => x !== '').length;
   return html`<div class="stack">
+    ${meta.single ? html`<div class="row wrap"><div class="tabs"><button class=${kindTab === 'daily' ? 'on' : ''} onClick=${() => setKindTab('daily')}>🥤 Thành phẩm + 🥩 Vật liệu <small>(mỗi tối)</small></button>
+      <button class=${kindTab === 'supply' ? 'on' : ''} onClick=${() => setKindTab('supply')}>🧻 Đồ dùng <small>(mỗi tuần)</small></button></div>
+      ${atLeast(me, 'manager') ? html`<button class="small" onClick=${() => setSetup(true)}>⚙ Xếp loại hàng</button>` : null}</div>` : null}
+    ${setup ? html`<${KindSetup} meta=${meta} onClose=${() => setSetup(false)} />` : null}
     <div class="row wrap">
       <select id="ck-store" class="auto" value=${storeId} onChange=${(e) => setStoreId(Number(e.target.value))}>${mine.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select>
       ${sheet.data?.last_count ? html`<span class="muted small">Lần kiểm trước: ${dt(sheet.data.last_count.at)} · ${sheet.data.last_count.staff_name || ''}</span>` : null}
@@ -122,10 +146,10 @@ function Count({ meta, me }) {
       : html`<p class="muted small">Kiểm kho tổng: phần thiếu so với sổ được ghi là hao hụt.</p>`}
     ${!sheet.data ? html`<${Loading} state=${sheet} />` : html`<section class="card">
       ${lines.length ? lines.map((l) => html`<div class="line-in" key=${l.ingredient_id}>
-        <span class="grow"><b>${l.name}</b><br /><small class="muted">Sổ: ${qty(l.expected, l.unit)}</small></span>
+        <span class="grow"><b>${meta.single && l.kind ? `${KIND_ICON[l.kind]} ` : ''}${l.name}</b><br /><small class="muted">Sổ: ${qty(l.expected, l.unit)}</small></span>
         <input inputmode="decimal" class="num-in" placeholder="còn" value=${vals[l.ingredient_id] ?? ''} aria-label=${`Còn thực tế ${l.name}`}
           onInput=${(e) => setVals({ ...vals, [l.ingredient_id]: e.target.value })} /><span class="muted unit-l">${l.unit}</span>
-      </div>`) : html`<p class="muted">Kho này chưa có nguyên liệu nào.</p>`}
+      </div>`) : html`<p class="muted">${meta.single ? 'Chưa có hàng loại này. Chủ quán / quản lý bấm ⚙ Xếp loại hàng để chọn.' : 'Kho này chưa có nguyên liệu nào.'}</p>`}
       ${(() => {
         // Thêm nguyên liệu chưa có trong phiếu: dùng chung trước, rồi mọi nguyên liệu khác (chủ quán 27/10)
         const have = new Set(lines.map((l) => l.ingredient_id));
@@ -149,7 +173,7 @@ function Count({ meta, me }) {
       ${result.lines.map((l) => html`<div class="row between small"><span>${l.name}</span><span class=${l.diff < 0 ? '' : 'muted'}>${l.diff < 0 ? (store.kind === 'area' ? 'dùng ' : 'hao hụt ') : l.diff > 0 ? 'thừa ' : 'khớp '}${l.diff ? qty(Math.abs(l.diff), l.unit) : ''}</span></div>`)}
       ${result.suggestion?.length ? html`<h4>Gợi ý lĩnh cho ngày mai</h4>
         ${result.suggestion.map((s) => html`<div class="row between small"><span>${s.name}</span><span class=${s.short ? 'bad-text' : ''}>${qty(s.need, s.unit)}${s.short ? ` (kho tổng chỉ còn ${qty(s.main_stock, s.unit)})` : ''}</span></div>`)}
-        <div class="row end"><button class="primary" onClick=${() => setTransfer(result.suggestion)}>Tạo phiếu lĩnh theo gợi ý</button></div>`
+        ${meta.single ? null : html`<div class="row end"><button class="primary" onClick=${() => setTransfer(result.suggestion)}>Tạo phiếu lĩnh theo gợi ý</button></div>`}`
         : store.kind === 'area' ? html`<p class="muted small">Tồn hiện tại đủ dùng cho ngày mai.</p>` : null}
     </section>` : null}
     ${transfer ? html`<${TransferForm} store=${store} lines=${transfer} onClose=${() => { setTransfer(null); setResult(null); }}
@@ -534,7 +558,7 @@ export function StockView({ me, query }) {
   const meta = useData('/api/stock/meta');
   const [sapo, setSapo] = useState(false);
   const TAB_ACT = { ton: 'kho.xem', nxt: 'kho.nxt', kiem: 'kho.kiem', linh: 'kho.linh', dat: 'kho.dathang', nl: 'kho.nguyenlieu', quydoi: 'kho.nguyenlieu', ls: 'kho.xem' };
-  const tabs = TABS.filter(([k, , role]) => (TAB_ACT[k] && me.acts?.[TAB_ACT[k]] === true) || ((!role || atLeast(me, role)) && (!TAB_ACT[k] || can(me, TAB_ACT[k]))));
+  const tabs = TABS.filter(([k]) => !(meta.data?.single && k === 'linh')).filter(([k, , role]) => (TAB_ACT[k] && me.acts?.[TAB_ACT[k]] === true) || ((!role || atLeast(me, role)) && (!TAB_ACT[k] || can(me, TAB_ACT[k]))));
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/kho?tab=${k}`)}>${l}</button>`)}</div>
     <button class="primary big" onClick=${() => navigate('/mua-hang?tab=nhan')}>📥 Nhập kho: chụp bill + hàng</button>
