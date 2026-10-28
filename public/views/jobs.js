@@ -65,11 +65,11 @@ function JobCard({ j, now, mine }) {
     ${j.count != null ? html`<small class=${j.short ? 'warn-text' : 'muted'}>Đếm: ${j.count}/${j.expect}${j.short ? ` · thiếu ${j.short} (đền)` : ''}</small>` : null}
     ${mine ? html`<div class="row wrap">
       ${j.status === 'todo' ? html`<button class="primary big grow" onClick=${() => act(() => api('POST', `/api/jobs/${j.id}/claim`), 'Đã nhận, bắt đầu tính giờ')}>✋ Nhận việc</button>` : null}
-      ${j.status === 'doing' && need > 1 ? html`<div class="stack tight grow">
+      ${j.status === 'doing' && need >= 1 ? html`<div class="stack tight grow">
         ${shots.length ? html`<div class="row wrap">${shots.map((x, k) => html`<img class="job-photo" src=${x} onClick=${() => confirm('Bỏ ảnh này?') && setShots(shots.filter((_, i) => i !== k))} />`)}</div>` : null}
-        ${shots.length < need ? html`<label class="button primary big">📷 Chụp ảnh rộng ${shots.length + 1}/${need}<input type="file" accept="image/*" capture="environment" hidden onChange=${addShot} /></label>`
+        ${shots.length < need ? html`<label class="button primary big">📷 ${need > 1 ? `Chụp ảnh rộng ${shots.length + 1}/${need}` : 'Chụp ảnh báo cáo'}<input type="file" accept="image/*" capture="environment" hidden onChange=${addShot} /></label>`
           : html`<button class="primary big" disabled=${busy} onClick=${doneMany}>${busy ? 'Đang gửi…' : `✅ Báo xong (${shots.length} ảnh)`}</button>`}
-        ${shots.length >= need ? html`<label class="button small">📷 Chụp thêm<input type="file" accept="image/*" capture="environment" hidden onChange=${addShot} /></label>` : null}
+        ${shots.length >= need && shots.length < 6 ? html`<label class="button small">📷 Chụp thêm<input type="file" accept="image/*" capture="environment" hidden onChange=${addShot} /></label>` : null}
       </div>` : j.status === 'doing' ? (j.photo_required
         ? html`<label class=${`button primary big grow ${busy ? 'muted' : ''}`}>📷 ${busy ? 'Đang gửi…' : 'Chụp ảnh & báo xong'}<input type="file" accept="image/*" capture="environment" hidden onChange=${done} /></label>`
         : html`<button class="primary big grow" disabled=${busy} onClick=${() => done()}>✅ Xong</button>`) : null}
