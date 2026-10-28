@@ -636,9 +636,11 @@ function ActsFor({ id, staff, onDone }) {
   };
   const copyFrom = async (otherId) => {
     if (!otherId) return;
-    const o = await api('GET', `/api/permissions/acts?staff_id=${otherId}`);
-    setDraft(Object.fromEntries(o.groups.flatMap((g) => g.acts.map((a) => [a.key, a.on]))));
-    toast('Đã chép, bấm Lưu để áp dụng');
+    try { // rà soát 28/10: lỗi mạng / quyền thì báo, không im lặng
+      const o = await api('GET', `/api/permissions/acts?staff_id=${otherId}`);
+      setDraft(Object.fromEntries(o.groups.flatMap((g) => g.acts.map((a) => [a.key, a.on]))));
+      toast('Đã chép, bấm Lưu để áp dụng');
+    } catch (e) { toast(e.message, true); }
   };
   const setGroup = (g, val) => setDraft({ ...draft, ...Object.fromEntries(g.acts.map((a) => [a.key, val])) });
   return html`<div class="stack">

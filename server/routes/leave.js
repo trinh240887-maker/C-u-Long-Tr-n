@@ -61,6 +61,13 @@ export default function (r, ctx) {
   function createLeave(by, groupId0, reason, range = null, { chat = '' } = {}) {
     if (!shiftInfo(groupId0)) fail(404, 'Không tìm thấy ca');
     if (range && db.prepare("SELECT 1 FROM leave_requests WHERE group_id = ? AND status IN ('pending','approved')").get(groupId0)) fail(409, 'Ca này đã có đơn nghỉ');
+    // Kiểm "ca đã qua" TRƯỚC khi tách khúc (rà soát 28/10: trước đây tách xong mới báo lỗi → ca bị chia lẻ dù không tạo đơn)
+    if (range) {
+      const hit = groupSegments(db, groupId0).filter((x) => x.start_min < range.to && x.end_min > range.from);
+      if (!hit.length) fail(400, 'Khúc giờ xin nghỉ không trùng ca nào');
+      const last = hit.at(-1);
+      if (rangeOf(ctx.clock(), { ...last, start_min: Math.max(last.start_min, range.from), end_min: Math.min(last.end_min, range.to) }).end < ctx.now()) fail(400, 'Ca này đã qua');
+    }
     const groupId = range ? tx(db, () => splitOff(groupId0, range.from, range.to)) : groupId0;
     const info = shiftInfo(groupId);
     if (!info) fail(404, 'Không tìm thấy ca');
@@ -111,7 +118,10 @@ export default function (r, ctx) {
     tx(db, () => {
       db.prepare("UPDATE leave_requests SET status = 'cancelled', decided_at = ? WHERE id = ?").run(ctx.now(), l.id);
       db.prepare("UPDATE cover_offers SET status = 'closed' WHERE leave_id = ? AND status IN ('invited','accepted')").run(l.id);
+      // Huỷ đơn nghỉ 1 khúc → khúc đó về lại ca gốc như khi từ chối (rà soát 28/10)
+      if (l.orig_group && groupSegments(db, l.orig_group).length) db.prepare('UPDATE assignments SET group_id = ? WHERE group_id = ?').run(l.orig_group, l.group_id);
     });
+    ctx.broadcast('schedule');
     ctx.audit(me, 'leave.cancel', l.id);
     ctx.broadcast('leave');
     return { ok: true };
@@ -207,6 +217,7 @@ export default function (r, ctx) {
   // ---------- Duyệt đơn nghỉ (quản lý) ----------
   r.post('/api/leave/:id/decide', 'manager', ({ me, params, body }) => {
     const l = loadLeave(params.id);
+    if (l.staff_id === me.id && me.role !== 'owner') fail(403, 'Bạn không tự duyệt đơn nghỉ của mình được, nhờ chủ quán hoặc quản lý khác'); // rà soát 28/10
     if (l.status !== 'pending') fail(409, 'Đơn này đã được xử lý');
     const approve = v.bool(body.approve);
     const note = v.text(body.note, { name: 'Ghi chú', max: 300 });

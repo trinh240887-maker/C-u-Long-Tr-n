@@ -1,4 +1,5 @@
 import { fail } from '../http.js';
+import { rank } from '../db.js';
 import { isDate, addDays } from '../lib/time.js';
 import { computeTimesheet } from '../lib/payroll.js';
 import { makeXlsx } from '../lib/xlsx.js';
@@ -202,10 +203,13 @@ export default function (r, ctx) {
     const mgr = db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager','shift_lead')").all().map((s) => s.id).filter((x) => x !== me.id);
     ctx.notify(mgr, { title: `${me.name} bấm chấm công khi không ở quán`, body: `Không đúng vị trí quán và không bắt wifi quán (mạng ${net.ip || '?'}). Nếu bạn ấy đang ở quán: kiểm tra máy cầu in còn chạy, hoặc nhắc bật vị trí.`, link: '/cham-cong' });
   };
-  r.get('/api/attendance/network', 'staff', ({ net }) => {
+  r.get('/api/attendance/network', 'staff', ({ me, net }) => {
     const prefixes = ctx.setting('clock_ip_prefixes').split(',').map((s) => s.trim()).filter(Boolean);
+    const allowed = ctx.onShopWifi ? ctx.onShopWifi(net) : !prefixes.length || prefixes.some((p) => net.ip.startsWith(p));
+    const base = { ip: net.ip, remote: net.remote, allowed, on_shop_wifi: allowed, gps: ctx.clockPlace?.().gps || false };
+    // IP wifi quán (cầu in) + dải IP chỉ cho quản lý / chủ (rà soát 28/10: nhân viên biết IP quán là giả được wifi quán)
+    if (rank(me.real_role || me.role) < rank('manager')) return base;
     const bridgeAt = Number(ctx.setting('shop_bridge_ip_at') || 0);
-    return { ip: net.ip, remote: net.remote, allowed: ctx.onShopWifi ? ctx.onShopWifi(net) : !prefixes.length || prefixes.some((p) => net.ip.startsWith(p)), prefixes,
-      bridge_ip: ctx.setting('shop_bridge_ip') || '', bridge_at: bridgeAt || null, gps: ctx.clockPlace?.().gps || false };
+    return { ...base, prefixes, bridge_ip: ctx.setting('shop_bridge_ip') || '', bridge_at: bridgeAt || null };
   });
 }

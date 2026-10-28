@@ -35,7 +35,8 @@ export const PAGES = [
   { path: '/may-in', label: 'Máy in', role: 'shift_lead', api: [['/api/print/settings', 'all'], ['/api/print/test', 'all'], ['/api/print/retry', 'all'], ['/api/print/status', 'all'], ['/api/kitchen-stations', 'w']] },
   { path: '/nghi', label: 'Báo nghỉ', role: 'staff', api: [['/api/leave', 'all'], ['/api/offers', 'all']] },
   { path: '/cham-cong', label: 'Chấm công', role: 'shift_lead', api: [['/api/timesheet', 'all']] },
-  { path: '/nhan-vien', label: 'Nhân viên', role: 'manager', api: [['/api/staff', 'w']] },
+  // writeAct (rà soát 28/10): cấp riêng mục này chỉ nâng quyền XEM; lệnh ghi (tạo tài khoản, đặt PIN, sửa lương…) phải được tick riêng việc nv.them / nv.sua
+  { path: '/nhan-vien', label: 'Nhân viên', role: 'manager', writeAct: true, api: [['/api/staff', 'w']] },
   { path: '/so-do', label: 'Sơ đồ tổ chức', role: 'staff', api: [['/api/org', 'all']] },
   { path: '/cai-dat', label: 'Cài đặt', role: 'manager', api: [['/api/settings', 'w'], ['/api/backup', 'all'], ['/api/audit', 'all'], ['/api/zones', 'w'], ['/api/teams', 'w'], ['/api/positions', 'w'], ['/api/shift-templates', 'w'], ['/api/bank/settings', 'all'], ['/api/zalo-bot', 'all']] },
   { path: '/ho-so', label: 'Tài khoản', role: 'staff', fixed: true },
@@ -125,7 +126,7 @@ export function apiGate(ctx, me, method, pathname) {
       const team = me.team_id ? ctx.db.prepare('SELECT name FROM teams WHERE id = ?').get(me.team_id)?.name : null;
       const ok = canSee(page, me, team);
       if (!ok && (m === 'all' || write)) return 'deny';
-      if (ok && rank(me.role) < rank(p.role) && (page.allow.includes(me.id) || page.roles.includes(me.role))) return p.role;
+      if (ok && rank(me.role) < rank(p.role) && (page.allow.includes(me.id) || page.roles.includes(me.role))) return write && p.writeAct ? null : p.role;
       return null;
     }
   }

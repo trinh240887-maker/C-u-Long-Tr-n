@@ -42,7 +42,7 @@ export default function (r, ctx) {
     const ck = /(?:^|;\s*)did=([^;]+)/.exec(req.headers.cookie || '')?.[1] || '';
     const hd = String(req.headers['x-device'] || '');
     const id = DEV.test(ck) ? ck : DEV.test(hd) ? hd : '';
-    if (!id) return ''; // máy không gửi mã (bản app cũ chưa tải lại) → không khoá
+    if (!id) return ''; // máy không gửi mã → checkDevice xử lý như máy lạ nếu đã đăng ký máy (rà soát 28/10)
     if (id !== ck) {
       const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
       const prev = res.getHeader('Set-Cookie');
@@ -56,23 +56,28 @@ export default function (r, ctx) {
     ctx.setSetting('device_reset_domain_v1', '1');
   }
   function checkDevice(me, dev, { out = false } = {}) {
-    if (!dev || rank(me.role) >= rank('manager') || ctx.setting('clock_device_lock') === '0') return;
-    const date = ctx.today();
-    const owner = db.prepare('SELECT id, name FROM staff WHERE device_id = ? AND id != ? AND active = 1').get(dev, me.id)
-      || db.prepare('SELECT s.id, s.name FROM attendance a JOIN staff s ON s.id = a.staff_id WHERE a.device_id = ? AND a.date = ? AND a.staff_id != ? LIMIT 1').get(dev, date, me.id);
-    if (owner) {
-      ctx.notify([...new Set([...ctx.managers(), ...ctx.leadsOf(me.team_id)])].filter((x) => x !== me.id), { title: `⚠ Nghi chấm công hộ: máy của ${owner.name} vừa chấm cho ${me.name}`, body: `Lúc ${ctx.clock().fmt(ctx.now())}. App đã chặn.`, link: '/cham-cong', urgent: true });
-      ctx.audit(me, 'clock.device_shared', { other: owner.id });
-      fail(403, `Điện thoại này là máy chấm công của ${owner.name}. Mỗi người chấm trên điện thoại của chính mình.`);
-    }
+    if (rank(me.role) >= rank('manager') || ctx.setting('clock_device_lock') === '0') return;
     const st = db.prepare('SELECT device_id FROM staff WHERE id = ?').get(me.id);
-    if (!st.device_id) { db.prepare("UPDATE staff SET device_id = ?, device_pending = '', device_at = ? WHERE id = ?").run(dev, ctx.now(), me.id); return; }
+    // Không gửi mã máy (không cookie, không X-Device): chưa đăng ký máy thì cho qua (không đăng ký được);
+    // đã đăng ký máy thì coi như máy lạ, xử lý như máy khác (rà soát 28/10: trước đây bỏ qua → né được khoá máy)
+    if (!dev && !st.device_id) return;
+    if (dev) {
+      const date = ctx.today();
+      const owner = db.prepare('SELECT id, name FROM staff WHERE device_id = ? AND id != ? AND active = 1').get(dev, me.id)
+        || db.prepare('SELECT s.id, s.name FROM attendance a JOIN staff s ON s.id = a.staff_id WHERE a.device_id = ? AND a.date = ? AND a.staff_id != ? LIMIT 1').get(dev, date, me.id);
+      if (owner) {
+        ctx.notify([...new Set([...ctx.managers(), ...ctx.leadsOf(me.team_id)])].filter((x) => x !== me.id), { title: `⚠ Nghi chấm công hộ: máy của ${owner.name} vừa chấm cho ${me.name}`, body: `Lúc ${ctx.clock().fmt(ctx.now())}. App đã chặn.`, link: '/cham-cong', urgent: true });
+        ctx.audit(me, 'clock.device_shared', { other: owner.id });
+        fail(403, `Điện thoại này là máy chấm công của ${owner.name}. Mỗi người chấm trên điện thoại của chính mình.`);
+      }
+      if (!st.device_id) { db.prepare("UPDATE staff SET device_id = ?, device_pending = '', device_at = ? WHERE id = ?").run(dev, ctx.now(), me.id); return; }
+    }
     if (st.device_id !== dev) {
-      db.prepare('UPDATE staff SET device_pending = ? WHERE id = ?').run(dev, me.id);
+      if (dev) db.prepare('UPDATE staff SET device_pending = ? WHERE id = ?').run(dev, me.id);
       ctx.notify(ctx.leadsOf(me.team_id).filter((x) => x !== me.id), { title: `${me.name} chấm công từ điện thoại lạ`, body: 'Nếu bạn ấy đổi máy thật: Nhân viên → sửa bạn đó → "Cho đổi máy".', link: '/nhan-vien', urgent: true });
-      ctx.audit(me, 'clock.device_new', { out });
+      ctx.audit(me, 'clock.device_new', { out, no_id: !dev });
       if (out) return; // chấm ra: không chặn (đã chấm vào trên máy đúng), chỉ báo tổ trưởng
-      fail(403, 'Đây không phải điện thoại đã đăng ký chấm công của bạn. Nếu bạn đổi máy (hoặc đổi trình duyệt Zalo ↔ Safari), nhờ quản lý bấm "Cho đổi máy" rồi chấm lại.');
+      fail(403, 'Đây không phải điện thoại đã đăng ký chấm công của bạn. Nếu bạn đổi máy (hoặc đổi trình duyệt Zalo ↔ Safari, hoặc đang mở tab ẩn danh), nhờ quản lý bấm "Cho đổi máy" rồi chấm lại.');
     }
   }
   const LATE_PHOTO_TEAMS = /^(phục vụ|phuc vu|tiếp thực|tiep thuc)$/i;
@@ -451,10 +456,19 @@ export default function (r, ctx) {
     return { text: out.text, note: out.note };
   });
 
+  // Sửa / thêm tay chấm công (rà soát 28/10): không tự sửa của mình, không sửa người cùng cấp hoặc cao hơn (chức vụ thật). Chủ quán thì được hết
+  function canEditOf(me, staff) {
+    if (me.role === 'owner') return;
+    if (staff.id === me.id) fail(403, 'Bạn không tự thêm / sửa chấm công của mình được, nhờ cấp trên sửa giúp');
+    if (rank(staff.role) >= rank(me.real_role || me.role)) fail(403, `Bạn không sửa được chấm công của ${ROLE_LABEL[staff.role] || 'người này'}`);
+  }
+
   r.post('/api/attendance', 'shift_lead', ({ me, body }) => {
     const clock = ctx.clock();
     const staffId = v.int(body.staff_id, { min: 1, name: 'Nhân viên' });
-    if (!ctx.staff(staffId)) fail(404, 'Không tìm thấy nhân viên');
+    const target = ctx.staff(staffId);
+    if (!target) fail(404, 'Không tìm thấy nhân viên');
+    canEditOf(me, target);
     const cin = parseLocal(body.clock_in, clock);
     const cout = body.clock_out ? parseLocal(body.clock_out, clock) : null;
     if (cout !== null && cout <= cin) fail(400, 'Giờ ra phải sau giờ vào');
@@ -471,13 +485,24 @@ export default function (r, ctx) {
     const clock = ctx.clock();
     const cur = db.prepare('SELECT * FROM attendance WHERE id = ?').get(params.id);
     if (!cur) fail(404, 'Không tìm thấy lượt chấm công');
+    canEditOf(me, ctx.staff(cur.staff_id) || { id: cur.staff_id, role: 'staff' });
     const cin = body.clock_in ? parseLocal(body.clock_in, clock) : cur.clock_in;
     const cout = body.clock_out === undefined ? cur.clock_out : body.clock_out ? parseLocal(body.clock_out, clock) : null;
     if (cout !== null && cout <= cin) fail(400, 'Giờ ra phải sau giờ vào');
     if (cout !== null && cout - cin > 20 * 3600_000) fail(400, 'Một lượt chấm công không quá 20 giờ');
     const note = body.note === undefined ? cur.note : v.text(body.note, { name: 'Ghi chú', max: 200 });
-    db.prepare('UPDATE attendance SET clock_in = ?, clock_out = ?, date = ?, note = ?, edited_by = ?, auto_closed = 0 WHERE id = ?')
-      .run(cin, cout, cur.assignment_id ? cur.date : clock.businessDate(cin), note, me.id, cur.id);
+    // Đổi giờ (rà soát 28/10): tăng ca đã duyệt / từ chối phải duyệt lại; phút trễ tính lại như lúc chấm vào
+    const timeChanged = cin !== cur.clock_in || cout !== cur.clock_out;
+    const otStatus = timeChanged ? '' : cur.ot_status;
+    let late = cur.late_minutes || 0;
+    if (cin !== cur.clock_in) {
+      const seg = segOf(cur.assignment_id);
+      const grace = num('late_grace_minutes', 5) * 60_000;
+      const start = seg ? rangeOf(clock, seg).start : null;
+      late = seg && cin > start + grace ? Math.round((cin - start) / 60_000) : 0;
+    }
+    db.prepare('UPDATE attendance SET clock_in = ?, clock_out = ?, date = ?, note = ?, edited_by = ?, auto_closed = 0, ot_status = ?, late_minutes = ? WHERE id = ?')
+      .run(cin, cout, cur.assignment_id ? cur.date : clock.businessDate(cin), note, me.id, otStatus, late, cur.id);
     ctx.audit(me, 'attendance.update', { id: cur.id, before: [cur.clock_in, cur.clock_out], after: [cin, cout] });
     ctx.broadcast('attendance');
     return { ok: true };
