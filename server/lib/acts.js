@@ -12,7 +12,7 @@ const ID = '\\d+';
 
 export const ACT_GROUPS = [
   { name: 'Lịch ca', acts: [
-    A('lich.xem', '/lich', 'Xem lịch ca', 'staff', [['R', '/api/schedule(\\.xlsx)?'], ['R', '/api/shift-templates']]),
+    A('lich.xem', '/lich', 'Xem lịch ca (nhân viên: chỉ ca của mình · tổ trưởng / trưởng ca: cả tổ · quản lý: cả quán)', 'staff', [['R', '/api/schedule(\\.xlsx)?'], ['R', '/api/shift-templates']]),
     A('lich.xep', '/lich#xep', 'Xếp ca, chép tuần, phân khu tuần', 'manager', [['W', '/api/shifts(/delete)?'], ['W', '/api/schedule/copy'], ['W', '/api/schedule/week-zones']]),
     A('lich.congbo', '/lich#xep', 'Công bố lịch, gửi ảnh lịch', 'manager', [['W', '/api/schedule/publish(-team)?'], ['W', '/api/schedule/team-image']]),
     A('lich.loaica', '/cai-dat', 'Tạo / sửa loại ca', 'manager', [['W', `/api/shift-templates(/${ID})?`]]),
