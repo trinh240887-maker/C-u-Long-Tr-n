@@ -190,6 +190,18 @@ function WeekBoard({ me }) {
   const cellOf = (sid, day) => cells[`${sid}:${day}`] || { shifts: [], extra: [] };
   const issue = (sid) => days.some((day) => { const c = cellOf(sid, day); return c.shifts.some((g) => ['missing', 'warn'].includes(g.status)) || c.extra.length; });
   const rows = staff.filter((x) => (!team || (x.team_name || 'Chưa có bộ phận') === team) && (!onlyIssue || issue(x.id)));
+  // Nhóm theo bộ phận (Bếp → Phục vụ → Thu ngân → Bar → Tiếp thực → Tạp vụ), trong nhóm xếp theo vị trí (chủ quán 28/10)
+  const RANK = { manager: 0, shift_lead: 1, team_lead: 2 };
+  const groups = [];
+  for (const x of rows) {
+    const i = GROUPS.findIndex(([re]) => re.test(x.team_name || ''));
+    const key = i >= 0 ? GROUPS[i][1] : (x.team_name || 'Chưa có bộ phận');
+    let g = groups.find((y) => y.name === key);
+    if (!g) groups.push(g = { name: key, color: i >= 0 ? GROUPS[i][2] : '#868e96', order: i >= 0 ? i : 99, people: [] });
+    g.people.push(x);
+  }
+  groups.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'vi'));
+  for (const g of groups) g.people.sort((a, b) => (a.position || '~').localeCompare(b.position || '~', 'vi') || (RANK[a.role] ?? 9) - (RANK[b.role] ?? 9) || a.name.localeCompare(b.name, 'vi'));
   const R = (r) => html`<div class="att-rec" onClick=${(e) => { e.stopPropagation(); setEdit(r); }}>${hm(r.clock_in)} – ${r.clock_out ? hm(r.clock_out) : '…'}${r.late_minutes ? html` <b class="warn-text">trễ ${r.late_minutes}′</b>` : null}${r.early_minutes > 0 ? html` <b class="warn-text">về sớm ${r.early_minutes}′</b>` : null}${r.auto_closed ? html` <b class="bad-text">tự đóng</b>` : null}</div>`;
   return html`<div class="stack">
     <div class="row between wrap">
@@ -202,14 +214,14 @@ function WeekBoard({ me }) {
     <p class="small muted"><span class="lg-att att-ok">đúng giờ</span> <span class="lg-att att-warn">trễ / về sớm</span> <span class="lg-att att-miss2">có ca, không chấm</span> <span class="lg-att att-fut">chưa tới</span> · Bấm giờ chấm để sửa, bấm ô đỏ để thêm tay.</p>
     <div class="wk-wrap"><table class="attw">
       <thead><tr><th class="attw-name">Nhân viên</th>${days.map((day, i) => html`<th class=${day === today ? 'today' : ''}>${DOW[i]}<br /><small>${day.slice(8)}/${day.slice(5, 7)}</small></th>`)}</tr></thead>
-      <tbody>${rows.map((x) => html`<tr><td class="attw-name"><b>${x.name}</b><br /><small class="muted">${x.role_label || x.team_name || ''}</small></td>
+      <tbody>${groups.map((g) => [html`<tr><td colspan="8" class="attw-group" style=${`background:${g.color}`}>${g.name.toUpperCase()} · ${g.people.length} người</td></tr>`, ...g.people.map((x) => html`<tr><td class="attw-name"><b>${x.name}</b><br /><small class="muted">${x.position ? html`<b class="attw-pos">${x.position}</b> ` : ''}${x.role !== 'staff' && x.role_label ? x.role_label.split(' · ')[0] : x.position ? '' : x.team_name || ''}</small></td>
         ${days.map((day) => { const c = cellOf(x.id, day);
           if (!c.shifts.length && !c.extra.length) return html`<td class=${`attw-cell ${day === today ? 'today' : ''}`}><div class="att-box att-free">Tự do</div></td>`;
           return html`<td class=${`attw-cell ${day === today ? 'today' : ''}`}>
             ${c.shifts.map((g) => html`<div class=${`att-box ${WST[g.status][0]}`} onClick=${() => g.status === 'missing' && setEdit({ staff_id: x.id, clock_in: g.start_at, note: 'Thêm tay từ bảng tuần' })}>
               <div class="att-shift">${g.name ? `${g.name} ` : 'Ca '}${g.time}</div>
               ${g.records.length ? g.records.map(R) : html`<div class="att-rec muted">${WST[g.status][1] || '—'}</div>`}</div>`)}
-            ${c.extra.map((r) => html`<div class="att-box att-warn"><div class="att-shift">Ngoài lịch</div>${R(r)}</div>`)}</td>`; })}</tr>`)}</tbody>
+            ${c.extra.map((r) => html`<div class="att-box att-warn"><div class="att-shift">Ngoài lịch</div>${R(r)}</div>`)}</td>`; })}</tr>`)])}</tbody>
     </table></div>
     ${edit && staffD.data ? html`<${RecordForm} init=${edit} staff=${staffD.data.filter((s) => s.active)} canDelete=${atLeast(me, 'manager')} onClose=${() => setEdit(null)} />` : null}
   </div>`;

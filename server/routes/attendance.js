@@ -356,7 +356,7 @@ export default function (r, ctx) {
     const clock = ctx.clock(), now = ctx.now();
     const staff = db.prepare(`SELECT s.id, s.name, s.role, COALESCE(t.name, '') AS team_name, po.name AS position_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN positions po ON po.id = s.position_id
       WHERE s.active = 1 AND s.role != 'owner' ORDER BY t.sort, s.name`).all()
-      .map((x) => ({ id: x.id, name: x.name, team_name: x.team_name, role_label: [ROLE_LABEL[x.role] || '', x.position_name || ''].filter(Boolean).join(' · ') }));
+      .map((x) => ({ id: x.id, name: x.name, team_name: x.team_name, role: x.role, position: x.position_name || '', role_label: [ROLE_LABEL[x.role] || '', x.position_name || ''].filter(Boolean).join(' · ') }));
     const asg = db.prepare(`SELECT a.id, a.group_id, a.staff_id, a.date, a.start_min, a.end_min, a.label, st.name AS tpl_name,
       EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') AS on_leave
       FROM assignments a LEFT JOIN shift_templates st ON st.id = a.template_id WHERE a.date BETWEEN ? AND ? ORDER BY a.start_min`).all(ws, we);
