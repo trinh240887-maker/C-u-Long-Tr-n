@@ -147,7 +147,12 @@ function AddItemInline({ templateId, zoneId = null, scope = null, placeholder = 
 export function ChecklistView({ me }) {
   const [date, setDate] = useState(me.today);
   const st = useData(`/api/checklists?date=${date}`);
-  const [phase, setPhase] = useState(() => (new Date().getHours() >= 17 ? 'close' : 'open'));
+  // Đóng ca chỉ hiện từ 21h đến hết ngày làm việc (5h sáng); quản lý / chủ quán luôn thấy để soạn (chủ quán 28/10)
+  const hr = new Date().getHours();
+  const closeTime = hr >= 21 || hr < 5;
+  const closeOk = closeTime || atLeast(me, 'manager');
+  const [phase0, setPhase] = useState(() => (closeTime ? 'close' : 'open'));
+  const phase = closeOk ? phase0 : 'open';
   const [sec, setSec] = useState('');
   const [manage, setManage] = useState(false);
   const old = date < me.today && !atLeast(me, 'shift_lead');
@@ -171,7 +176,7 @@ export function ChecklistView({ me }) {
       ${atLeast(me, 'team_lead') ? html`<div class="row"><${Link} href="/viec-ca?tab=khu" class="btn-link">✋ Việc ca<//><${Link} href="/duyet-anh" class="btn-link">Duyệt ảnh<//><button class="primary" onClick=${() => setManage(true)}>Tạo / sửa checklist</button></div>` : null}
     </div>
     ${sections.length ? html`<div class="chips scroll-x sec-tabs">${sections.map((x) => html`<button class=${`chip big ${x === curSec ? 'on' : ''}`} onClick=${() => setSec(x)}>${x}${left(x) ? html` <b class="dotn">${left(x)}</b>` : ''}</button>`)}</div>` : null}
-    <div class="tabs">${[['open', 'Mở ca'], ['close', 'Đóng ca']].map(([k, l]) => html`<button class=${phase === k ? 'on' : ''} onClick=${() => setPhase(k)}>${l}${left(curSec, k) ? ` (${left(curSec, k)})` : ''}</button>`)}</div>
+    <div class="tabs">${[['open', 'Mở ca'], ...(closeOk ? [['close', 'Đóng ca']] : [])].map(([k, l]) => html`<button class=${phase === k ? 'on' : ''} onClick=${() => setPhase(k)}>${l}${left(curSec, k) ? ` (${left(curSec, k)})` : ''}</button>`)}</div>
     ${phase === 'open' && /phục vụ/i.test(curSec) && st.data.opening?.total && !jobCards.some((r) => r.opening_tpl) ? html`<${OpeningCard} o=${st.data.opening} />` : null}
     ${jobCards.map((r) => html`<section class="card job-card">
       <div class="row between"><div><h3>${r.title}</h3><small class="muted">${r.team_name} · 👥 Giao việc từng người · ${r.items} việc</small></div>
