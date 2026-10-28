@@ -587,7 +587,6 @@ export function StockView({ me, query }) {
   const tabs = TABS.filter(([k]) => !(meta.data?.single && k === 'linh')).filter(([k, , role]) => (TAB_ACT[k] && me.acts?.[TAB_ACT[k]] === true) || ((!role || atLeast(me, role)) && (!TAB_ACT[k] || can(me, TAB_ACT[k]))));
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/kho?tab=${k}`)}>${l}</button>`)}</div>
-    <button class="primary big" onClick=${() => navigate('/mua-hang?tab=nhan')}>📥 Nhập kho: chụp bill + hàng</button>
     ${atLeast(me, 'manager') ? html`<button onClick=${() => setSapo(true)}>📊 Nhập bán hàng từ Sapo (trừ kho)</button>` : null}
     ${sapo ? html`<${SapoImport} onClose=${() => setSapo(false)} />` : null}
     ${me.role === 'owner' && !me.wh_live ? html`<button class="link small" onClick=${() => navigate('/kho-tx')}>🚀 Kho mới theo chứng từ (Kho & Tài sản): xem / bắt đầu khi sẵn sàng →</button>` : null}
