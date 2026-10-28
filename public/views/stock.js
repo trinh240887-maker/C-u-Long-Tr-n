@@ -476,14 +476,70 @@ function Utensils({ me }) {
   </div>`;
 }
 
+// Nhập bán hàng từ file Excel Sapo (chủ quán 28/10, tạm thời): chọn file "Doanh thu theo danh sách mặt hàng" → chọn ngày → ghép món → trừ kho
+function SapoImport({ onClose }) {
+  const [file, setFile] = useState(null);
+  const [pv, setPv] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [dates, setDates] = useState([]);
+  const [map, setMap] = useState({});
+  const [done, setDone] = useState(null);
+  const hist = useData('/api/sapo/imports');
+  const pick = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    setBusy(true); setPv(null); setDone(null);
+    try {
+      const data = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(f); });
+      const res = await act(() => api('POST', '/api/sapo/preview', { data }));
+      if (res) { setFile(data); setPv(res); const fresh = res.dates.filter((d) => !d.imported); setDates(fresh.length ? [fresh[fresh.length - 1].date] : []); setMap({}); }
+    } finally { setBusy(false); }
+  };
+  const run = async () => {
+    setBusy(true);
+    try { const r = await act(() => api('POST', '/api/sapo/import', { data: file, dates, map }), 'Đã trừ kho theo bán hàng Sapo'); if (r) { setDone(r); setPv(null); } } finally { setBusy(false); }
+  };
+  const idOf = (it) => (map[it.key] !== undefined ? map[it.key] : it.menu_item_id);
+  const ddmm = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
+  const unmatched = pv ? pv.items.filter((it) => idOf(it) == null || idOf(it) === '') : [];
+  return html`<${Modal} title="📊 Nhập bán hàng từ Sapo" onClose=${onClose}><div class="stack">
+    <small class="muted">Trên Sapo: Báo cáo → <b>Doanh thu theo danh sách mặt hàng</b> → xuất Excel → chọn file đó ở đây. App trừ kho theo định lượng như bán trên app. Mỗi ngày chỉ nhập 1 lần.</small>
+    <label class=${`button primary big ${busy ? 'muted' : ''}`}>📂 ${busy ? 'Đang đọc file…' : pv ? 'Chọn file khác' : 'Chọn file Excel Sapo'}<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange=${pick} /></label>
+    ${done ? html`<section class="card attn stack tight"><b>✅ Đã trừ kho ${done.dates.length} ngày: ${done.dates.map(ddmm).join(', ') || '(không có ngày mới)'}</b>
+      <small>${done.deducted} món có định lượng đã trừ.</small>
+      ${done.no_recipe.length ? html`<small class="warn-text">Chưa có định lượng nên chưa trừ (${done.no_recipe.length}): ${done.no_recipe.map((x) => `${x.name} ×${x.qty}`).join(', ')}. Nhập định lượng ở Thực đơn.</small>` : null}
+      ${done.unmatched.length ? html`<small class="warn-text">Chưa ghép món: ${done.unmatched.map((x) => `${x.name} ×${x.qty}`).join(', ')}</small>` : null}
+      ${done.short.length ? html`<small class="warn-text">Bán vượt tồn sổ (${done.short.length} dòng), vd ${done.short.slice(0, 5).map((x) => `${x.item}: thiếu ${Math.round(x.need)} ${x.unit} ${x.ingredient}`).join('; ')}. Kiểm kho để chỉnh.</small>` : null}
+      <a class="link small" href="/kho?tab=nxt">Xem Nhập – Xuất – Tồn →</a></section>` : null}
+    ${pv ? html`
+      <b>1. Chọn ngày trừ kho</b>
+      <small class="muted">Mặc định chỉ chọn <b>ngày mới nhất</b>. Ngày cũ chỉ chọn nếu kho <b>chưa kiểm</b> sau ngày đó${pv.last_count ? ` (lần kiểm kho gần nhất ${dt(pv.last_count)})` : ''}, kẻo trừ 2 lần.</small>
+      <div class="stack tight">${pv.dates.map((d) => html`<label class="check-row"><input type="checkbox" disabled=${d.imported} checked=${dates.includes(d.date)} onChange=${(e) => setDates(e.target.checked ? [...dates, d.date] : dates.filter((x) => x !== d.date))} />
+        <span><b>${ddmm(d.date)}</b> · ${d.invoices} hoá đơn · ${d.qty} món · ${money(d.revenue)}${d.imported ? html` <span class="pill ok">đã nhập</span>` : ''}</span></label>`)}</div>
+      <b>2. Ghép món Sapo với Thực đơn</b> <small class="muted">${pv.items.length} món · ${unmatched.length ? html`<span class="warn-text">${unmatched.length} món chưa ghép</span>` : 'đã ghép hết'} · ghép 1 lần, lần sau tự nhận</small>
+      <div class="sapo-list">${pv.items.map((it) => { const id = idOf(it); const m = pv.menu.find((x) => x.id === Number(id)); return html`<div class=${`sapo-row ${id == null || id === '' ? 'bad' : ''}`}>
+        <span class="grow"><b>${it.name}</b> <small class="muted">${it.code || ''} · ×${it.qty}</small>${m && !m.has_recipe ? html`<br /><small class="warn-text">chưa có định lượng</small>` : null}</span>
+        <select value=${id == null ? '' : String(id)} onChange=${(e) => setMap({ ...map, [it.key]: e.target.value === '' ? null : Number(e.target.value) })}>
+          <option value="">— chưa ghép —</option><option value="0">Bỏ qua (không trừ kho)</option>
+          ${pv.menu.map((x) => html`<option value=${x.id}>${x.name}${x.has_recipe ? '' : ' (chưa ĐL)'}</option>`)}</select></div>`; })}</div>
+      <button class="primary big" disabled=${busy || !dates.length} onClick=${run}>${busy ? 'Đang trừ kho…' : `✓ Trừ kho ${dates.length} ngày`}</button>` : null}
+    ${hist.data?.length ? html`<details><summary class="small muted">Đã nhập (${hist.data.length} ngày)</summary>
+      ${hist.data.map((h) => html`<div class="row between small"><span>${ddmm(h.date)} · ${h.invoices} hđ · ${h.qty} món · ${money(h.revenue || 0)} <span class="muted">(${h.by_name || ''})</span></span>
+        <button class="link small" onClick=${() => confirm(`Bỏ nhập ngày ${ddmm(h.date)}? Kho được cộng lại những gì đã trừ.`) && act(() => api('POST', '/api/sapo/undo', { date: h.date }), 'Đã bỏ, kho đã cộng lại')}>↩ Bỏ</button></div>`)}</details>` : null}
+  </div><//>`;
+}
+
 export function StockView({ me, query }) {
   const tab = query.get('tab') || 'ton';
   const meta = useData('/api/stock/meta');
+  const [sapo, setSapo] = useState(false);
   const TAB_ACT = { ton: 'kho.xem', nxt: 'kho.nxt', kiem: 'kho.kiem', linh: 'kho.linh', dat: 'kho.dathang', nl: 'kho.nguyenlieu', quydoi: 'kho.nguyenlieu', ls: 'kho.xem' };
   const tabs = TABS.filter(([k, , role]) => (TAB_ACT[k] && me.acts?.[TAB_ACT[k]] === true) || ((!role || atLeast(me, role)) && (!TAB_ACT[k] || can(me, TAB_ACT[k]))));
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/kho?tab=${k}`)}>${l}</button>`)}</div>
     <button class="primary big" onClick=${() => navigate('/mua-hang?tab=nhan')}>📥 Nhập kho: chụp bill + hàng</button>
+    ${atLeast(me, 'manager') ? html`<button onClick=${() => setSapo(true)}>📊 Nhập bán hàng từ Sapo (trừ kho)</button>` : null}
+    ${sapo ? html`<${SapoImport} onClose=${() => setSapo(false)} />` : null}
     ${me.role === 'owner' && !me.wh_live ? html`<button class="link small" onClick=${() => navigate('/kho-tx')}>🚀 Kho mới theo chứng từ (Kho & Tài sản): xem / bắt đầu khi sẵn sàng →</button>` : null}
     ${!meta.data ? html`<${Loading} state=${meta} />`
       : tab === 'kiem' ? html`<${Count} meta=${meta.data} me=${me} />`

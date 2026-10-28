@@ -41,6 +41,7 @@ import availabilityRoutes from './routes/availability.js';
 import utensilRoutes from './routes/utensils.js';
 import warehouseRoutes from './routes/warehouse.js';
 import jobRoutes from './routes/jobs.js';
+import sapoRoutes from './routes/sapo.js';
 import zaloOrderRoutes from './routes/zalo-orders.js';
 import expenseRoutes from './routes/expenses.js';
 import menuRoutes from './routes/menu.js';
@@ -109,7 +110,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
     return { ...ctx.version(), uptime_min: Math.round((now() - startedAt) / 60000), print_bridge: { online: !!seen && now() - seen < 20_000, seen_min_ago: seen ? Math.round((now() - seen) / 60000) : null, waiting, printers } };
   });
 
-  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes, printRoutes, promoRoutes, paymentRoutes, bankRoutes, daybookRoutes, bookingOnlineRoutes, bookingGuardRoutes, waitlistRoutes, reportRoutes, purchaseRoutes, expenseRoutes, stockSaleRoutes, warehouseRoutes, jobRoutes, laborRoutes, tipBoxRoutes, zaloOrderRoutes]) {
+  for (const register of [authRoutes, staffRoutes, scheduleRoutes, attendanceRoutes, leaveRoutes, checklistRoutes, taskRoutes, homeRoutes, settingsRoutes, stockRoutes, zoneRoutes, positionRoutes, availabilityRoutes, utensilRoutes, menuRoutes, posRoutes, reservationRoutes, printRoutes, promoRoutes, paymentRoutes, bankRoutes, daybookRoutes, bookingOnlineRoutes, bookingGuardRoutes, waitlistRoutes, reportRoutes, purchaseRoutes, expenseRoutes, stockSaleRoutes, warehouseRoutes, jobRoutes, laborRoutes, tipBoxRoutes, zaloOrderRoutes, sapoRoutes]) {
     register(router, ctx);
   }
 
@@ -265,7 +266,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
           if (!(req.headers['content-type'] || '').startsWith('application/json')) fail(415, 'Cần gửi dữ liệu dạng JSON');
         }
         // Bill mua hàng gửi kèm tới 8 ảnh (bill + hàng, mỗi ảnh ~1 MB) → cho phép 16 MB khi đã đăng nhập (chủ quán 26/10: "Dữ liệu gửi lên quá lớn")
-        const big = me && /^\/api\/(purchases|supplier-payments|suppliers\/\d+\/pay)/.test(pathname);
+        const big = me && /^\/api\/(purchases|supplier-payments|suppliers\/\d+\/pay|sapo)/.test(pathname);
         const body = req.method === 'GET' ? {} : await readJson(req, big ? 16_000_000 : 2_000_000);
         const out = await route.fn({ req, res, url, query: url.searchParams, params, body, me, token, net });
         if (out && out.__binary) {

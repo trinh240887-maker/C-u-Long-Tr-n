@@ -871,3 +871,7 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 .lg-att { display: inline-block; padding: 0 6px; border-radius: 6px; font-size: 12px; }
 .attw-group { color: #fff; font-weight: 700; padding: 6px 12px; border-radius: 6px; text-align: left; position: sticky; left: 0; }
 .attw-pos { color: var(--ink, #222); background: var(--line); padding: 0 5px; border-radius: 5px; font-weight: 600; }
+.sapo-list { display: flex; flex-direction: column; gap: 4px; max-height: 45vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+.sapo-row { display: flex; gap: 8px; align-items: center; padding: 4px; border-bottom: 1px dashed var(--line); }
+.sapo-row.bad { background: #fff5f5; }
+.sapo-row select { max-width: 48%; }

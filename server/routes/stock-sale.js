@@ -61,10 +61,11 @@ export default function (r, ctx) {
   };
 
   // Trừ kho khi gửi bếp
-  ctx.consumeSale = (me, items) => {
-    if (!enabled()) return [];
-    const at = ctx.now();
-    const date = ctx.today();
+  // opts (nhập bán hàng từ Sapo, chủ quán 28/10): { date, at } của ngày bán, quiet = không báo từng lần (gộp báo sau)
+  ctx.consumeSale = (me, items, opts = {}) => {
+    if (!enabled() && !opts.force) return [];
+    const at = opts.at ?? ctx.now();
+    const date = opts.date ?? ctx.today();
     const short = [];
     const touched = new Set();
     for (const i of items) {
@@ -91,7 +92,7 @@ export default function (r, ctx) {
       }
       touched.add(i.menu_item_id);
     }
-    if (short.length) {
+    if (short.length && !opts.quiet) {
       ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager','shift_lead','team_lead')").all().map((x) => x.id), {
         title: 'Bán vượt tồn kho trên sổ', body: short.map((x) => `• ${x.item}: thiếu ${Math.round(x.need)} ${x.unit} ${x.ingredient}`).join('\n') + '\nKiểm kho thực tế, nhập bù nếu nhận hàng chưa ghi.', link: '/kho',
       });
