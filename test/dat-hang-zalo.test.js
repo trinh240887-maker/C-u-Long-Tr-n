@@ -30,6 +30,8 @@ test('Đặt hàng qua nhóm Zalo NCC: @bot ghi đơn chờ nhận → nhận h�
   const than = (await O('POST', '/api/stock/ingredients', { name: 'Thăn bò', unit: 'g', freshness: 'fresh', home_store_id: lau.id, supplier_id: ncc, purchase_unit: 'kg', purchase_factor: 1000, price: 300000 })).data.id;
   const bap = (await O('POST', '/api/stock/ingredients', { name: 'Bắp hoa', unit: 'g', freshness: 'fresh', home_store_id: lau.id, supplier_id: ncc, purchase_unit: 'kg', purchase_factor: 1000, price: 245000 })).data.id;
 
+  // Zalo của chủ quán đã gắn → đơn tự duyệt (rà soát 28/10: người lạ nhắn → chờ duyệt)
+  db.prepare('INSERT INTO zalo_bot_users (uid, staff_id) VALUES (?, ?)').run('uOwner', db.prepare("SELECT id FROM staff WHERE role = 'owner'").get().id);
   inbox = [{ id: 'm1', date: Date.now(), chat: { id: 's1', type: 'GROUP', name: 'CLT - Sạp thịt Kim Thanh Ngọc' }, from: { id: 'uOwner', name: 'Chủ' }, text: '@bot thăn bò 10kg, bắp hoa 5kg, sả 2 bó' }];
   await ctx.zaloBotPoll();
   const r1 = sent.at(-1);

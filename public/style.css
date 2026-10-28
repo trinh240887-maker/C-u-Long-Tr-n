@@ -66,6 +66,8 @@ button.big { padding: 14px 22px; font-size: 16px; min-height: 52px; }
 button.small, select.small { padding: 5px 10px; font-size: 13px; min-height: 32px; width: auto; }
 button.icon { padding: 0; width: 40px; min-height: 40px; font-size: 18px; line-height: 1; background: transparent; border-color: transparent; }
 button.link, .link { background: none; border: 0; color: var(--accent); padding: 4px 0; min-height: 0; font-weight: 600; cursor: pointer; }
+/* Rà soát 28/10: nút chữ dài (link, dòng món…) xuống dòng thay vì đẩy trang rộng hơn màn hình điện thoại */
+button.link { white-space: normal; overflow-wrap: anywhere; min-width: 0; max-width: 100%; text-align: left; }
 
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
@@ -447,7 +449,7 @@ a.tile { text-decoration: none; color: inherit; }
 .menu-row.soldout b { text-decoration: line-through; }
 .st-row .ip-in { width: 170px; }
 .chip.off { opacity: .5; }
-.menu-row .menu-main { min-width: 0; overflow-wrap: anywhere; }
+.menu-row .menu-main { min-width: 0; overflow-wrap: anywhere; white-space: normal; } /* rà soát 28/10: mô tả món dài không tràn ngang */
 .menu-cat { padding: 8px 12px; font-weight: 700; background: var(--panel-2); border-top: 1px solid var(--line); }
 
 /* Bán hàng: sơ đồ bàn */
