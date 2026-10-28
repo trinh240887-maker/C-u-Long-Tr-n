@@ -219,3 +219,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 213 | 27/10 | Kiểm kho: '+ Thêm nguyên liệu khác' (dùng chung + mọi nguyên liệu) và '➕ Tạo nguyên liệu mới' (quản lý+, vào kho đang kiểm). |
 | 214 | 27/10 | Chấm công → Theo ngày: khối '⚠ Có ca nhưng chưa chấm' (⏳ tới giờ chưa chấm / ❌ hết ca không chấm / chưa tới giờ), bỏ nghỉ đã duyệt; nút '+ Thêm tay' điền sẵn giờ ca. |
 | 215 | 28/10 | Thẻ Mở/Đóng ca theo khu hiện luôn ảnh nhân viên chụp (ảnh nhỏ, bấm xem to), giờ xong và ghi chú dưới từng việc. |
+| 216 | 28/10 | Chấm công → tab 'Bảng tuần': hàng = nhân viên, cột = T2…CN, ô = ca được xếp + giờ chấm (xanh đúng giờ, cam trễ/về sớm, đỏ có ca không chấm, tím nghỉ phép, 'Tự do' không ca). Lọc bộ phận, 'Chỉ người cần kiểm tra'; bấm giờ để sửa, bấm ô đỏ thêm tay. |

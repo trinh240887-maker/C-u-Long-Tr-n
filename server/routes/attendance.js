@@ -345,6 +345,45 @@ export default function (r, ctx) {
       });
   });
 
+  // Bảng chấm công theo tuần (chủ quán 28/10): mỗi hàng 1 nhân viên, mỗi cột 1 ngày; ô = ca được xếp + giờ chấm thực tế
+  r.get('/api/attendance/week', 'shift_lead', ({ query }) => {
+    ctx.autoCloseAttendance();
+    let ws = query.get('week') || ctx.today();
+    if (!isDate(ws)) fail(400, 'Ngày không hợp lệ');
+    const dow = new Date(`${ws}T00:00:00Z`).getUTCDay();
+    ws = addDays(ws, -((dow + 6) % 7)); // về thứ Hai
+    const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i)), we = days[6];
+    const clock = ctx.clock(), now = ctx.now();
+    const staff = db.prepare(`SELECT s.id, s.name, s.role, COALESCE(t.name, '') AS team_name, po.name AS position_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN positions po ON po.id = s.position_id
+      WHERE s.active = 1 AND s.role != 'owner' ORDER BY t.sort, s.name`).all()
+      .map((x) => ({ id: x.id, name: x.name, team_name: x.team_name, role_label: [ROLE_LABEL[x.role] || '', x.position_name || ''].filter(Boolean).join(' · ') }));
+    const asg = db.prepare(`SELECT a.id, a.group_id, a.staff_id, a.date, a.start_min, a.end_min, a.label, st.name AS tpl_name,
+      EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = a.group_id AND l.status = 'approved') AS on_leave
+      FROM assignments a LEFT JOIN shift_templates st ON st.id = a.template_id WHERE a.date BETWEEN ? AND ? ORDER BY a.start_min`).all(ws, we);
+    const att = db.prepare('SELECT * FROM attendance WHERE date BETWEEN ? AND ? ORDER BY clock_in').all(ws, we);
+    const fmt = (m) => `${String(Math.floor((m % 1440) / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const cells = {};
+    for (const a of asg) {
+      const k = `${a.staff_id}:${a.date}`;
+      const c = cells[k] || (cells[k] = { date: a.date, shifts: [], extra: [] });
+      let g = c.shifts.find((x) => x.group_id === a.group_id);
+      if (!g) c.shifts.push(g = { group_id: a.group_id, name: a.tpl_name || (a.label && a.label !== 'Ca' ? a.label : ''), segs: [], ids: [], on_leave: !!a.on_leave });
+      g.segs.push([a.start_min, a.end_min]); g.ids.push(a.id);
+    }
+    const byAsg = new Map();
+    for (const r of att) { if (r.assignment_id) { const l = byAsg.get(r.assignment_id) || []; l.push(r); byAsg.set(r.assignment_id, l); } }
+    const rec = (r) => { const p = payInfo(r); return { id: r.id, clock_in: r.clock_in, clock_out: r.clock_out, late_minutes: r.late_minutes || 0, early_minutes: p.early_minutes || 0, auto_closed: !!r.auto_closed, paid_minutes: p.paid_to ? Math.round((p.paid_to - p.paid_from) / 60_000) : null, note: r.note || '' }; };
+    for (const c of Object.values(cells)) for (const g of c.shifts) {
+      g.time = g.segs.map(([a, b]) => `${fmt(a)}–${fmt(b)}`).join(' + ');
+      g.records = g.ids.flatMap((id) => byAsg.get(id) || []).map(rec);
+      const start = clock.toEpoch(c.date, Math.min(...g.segs.map(([a]) => a)));
+      g.start_at = start;
+      g.status = g.on_leave ? 'leave' : g.records.length ? (g.records.some((x) => x.late_minutes || x.early_minutes || x.auto_closed) ? 'warn' : !g.records.some((x) => !x.clock_out) ? 'ok' : 'working') : now < start ? 'future' : 'missing';
+    }
+    for (const r of att) if (!r.assignment_id || !asg.some((a) => a.id === r.assignment_id)) { const k = `${r.staff_id}:${r.date}`; (cells[k] || (cells[k] = { date: r.date, shifts: [], extra: [] })).extra.push(rec(r)); }
+    return { week_start: ws, days, today: ctx.today(), staff, cells };
+  });
+
   // Có ca trong lịch mà không có lượt chấm công nào trong ngày (chủ quán 27/10: để kiểm tra lại). Bỏ ca nghỉ đã duyệt
   r.get('/api/attendance/missing', 'shift_lead', ({ query }) => {
     const date = query.get('date') || ctx.today();

@@ -174,13 +174,55 @@ function Timesheet({ me }) {
   </div>`;
 }
 
+// Bảng chấm công theo tuần (chủ quán 28/10): hàng = nhân viên, cột = T2…CN; ô = ca được xếp + giờ chấm thực tế
+const WST = { ok: ['att-ok', ''], warn: ['att-warn', ''], working: ['att-work', 'đang làm'], missing: ['att-miss2', 'không chấm'], future: ['att-fut', ''], leave: ['att-leave', 'nghỉ có phép'] };
+function WeekBoard({ me }) {
+  const [week, setWeek] = useState(me.today);
+  const d = useData(`/api/attendance/week?week=${week}`);
+  const staffD = useData('/api/staff');
+  const [team, setTeam] = useState('');
+  const [onlyIssue, setOnlyIssue] = useState(false);
+  const [edit, setEdit] = useState(null);
+  if (!d.data) return html`<${Loading} state=${d} />`;
+  const { days, staff, cells, today } = d.data;
+  const DOW = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+  const teams = [...new Set(staff.map((x) => x.team_name || 'Chưa có bộ phận'))];
+  const cellOf = (sid, day) => cells[`${sid}:${day}`] || { shifts: [], extra: [] };
+  const issue = (sid) => days.some((day) => { const c = cellOf(sid, day); return c.shifts.some((g) => ['missing', 'warn'].includes(g.status)) || c.extra.length; });
+  const rows = staff.filter((x) => (!team || (x.team_name || 'Chưa có bộ phận') === team) && (!onlyIssue || issue(x.id)));
+  const R = (r) => html`<div class="att-rec" onClick=${(e) => { e.stopPropagation(); setEdit(r); }}>${hm(r.clock_in)} – ${r.clock_out ? hm(r.clock_out) : '…'}${r.late_minutes ? html` <b class="warn-text">trễ ${r.late_minutes}′</b>` : null}${r.early_minutes > 0 ? html` <b class="warn-text">về sớm ${r.early_minutes}′</b>` : null}${r.auto_closed ? html` <b class="bad-text">tự đóng</b>` : null}</div>`;
+  return html`<div class="stack">
+    <div class="row between wrap">
+      <div class="row"><button class="icon" aria-label="Tuần trước" onClick=${() => setWeek(addDays(d.data.week_start, -7))}>‹</button>
+        <b>Tuần ${days[0].slice(8)}/${days[0].slice(5, 7)} – ${days[6].slice(8)}/${days[6].slice(5, 7)}</b>
+        <button class="icon" aria-label="Tuần sau" onClick=${() => setWeek(addDays(d.data.week_start, 7))}>›</button></div>
+      <label class="check-row small"><input type="checkbox" checked=${onlyIssue} onChange=${(e) => setOnlyIssue(e.target.checked)} /> Chỉ người cần kiểm tra</label>
+    </div>
+    <div class="chips scroll-x"><button class=${`chip ${!team ? 'on' : ''}`} onClick=${() => setTeam('')}>Cả quán</button>${teams.map((t) => html`<button class=${`chip ${team === t ? 'on' : ''}`} onClick=${() => setTeam(t)}>${t}</button>`)}</div>
+    <p class="small muted"><span class="lg-att att-ok">đúng giờ</span> <span class="lg-att att-warn">trễ / về sớm</span> <span class="lg-att att-miss2">có ca, không chấm</span> <span class="lg-att att-fut">chưa tới</span> · Bấm giờ chấm để sửa, bấm ô đỏ để thêm tay.</p>
+    <div class="wk-wrap"><table class="attw">
+      <thead><tr><th class="attw-name">Nhân viên</th>${days.map((day, i) => html`<th class=${day === today ? 'today' : ''}>${DOW[i]}<br /><small>${day.slice(8)}/${day.slice(5, 7)}</small></th>`)}</tr></thead>
+      <tbody>${rows.map((x) => html`<tr><td class="attw-name"><b>${x.name}</b><br /><small class="muted">${x.role_label || x.team_name || ''}</small></td>
+        ${days.map((day) => { const c = cellOf(x.id, day);
+          if (!c.shifts.length && !c.extra.length) return html`<td class=${`attw-cell ${day === today ? 'today' : ''}`}><div class="att-box att-free">Tự do</div></td>`;
+          return html`<td class=${`attw-cell ${day === today ? 'today' : ''}`}>
+            ${c.shifts.map((g) => html`<div class=${`att-box ${WST[g.status][0]}`} onClick=${() => g.status === 'missing' && setEdit({ staff_id: x.id, clock_in: g.start_at, note: 'Thêm tay từ bảng tuần' })}>
+              <div class="att-shift">${g.name ? `${g.name} ` : 'Ca '}${g.time}</div>
+              ${g.records.length ? g.records.map(R) : html`<div class="att-rec muted">${WST[g.status][1] || '—'}</div>`}</div>`)}
+            ${c.extra.map((r) => html`<div class="att-box att-warn"><div class="att-shift">Ngoài lịch</div>${R(r)}</div>`)}</td>`; })}</tr>`)}</tbody>
+    </table></div>
+    ${edit && staffD.data ? html`<${RecordForm} init=${edit} staff=${staffD.data.filter((s) => s.active)} canDelete=${atLeast(me, 'manager')} onClose=${() => setEdit(null)} />` : null}
+  </div>`;
+}
+
 export function AttendanceView({ me, query }) {
   const tab = query.get('tab') || 'ngay';
   return html`<div class="stack">
     <div class="tabs">
       <button class=${tab === 'ngay' ? 'on' : ''} onClick=${() => navigate('/cham-cong')}>Theo ngày</button>
+      <button class=${tab === 'tuan' ? 'on' : ''} onClick=${() => navigate('/cham-cong?tab=tuan')}>Bảng tuần</button>
       ${atLeast(me, 'manager') ? html`<button class=${tab === 'bang-cong' ? 'on' : ''} onClick=${() => navigate('/cham-cong?tab=bang-cong')}>Bảng công & lương</button>` : null}
     </div>
-    ${tab === 'bang-cong' && atLeast(me, 'manager') ? html`<${Timesheet} me=${me} />` : html`<${Records} me=${me} />`}
+    ${tab === 'bang-cong' && atLeast(me, 'manager') ? html`<${Timesheet} me=${me} />` : tab === 'tuan' ? html`<${WeekBoard} me=${me} />` : html`<${Records} me=${me} />`}
   </div>`;
 }

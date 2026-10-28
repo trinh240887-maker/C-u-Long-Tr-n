@@ -136,3 +136,29 @@ test('2 ca trong 1 ngày (8–12 và 13:30–23): thêm ca thứ 2 không xoá c
   const rows = db.prepare('SELECT start_min, end_min FROM assignments WHERE staff_id = ? AND date = ? ORDER BY start_min').all(id, d);
   assert.deepEqual(rows.map((r) => [r.start_min, r.end_min]), [[480, 720], [810, 1380]]);
 });
+
+test('Bảng chấm công tuần: ô có ca + giờ chấm; có ca không chấm = missing', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const a = (await O('POST', '/api/staff', { name: 'Có chấm', team_id: pv, pin: '5951' })).data.id;
+  const b = (await O('POST', '/api/staff', { name: 'Không chấm', team_id: pv, pin: '5952' })).data.id;
+  const d = addDays(app.ctx.today(), -1);
+  const ins = (sid) => Number(db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES (?, ?, ?, ?, 840, 1380, 0)').run(`g${sid}`, sid, pv, d).lastInsertRowid);
+  const asA = ins(a); ins(b);
+  const cin = app.ctx.clock().toEpoch(d, 840), cout = app.ctx.clock().toEpoch(d, 1380);
+  db.prepare('INSERT INTO attendance (staff_id, date, clock_in, clock_out, assignment_id) VALUES (?, ?, ?, ?, ?)').run(a, d, cin, cout, asA);
+  const r = await O('GET', `/api/attendance/week?week=${d}`);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.days.length, 7);
+  const ca = r.data.cells[`${a}:${d}`].shifts[0], cb = r.data.cells[`${b}:${d}`].shifts[0];
+  assert.equal(ca.time, '14:00–23:00'); assert.equal(ca.status, 'ok'); assert.equal(ca.records.length, 1);
+  assert.equal(cb.status, 'missing');
+});
