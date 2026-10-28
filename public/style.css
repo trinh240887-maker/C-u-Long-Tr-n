@@ -875,3 +875,4 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 .sapo-row { display: flex; gap: 8px; align-items: center; padding: 4px; border-bottom: 1px dashed var(--line); }
 .sapo-row.bad { background: #fff5f5; }
 .sapo-row select { max-width: 48%; }
+.loss-over td { background: #fff5f5; }

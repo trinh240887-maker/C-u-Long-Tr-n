@@ -1,7 +1,7 @@
 import { useState, useEffect } from '../vendor/hooks.js';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays, can } from '../ui.js';
 
-const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['quydoi', '⚖ Quy đổi', 'manager'], ['ls', 'Lịch sử']];
+const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['hh', '📉 Hao hụt', 'manager'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['quydoi', '⚖ Quy đổi', 'manager'], ['ls', 'Lịch sử']];
 const STATUS = { out: ['Hết', 'bad'], low: ['Sắp hết', 'warn'], ok: ['Đủ', 'ok'] };
 const FRESH = { fresh: 'Đồ tươi', chilled: 'Đồ mát', dry: 'Đồ khô/đông' };
 const TR = { requested: ['Chờ kho tổng xuất', 'warn'], sent: ['Đã xuất, chờ khu nhận', 'warn'], received: ['Đã nhận', 'ok'], cancelled: ['Đã huỷ', 'muted'] };
@@ -98,6 +98,32 @@ function NewIng({ store, onAdded }) {
   return html`<div class="row wrap"><input class="grow" placeholder="Tên nguyên liệu (vd Tương ớt)" value=${f.name} onInput=${(e) => setF({ ...f, name: e.target.value })} />
     <select class="auto" value=${f.unit} onChange=${(e) => setF({ ...f, unit: e.target.value })}>${['g', 'ml', 'cái', 'gói', 'chai', 'hộp', 'kg', 'lít', 'ổ', 'vắt'].map((u) => html`<option value=${u}>${u}</option>`)}</select>
     <button class="primary" disabled=${!f.name.trim()} onClick=${save}>Tạo</button><button onClick=${() => setOpen(false)}>Thôi</button></div>`;
+}
+
+// Báo cáo hao hụt (chủ quán 28/10): theo Thành phẩm / Vật liệu / Đồ dùng, so định mức (mặc định 2%)
+function LossReport({ me }) {
+  const y = addDays(me.today, -1);
+  const [range, setRange] = useState({ from: y, to: y, k: 'y' });
+  const d = useData(`/api/stock/loss?from=${range.from}&to=${range.to}`);
+  const pick = (k) => setRange(k === 'y' ? { from: y, to: y, k } : k === 't' ? { from: me.today, to: me.today, k } : k === 'w' ? { from: addDays(me.today, -7), to: y, k } : { from: `${me.today.slice(0, 7)}-01`, to: me.today, k });
+  const ddmm = (x) => `${x.slice(8)}/${x.slice(5, 7)}`;
+  const KIND = [['finished', '🥤 Thành phẩm', 'định mức 0: thiếu là mất'], ['material', '🥩 Vật liệu', ''], ['supply', '🧻 Đồ dùng', 'phần hụt khi kiểm = đã dùng']];
+  return html`<div class="stack">
+    <div class="chips">${[['y', 'Hôm qua'], ['t', 'Hôm nay'], ['w', '7 ngày'], ['m', 'Tháng này']].map(([k, l]) => html`<button class=${`chip ${range.k === k ? 'on' : ''}`} onClick=${() => pick(k)}>${l}</button>`)}</div>
+    ${!d.data ? html`<${Loading} state=${d} />` : html`
+      <small class="muted">${ddmm(d.data.from)}${d.data.from !== d.data.to ? ` – ${ddmm(d.data.to)}` : ''} · Chuẩn = số bán × định lượng · Hụt = thiếu khi kiểm kho · Vật liệu định mức mặc định <b>${d.data.loss_default}%</b> (sửa riêng ở Kiểm kho → ⚙ Xếp loại hàng)
+        ${d.data.sapo_days.length ? '' : html`<br /><b class="warn-text">Chưa úp file Sapo cho ngày này: số "chuẩn" chưa đủ, % sẽ sai.</b>`}</small>
+      <div class="row wrap">${KIND.map(([k, l]) => html`<span class="pill ${d.data.total[k] ? 'bad' : 'ok'}">${l}: ${money(d.data.total[k])}</span>`)}</div>
+      ${KIND.map(([k, l, hint]) => { const rows = d.data.rows.filter((x) => x.kind === k); return rows.length ? html`<section class="card stack tight"><b>${l} <small class="muted">${hint}</small></b>
+        <div class="table-wrap"><table class="list small"><thead><tr><th>Hàng</th>${k !== 'supply' ? html`<th class="r">Chuẩn</th>` : null}<th class="r">${k === 'supply' ? 'Đã dùng' : 'Hụt'}</th>${k === 'material' ? html`<th class="r">%</th>` : null}<th class="r">Tiền</th></tr></thead><tbody>
+          ${rows.map((x) => html`<tr class=${x.over ? 'loss-over' : ''}><td>${x.over ? '🔴 ' : ''}${x.name}${!x.counted ? html` <small class="muted">(chưa kiểm)</small>` : ''}</td>
+            ${k !== 'supply' ? html`<td class="r">${qty(x.std, x.unit)}</td>` : null}
+            <td class="r">${x.counted ? (x.loss < 0 ? html`<span class="ok-text">thừa ${qty(-x.loss, x.unit)}</span>` : qty(x.loss, x.unit)) : '—'}</td>
+            ${k === 'material' ? html`<td class="r">${x.pct != null && x.counted ? html`<b class=${x.over ? 'bad-text' : ''}>${x.pct}%</b><small class="muted">/${x.limit}%</small>` : '—'}</td>` : null}
+            <td class="r">${x.counted && x.cost ? money(x.cost) : '—'}</td></tr>`)}
+        </tbody></table></div></section>` : null; })}
+      ${!d.data.rows.length ? html`<div class="empty">Chưa có số bán hoặc kiểm kho trong khoảng này.</div>` : null}`}
+  </div>`;
 }
 
 // Xếp loại hàng: Thành phẩm / Vật liệu / Đồ dùng + định mức hao hụt riêng (chủ quán 28/10)
@@ -567,6 +593,7 @@ export function StockView({ me, query }) {
     ${me.role === 'owner' && !me.wh_live ? html`<button class="link small" onClick=${() => navigate('/kho-tx')}>🚀 Kho mới theo chứng từ (Kho & Tài sản): xem / bắt đầu khi sẵn sàng →</button>` : null}
     ${!meta.data ? html`<${Loading} state=${meta} />`
       : tab === 'kiem' ? html`<${Count} meta=${meta.data} me=${me} />`
+      : tab === 'hh' ? html`<${LossReport} me=${me} />`
       : tab === 'linh' ? html`<${Transfers} me=${me} meta=${meta.data} />`
       : tab === 'dodung' ? html`<${Utensils} me=${me} />`
       : tab === 'dat' ? html`<${Orders} me=${me} meta=${meta.data} />`

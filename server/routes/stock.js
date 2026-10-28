@@ -325,6 +325,58 @@ export default function (r, ctx) {
     return all.filter((i) => i.home_store_id === st.id || (i.home_store_id === null && used.has(i.id)) || used.has(i.id));
   }
 
+  // ---------- Báo cáo hao hụt (chủ quán 28/10, định mức mặc định 2%) ----------
+  // Chuẩn = lượng bán theo định lượng (sale:…) · Hụt = thiếu khi kiểm kho − thừa khi kiểm − phần bù do úp Sapo sau khi kiểm
+  // Thành phẩm: định mức 0 (thiếu là mất) · Vật liệu: so định mức % · Đồ dùng: phần "hụt" khi kiểm = đã dùng
+  function lossReport(from, to) {
+    const rows = db.prepare(`SELECT ingredient_id,
+        SUM(CASE WHEN type = 'consume' AND ref LIKE 'sale:%' THEN qty ELSE 0 END) AS std,
+        SUM(CASE WHEN type = 'waste' AND ref LIKE 'count:%' THEN qty ELSE 0 END) AS short,
+        SUM(CASE WHEN type = 'adjust' AND ref LIKE 'count:%' THEN qty ELSE 0 END) AS surplus,
+        SUM(CASE WHEN type = 'adjust' AND ref LIKE 'recount:%' THEN qty ELSE 0 END) AS recount,
+        SUM(CASE WHEN type = 'receive' THEN qty ELSE 0 END) AS received
+      FROM stock_moves WHERE date BETWEEN ? AND ? GROUP BY ingredient_id`).all(from, to);
+    // Chuẩn lấy từ lượng dùng theo định lượng của món đã bán (đủ số, không phụ thuộc kho trên sổ còn hay hết)
+    let stdBy = new Map();
+    try { stdBy = new Map(db.prepare('SELECT ingredient_id, SUM(qty) AS q FROM sale_usage WHERE date BETWEEN ? AND ? GROUP BY ingredient_id').all(from, to).map((x) => [x.ingredient_id, x.q])); } catch { /* chưa có bảng */ }
+    for (const [id, q] of stdBy) { const r = rows.find((x) => x.ingredient_id === id); if (r) r.std = q; else rows.push({ ingredient_id: id, std: q, short: 0, surplus: 0, recount: 0, received: 0 }); }
+    const counted = new Set(db.prepare('SELECT DISTINCT l.ingredient_id AS id FROM stock_count_lines l JOIN stock_counts c ON c.id = l.count_id WHERE c.date BETWEEN ? AND ?').all(from, to).map((x) => x.id));
+    const out = [];
+    for (const r of rows) {
+      const g = ingById(r.ingredient_id);
+      if (!g) continue;
+      const kind = ingKindOf(g);
+      const loss = r3(r.short - r.surplus - r.recount);
+      const pct = r.std > 0 ? Math.round((loss / r.std) * 1000) / 10 : null;
+      const limit = ctx.lossPct(g);
+      const over = counted.has(g.id) && (kind === 'finished' ? loss > 1e-9 : kind === 'material' ? (r.std > 0 ? pct > limit : loss > 1e-9) : false);
+      if (!counted.has(g.id) && !(r.std > 0)) continue;
+      out.push({ ingredient_id: g.id, name: g.name, unit: g.unit, kind, std: r3(r.std), loss, pct, limit, over, counted: counted.has(g.id), cost: Math.round(costOf(g, Math.abs(loss))) * Math.sign(loss) });
+    }
+    out.sort((a, b) => Number(b.over) - Number(a.over) || b.cost - a.cost);
+    const sum = (k) => out.filter((x) => x.kind === k && x.loss > 0).reduce((a, x) => a + x.cost, 0);
+    return { from, to, rows: out, total: { finished: sum('finished'), material: sum('material'), supply: sum('supply') }, loss_default: Number(ctx.setting('loss_pct_default') || 2), sapo_days: db.prepare("SELECT date FROM sapo_imports WHERE date BETWEEN ? AND ?").all(from, to).map((x) => x.date) };
+  }
+  ctx.lossReport = lossReport;
+  r.get('/api/stock/loss', 'manager', ({ query }) => {
+    const to = query.get('to') || addDays(today(), -1), from = query.get('from') || to;
+    if (!isDate(from) || !isDate(to)) fail(400, 'Ngày không hợp lệ');
+    return lossReport(from, to);
+  });
+  // 10:30 sáng: báo chủ quán / quản lý hàng hụt vượt định mức của hôm qua (sau khi đã úp Sapo + kiểm kho), 1 lần / ngày
+  ctx.lossAlertTick = () => {
+    const c = ctx.clock(), n = ctx.now(), d0 = today();
+    if (c.minuteOf(n) < 10 * 60 + 30 || ctx.setting(`loss_alert:${d0}`)) return;
+    ctx.setSetting(`loss_alert:${d0}`, '1');
+    const y = addDays(d0, -1);
+    const rep = lossReport(y, y);
+    const over = rep.rows.filter((x) => x.over);
+    if (!over.length) return;
+    const fmt = (x) => `${Math.round(x).toLocaleString('vi-VN')}đ`;
+    ctx.notify(ctx.managers(), { title: `📉 Hao hụt vượt định mức ${y.slice(8)}/${y.slice(5, 7)}: ${over.length} món hàng`,
+      body: over.slice(0, 8).map((x) => `• ${x.name}: hụt ${x.loss} ${x.unit}${x.pct != null ? ` = ${x.pct}% (định mức ${x.limit}%)` : ''} ≈ ${fmt(x.cost)}`).join('\n'), link: '/kho?tab=hh', urgent: true });
+  };
+
   // Xếp loại hàng (Thành phẩm / Vật liệu / Đồ dùng) và định mức hao hụt riêng
   r.put('/api/stock/ingredients/:id/kind', 'manager', ({ me, params, body }) => {
     const g = ingById(params.id);

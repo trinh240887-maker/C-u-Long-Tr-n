@@ -5,7 +5,7 @@ import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
 import { readXlsx, excelDate } from '../lib/xlsx-read.js';
 import { addDays } from '../lib/time.js';
-import { addLot, recordMove } from '../lib/stock.js';
+import { addLot, recordMove, takeLots } from '../lib/stock.js';
 
 const norm = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\*+/g, '').replace(/\(([^)]*)\)/g, ' $1 ').replace(/[-–,.]/g, ' ').replace(/\s+/g, ' ').trim();
 const strip = (x) => norm(x).replace(/(^| )(thêm|combo|set|phần|100g|200g|ly|lon|chai|ngăn|tặng)(?= |$)/g, ' ').replace(/\s+/g, ' ').trim();
@@ -112,6 +112,14 @@ export default function (r, ctx) {
         const at = ctx.clock().toEpoch(d.date, 23 * 60);
         const short = ctx.consumeSale?.(me, sale, { date: d.date, at, quiet: true, force: true }) || [];
         res.short.push(...short.map((x) => ({ ...x, date: d.date })));
+        // Đã kiểm kho ngày này (hoặc sau) trước khi úp Sapo: số đếm đã là thực tế → cộng lại phần vừa trừ (không trừ 2 lần), giữ dòng bán để tính hao hụt
+        for (const mv of db.prepare("SELECT ingredient_id, from_store, SUM(qty) AS q FROM stock_moves WHERE type = 'consume' AND ref LIKE ? GROUP BY ingredient_id, from_store").all(`sale:sapo-${d.date}-%`)) {
+          const counted = db.prepare('SELECT 1 FROM stock_count_lines l JOIN stock_counts c ON c.id = l.count_id WHERE l.ingredient_id = ? AND c.date >= ? LIMIT 1').get(mv.ingredient_id, d.date);
+          if (!counted || !(mv.q > 1e-9)) continue;
+          addLot(db, { storeId: mv.from_store, ingredientId: mv.ingredient_id, qty: mv.q, at });
+          recordMove(db, { at, date: d.date, type: 'adjust', ingredientId: mv.ingredient_id, toStore: mv.from_store, qty: mv.q, ref: `recount:sapo-${d.date}`, staffId: me.id, note: 'Đã kiểm kho trước khi úp Sapo: không trừ thêm tồn' });
+          res.recount = (res.recount || 0) + 1;
+        }
         res.deducted += sale.length;
         db.prepare("INSERT INTO sapo_imports (date, kind, lines, qty, revenue, invoices, by_staff, at) VALUES (?, 'items', ?, ?, ?, ?, ?, ?)")
           .run(d.date, d.lines, [...d.items.values()].reduce((a, x) => a + x.qty, 0), [...d.invoices.values()].reduce((a, x) => a + x, 0), d.invoices.size, me.id, ctx.now());
@@ -136,6 +144,11 @@ export default function (r, ctx) {
         addLot(db, { storeId: mv.from_store, ingredientId: mv.ingredient_id, qty: mv.qty, at: ctx.now() });
         recordMove(db, { at: ctx.now(), date: ctx.today(), type: 'adjust', ingredientId: mv.ingredient_id, toStore: mv.from_store, qty: mv.qty, ref: `cancel:${mv.ref.slice(5)}`, staffId: me.id, note: `Bỏ nhập Sapo ngày ${date}` });
       }
+      for (const mv of db.prepare("SELECT * FROM stock_moves WHERE type = 'adjust' AND ref = ?").all(`recount:sapo-${date}`)) {
+        takeLots(db, { storeId: mv.to_store, ingredientId: mv.ingredient_id, qty: mv.qty, allowShort: true });
+        recordMove(db, { at: ctx.now(), date: ctx.today(), type: 'waste', ingredientId: mv.ingredient_id, fromStore: mv.to_store, qty: mv.qty, ref: `cancel:recount:sapo-${date}`, staffId: me.id, note: `Bỏ nhập Sapo ngày ${date}` });
+      }
+      try { db.prepare('DELETE FROM sale_usage WHERE ref LIKE ?').run(`sale:sapo-${date}-%`); } catch { /* bảng chưa có */ }
       db.prepare("DELETE FROM sapo_imports WHERE id = ?").run(imp.id);
       db.prepare('DELETE FROM sapo_daily WHERE date = ?').run(date);
     });

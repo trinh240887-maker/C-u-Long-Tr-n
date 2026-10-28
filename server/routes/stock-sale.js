@@ -62,6 +62,9 @@ export default function (r, ctx) {
 
   // Trừ kho khi gửi bếp
   // opts (nhập bán hàng từ Sapo, chủ quán 28/10): { date, at } của ngày bán, quiet = không báo từng lần (gộp báo sau)
+  // Lượng dùng chuẩn theo định lượng của món đã bán (đủ số, kể cả khi kho trên sổ không đủ để trừ) → báo cáo hao hụt
+  db.exec('CREATE TABLE IF NOT EXISTS sale_usage (id INTEGER PRIMARY KEY, date TEXT NOT NULL, ingredient_id INTEGER NOT NULL, qty REAL NOT NULL, ref TEXT NOT NULL)');
+  db.exec('CREATE INDEX IF NOT EXISTS sale_usage_by_date ON sale_usage(date)');
   ctx.consumeSale = (me, items, opts = {}) => {
     if (!enabled() && !opts.force) return [];
     const at = opts.at ?? ctx.now();
@@ -72,6 +75,7 @@ export default function (r, ctx) {
       if (!i.menu_item_id) continue;
       for (const g of recipe(i.menu_item_id)) {
         const need = g.qty * i.qty;
+        if (need > 1e-9) db.prepare('INSERT INTO sale_usage (date, ingredient_id, qty, ref) VALUES (?, ?, ?, ?)').run(date, g.id, need, `sale:${i.id}`);
         // Lấy ở kho khu trước, thiếu thì lấy tiếp kho tổng
         const main = mainStore()?.id;
         let left = need;
@@ -105,6 +109,7 @@ export default function (r, ctx) {
   ctx.restoreSale = (me, item) => {
     if (!enabled() || !item.menu_item_id) return;
     const moves = db.prepare("SELECT * FROM stock_moves WHERE ref = ? AND type = 'consume'").all(`sale:${item.id}`);
+    db.prepare('DELETE FROM sale_usage WHERE ref = ?').run(`sale:${item.id}`);
     for (const m of moves) {
       addLot(db, { storeId: m.from_store, ingredientId: m.ingredient_id, qty: m.qty, at: ctx.now() });
       recordMove(db, { at: ctx.now(), date: ctx.today(), type: 'adjust', ingredientId: m.ingredient_id, toStore: m.from_store, qty: m.qty, ref: `cancel:${item.id}`, staffId: me?.id ?? null, note: `Huỷ ${item.name} trước khi làm` });

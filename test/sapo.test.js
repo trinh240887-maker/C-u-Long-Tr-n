@@ -68,3 +68,37 @@ test('Đọc bill: cộng dòng gấp nhiều lần tổng bill (thừa 3 số 0
   assert.deepEqual(out.lines.map((l) => [l.qty, l.price]), [[10, 24_000], [1000, 1_679]]);
   assert.match(out.note, /chia lại/);
 });
+
+test('Hao hụt: kiểm kho TRƯỚC khi úp Sapo không trừ 2 lần; báo cáo hụt % so định mức 2%', async (t) => {
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('single_store', '1')").run();
+  const store = db.prepare("SELECT id FROM stores WHERE kind = 'main' LIMIT 1").get().id;
+  const ing = Number(db.prepare("INSERT INTO ingredients (name, unit) VALUES ('Bò test', 'g')").run().lastInsertRowid);
+  db.prepare('INSERT INTO stock_lots (store_id, ingredient_id, qty, received_at) VALUES (?, ?, 5000, 0)').run(store, ing);
+  const item = Number(db.prepare("INSERT INTO menu_items (name, price) VALUES ('Steak test', 99000)").run().lastInsertRowid);
+  const other = Number(db.prepare("INSERT INTO ingredients (name, unit) VALUES ('Sốt test', 'g')").run().lastInsertRowid);
+  db.prepare('INSERT INTO menu_recipes (item_id, ingredient_id, qty) VALUES (?, ?, 100), (?, ?, 10)').run(item, ing, item, other);
+  const today = app.ctx.today();
+  // Bán 10 phần (1000 g) hôm nay, kiểm kho tối còn 3950 g (hụt 50 g = 5%) TRƯỚC khi úp Sapo
+  assert.equal((await O('POST', '/api/stock/count', { store_id: store, lines: [{ ingredient_id: ing, actual: 3950 }] })).status, 200);
+  const [y, m, d] = today.split('-');
+  const serial = (Date.parse(`${today}T00:00:00Z`) / 86_400_000) + 25569 + 20 / 24;
+  const rows = [['DOANH THU THEO DANH SÁCH MẶT HÀNG'], ['Stt', 'Mã hóa đơn', 'Trạng thái đơn hàng', 'Thời gian thanh toán', 'Mã mặt hàng', 'Tên mặt hàng, combo', 'Số lượng', 'Tiền hàng'],
+    [1, 'H1', 'Đã thanh toán', serial, 'ST', 'Steak test', 10, 990000]];
+  const data = makeXlsx([{ name: 'S', rows }]).toString('base64');
+  assert.equal((await O('POST', '/api/sapo/import', { data, dates: [today] })).status, 200);
+  const left = db.prepare('SELECT SUM(qty) AS q FROM stock_lots WHERE ingredient_id = ?').get(ing).q;
+  assert.equal(left, 3950, 'tồn giữ đúng số đếm, không trừ thêm');
+  const rep = (await O('GET', `/api/stock/loss?from=${today}&to=${today}`)).data;
+  const r = rep.rows.find((x) => x.ingredient_id === ing);
+  assert.equal(r.kind, 'material'); assert.equal(r.std, 1000); assert.equal(r.loss, 50); assert.equal(r.pct, 5); assert.equal(r.limit, 2); assert.equal(r.over, true);
+  void y; void m; void d;
+});
