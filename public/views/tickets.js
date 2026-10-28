@@ -10,7 +10,7 @@ export function TicketsView({ me }) {
   const [all, setAll] = useState(false);
   const menu = useData('/api/menu');
   const st = useData(`/api/pos/tickets${station ? `?station=${station}` : ''}`);
-  const pr = useData('/api/print/status');
+  const pr = useData('/api/print/online') // bản rút gọn: nhân viên bếp xem được (rà soát 28/10);
   if (!st.data || !menu.data) return html`<${Loading} state=${st.data ? menu : st} />`;
   const pick = (x) => { setStation(x); try { localStorage.setItem('tk-station', x); } catch { /* bỏ qua */ } };
   const list = st.data.filter((k) => all || !k.done_at);

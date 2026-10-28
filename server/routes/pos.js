@@ -404,6 +404,7 @@ export default function (r, ctx) {
   }
 
   ctx.posMakeTickets = makeTickets;
+  ctx.cancelGraceMs = CANCEL_GRACE_MS;
 
   r.post('/api/pos/sessions/:id/send', 'staff', ({ me, params }) => {
     const s = openSession(params.id);
@@ -498,8 +499,10 @@ export default function (r, ctx) {
           db.prepare('UPDATE order_items SET session_id = ? WHERE id = ?').run(target, it.id);
         } else {
           db.prepare('UPDATE order_items SET qty = qty - ? WHERE id = ?').run(qty, it.id);
-          db.prepare(`INSERT INTO order_items (session_id, menu_item_id, name, unit_price, qty, options, note, rush, status, created_by, created_at, sent_at, sent_by)
-            SELECT ?, menu_item_id, name, unit_price, ?, options, note, rush, status, created_by, created_at, sent_at, sent_by FROM order_items WHERE id = ?`).run(target, qty, it.id);
+          const nid = Number(db.prepare(`INSERT INTO order_items (session_id, menu_item_id, name, unit_price, qty, options, note, rush, status, created_by, created_at, sent_at, sent_by)
+            SELECT ?, menu_item_id, name, unit_price, ?, options, note, rush, status, created_by, created_at, sent_at, sent_by FROM order_items WHERE id = ?`).run(target, qty, it.id).lastInsertRowid);
+          // Món đã gửi bếp: chia phần trừ kho theo số lượng (rà soát 28/10) → huỷ dòng nào trả kho đúng phần dòng đó
+          if (it.status !== 'new') ctx.splitSale?.(it.id, nid, qty / it.qty);
         }
         moved += qty;
       }
@@ -569,6 +572,8 @@ export default function (r, ctx) {
     tx(db, () => {
       db.prepare('UPDATE order_items SET session_id = ? WHERE session_id = ?').run(s.id, other.id);
       db.prepare('UPDATE kitchen_tickets SET session_id = ? WHERE session_id = ?').run(s.id, other.id);
+      // Tiền CK ngân hàng đã báo về cho bàn gộp chuyển theo sang bàn đích (rà soát 28/10), không bị kẹt ở bill đã huỷ
+      try { db.prepare('UPDATE bank_txns SET session_id = ? WHERE session_id = ?').run(s.id, other.id); } catch { /* chưa có bảng */ }
       // Gộp bàn 1 → bàn 2: cả bill bàn 1 sang bàn 2, bàn 1 thành bàn trống (gọi mới là bill riêng). Chủ quán chốt 24/10
       db.prepare('DELETE FROM session_tables WHERE session_id = ?').run(other.id);
       db.prepare('UPDATE table_sessions SET guests = guests + ?, priority = MAX(priority, ?) WHERE id = ?').run(other.guests, other.priority ? 1 : 0, s.id);
@@ -600,6 +605,8 @@ export default function (r, ctx) {
       if (sent.length) {
         db.prepare("UPDATE order_items SET status = 'cancelled', cancelled_at = ?, cancelled_by = ?, cancel_reason = ? WHERE session_id = ? AND status IN ('sent','done')").run(ctx.now(), me.id, reason, s.id);
         makeTickets(me, s, sent.map((i) => ({ ...i, options: JSON.stringify(i.options), note: reason })), 'cancel');
+        // Cùng luật huỷ từng món (rà soát 28/10): món gửi bếp chưa quá 2′ và chưa ra → trả lại kho
+        for (const i of sent) if (i.status === 'sent' && ctx.now() - (i.sent_at || 0) <= CANCEL_GRACE_MS) ctx.restoreSale?.(me, i);
       }
       db.prepare("DELETE FROM order_items WHERE session_id = ? AND status = 'new'").run(s.id);
       db.prepare("UPDATE table_sessions SET status = 'cancelled', closed_at = ?, closed_by = ?, note = ? WHERE id = ?").run(ctx.now(), me.id, reason, s.id);

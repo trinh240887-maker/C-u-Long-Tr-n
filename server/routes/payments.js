@@ -125,18 +125,31 @@ export default function (r, ctx) {
   const cashiers = () => db.prepare("SELECT id FROM staff WHERE active = 1 AND (role IN ('owner','manager','shift_lead') OR team_id IN (SELECT id FROM teams WHERE name = 'Thu ngân'))").all().map((x) => x.id);
   const bosses = () => db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager')").all().map((x) => x.id);
   const vnd = (n) => `${Number(n || 0).toLocaleString('vi-VN')}đ`;
+  // Ngày ghi sổ tiền (rà soát 28/10): ngày kinh doanh (mốc 5h) đã chốt mà vẫn có tiền vào / ra
+  // (vd chốt 23:45, bàn cuối trả 00:30 vẫn cùng ngày kinh doanh) → ghi sang NGÀY KẾ TIẾP chưa chốt, không sửa sổ đã chốt.
+  // Áp dụng cho: đóng bill (closed_date), hoàn tiền (refunds.date), nhận tiền phục vụ giao (cash_handovers.date).
+  const moneyDate = () => { let d = ctx.clock().businessDate(ctx.now()); for (let k = 0; k < 7 && dayClosed(d); k++) d = addD(d, 1); return d; };
+  ctx.moneyDate = moneyDate;
+  const dm = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
+  const afterClose = (date, what) => {
+    const d0 = ctx.clock().businessDate(ctx.now());
+    if (date === d0) return;
+    ctx.notify([...new Set([...bosses(), ...cashiers()])], { title: `${what} sau khi đã chốt ngày ${dm(d0)}`, body: `Ghi vào sổ ngày ${dm(date)} (ngày ${dm(d0)} đã chốt, không sửa). Thu ngân để riêng tiền này, ghi vào két ngày ${dm(date)}.`, link: '/thu-ngan', urgent: true });
+  };
 
   // Đóng bill (dùng chung: phục vụ bấm, hoặc ngân hàng báo tiền về). by = null nghĩa là tự động
   // cashStatus: received = thu ngân thu thẳng vào két; held = người thu còn giữ, phải giao lại két
   function closeBill(s, { by, method, cash = 0, transfer = 0, given = 0, tipCash = 0, tipTransfer = 0, reconcile = '', cashStatus = 'received' }) {
+    const date = moneyDate();
     const snapshot = { lines: s.items.filter((i) => i.promos?.length).map((i) => [i.id, i.promos]), item_discount: s.item_discount, bill: s.bill_promos, discount: s.discount, subtotal: s.subtotal, total: s.total };
     tx(db, () => {
       billNo(s.id);
       db.prepare(`UPDATE table_sessions SET status = 'closed', closed_at = ?, closed_by = ?, closed_date = ?, pay_method = ?, paid_total = ?, cash_amount = ?, transfer_amount = ?, cash_given = ?,
         reconcile_status = ?, cash_status = ?, tip_cash = ?, tip_transfer = ?, bill_snapshot = ? WHERE id = ?`)
-        .run(ctx.now(), by, ctx.clock().businessDate(ctx.now()), method, s.total, cash, transfer, given, transfer > 0 ? reconcile || 'pending' : '', cash > 0 || tipCash > 0 ? cashStatus : '', tipCash, tipTransfer, JSON.stringify(snapshot), s.id);
+        .run(ctx.now(), by, date, method, s.total, cash, transfer, given, transfer > 0 ? reconcile || 'pending' : '', cash > 0 || tipCash > 0 ? cashStatus : '', tipCash, tipTransfer, JSON.stringify(snapshot), s.id);
       if ((cash > 0 || tipCash > 0) && cashStatus === 'received') db.prepare('UPDATE table_sessions SET cash_received_by = ?, cash_received_at = ? WHERE id = ?').run(by, ctx.now(), s.id);
     });
+    afterClose(date, `Bill ${s.bill_no || billNo(s.id)} bàn ${s.header} thanh toán ${vnd(s.total)}`);
   }
 
   // Khách CK dư: dư ít (≤ 100.000đ và ≤ 30% bill) = tip quỹ chung; dư nhiều = bất thường (chuyển 2 lần / gõ thừa số 0) → quản lý quyết
@@ -172,7 +185,10 @@ export default function (r, ctx) {
     const got = bankReceived(sid);
     const waiter = [s.opened_by].filter(Boolean);
     if (['open', 'paying'].includes(s.status)) {
-      if (got >= s.total) {
+      if (got >= s.total && s.unsent) {
+        // Còn món chưa gửi bếp (rà soát 28/10): không tự đóng bill (giống bấm Tính tiền) → báo phục vụ + thu ngân xử lý
+        ctx.notify([...new Set([...waiter, ...cashiers()])], { title: `Bàn ${s.header} đã nhận đủ CK ${vnd(got)} nhưng còn ${s.unsent} món chưa gửi bếp`, body: 'Bill CHƯA đóng: gửi bếp hoặc xoá món chưa gửi, rồi bấm Tính tiền → Chuyển khoản để đóng bill.', link: `/goi-mon?s=${sid}`, urgent: true });
+      } else if (got >= s.total) {
         closeBill(s, { by: null, method: 'transfer', transfer: s.total, reconcile: 'matched' });
         setExcess(sid, got - s.total, s.total);
         ctx.notify([...new Set([...waiter, ...cashiers()])], { title: `Bàn ${s.header} đã nhận CK ${vnd(got)}`, body: `Bill ${billNo(sid)} đã thanh toán, bàn trống.${got > s.total ? ` Khách CK dư ${vnd(got - s.total)} → tip quỹ chung.` : ''}`, link: `/goi-mon?s=${sid}` });
@@ -270,28 +286,33 @@ export default function (r, ctx) {
     let transfer = 0;
     let given = 0;
     let tipCash = 0;
+    // Ngân hàng đã báo nhận CK cho bill này (rà soát 28/10): tiền mặt chỉ thu phần còn lại, không bắt khách trả 2 lần
+    const got = bankReceived(s.id);
+    let payMethod = method;
+    if (method !== 'transfer' && got >= total) fail(409, `Ngân hàng đã báo nhận ${vnd(got)} chuyển khoản cho bill này (đủ ${vnd(total)}): chọn Chuyển khoản để đóng bill, không thu tiền mặt`);
     if (method === 'transfer') transfer = total;
     else if (method === 'cash') {
-      cash = total;
+      cash = total - got;
+      if (got > 0) { payMethod = 'mixed'; transfer = got; }
       given = body.cash_given === undefined || body.cash_given === '' ? 0 : money(body.cash_given, 'Tiền khách đưa');
-      if (given && given < total) fail(400, `Khách đưa ${vnd(given)} chưa đủ ${vnd(total)}`);
+      if (given && given < cash) fail(400, `Khách đưa ${vnd(given)} chưa đủ ${vnd(cash)}${got ? ` (đã nhận CK ${vnd(got)})` : ''}`);
       // Khách không lấy tiền thối → tip quỹ chung
-      if (body.keep_change && given > total) tipCash = given - total;
+      if (body.keep_change && given > cash) tipCash = given - cash;
     } else {
       cash = v.int(Number(String(body.cash_amount ?? '').replace(/[.,\s]/g, '')), { min: 1, max: total - 1, name: 'Phần tiền mặt' });
+      if (cash > total - got) fail(400, `Ngân hàng đã báo nhận ${vnd(got)} chuyển khoản: phần tiền mặt tối đa ${vnd(total - got)}`);
       transfer = total - cash;
     }
-    const got = bankReceived(s.id);
     // Khách CK thêm tip (không nối ngân hàng): thu ngân lấy đúng số này tiền mặt trong két bỏ thùng tip
     const tipTransfer = transfer > 0 && body.tip_transfer ? money(body.tip_transfer, 'Tip CK') : 0;
     if (tipTransfer > Math.max(500000, total)) fail(400, `Tip CK ${vnd(tipTransfer)} lớn bất thường so với bill ${vnd(total)}: kiểm tra lại số`);
-    closeBill(s, { by: me.id, method, cash, transfer, given, tipCash, tipTransfer, reconcile: transfer > 0 && got >= transfer ? 'matched' : 'pending', cashStatus: isCashier(me) ? 'received' : 'held' });
+    closeBill(s, { by: me.id, method: payMethod, cash, transfer, given, tipCash, tipTransfer, reconcile: transfer > 0 && got >= transfer ? 'matched' : 'pending', cashStatus: isCashier(me) ? 'received' : 'held' });
     if (transfer > 0 && got > transfer) setExcess(s.id, got - transfer, total);
     let printed = false;
     if (body.print) { try { printed = !!printBill(s.id); } catch { printed = false; } } // chưa có máy in bill thì vẫn đóng bill bình thường
-    ctx.audit(me, 'pay.close', { id: s.id, total, method, cash, transfer, tip_cash: tipCash, tip_transfer: tipTransfer, unserved: unserved.length });
+    ctx.audit(me, 'pay.close', { id: s.id, total, method: payMethod, cash, transfer, tip_cash: tipCash, tip_transfer: tipTransfer, unserved: unserved.length });
     ctx.broadcast('pos');
-    return { ok: true, total, change: given ? given - cash - tipCash : 0, tip: tipCash, hand_over: cash + tipCash, printed };
+    return { ok: true, total, method: payMethod, bank_received: got, change: given ? given - cash - tipCash : 0, tip: tipCash, hand_over: cash + tipCash, printed };
   });
 
   // Tiền mặt đang nằm trong tay phục vụ (chưa giao thu ngân)
@@ -313,8 +334,8 @@ export default function (r, ctx) {
     const expected = rows.reduce((n, x) => n + x.amount, 0);
     const counted = body.counted === undefined || body.counted === '' ? expected : v.int(Number(String(body.counted).replace(/[.,\s]/g, '')), { min: 0, max: 1_000_000_000, name: 'Số tiền đếm được' });
     const note = v.text(body.note, { name: 'Ghi chú', max: 120 });
-    const date = ctx.clock().businessDate(ctx.now());
-    if (dayClosed(date)) fail(400, 'Ngày này đã chốt');
+    // Ngày đã chốt → ghi sang ngày kế tiếp (rà soát 28/10), không chặn: tiền đang giữ không bị kẹt
+    const date = moneyDate();
     const id = tx(db, () => {
       const hid = Number(db.prepare('INSERT INTO cash_handovers (date, staff_id, session_ids, expected, counted, diff, note, received_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(date, staffIds[0], JSON.stringify(ids), expected, counted, counted - expected, note, me.id, ctx.now()).lastInsertRowid);
@@ -325,6 +346,7 @@ export default function (r, ctx) {
     if (counted !== expected) {
       ctx.notify(bosses().filter((x) => x !== me.id), { title: `Nhận tiền ${counted < expected ? 'THIẾU' : 'DƯ'} ${vnd(Math.abs(counted - expected))}: ${rows[0].staff_name}`, body: `Phải giao ${vnd(expected)} (${rows.length} bill ${rows.map((x) => x.bill_no).join(', ')}), đếm được ${vnd(counted)}. Thu ngân ${me.name}${note ? `: ${note}` : ''}.`, link: '/thu-ngan', urgent: true });
     }
+    afterClose(date, `Nhận tiền mặt ${vnd(counted)} của ${rows[0].staff_name}`);
     ctx.audit(me, 'pay.handover', { id, staff: staffIds[0], expected, counted });
     ctx.broadcast('pos');
     return { ok: true, expected, counted, diff: counted - expected };
@@ -440,11 +462,14 @@ export default function (r, ctx) {
     }
     if (!Array.isArray(body.items) || !body.items.length) fail(400, 'Chọn món cần hoàn');
     const lines = [];
+    const taken = new Map(); // cộng dồn theo món: 1 món gửi lặp nhiều dòng không hoàn quá số còn lại (rà soát 28/10)
     for (const x of body.items) {
       const it = s.items.find((i) => i.id === Number(x.id) && i.status !== 'cancelled');
       if (!it) fail(400, 'Món không thuộc bill này');
-      const left = it.qty - (it.refunded_qty || 0);
+      const left = it.qty - (it.refunded_qty || 0) - (taken.get(it.id) || 0);
+      if (left < 1) fail(400, `${it.name}: đã hoàn hết số lượng`);
       const q = v.int(x.qty ?? left, { min: 1, max: left, name: `Số lượng hoàn của ${it.name}` });
+      taken.set(it.id, (taken.get(it.id) || 0) + q);
       // Tiền hoàn = số khách thật sự đã trả cho phần đó (đã trừ khuyến mãi món)
       const amount = Math.round((it.net * q) / it.qty / 1000) * 1000;
       lines.push({ item: it, qty: q, amount });
@@ -454,16 +479,29 @@ export default function (r, ctx) {
     if (s.bill_promos?.length && s.subtotal - s.item_discount > 0) amount = Math.round((amount * (1 - s.bill_promos[0].amount / (s.subtotal - s.item_discount))) / 1000) * 1000;
     const already = refundsOf(s.id).reduce((n, x) => n + x.amount, 0);
     if (amount + already > s.paid_total) fail(400, 'Số tiền hoàn vượt quá số khách đã trả');
+    const date = moneyDate();
+    // Món chưa ra: trả kho theo đúng luật huỷ món (rà soát 28/10): gửi bếp chưa quá 2′ thì trả lại kho phần hoàn; quá 2′ coi như bếp đã làm
+    const grace = ctx.cancelGraceMs || 2 * 60_000;
+    // Số phần của món đã được trả kho ở các lần hoàn trước (để tính đúng tỉ lệ phần còn lại trên sổ kho)
+    const restoredBefore = (itemId) => refundsOf(s.id).reduce((n, r) => n + r.lines.filter((x) => x.id === itemId && x.stock === 'restored').reduce((k, x) => k + x.qty, 0), 0);
     const id = tx(db, () => {
+      for (const l of lines) {
+        l.stock = '';
+        if (l.item.status === 'sent' && ctx.now() - (l.item.sent_at || 0) <= grace && ctx.restoreSale) {
+          const base = l.item.qty - restoredBefore(l.item.id);
+          if (base > 0) { ctx.restoreSale(me, l.item, { fraction: Math.min(1, l.qty / base) }); l.stock = 'restored'; }
+        }
+      }
       for (const l of lines) {
         db.prepare('UPDATE order_items SET refunded_qty = refunded_qty + ? WHERE id = ?').run(l.qty, l.item.id);
         // Món bếp chưa ra: in phiếu HUỶ để bếp ngừng làm
         if (l.item.status === 'sent') ctx.posMakeTickets(me, s, [{ ...l.item, qty: l.qty, options: JSON.stringify(l.item.options), note: `Khách đã về, hoàn tiền: ${reason}` }], 'cancel', { priority: 0 });
       }
       return Number(db.prepare('INSERT INTO refunds (session_id, amount, reason, lines, date, created_by, approved_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(s.id, amount, reason, JSON.stringify(lines.map((l) => ({ id: l.item.id, name: l.item.name, qty: l.qty, amount: l.amount, kitchen: l.item.status === 'done' ? 'made' : 'cancelled' }))),
-          ctx.clock().businessDate(ctx.now()), me.id, approver.id, ctx.now()).lastInsertRowid);
+        .run(s.id, amount, reason, JSON.stringify(lines.map((l) => ({ id: l.item.id, name: l.item.name, qty: l.qty, amount: l.amount, kitchen: l.item.status === 'done' ? 'made' : 'cancelled', ...(l.stock ? { stock: l.stock } : {}) }))),
+          date, me.id, approver.id, ctx.now()).lastInsertRowid);
     });
+    afterClose(date, `Hoàn tiền ${vnd(amount)} bill ${s.bill_no}`);
     const st = billStation();
     if (st) {
       ctx.printDoc(st, `Hoàn tiền bill ${s.bill_no}`, refundBytes({ bill_no: s.bill_no, header: s.header, time: ctx.clock().fmt(ctx.now()), lines: lines.map((l) => ({ name: l.item.name, qty: l.qty, amount: l.amount })), amount, reason, by: me.name, approver: approver.name }, { mode: ctx.printMode() }));
@@ -628,6 +666,11 @@ export default function (r, ctx) {
     const note = v.text(body.note, { name: 'Ghi chú', max: 120 });
     const rows = ids.map((id) => db.prepare("SELECT s.*, c.name AS closed_by_name FROM table_sessions s LEFT JOIN staff c ON c.id = s.closed_by WHERE s.id = ? AND s.status = 'closed' AND s.transfer_amount > 0").get(id)).filter(Boolean);
     if (rows.some((x) => db.prepare('SELECT 1 FROM day_closings WHERE date = ?').get(x.closed_date))) fail(400, 'Ngày này đã chốt doanh thu');
+    // Xác nhận "đã thấy tiền" CK mà ngân hàng chưa báo về (rà soát 28/10): chỉ tổ Thu ngân / chủ quán (như thu tiền) hoặc quản lý.
+    // Trưởng ca ngoài tổ Thu ngân vẫn xác nhận được bill ngân hàng đã khớp, báo thiếu, bỏ đánh dấu.
+    if (status === 'confirmed' && !canCollect(me) && rank(me.role) < rank('manager') && rows.some((x) => bankReceived(x.id) < x.transfer_amount)) {
+      fail(403, 'Bill CK chưa thấy ngân hàng báo tiền về: chỉ thu ngân hoặc quản lý xác nhận');
+    }
     // Bỏ đánh dấu (pending): bill đã có tiền ngân hàng báo về thì trả về matched
     const up = db.prepare('UPDATE table_sessions SET reconcile_status = ?, reconciled_at = ?, reconciled_by = ?, reconcile_note = ? WHERE id = ?');
     tx(db, () => rows.forEach((x) => up.run(status === 'pending' && bankReceived(x.id) >= x.transfer_amount ? 'matched' : status, ctx.now(), me.id, note, x.id)));
@@ -648,6 +691,11 @@ export default function (r, ctx) {
     const d = day(date);
     if (d.closing) fail(400, 'Ngày này đã chốt');
     if (!d.bills.length) fail(400, 'Chưa có bill nào');
+    // Còn bàn đang mở có món (rà soát 28/10): chốt bây giờ thì tiền bàn đó trả sau sẽ lệch két → chặn, chủ quán muốn vẫn chốt thì gửi force
+    if (date >= ctx.clock().businessDate(ctx.now())) {
+      const open = db.prepare("SELECT COUNT(*) AS n FROM table_sessions s WHERE s.status IN ('open','paying') AND EXISTS (SELECT 1 FROM order_items i WHERE i.session_id = s.id AND i.status != 'cancelled')").get().n;
+      if (open && !(body.force === true && me.role === 'owner')) fail(409, `Còn ${open} bàn đang mở chưa thanh toán: tính tiền xong mới chốt ngày${me.role === 'owner' ? ' (vẫn chốt thì tiền các bàn đó ghi sang ngày mai)' : ' hoặc nhờ chủ quán chốt'}`);
+    }
     const waitCk = d.bills.filter((b) => ['pending', 'matched'].includes(b.reconcile_status)).length;
     if (waitCk) fail(400, `Còn ${waitCk} bill CK chưa xác nhận`);
     if (d.summary.cash_held) fail(400, `Còn ${vnd(d.summary.cash_held)} tiền mặt chờ thu ngân xác nhận`);

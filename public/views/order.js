@@ -133,6 +133,7 @@ export function OrderView({ me, query }) {
   const [prompt, setPrompt] = useState(null);
   const [tab, setTab] = useState('menu');
   const [paying, setPaying] = useState(false);
+  const [sending, setSending] = useState(false); // chống bấm 2 lần "Gửi bếp" (rà soát 28/10)
   if (!id) return html`<div class="empty">Chọn bàn ở Sơ đồ bàn.</div>`;
   if (!st.data || !menuD.data) return html`<${Loading} state=${st.data ? menuD : st} />`;
   const s = st.data;
@@ -187,7 +188,11 @@ export function OrderView({ me, query }) {
   const addonCat = m.categories.find((c) => c.name === 'Ngăn nước lẩu thêm')?.id;
   const addons = m.items.filter((x) => x.category_id === addonCat);
   const quick = (item, gift = false) => (item.options.length ? setAdding({ ...item, gift }) : add({ menu_item_id: item.id, qty: withGift(1, bogoOf(item, gift)) }));
-  const send = () => act(() => api('POST', `/api/pos/sessions/${id}/send`), 'Đã gửi bếp');
+  const send = async () => {
+    if (sending) return;
+    setSending(true);
+    try { await act(() => api('POST', `/api/pos/sessions/${id}/send`), 'Đã gửi bếp'); } finally { setSending(false); }
+  };
   const sessions = (tablesD.data?.zones || []).flatMap((z) => z.tables).filter((t) => t.session && t.session.id !== id)
     .map((t) => t.session).filter((x, k, a) => a.findIndex((y) => y.id === x.id) === k);
   return html`<div class="stack order">
@@ -251,7 +256,7 @@ export function OrderView({ me, query }) {
     ${!closed ? html`<div class="cart-bar">
 
       <div class="row">
-        <button class="primary big grow" disabled=${!drafts.length} onClick=${send}>${drafts.length ? `Gửi bếp (${drafts.reduce((n, i) => n + i.qty, 0)} món)` : 'Chọn món để gửi bếp'}</button>
+        <button class="primary big grow" disabled=${!drafts.length || sending} onClick=${send}>${sending ? 'Đang gửi…' : drafts.length ? `Gửi bếp (${drafts.reduce((n, i) => n + i.qty, 0)} món)` : 'Chọn món để gửi bếp'}</button>
         ${sent.length ? html`<button class="big" onClick=${() => setPaying(true)}>₫ Thanh toán</button>` : null}
       </div>
     </div>` : null}
