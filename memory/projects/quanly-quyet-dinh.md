@@ -221,3 +221,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 215 | 28/10 | Thẻ Mở/Đóng ca theo khu hiện luôn ảnh nhân viên chụp (ảnh nhỏ, bấm xem to), giờ xong và ghi chú dưới từng việc. |
 | 216 | 28/10 | Chấm công → tab 'Bảng tuần': hàng = nhân viên, cột = T2…CN, ô = ca được xếp + giờ chấm (xanh đúng giờ, cam trễ/về sớm, đỏ có ca không chấm, tím nghỉ phép, 'Tự do' không ca). Lọc bộ phận, 'Chỉ người cần kiểm tra'; bấm giờ để sửa, bấm ô đỏ thêm tay. |
 | 217 | 28/10 | Chấm công → '📋 Nhập chấm công tay' (quản lý+): chọn nhân viên, dán chữ 'DD/MM : 8h - 12h , 14h - 22h30' → bảng kiểm tra (tự đoán '1h30' = 13h30, ra qua đêm), bỏ qua ngày đã có chấm công → lưu từng lượt (tính lương theo giờ thực tế). |
+| 218 | 28/10 | Nhập chấm công tay có '📷 Chọn ảnh chấm công' (quản lý+): máy đọc ảnh (mã Claude ở Cài đặt → Kết nối, chung giới hạn đọc bill/ngày) điền chữ vào ô để xem lại rồi lưu. Bảng tuần hiện lượt nhập tay là '📋 Chấm tay' (xanh), không tính là cần kiểm tra. |

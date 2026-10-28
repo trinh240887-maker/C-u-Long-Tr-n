@@ -5,6 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { tx, rank, ROLE_LABEL } from '../db.js';
 import { addDays, isDate, fmtHM } from '../lib/time.js';
+import { readTimesheet, billReaderKey } from '../lib/bill-reader.js';
 import { rangeOf } from '../lib/schedule.js';
 import { computeTimesheet } from '../lib/payroll.js';
 
@@ -415,6 +416,21 @@ export default function (r, ctx) {
     ctx.audit(me, ok ? 'attendance.ot_approve' : 'attendance.ot_reject', cur.id);
     ctx.broadcast('attendance');
     return { ok: true };
+  });
+
+  // Đọc ảnh chấm công tay → chữ "DD/MM : 8h - 12h , 14h - 22h30" để xem lại trước khi lưu (dùng chung giới hạn đọc bill / ngày)
+  r.post('/api/attendance/read-photo', 'manager', async ({ me, body }) => {
+    const photos = Array.isArray(body.photos) ? body.photos.slice(0, 4) : [];
+    if (!photos.length) fail(400, 'Chọn ảnh chấm công trước');
+    const max = Number(ctx.setting('bill_reader_daily_max') || 80), today = ctx.today();
+    const cnt = JSON.parse(ctx.setting('bill_reader_count') || '{}');
+    const n = cnt.date === today ? cnt.n : 0;
+    if (n >= max) fail(429, `Hôm nay đã đọc ${n} ảnh (tối đa ${max}). Gõ tay giúp, hoặc tăng giới hạn`);
+    ctx.setSetting('bill_reader_count', JSON.stringify({ date: today, n: n + 1 }));
+    let out;
+    try { out = await (ctx.readTimesheet || readTimesheet)(photos, { apiKey: billReaderKey(ctx) }); } catch (e) { fail(502, e.message); }
+    ctx.audit(me, 'attendance.read_photo', { photos: photos.length, usage: out.usage });
+    return { text: out.text, note: out.note };
   });
 
   r.post('/api/attendance', 'shift_lead', ({ me, body }) => {

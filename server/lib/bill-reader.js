@@ -107,3 +107,56 @@ export async function readBill(photos, ingredients, { fetchImpl = globalThis.fet
   out.usage = r.data.usage || null;
   return out;
 }
+
+// Đọc ảnh chấm công tay (chủ quán 28/10: nhân viên gửi ảnh sổ / tin nhắn ghi giờ làm) → mỗi ngày các khúc giờ vào–ra
+const TS_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['days', 'note'],
+  properties: {
+    note: { type: 'string', description: 'Chỗ khó đọc / nghi ngờ, ngắn, tiếng Việt; trống nếu rõ hết' },
+    days: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false, required: ['day', 'month', 'ranges'],
+        properties: {
+          day: { type: 'integer' }, month: { type: 'integer' },
+          ranges: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['start', 'end'], properties: { start: { type: 'string', description: 'HH:MM 24 giờ' }, end: { type: 'string', description: 'HH:MM 24 giờ' } } } },
+        },
+      },
+    },
+  },
+};
+const TS_SYSTEM = `Bạn đọc ảnh chấm công tay của nhân viên nhà hàng ở Việt Nam (sổ viết tay, ghi chú điện thoại, tin nhắn).
+Mỗi dòng thường là: ngày/tháng : giờ vào - giờ ra, có thể nhiều khúc cách nhau bằng dấu phẩy (vd "16/10 : 8h - 12h , 14h - 22h30").
+- Chép đúng từng ngày, từng khúc giờ, không bỏ, không bịa. Giờ đổi sang dạng HH:MM 24 giờ (8h → 08:00, 22h30 → 22:30, 5h30 → 05:30).
+- Chép đúng giờ như ghi (kể cả khi trông vô lý, vd "8h - 1h30" thì ghi end 01:30), app sẽ tự hỏi lại người dùng.
+- Không đọc được chỗ nào thì nêu trong note.`;
+
+export async function readTimesheet(photos, { fetchImpl = globalThis.fetch, timeoutMs = 120_000, apiKey = process.env.ANTHROPIC_API_KEY } = {}) {
+  if (!apiKey) throw new Error('Chưa cài đọc ảnh tự động: chủ quán dán mã Claude ở Cài đặt → Kết nối');
+  const images = photos.map((p) => /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(p || ''))).filter(Boolean);
+  if (!images.length) throw new Error('Chưa có ảnh hợp lệ');
+  const body = {
+    model: MODEL, max_tokens: 8000, system: TS_SYSTEM,
+    messages: [{ role: 'user', content: [...images.map(([, media_type, data]) => ({ type: 'image', source: { type: 'base64', media_type, data } })), { type: 'text', text: `Đọc chấm công trong ảnh (${images.length} ảnh) và trả JSON.` }] }],
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: TS_SCHEMA } },
+  };
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), timeoutMs);
+  let res, data;
+  try {
+    res = await fetchImpl(URL_, { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2026-10-21' }, body: JSON.stringify(body) });
+    data = await res.json().catch(() => ({}));
+  } catch (e) { throw new Error(e.name === 'AbortError' ? 'Đọc ảnh quá lâu, thử lại hoặc gõ tay' : `Không gọi được máy đọc ảnh: ${e.message}`); } finally { clearTimeout(t); }
+  if (res.status === 401) throw new Error('Mã Claude sai hoặc đã bị xoá: dán lại ở Cài đặt → Kết nối');
+  if (res.status === 402 || (res.status === 400 && /credit|balance|billing/i.test(JSON.stringify(data)))) throw new Error('Tài khoản Claude hết tiền: nạp thêm ở console.anthropic.com');
+  if (res.status === 429) throw new Error('Máy đọc ảnh đang quá tải, thử lại sau 1 phút');
+  if (res.status >= 400) throw new Error(`Máy đọc ảnh báo lỗi ${res.status}: ${data?.error?.message || ''}`.trim());
+  if (data.stop_reason === 'refusal') throw new Error('Máy đọc ảnh từ chối ảnh này, gõ tay giúp');
+  const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  let out;
+  try { out = JSON.parse(text); } catch { throw new Error('Không đọc được kết quả, thử lại'); }
+  const hm = (x) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(x || '').trim()); return m ? `${Number(m[1])}h${m[2] === '00' ? '' : m[2]}` : String(x || ''); };
+  const pad = (n) => String(n).padStart(2, '0');
+  const lines = (out.days || []).filter((d) => d.day && d.month && d.ranges?.length).map((d) => `${pad(d.day)}/${pad(d.month)} : ${d.ranges.map((r) => `${hm(r.start)} - ${hm(r.end)}`).join(' , ')}`);
+  return { text: lines.join('\n'), note: out.note || '', usage: data.usage || null };
+}

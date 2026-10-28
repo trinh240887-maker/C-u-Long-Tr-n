@@ -162,3 +162,24 @@ test('Bảng chấm công tuần: ô có ca + giờ chấm; có ca không chấm
   assert.equal(ca.time, '14:00–23:00'); assert.equal(ca.status, 'ok'); assert.equal(ca.records.length, 1);
   assert.equal(cb.status, 'missing');
 });
+
+test('Đọc ảnh chấm công tay: kết quả máy đọc → chữ DD/MM : giờ để xem lại', async (t) => {
+  const { readTimesheet } = await import('../server/lib/bill-reader.js');
+  const fake = async () => ({ status: 200, json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ note: '', days: [{ day: 16, month: 10, ranges: [{ start: '08:00', end: '01:30' }, { start: '15:00', end: '23:30' }] }] }) }] }) });
+  const img = 'data:image/jpeg;base64,' + Buffer.alloc(800, 7).toString('base64');
+  const out = await readTimesheet([img], { fetchImpl: fake, apiKey: 'k' });
+  assert.equal(out.text, '16/10 : 8h - 1h30 , 15h - 23h30');
+  const db = openDb(':memory:', { now: Date.now() });
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  app.ctx.readTimesheet = async () => ({ text: '14/10 : 13h - 21h', note: 'mờ dòng cuối' });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie = '';
+  const O = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await O('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  const r = await O('POST', '/api/attendance/read-photo', { photos: [img] });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.text, '14/10 : 13h - 21h'); assert.equal(r.data.note, 'mờ dòng cuối');
+});

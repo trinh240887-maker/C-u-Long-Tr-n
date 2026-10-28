@@ -1,4 +1,5 @@
 import { useState } from '../vendor/hooks.js';
+import { compressImage } from './checklists.js';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, hm, dt, dayLabel, addDays, hours, money, localInput, atLeast, navigate, toast } from '../ui.js';
 
 function RecordForm({ init, staff, onClose, canDelete }) {
@@ -118,6 +119,18 @@ function ImportManual({ me, staff, onClose }) {
   const [sid, setSid] = useState('');
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [readNote, setReadNote] = useState('');
+  const readPhotos = async (e) => {
+    const files = [...(e.target.files || [])].slice(0, 4); e.target.value = '';
+    if (!files.length) return;
+    setReading(true);
+    try {
+      const photos = []; for (const f of files) photos.push(await compressImage(f, 1600));
+      const r = await act(() => api('POST', '/api/attendance/read-photo', { photos }));
+      if (r) { setText((t) => (t.trim() ? `${t.trim()}\n${r.text}` : r.text)); setReadNote(r.note || ''); if (!r.text) toast('Không thấy dòng chấm công nào trong ảnh', true); }
+    } finally { setReading(false); }
+  };
   const rows = parseManual(text, me.today);
   const ok = rows.filter((r) => !r.error);
   const dates = ok.map((r) => r.date).sort();
@@ -134,6 +147,8 @@ function ImportManual({ me, staff, onClose }) {
   const total = todo.reduce((a, r) => a + r.minutes, 0);
   return html`<${Modal} title="📋 Nhập chấm công tay" onClose=${onClose}><div class="stack">
     <select value=${sid} onChange=${(e) => setSid(e.target.value)}><option value="">— Chọn nhân viên —</option>${staff.map((x) => html`<option value=${x.id}>${x.name}${x.team_name ? ` · ${x.team_name}` : ''}</option>`)}</select>
+    <label class=${`button ${reading ? 'muted' : ''}`}>📷 ${reading ? 'Đang đọc ảnh…' : 'Chọn ảnh chấm công (app tự đọc)'}<input type="file" accept="image/*" multiple hidden onChange=${readPhotos} /></label>
+    ${readNote ? html`<small class="warn-text">Máy đọc ghi chú: ${readNote}</small>` : null}
     <textarea rows="8" placeholder=${'Dán chấm công tay, mỗi ngày 1 dòng, vd:\n14/10 : 13h - 21h\n16/10 : 8h - 12h , 15h - 23h30'} value=${text} onInput=${(e) => setText(e.target.value)}></textarea>
     ${rows.length ? html`<div class="table-wrap"><table class="list small"><thead><tr><th>Ngày</th><th>Vào</th><th>Ra</th><th class="r">Giờ</th><th></th></tr></thead><tbody>
       ${rows.map((r) => r.error ? html`<tr><td colspan="5" class="bad-text">⚠ "${r.line}": ${r.error}</td></tr>` : html`<tr class=${dup(r) ? 'muted' : ''}>
@@ -254,7 +269,7 @@ function WeekBoard({ me }) {
   const DOW = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
   const teams = [...new Set(staff.map((x) => x.team_name || 'Chưa có bộ phận'))];
   const cellOf = (sid, day) => cells[`${sid}:${day}`] || { shifts: [], extra: [] };
-  const issue = (sid) => days.some((day) => { const c = cellOf(sid, day); return c.shifts.some((g) => ['missing', 'warn'].includes(g.status)) || c.extra.length; });
+  const issue = (sid) => days.some((day) => { const c = cellOf(sid, day); return c.shifts.some((g) => ['missing', 'warn'].includes(g.status)) || c.extra.some((r) => !/chấm công tay/i.test(r.note || '')); });
   const rows = staff.filter((x) => (!team || (x.team_name || 'Chưa có bộ phận') === team) && (!onlyIssue || issue(x.id)));
   // Nhóm theo bộ phận (Bếp → Phục vụ → Thu ngân → Bar → Tiếp thực → Tạp vụ), trong nhóm xếp theo vị trí (chủ quán 28/10)
   const RANK = { manager: 0, shift_lead: 1, team_lead: 2 };
@@ -287,7 +302,7 @@ function WeekBoard({ me }) {
             ${c.shifts.map((g) => html`<div class=${`att-box ${WST[g.status][0]}`} onClick=${() => g.status === 'missing' && setEdit({ staff_id: x.id, clock_in: g.start_at, note: 'Thêm tay từ bảng tuần' })}>
               <div class="att-shift">${g.name ? `${g.name} ` : 'Ca '}${g.time}</div>
               ${g.records.length ? g.records.map(R) : html`<div class="att-rec muted">${WST[g.status][1] || '—'}</div>`}</div>`)}
-            ${c.extra.map((r) => html`<div class="att-box att-warn"><div class="att-shift">Ngoài lịch</div>${R(r)}</div>`)}</td>`; })}</tr>`)])}</tbody>
+            ${c.extra.map((r) => /chấm công tay/i.test(r.note || '') ? html`<div class="att-box att-ok"><div class="att-shift">📋 Chấm tay</div>${R(r)}</div>` : html`<div class="att-box att-warn"><div class="att-shift">Ngoài lịch</div>${R(r)}</div>`)}</td>`; })}</tr>`)])}</tbody>
     </table></div>
     ${edit && staffD.data ? html`<${RecordForm} init=${edit} staff=${staffD.data.filter((s) => s.active)} canDelete=${atLeast(me, 'manager')} onClose=${() => setEdit(null)} />` : null}
   </div>`;
