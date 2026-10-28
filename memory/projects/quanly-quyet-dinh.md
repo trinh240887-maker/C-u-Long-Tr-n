@@ -218,3 +218,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 212 | 27/10 | Người chưa có bộ phận mà có khu / là trưởng ca (vd Đỗ Thiện) được tính vào checklist Phục vụ khi chia việc và chọn người phụ trách khu đóng ca. |
 | 213 | 27/10 | Kiểm kho: '+ Thêm nguyên liệu khác' (dùng chung + mọi nguyên liệu) và '➕ Tạo nguyên liệu mới' (quản lý+, vào kho đang kiểm). |
 | 214 | 27/10 | Chấm công → Theo ngày: khối '⚠ Có ca nhưng chưa chấm' (⏳ tới giờ chưa chấm / ❌ hết ca không chấm / chưa tới giờ), bỏ nghỉ đã duyệt; nút '+ Thêm tay' điền sẵn giờ ca. |
+| 215 | 28/10 | Thẻ Mở/Đóng ca theo khu hiện luôn ảnh nhân viên chụp (ảnh nhỏ, bấm xem to), giờ xong và ghi chú dưới từng việc. |

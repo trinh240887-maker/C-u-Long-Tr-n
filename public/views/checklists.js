@@ -230,7 +230,7 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
   const Items = (list, zid, ps, removable) => (list.length ? html`<ul class="zt-list">${list.map((i) => html`<li>
       <button class="grow zt-item" onClick=${() => setEdit(i)}>${i.job_zone_id ? '• ' : '🔁 '}${i.text}${i.job_scope === 'shop' ? html` <small class="muted">(1 người cả quán)</small>` : ''}
         ${i.job_guide || i.samples?.length || i.job_minutes || i.job_deadline != null || i.job_photos || i.job_gender || i.job_role || i.job_ask_note ? html`<br /><small class="muted">${[i.job_guide || i.samples?.length ? '📖' : '', i.job_minutes ? `⏱ ${i.job_minutes}′` : '', i.job_deadline != null ? `🕐 trước ${hmm(i.job_deadline)}` : '', i.job_photos ? `📷 ${i.job_photos} ảnh` : '', i.job_gender ? (i.job_gender === 'nu' ? '♀ chỉ nữ' : '♂ chỉ nam') : '', i.job_role === 'lead' ? '⭐ tổ trưởng / trưởng ca' : '', i.job_ask_note ? '📝 ghi chú' : ''].filter(Boolean).join(' · ')}</small>` : null}</button>
-      ${(() => { const jj = zid !== null ? jobOf(i, zid) : jobOf(i, 0); return jj?.done_note ? html`<small class="job-note zt-dnote">📝 ${jj.staff_name}: ${jj.done_note}</small>` : null; })()}
+      ${(() => { const jj = zid !== null ? jobOf(i, zid) : jobOf(i, 0); const d = Done(jj); return d ? html`<div class="zt-dnote">${d}</div>` : null; })()}
       ${zid !== null ? Who1(i, zid, ps) : i.job_scope === 'shop' ? Who1(i, 0, people) : null}
       ${removable && canEdit && (i.job_zone_id || zid === null) ? html`<button class="link small" aria-label="Xoá" onClick=${() => del(i)}>✕</button>` : null}</li>`)}</ul>` : html`<p class="small muted">Chưa có việc.</p>`);
   const Who = (list) => (list.length ? html`<div class="zt-who2">${list.map((x) => html`<div class="zt-prow">
@@ -253,6 +253,11 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
   const span = (() => { const m = /(\d+)h(\d*)–(\d+)h(\d*)/.exec(`${o?.from || ''}–${o?.to || ''}`); return m ? (Number(m[3]) * 60 + Number(m[4] || 0)) - (Number(m[1]) * 60 + Number(m[2] || 0)) : 90; })();
   const loadOf = new Map();
   for (const j of r.job_rows || []) { if (!j.staff_id) continue; const l = loadOf.get(j.staff_id) || { min: 0, n: 0, noMin: 0, done: 0 }; l.min += minOf.get(j.item_id) || 0; l.n++; if (!minOf.get(j.item_id)) l.noMin++; if (['done', 'ok'].includes(j.status)) l.done++; loadOf.set(j.staff_id, l); }
+  // Ảnh + ghi chú của 1 thẻ việc đã làm (chủ quán 28/10: xem ngay trong thẻ)
+  const Done = (jj) => (jj && (jj.has_photo || jj.extra_photos?.length || jj.done_note) ? html`<div class="zt-done">
+      ${jj.has_photo || jj.extra_photos?.length ? html`<div class="zt-pics">${jj.has_photo ? html`<a href=${`/api/jobs/${jj.id}/photo`} target="_blank"><img src=${`/api/jobs/${jj.id}/photo`} loading="lazy" /></a>` : null}${(jj.extra_photos || []).map((id) => html`<a href=${`/api/jobs/photo-extra/${id}`} target="_blank"><img src=${`/api/jobs/photo-extra/${id}`} loading="lazy" /></a>`)}</div>` : null}
+      <small class="muted">${jj.staff_name || ''}${jj.done_at ? ` · xong ${hm(jj.done_at)}` : ''}</small>
+      ${jj.done_note ? html`<small class="job-note">📝 ${jj.done_note}</small>` : null}</div>` : null);
   const Load = (x) => { const l = loadOf.get(x.id); if (!l) return html`<small class="zt-load free">0′ · 0 việc</small>`; const over = l.min > span; return html`<small class=${`zt-load ${over ? 'over' : l.min < span / 2 ? 'free' : ''}`}>⏱ ${l.min}′ · ${l.n} việc</small>`; };
   const noZone = people.filter((x) => !x.zone_id);
   const LEADR = ['team_lead', 'shift_lead', 'manager'];
@@ -298,7 +303,7 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
             onPick: (ids) => act(() => api('PATCH', `/api/checklist-items/${i.id}`, { job_crew: ids }), ids.length > 1 ? `Đã giao ${ids.length} bạn cùng làm` : ids.length ? 'Đã giao cố định' : 'Đã bỏ người') })}>${label} ▾</button>`
             : html`<small>${label}</small>`; })()}
         ${canEdit ? html`<button class="link small" aria-label="Xoá" onClick=${() => del(i)}>✕</button>` : null}
-        ${(r.job_rows || []).filter((x) => x.item_id === i.id && x.done_note).map((x) => html`<small class="job-note zt-dnote">📝 ${x.staff_name}: ${x.done_note}</small>`)}</li>`; })}</ul>` : html`<p class="small muted">Chưa có việc chung.</p>`}
+        ${(r.job_rows || []).filter((x) => x.item_id === i.id).map((x) => { const d = Done(x); return d ? html`<div class="zt-dnote">${d}</div>` : null; })}</li>`; })}</ul>` : html`<p class="small muted">Chưa có việc chung.</p>`}
       ${canEdit ? html`<${AddItemInline} templateId=${r.template_id} scope="shop" placeholder="+ Thêm việc chung cả quán…" />` : null}
     </div>
     ${pick ? html`<${PersonPicker} ...${pick} onClose=${() => setPick(null)} />` : null}

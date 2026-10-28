@@ -848,3 +848,6 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 .att-miss { border-left: 4px solid #e8590c; }
 .att-miss summary { cursor: pointer; }
 .att-miss-row { padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.zt-done { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 2px 12px; border-left: 3px solid #4caf50; }
+.zt-pics { display: flex; gap: 6px; flex-wrap: wrap; }
+.zt-pics img { width: 88px; height: 88px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }

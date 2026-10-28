@@ -122,6 +122,8 @@ test('Sửa việc: hướng dẫn, số phút, phải xong trước, số ảnh
   const ok = await S('POST', `/api/jobs/${job.id}/done`, { photos: [img, img] });
   assert.equal(ok.status, 200, JSON.stringify(ok.data));
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM job_photos WHERE job_id = ?').get(job.id).n, 1);
+  const jr = (await O('GET', '/api/checklists')).data.jobs.find((j) => j.template_id === tpl).job_rows.find((j) => j.id === job.id);
+  assert.equal(jr.has_photo, true); assert.equal(jr.extra_photos.length, 1); // ảnh hiện ngay trong thẻ
 });
 
 test('Việc chung cả quán: 1 thẻ (không chia khu), giao bạn cố định; lưu ý chung', async (t) => {
