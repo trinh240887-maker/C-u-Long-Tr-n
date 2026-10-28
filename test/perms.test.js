@@ -143,6 +143,18 @@ test('lịch ca: nhân viên chỉ thấy ca của mình, tổ trưởng thấy 
   assert.deepEqual(await names(await login('7365', '8365')), ['An']);
   assert.deepEqual(await names(await login('7368', '8368')), ['An', 'Bình']);
   assert.deepEqual(await names(o), ['An', 'Bình', 'Cúc']);
+  // Quản lý có bộ phận (chủ quán 28/10): chỉ xem / xếp ca bộ phận mình; quản lý không bộ phận thấy cả quán
+  await mkS('QL bộ phận', 'manager', t1.id, '736911');
+  const ql = await login('736911', '836911');
+  assert.deepEqual(await names(ql), ['An', 'Bình']);
+  assert.equal((await ql('POST', '/api/shifts', { staff_id: c, date: '2026-11-03', label: 'Ca', segments: [{ start: '06:00', end: '14:00' }] })).status, 403);
+  assert.equal((await ql('POST', '/api/shifts', { staff_id: a, date: '2026-11-03', label: 'Ca', segments: [{ start: '06:00', end: '14:00' }] })).status, 200);
+  const gC = (await o('GET', '/api/schedule?week=2026-11-02')).data.shifts.find((x) => x.staff_id === c).group_id;
+  assert.equal((await ql('POST', '/api/shifts/delete', { group_id: gC })).status, 403);
+  assert.ok((await ql('GET', '/api/availability?week=2026-11-02')).data.people.every((p) => p.team_id === t1.id || p.team_id == null));
+  const qlAll = (await o('POST', '/api/staff', { name: 'QL chung', role: 'manager', pin: '737012' })).data.id;
+  assert.ok(qlAll);
+  assert.deepEqual(await names(await login('737012', '837012')), ['An', 'An', 'Bình', 'Cúc']);
 });
 
 test('ca xếp theo giờ trùng loại ca → tự gắn loại ca (checklist theo ca hiện đúng)', async (t) => {

@@ -213,7 +213,13 @@ export default function (r, ctx) {
   // Xem lịch rảnh cả quán: tổ trưởng trở lên, hoặc người được cấp quyền Xếp ca
   r.get('/api/availability', 'staff', ({ me, query }) => {
     if (rank(me.role) < rank('team_lead') && !allowedPages(ctx, me).includes('/lich#xep')) fail(403, 'Cần quyền Xếp ca');
-    return summary(readWeek(query.get('week')));
+    const out = summary(readWeek(query.get('week')));
+    // Quản lý có bộ phận: chỉ thấy người bộ phận mình (+ người chưa có bộ phận)
+    const sc = ctx.scheduleTeamScope?.(me);
+    if (!sc) return out;
+    const ids = new Set(out.people.filter((p) => p.team_id === sc || p.team_id == null || p.id === me.id).map((p) => p.id));
+    const cells = Object.fromEntries(Object.entries(out.cells).map(([k, c]) => [k, { ...c, free: c.free.filter((x) => ids.has(x)), by_team: Object.fromEntries(Object.entries(c.by_team).filter(([t]) => Number(t) === sc)) }]));
+    return { ...out, people: out.people.filter((p) => ids.has(p.id)), teams: out.teams.filter((t) => t.id === sc), cells, busy: out.busy.filter((k) => ids.has(Number(k.split(':')[0]))), hours: Object.fromEntries(Object.entries(out.hours).filter(([k]) => ids.has(Number(k.split(':')[0])))) };
   });
 
   // Tin nhắc vào nhóm Zalo nhân viên: liệt kê người chưa báo lịch rảnh tuần ws (chủ quán 24/10: tối thứ 7)

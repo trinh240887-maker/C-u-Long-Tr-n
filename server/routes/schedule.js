@@ -72,7 +72,15 @@ export default function (r, ctx) {
   // ---------- Lịch ca tuần ----------
   // Ai xem được ca của ai (chủ quán 24/10): nhân viên chỉ thấy ca mình; tổ trưởng / trưởng ca thấy người tổ mình quản;
   // quản lý, chủ, người có quyền Xếp ca thấy hết. Trả null = thấy hết
+  // Quản lý có bộ phận (vd Quản lý · Bếp) chỉ xem / xếp ca bộ phận mình (chủ quán 28/10). Chủ quán, quản lý không bộ phận: cả quán.
+  // Người chưa có bộ phận vẫn hiện để xếp được (vd phục vụ part-time chưa gán bộ phận)
+  const teamScope = (me) => (me && me.role !== 'owner' && me.team_id && (me.role === 'manager' || allowedPages(ctx, me).includes('/lich#xep')) ? me.team_id : null);
+  const staffTeam = (id) => db.prepare('SELECT team_id FROM staff WHERE id = ?').get(id)?.team_id ?? null;
+  const inScope = (me, staffId, teamId) => { const sc = teamScope(me); if (!sc) return true; const st = staffTeam(staffId); return staffId === me.id || teamId === sc || st === sc || (st == null && (teamId == null || teamId === sc)); };
+  const mustScope = (me, staffId, teamId) => { if (!inScope(me, staffId, teamId)) fail(403, 'Bạn chỉ xếp ca cho người trong bộ phận mình'); };
+  ctx.scheduleTeamScope = teamScope;
   function viewFilter(me) {
+    if (teamScope(me)) return (staffId, teamId) => inScope(me, staffId, teamId);
     if (rank(me.role) >= rank('manager') || allowedPages(ctx, me).includes('/lich#xep')) return null;
     if ((me.role === 'shift_lead' || me.role === 'team_lead') && me.team_id) {
       const mine = new Set(db.prepare('SELECT id FROM staff WHERE team_id = ?').all(me.team_id).map((x) => x.id));
@@ -203,6 +211,8 @@ export default function (r, ctx) {
   r.post('/api/shifts', 'manager', ({ me, body }) => {
     const input = readShiftBody(body);
     const replaceGroup = body.replace_group_id ? String(body.replace_group_id) : null;
+    mustScope(me, input.staffId, input.teamId);
+    if (replaceGroup) { const o = groupSegments(db, replaceGroup)[0]; if (o) mustScope(me, o.staff_id, o.team_id); }
     const groupId = tx(db, () => {
       if (replaceGroup) {
         const old = groupSegments(db, replaceGroup);
@@ -224,6 +234,7 @@ export default function (r, ctx) {
     const groupId = String(body.group_id || '');
     const segs = groupSegments(db, groupId);
     if (!segs.length) fail(404, 'Không tìm thấy ca');
+    mustScope(me, segs[0].staff_id, segs[0].team_id);
     tx(db, () => {
       db.prepare('DELETE FROM assignments WHERE group_id = ?').run(groupId);
       db.prepare("UPDATE leave_requests SET status = 'cancelled', decision_note = 'Ca đã bị xoá' WHERE group_id = ? AND status = 'pending'").run(groupId);
@@ -249,6 +260,7 @@ export default function (r, ctx) {
     tx(db, () => {
       for (const segs of groups.values()) {
         const first = segs[0];
+        if (!inScope(me, first.staff_id, first.team_id)) continue;
         const date = addDays(first.date, shift);
         const has = db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(first.staff_id, date);
         if (has) { skipped++; continue; }
@@ -315,6 +327,7 @@ export default function (r, ctx) {
     if (!isDate(body.week)) fail(400, 'Tuần không hợp lệ');
     const ws = weekStart(body.week);
     const staffId = v.int(body.staff_id, { min: 1, name: 'Nhân viên' });
+    mustScope(me, staffId, null);
     // Khu + (tuỳ chọn) bàn phụ trách, vd khu A bàn 1-10
     const { zoneId, tablesText } = ctx.readZone({ zone_id: body.zone_id, tables_text: body.tables_text });
     const map = weekZones(ws);
@@ -351,6 +364,7 @@ export default function (r, ctx) {
     const start = weekStart(body.week);
     const team = db.prepare('SELECT id, name FROM teams WHERE id = ?').get(v.int(body.team_id, { min: 1, name: 'Bộ phận' }));
     if (!team) fail(404, 'Không tìm thấy bộ phận');
+    if (teamScope(me) && teamScope(me) !== team.id) fail(403, 'Bạn chỉ duyệt lịch bộ phận mình');
     const people = db.prepare("SELECT s.id, s.name, s.role, s.work_type, p.name AS position_name FROM staff s LEFT JOIN positions p ON p.id = s.position_id WHERE s.active = 1 AND s.role != 'owner' AND s.team_id = ? ORDER BY s.name").all(team.id);
     let made = 0;
     for (const p of people) made += availToShifts(p.id, start, me, { force: true }).made;
@@ -412,6 +426,7 @@ export default function (r, ctx) {
   r.post('/api/schedule/team-image', 'manager', async ({ me, body, req }) => {
     const team = db.prepare('SELECT id, name FROM teams WHERE id = ?').get(v.int(body.team_id, { min: 1, name: 'Bộ phận' }));
     if (!team) fail(404, 'Không tìm thấy bộ phận');
+    if (teamScope(me) && teamScope(me) !== team.id) fail(403, 'Bạn chỉ gửi lịch bộ phận mình');
     const text = v.text(body.text, { name: 'Nội dung', max: 4000 });
     const targets = (ctx.staffGroups?.() || []).filter((x) => (x.teams || []).includes(team.id));
     if (!targets.length || !ctx.zaloBot?.ready()) return { groups: 0, group_error: targets.length ? 'Chưa cài bot' : '' };
@@ -452,7 +467,8 @@ export default function (r, ctx) {
   r.post('/api/schedule/publish', 'manager', ({ me, body }) => {
     if (!isDate(body.week)) fail(400, 'Tuần không hợp lệ');
     const start = weekStart(body.week);
-    const rows = db.prepare(`SELECT a.* FROM assignments a WHERE a.date BETWEEN ? AND ? ORDER BY a.date, a.start_min`).all(start, addDays(start, 6));
+    // Quản lý có bộ phận: chỉ gửi lịch cho người bộ phận mình
+    const rows = db.prepare(`SELECT a.* FROM assignments a WHERE a.date BETWEEN ? AND ? ORDER BY a.date, a.start_min`).all(start, addDays(start, 6)).filter((a) => inScope(me, a.staff_id, a.team_id));
     const byStaff = new Map();
     for (const a of rows) {
       const m = byStaff.get(a.staff_id) || new Map();
@@ -463,7 +479,7 @@ export default function (r, ctx) {
       const lines = [...groups.values()].map((segs) => `• ${WEEKDAY[isoWeekday(segs[0].date)]} ${segs[0].date.slice(8)}/${segs[0].date.slice(5, 7)}: ${segs[0].label ? segs[0].label + ' ' : ''}${describeGroup(segs)}`);
       ctx.notify(staffId, { title: `Lịch làm tuần ${start.slice(8)}/${start.slice(5, 7)}`, body: lines.join('\n'), link: '/lich' });
     }
-    ctx.setSetting(`published:${start}`, ctx.now());
+    if (teamScope(me)) ctx.setSetting(`published:${start}:t${teamScope(me)}`, ctx.now()); else ctx.setSetting(`published:${start}`, ctx.now());
     // Duyệt lịch tuần: gửi chủ quán xem (người duyệt không phải chủ)
     const owners = db.prepare("SELECT id FROM staff WHERE active = 1 AND role = 'owner'").all().map((x) => x.id).filter((id) => id !== me.id);
     if (owners.length) {
