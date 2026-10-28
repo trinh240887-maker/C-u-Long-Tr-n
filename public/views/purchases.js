@@ -253,6 +253,16 @@ function FixBill({ b }) {
     <button class="primary" onClick=${() => act(() => api('PATCH', `/api/purchases/${b.id}`, { total: num(total), photos }), 'Đã gửi duyệt lại')}>Gửi duyệt lại</button></div>`;
 }
 
+// Phiếu còn nợ: hiện luôn ảnh bill (bấm phóng to) + các món (chủ quán 28/10)
+function OpenBill({ b, check = null }) {
+  return html`<div class="card tight stack" style="padding:8px">
+    <div class="row between wrap">${check || html`<b>Phiếu #${b.id}</b>`}<small>${b.date.split('-').reverse().join('/')} · tổng ${money(b.total)} · <b class="danger-text">còn ${money(b.remaining)}</b></small></div>
+    ${b.photos?.length ? html`<${Photos} ids=${b.photos} />` : html`<small class="muted">(không có ảnh bill)</small>`}
+    ${b.lines?.length ? html`<details><summary class="small">${b.lines.length} món</summary><table class="list small"><tbody>${b.lines.map((l) => html`<tr><td>${l.name}</td><td class="r">${l.qty} ${l.unit}</td><td class="r">${money(l.amount)}</td></tr>`)}</tbody></table>
+      ${b.goods_photos?.length ? html`<small class="muted">Ảnh hàng nhận:</small><${Photos} ids=${b.goods_photos} />` : null}</details>` : null}
+  </div>`;
+}
+
 function Debts({ me }) {
   const st = useData('/api/suppliers/debts');
   const [pay, setPay] = useState(null);
@@ -272,7 +282,7 @@ function Debts({ me }) {
     ${[...d.suppliers].filter((s) => !q || fold(s.name).includes(fold(q))).sort((a, b) => b.debt - a.debt).map((s) => html`<section class="card stack">
       <div class="row between"><b>${s.name}</b><b class=${s.debt > 0 ? 'danger-text' : 'muted'}>${money(s.debt)}</b></div>
       <small class="muted">${s.last_bill ? `Lần mua cuối ${dayLabel(s.last_bill)}` : 'Chưa mua'}${s.pending.n ? ` · ${s.pending.n} bill chưa duyệt ${money(s.pending.t)}` : ''}</small>
-      ${(s.open_bills || []).length ? html`<small>Phiếu còn nợ: ${s.open_bills.map((b) => `#${b.id} (${b.date.slice(8)}/${b.date.slice(5, 7)}) ${money(b.remaining)}`).join(' · ')}</small>` : null}
+      ${(s.open_bills || []).length ? html`<div class="stack tight"><small class="muted">Phiếu còn nợ (${s.open_bills.length}):</small>${s.open_bills.map((b) => html`<${OpenBill} b=${b} />`)}</div>` : null}
       <div class="row">
         <button class="small" onClick=${() => setStmt(s)}>Sổ nợ</button>
         ${s.debt > 0 ? html`<button class="small primary" onClick=${() => setPay(s)}>Trả</button>` : null}</div></section>`)}
@@ -299,7 +309,7 @@ function PayModal({ s, txns, boss, preset, onClose }) {
   return html`<${Modal} title=${`Trả ${s.name}`} onClose=${onClose}>
     <p class="small">Còn nợ <b>${money(s.debt)}</b>${open.length ? ` · ${open.length} phiếu chưa trả đủ` : ''}</p>
     ${open.length ? html`<div class="stack tight"><small class="muted">Trả cho phiếu nào (tick để tự cộng số tiền; không tick = trừ phiếu cũ nhất trước):</small>
-      ${open.map((b) => html`<label class="check-row"><input type="checkbox" checked=${pick.includes(b.id)} onChange=${() => toggle(b)} /> Phiếu #${b.id} · ${b.date.split('-').reverse().join('/')} · tổng ${money(b.total)} · <b>còn ${money(b.remaining)}</b></label>`)}</div>` : null}
+      ${open.map((b) => html`<${OpenBill} b=${b} check=${html`<label class="check-row"><input type="checkbox" checked=${pick.includes(b.id)} onChange=${() => toggle(b)} /> <b>Phiếu #${b.id}</b></label>`} />`)}</div>` : null}
     <${Field} label="Số tiền"><input inputmode="numeric" value=${f.amount} onInput=${(e) => setF({ ...f, amount: e.target.value })} /><//>
     <div class="chips">${[['transfer', 'Chuyển khoản', 'drawer'], ['cash', 'Tiền mặt từ két', 'drawer'], ...(boss ? [['cash', 'Tiền mặt quản lý giữ', 'manager']] : [])].map(([k, l, src]) => html`<button class=${`chip ${f.method === k && (k === 'transfer' || f.source === src) ? 'on' : ''}`} onClick=${() => setF({ ...f, method: k, source: src })}>${l}</button>`)}</div>
     ${f.method === 'transfer' && txns.length ? html`<${Field} label="Giao dịch ngân hàng (tiền ra, SePay báo)"><select value=${f.bank_txn_id} onChange=${(e) => { const t = txns.find((x) => x.id === Number(e.target.value)); setF({ ...f, bank_txn_id: e.target.value, amount: t ? String(t.amount) : f.amount }); }}>

@@ -60,6 +60,8 @@ test('bill NCC gửi trước: chủ quán áp bill (kho chưa cộng) → bếp
   assert.equal(r1.data.status, 'approved');
   assert.equal(qty(), 10000);
   assert.equal((await o('GET', '/api/suppliers/debts')).data.total, 2_600_000);
+  const ob = (await o('GET', '/api/suppliers/debts')).data.suppliers.flatMap((x) => x.open_bills || []).find((x) => x.id === b1.id);
+  assert.ok(ob.photos.length >= 1 && ob.lines.length === 1); // phiếu còn nợ kèm ảnh bill + món
   assert.equal((await tai('POST', `/api/purchases/${b1.id}/arrive`, { goods_photos: [IMG] })).status, 400);
   // Lần 2: nhận thiếu 2 kg → chờ duyệt, có cờ
   const b2 = (await o('POST', '/api/purchases', pre)).data;

@@ -581,7 +581,11 @@ export default function (r, ctx) {
   r.get('/api/suppliers/debts', 'staff', ({ me }) => {
     if (!isCashier(me)) fail(403, 'Chỉ thu ngân / quản lý');
     const rows = db.prepare('SELECT id, name, phone FROM suppliers WHERE active = 1 ORDER BY name').all().map((s) => ({
-      ...s, debt: balance(s.id), open_bills: openBills(s.id).filter((b) => b.remaining > 0),
+      // Kèm ảnh bill + ảnh hàng của từng phiếu còn nợ để nhìn thấy ngay khi trả (chủ quán 28/10)
+      ...s, debt: balance(s.id), open_bills: openBills(s.id).filter((b) => b.remaining > 0).map((b) => ({ ...b,
+        photos: db.prepare("SELECT id FROM purchase_bill_photos WHERE bill_id = ? AND kind = 'bill' ORDER BY id").all(b.id).map((x) => x.id),
+        goods_photos: db.prepare("SELECT id FROM purchase_bill_photos WHERE bill_id = ? AND kind = 'goods' ORDER BY id").all(b.id).map((x) => x.id),
+        lines: db.prepare('SELECT name, qty, unit, price, amount FROM purchase_bill_lines WHERE bill_id = ? ORDER BY id').all(b.id) })),
       pending: db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(total - paid_now), 0) AS t FROM purchase_bills WHERE supplier_id = ? AND status IN ('received','returned')").get(s.id),
       last_bill: db.prepare("SELECT MAX(date) AS d FROM purchase_bills WHERE supplier_id = ?").get(s.id).d,
     }));
