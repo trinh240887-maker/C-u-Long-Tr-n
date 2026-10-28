@@ -95,7 +95,9 @@ export default function (r, ctx) {
     const openTasks = db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE status != 'done'").get().n;
     const pendingLeave = db.prepare(`SELECT l.id, l.date, l.reason, s.name AS staff_name,
       (SELECT COUNT(*) FROM cover_offers o WHERE o.leave_id = l.id AND o.status = 'accepted') AS accepted
-      , s.team_id FROM leave_requests l JOIN staff s ON s.id = l.staff_id WHERE l.status = 'pending' ORDER BY l.date`).all().filter((l) => inScope(l.team_id));
+      , s.team_id, s.home_zone_id, (SELECT a.zone_id FROM assignments a WHERE a.group_id = l.group_id LIMIT 1) AS zone_id
+      FROM leave_requests l JOIN staff s ON s.id = l.staff_id WHERE l.status = 'pending' ORDER BY l.date`).all()
+      .filter((l) => inScope(l.team_id) && (!myZone || (l.zone_id ?? l.home_zone_id) === myZone)); // trưởng ca khu A: đơn nghỉ của người khu A
 
     // Thiếu người 7 ngày tới
     const upcoming = db.prepare(`SELECT a.date, a.team_id, COUNT(DISTINCT a.staff_id) AS n FROM assignments a
