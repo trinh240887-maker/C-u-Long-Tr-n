@@ -246,7 +246,7 @@ export default function (r, ctx) {
     const created = [];
     const id = tx(db, () => {
       created.push(...createNew(lines, storeId));
-      const { oldPrice } = pre ? { oldPrice: new Map() } : ctx.stockReceive(me, { poId, storeId, lines: lines.filter((l) => l.ingredient_id).map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, price: l.price, expires_on: l.raw.expires_on })) });
+      const { oldPrice } = pre ? { oldPrice: new Map() } : ctx.stockReceive(me, { poId, storeId, lines: lines.filter((l) => l.ingredient_id).map((l) => ({ ingredient_id: l.ingredient_id, qty: l.qty, price: l.raw?.unconv ? undefined : l.price, expires_on: l.raw.expires_on })) }); // dòng chưa quy đổi: giá theo đơn vị bill (vd /mẹt) → không ghi đè giá kho (rà soát 28/10)
       const flags = flagsOf({ total, lines, po, oldPrice });
       // Dòng chưa quy đổi: nhập đúng như bill, chủ quán kiểm & quy đổi sau (chủ quán 28/10)
       for (const l of lines) if (l.ingredient_id && l.raw?.unconv) flags.push(unconvFlag(l.name, l.qty, unitOf(l.raw.unit) || l.unit));
