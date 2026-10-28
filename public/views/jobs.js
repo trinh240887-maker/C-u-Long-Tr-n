@@ -26,14 +26,20 @@ function JobCard({ j, now, mine }) {
   const [busy, setBusy] = useState(false);
   const [cnt, setCnt] = useState('');
   const [noteTxt, setNoteTxt] = useState('');
-  const [shots, setShots] = useState([]); // ảnh đã chụp (việc phải chụp nhiều góc)
+  // Ảnh chụp tới đâu gửi lên máy chủ tới đó (chủ quán 28/10: thoát app vào lại mất ảnh) → shots = id ảnh trên máy chủ
+  const shots = j.shots || [];
+  const [upl, setUpl] = useState(false);
   const need = j.photos_needed || (j.photo_required ? 1 : 0);
-  const addShot = async (e) => { const data = await pick(e); if (data) setShots((x) => [...x, data]); };
+  const addShot = async (e) => {
+    const data = await pick(e); if (!data) return;
+    setUpl(true);
+    try { await act(() => api('POST', `/api/jobs/${j.id}/shot`, { data })); } finally { setUpl(false); }
+  };
   const doneMany = async () => {
     if (j.expect && cnt === '') { alert(`Nhập số thực tế trước (phải đủ ${j.expect})`); return; }
     if (j.ask_note && !noteTxt.trim()) { alert('Ghi chú trước khi báo xong (tình trạng, còn thiếu gì)'); return; }
     setBusy(true);
-    try { await act(() => api('POST', `/api/jobs/${j.id}/done`, { photos: shots, note: noteTxt, ...(j.expect ? { count: cnt } : {}) }), 'Đã báo xong').then((r) => { if (r) setShots([]); if (r?.late) alert('Việc này trễ so với thời gian quy định, đã ghi lại.'); }); } finally { setBusy(false); }
+    try { await act(() => api('POST', `/api/jobs/${j.id}/done`, { note: noteTxt, ...(j.expect ? { count: cnt } : {}) }), 'Đã báo xong').then((r) => { if (r?.late) alert('Việc này trễ so với thời gian quy định, đã ghi lại.'); }); } finally { setBusy(false); }
   };
   const done = async (e) => {
     if (j.expect && cnt === '') { alert(`Nhập số thực tế trước (phải đủ ${j.expect})`); if (e) e.target.value = ''; return; }
@@ -66,10 +72,12 @@ function JobCard({ j, now, mine }) {
     ${mine ? html`<div class="row wrap">
       ${j.status === 'todo' ? html`<button class="primary big grow" onClick=${() => act(() => api('POST', `/api/jobs/${j.id}/claim`), 'Đã nhận, bắt đầu tính giờ')}>✋ Nhận việc</button>` : null}
       ${j.status === 'doing' && need >= 1 ? html`<div class="stack tight grow">
-        ${shots.length ? html`<div class="row wrap">${shots.map((x, k) => html`<img class="job-photo" src=${x} onClick=${() => confirm('Bỏ ảnh này?') && setShots(shots.filter((_, i) => i !== k))} />`)}</div>` : null}
-        ${shots.length < need ? html`<label class="button primary big">📷 ${need > 1 ? `Chụp ảnh rộng ${shots.length + 1}/${need}` : 'Chụp ảnh báo cáo'}<input type="file" accept="image/*" capture="environment" hidden onChange=${addShot} /></label>`
-          : html`<button class="primary big" disabled=${busy} onClick=${doneMany}>${busy ? 'Đang gửi…' : `✅ Báo xong (${shots.length} ảnh)`}</button>`}
-        ${shots.length >= need && shots.length < 6 ? html`<label class="button small">📷 Chụp thêm<input type="file" accept="image/*" capture="environment" hidden onChange=${addShot} /></label>` : null}
+        ${shots.length ? html`<div class="row wrap">${shots.map((id) => html`<img class="job-photo" src=${`/api/jobs/shot/${id}`} onClick=${() => confirm('Bỏ ảnh này?') && act(() => api('POST', `/api/jobs/shot/${id}/delete`))} />`)}</div>` : null}
+        ${upl ? html`<small class="muted">Đang gửi ảnh…</small>` : null}
+        ${shots.length < need ? html`<label class="button primary big">📷 ${need > 1 ? `Chụp ảnh ${shots.length + 1}/${need}` : 'Chụp ảnh báo cáo'}<input type="file" accept="image/*" capture="environment" hidden onChange=${addShot} /></label>
+          ${shots.length ? html`<small class="warn-text">Cần chụp thêm <b>${need - shots.length}</b> ảnh nữa thì mới hiện nút Báo xong</small>` : null}`
+          : html`<button class="primary big" disabled=${busy || upl} onClick=${doneMany}>${busy ? 'Đang gửi…' : `✅ Báo xong (${shots.length} ảnh)`}</button>`}
+        ${shots.length >= need && shots.length < 8 ? html`<label class="button small">📷 Chụp thêm<input type="file" accept="image/*" capture="environment" hidden onChange=${addShot} /></label>` : null}
       </div>` : j.status === 'doing' ? (j.photo_required
         ? html`<label class=${`button primary big grow ${busy ? 'muted' : ''}`}>📷 ${busy ? 'Đang gửi…' : 'Chụp ảnh & báo xong'}<input type="file" accept="image/*" capture="environment" hidden onChange=${done} /></label>`
         : html`<button class="primary big grow" disabled=${busy} onClick=${() => done()}>✅ Xong</button>`) : null}

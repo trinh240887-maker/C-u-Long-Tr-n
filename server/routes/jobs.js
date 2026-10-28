@@ -50,6 +50,8 @@ export default function (r, ctx) {
   db.exec('CREATE TABLE IF NOT EXISTS job_zone_leads (template_id INTEGER NOT NULL, zone_id INTEGER NOT NULL, staff_id INTEGER NOT NULL, PRIMARY KEY (template_id, zone_id))');
   if (!db.prepare('PRAGMA table_info(jobs)').all().some((c) => c.name === 'done_note')) db.exec("ALTER TABLE jobs ADD COLUMN done_note TEXT NOT NULL DEFAULT ''"); // ghi chú của người làm khi xong
   if (!db.prepare('PRAGMA table_info(jobs)').all().some((c) => c.name === 'deadline_alerted')) db.exec('ALTER TABLE jobs ADD COLUMN deadline_alerted INTEGER NOT NULL DEFAULT 0');
+  // Ảnh chụp dở khi đang làm (chủ quán 28/10): chụp tới đâu lưu lên máy chủ tới đó, thoát app vào lại vẫn còn
+  db.exec('CREATE TABLE IF NOT EXISTS job_shots (id INTEGER PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, file TEXT NOT NULL, at INTEGER NOT NULL)');
   db.exec('CREATE TABLE IF NOT EXISTS job_photos (id INTEGER PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, file TEXT NOT NULL, at INTEGER NOT NULL)'); // ảnh thêm khi xong (nhiều góc)
   if (oldJobs) db.exec(`INSERT INTO jobs (${JOB_COLS}) SELECT ${JOB_COLS} FROM jobs_old; DROP TABLE jobs_old`);
   const K = (itemId, zoneId, ownerId) => `${itemId}:${zoneId}:${ownerId || 0}`;
@@ -269,6 +271,7 @@ export default function (r, ctx) {
       guide: it.job_guide || '', deadline: it.job_deadline != null ? hhmm(it.job_deadline) : '', photos_needed: it.job_photos || (it.photo_required ? 1 : 0),
       samples: it.id ? db.prepare('SELECT id FROM checklist_samples WHERE item_id = ? ORDER BY id').all(it.id).map((x) => x.id) : [],
       extra_photos: db.prepare('SELECT id FROM job_photos WHERE job_id = ? ORDER BY id').all(j.id).map((x) => x.id),
+      shots: db.prepare('SELECT id FROM job_shots WHERE job_id = ? ORDER BY id').all(j.id).map((x) => x.id),
       own: !!j.owner_id, with_title: it.job_with ? (t?.items.find((i) => i.id === it.job_with)?.text || '') : '', expect: it.job_expect || 0, count: j.count, short: j.short || 0,
     };
   }
@@ -399,11 +402,13 @@ export default function (r, ctx) {
     const it = itemOf(j);
     // Nhiều ảnh (chụp rộng các góc): body.photos = [data,…]; cũ: body.data = 1 ảnh
     const list = Array.isArray(body.photos) ? body.photos.filter(Boolean).slice(0, 6) : body.data ? [body.data] : [];
+    const saved = db.prepare('SELECT file FROM job_shots WHERE job_id = ? ORDER BY id').all(j.id).map((x) => x.file);
     const need = it.job_photos || (it.photo_required ? 1 : 0);
-    if (list.length < need) fail(400, need > 1 ? `Việc này phải chụp đủ ${need} ảnh (đang có ${list.length})` : 'Việc này phải chụp ảnh khi xong');
+    if (list.length + saved.length < need) fail(400, need > 1 ? `Việc này phải chụp đủ ${need} ảnh (đang có ${list.length + saved.length})` : 'Việc này phải chụp ảnh khi xong');
     const doneNote = v.text(body.note, { name: 'Ghi chú', max: 1000 });
     if (it.job_ask_note && !doneNote.trim()) fail(400, 'Việc này phải ghi chú khi xong (vd tình trạng, còn thiếu gì)');
-    const files = list.map((d, k) => savePhoto(d, `j${j.id}-${k}`));
+    const files = [...saved, ...list.map((d, k) => savePhoto(d, `j${j.id}-${k}`))].slice(0, 8);
+    db.prepare('DELETE FROM job_shots WHERE job_id = ?').run(j.id);
     const photo = files[0] || null;
     if (files.length > 1) { db.prepare('DELETE FROM job_photos WHERE job_id = ?').run(j.id); for (const f of files.slice(1)) db.prepare('INSERT INTO job_photos (job_id, file, at) VALUES (?, ?, ?)').run(j.id, f, ctx.now()); }
     // Việc có số phải đủ (vd giặt 2 khăn): nhập số thực tế, thiếu → ghi vào tên người làm (đền)
@@ -498,6 +503,24 @@ export default function (r, ctx) {
   });
 
   r.get('/api/jobs/:id/photo', 'staff', ({ params }) => sendPhoto(getJob(params.id).photo));
+  r.post('/api/jobs/:id/shot', 'staff', ({ me, params, body }) => {
+    const j = getJob(params.id);
+    if (j.staff_id !== me.id) fail(403, 'Đây không phải việc của bạn');
+    if (j.status !== 'doing') fail(409, 'Bấm Nhận việc trước khi chụp');
+    if (db.prepare('SELECT COUNT(*) AS n FROM job_shots WHERE job_id = ?').get(j.id).n >= 8) fail(400, 'Tối đa 8 ảnh');
+    const id = Number(db.prepare('INSERT INTO job_shots (job_id, file, at) VALUES (?, ?, ?)').run(j.id, savePhoto(body.data, `j${j.id}-s`), ctx.now()).lastInsertRowid);
+    ctx.broadcast('jobs');
+    return { id };
+  });
+  r.post('/api/jobs/shot/:sid/delete', 'staff', ({ me, params }) => {
+    const x = db.prepare('SELECT s.id, j.staff_id FROM job_shots s JOIN jobs j ON j.id = s.job_id WHERE s.id = ?').get(Number(params.sid));
+    if (!x) fail(404, 'Không có ảnh');
+    if (x.staff_id !== me.id) fail(403, 'Không phải ảnh của bạn');
+    db.prepare('DELETE FROM job_shots WHERE id = ?').run(x.id);
+    ctx.broadcast('jobs');
+    return { ok: true };
+  });
+  r.get('/api/jobs/shot/:sid', 'staff', ({ params }) => sendPhoto(db.prepare('SELECT file FROM job_shots WHERE id = ?').get(params.sid)?.file));
   r.get('/api/jobs/photo-extra/:id', 'staff', ({ params }) => sendPhoto(db.prepare('SELECT file FROM job_photos WHERE id = ?').get(params.id)?.file));
 
   // Ảnh tổng khu (người kiểm tra chụp 1 lần khi khu xong)

@@ -119,7 +119,12 @@ test('Sửa việc: hướng dẫn, số phút, phải xong trước, số ảnh
   now = Date.parse('2026-10-27T14:31:00+07:00');
   app.ctx.jobsTick(); app.ctx.jobsTick(); // lần 1 báo quá số phút, lần 2 báo quá giờ phải xong
   assert.ok(db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE title LIKE '%Quá 14:30%'").get().n > 0);
-  const ok = await S('POST', `/api/jobs/${job.id}/done`, { photos: [img, img] });
+  // Chụp tới đâu lưu tới đó (thoát app vào lại vẫn còn): 2 ảnh gửi lẻ rồi báo xong không cần gửi lại ảnh
+  assert.equal((await S('POST', `/api/jobs/${job.id}/shot`, { data: img })).status, 200);
+  assert.equal((await S('POST', `/api/jobs/${job.id}/done`, {})).status, 400); // mới 1/2
+  assert.equal((await S('POST', `/api/jobs/${job.id}/shot`, { data: img })).status, 200);
+  assert.equal((await S('GET', '/api/jobs/mine')).data.mine.find((j) => j.id === job.id).shots.length, 2);
+  const ok = await S('POST', `/api/jobs/${job.id}/done`, {});
   assert.equal(ok.status, 200, JSON.stringify(ok.data));
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM job_photos WHERE job_id = ?').get(job.id).n, 1);
   const jr = (await O('GET', '/api/checklists')).data.jobs.find((j) => j.template_id === tpl).job_rows.find((j) => j.id === job.id);
