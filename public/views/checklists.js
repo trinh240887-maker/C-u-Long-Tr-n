@@ -281,6 +281,19 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
       ${canEdit ? html`<button class="zt-sel" onClick=${() => setPick({ title: `Người phụ trách ${z.name} (đóng ca)`, list, more, lead: true, value: zl.fixed,
         onPick: (sid) => act(() => api('PUT', `/api/checklist-templates/${r.template_id}/zone-lead`, { zone_id: z.id, staff_id: sid || null }), sid ? 'Đã chọn người phụ trách' : 'Đã bỏ, app tự chọn') })}>👑 Chọn ▾</button>` : null}</div>`;
   };
+  // Giao cả việc của 1 khu cho 1 người trong 1 lần bấm (chủ quán 29/10). Việc đã xong giữ nguyên
+  const giveZone = (z, ps, own) => {
+    const row = (x) => ({ id: x.id, name: x.name, role: x.role, gender: x.gender || '', sub: [x.zone_id ? (zones.find((y) => y.id === x.zone_id)?.name || '') : 'chưa phân khu', x.shift].filter(Boolean).join(' · ') });
+    setPick({ title: `Giao hết việc ${z.name} cho`, list: ps.map(row), more: people.filter((x) => !ps.some((p) => p.id === x.id)).map(row),
+      onPick: (sid) => {
+        if (!sid) return;
+        const jobs = own.map((i) => jobOf(i, z.id)).filter((j) => j && !['done', 'ok'].includes(j.status));
+        const name = people.find((x) => x.id === Number(sid))?.name || '';
+        const other = jobs.filter((j) => j.staff_id && j.staff_id !== Number(sid)).length;
+        if (!confirm(`Giao ${jobs.length} việc của ${z.name} cho ${name}?${other ? `\n(${other} việc đang giao người khác sẽ chuyển sang ${name})` : ''}`)) return;
+        act(async () => { for (const j of jobs) await api('PATCH', `/api/jobs/${j.id}`, { staff_id: Number(sid) }); }, `Đã giao ${jobs.length} việc cho ${name}`);
+      } });
+  };
   const copyZone = (z) => {
     const others = zones.filter((x) => x.id !== z.id);
     if (!confirm(`Chép ${items.filter((i) => i.job_zone_id === z.id).length} việc của ${z.name} sang ${others.map((x) => x.name).join(', ')}?\nViệc trùng tên đã có thì bỏ qua. Chép cả hướng dẫn, thời gian, ảnh mẫu. Việc nào không hợp anh xoá riêng ở từng khu.`)) return;
@@ -297,7 +310,8 @@ function ZoneTasks({ r, o, me, today, canEdit }) {
       <span><b>👑 Giao cả khu cho người phụ trách</b> <small class="muted">việc của khu giao trưởng ca / tổ trưởng khu, tự chỉ đạo nhân sự; việc chung giao Tiếp thực</small></span></label>` : null}
     <p class="small"><b>👥 Khung ${o?.from || '14h'}–${o?.to || '15h30'}: ${people.length} người</b> (Phục vụ ${people.filter((x) => !/tiếp thực|tiep thuc/i.test(x.team || '')).length} · Tiếp thực ${people.filter((x) => /tiếp thực|tiep thuc/i.test(x.team || '')).length})${o?.total ? html` · đã chấm vào ${o.clocked}/${o.total}` : ''}</p>
     ${zones.map((z) => { const ps = people.filter((x) => x.zone_id === z.id); const own = items.filter((i) => i.job_zone_id === z.id); return html`<div class="zt-zone">
-      <div class="zt-head">📍 ${z.name} <small>${ps.length} người (PV ${ps.filter((x) => !/tiếp thực|tiep thuc/i.test(x.team || '')).length} · TT ${ps.filter((x) => /tiếp thực|tiep thuc/i.test(x.team || '')).length}) · ${own.length} việc riêng</small></div>
+      <div class="zt-head">📍 ${z.name} <small>${ps.length} người (PV ${ps.filter((x) => !/tiếp thực|tiep thuc/i.test(x.team || '')).length} · TT ${ps.filter((x) => /tiếp thực|tiep thuc/i.test(x.team || '')).length}) · ${own.length} việc riêng</small>
+        ${lead && own.some((i) => { const j = jobOf(i, z.id); return j && !['done', 'ok'].includes(j.status); }) ? html`<button class="zt-sel" style="margin-left:auto" onClick=${() => giveZone(z, ps, own)}>👤 Giao hết việc khu ▾</button>` : null}</div>
       ${r.lead_mode ? ZoneLead(z, ps) : null}
       ${Who(ps)}
       ${r.zone_photo ? Photo(z) : null}

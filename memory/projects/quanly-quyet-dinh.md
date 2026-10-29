@@ -251,3 +251,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 245 | 29/10 | Màn gọi món: món đã tick "Đã phục vụ" thì ẩn "Huỷ món" / "Xin huỷ"; cần huỷ thì bỏ tick trước. |
 | 246 | 29/10 | Order / tính tiền (`/api/pos`, `/api/payments` ghi) phải đang ở quán: wifi quán hoặc GPS trong bán kính trong 10 phút gần nhất (kể cả chưa chấm công). Bị chặn → app tự lấy vị trí, báo máy chủ rồi thử lại 1 lần. Chủ + quản lý không bị chặn; quán chưa cài GPS/wifi thì bỏ qua. Tắt ở Cài đặt → Chấm công (`pos_need_at_shop`, mặc định bật). |
 | 247 | 29/10 | Sơ đồ bàn: tên người trực có chấm xanh (đã chấm công vào, chưa ra) / xám (chưa vào); khu hiện "X/Y người đang làm". Tách bàn: nút xác nhận lên đầu. |
+| 248 | 29/10 | Việc ca theo khu: nút "👤 Giao hết việc khu ▾" ở đầu mỗi khu (tổ trưởng trở lên) → chọn 1 người (trong khu hoặc khu khác / hỗ trợ) → giao mọi việc chưa xong của khu, việc đang giao người khác chuyển sang (hỏi xác nhận). |
