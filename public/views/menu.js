@@ -1,7 +1,75 @@
 import { useState } from '../vendor/hooks.js';
-import { html, api, act, useData, Loading, Modal, Field, money, atLeast, SaveInput } from '../ui.js';
+import { html, api, act, useData, Loading, Modal, Field, money, atLeast, SaveInput, toast } from '../ui.js';
+import { compressImage } from './checklists.js';
 
 const vnd = (n) => money(n);
+
+// 📷 Nhập từ ảnh menu mới nhất (chủ quán 29/10): món cũ xếp đúng thứ tự menu, món mới thêm vào, giá khác thì hỏi
+function MenuImport({ onClose }) {
+  const [photos, setPhotos] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null);
+  const [pick, setPick] = useState({}); // key → true/false
+  const [edit, setEdit] = useState({}); // key → {name, price}
+  const addPhotos = async (e) => {
+    const files = [...e.target.files]; e.target.value = '';
+    setBusy(true);
+    try { const out = []; for (const f of files.slice(0, 8 - photos.length)) out.push(await compressImage(f, 2000)); setPhotos([...photos, ...out]); } catch (err) { toast(err.message, true); } finally { setBusy(false); }
+  };
+  const read = async () => {
+    setBusy(true);
+    try {
+      const r = await api('POST', '/api/menu/import/read', { photos });
+      const p = {};
+      r.rows.forEach((x, k) => { p[`r${k}`] = x.item_id ? (x.price > 0 && x.price !== x.old_price) || x.old_active === false : true; });
+      setPick(p); setRes(r);
+    } catch (err) { toast(err.message, true); } finally { setBusy(false); }
+  };
+  if (!res) {
+    return html`<${Modal} title="📷 Nhập từ ảnh menu" onClose=${onClose}><div class="stack">
+      <p class="small">Chụp <b>từng trang menu mới nhất</b> (rõ chữ, đủ giá). App đọc rồi cho anh xem lại trước khi lưu:</p>
+      <ul class="small"><li>Món đã có: xếp lại đúng thứ tự như menu (giữ điểm in, định lượng)</li><li>Món mới: thêm vào</li><li>Giá trên menu khác app: anh chọn có đổi không</li></ul>
+      <div class="row wrap tight">${photos.map((ph, k) => html`<span class="thumb"><img src=${ph} style="width:70px;height:90px;object-fit:cover;border-radius:6px" /><button class="link small" onClick=${() => setPhotos(photos.filter((_, j) => j !== k))}>✕</button></span>`)}</div>
+      ${photos.length < 8 ? html`<label class="btn big" style="text-align:center">📷 ${photos.length ? 'Thêm trang' : 'Chụp / chọn ảnh menu'}<input type="file" accept="image/*" multiple style="display:none" onChange=${addPhotos} /></label>` : null}
+      <button class="primary big" disabled=${!photos.length || busy} onClick=${read}>${busy ? 'Đang đọc menu… (có thể mất 1–2 phút)' : `Đọc menu (${photos.length} trang)`}</button>
+    </div><//>`;
+  }
+  const rows = res.rows.map((x, k) => ({ ...x, key: `r${k}`, ...(edit[`r${k}`] || {}) }));
+  const nNew = rows.filter((x) => !x.item_id && pick[x.key]).length;
+  const nPrice = rows.filter((x) => x.item_id && x.price > 0 && x.price !== x.old_price && pick[x.key]).length;
+  const nHide = res.missing.filter((x) => pick[`h${x.id}`]).length;
+  const save = async () => {
+    setBusy(true);
+    const body = {
+      rows: rows.map((x) => ({ item_id: x.item_id, name: x.name, price: Number(String(x.price).replace(/\D/g, '')) || 0, description: x.description, cat_id: x.cat_id, cat_name: x.cat_name, section: x.section,
+        add: !x.item_id && !!pick[x.key], set_price: !!x.item_id && !!pick[x.key] && x.price !== x.old_price, reactivate: !!x.item_id && x.old_active === false && !!pick[x.key] })),
+      hide_ids: res.missing.filter((x) => pick[`h${x.id}`]).map((x) => x.id),
+    };
+    try { const r = await api('POST', '/api/menu/import/apply', body); toast(`Đã xếp theo menu · thêm ${r.added} món · đổi giá ${r.priced} · ẩn ${r.hidden}`); onClose(); } catch (err) { toast(err.message, true); } finally { setBusy(false); }
+  };
+  const sections = [...new Set(rows.map((x) => x.section))];
+  const tick = (k) => setPick({ ...pick, [k]: !pick[k] });
+  return html`<${Modal} title="Xem lại trước khi lưu" onClose=${onClose} wide><div class="stack">
+    <div class="sticky-acts stack tight"><button class="primary big" disabled=${busy} onClick=${save}>${busy ? 'Đang lưu…' : `✓ Lưu: xếp ${rows.filter((x) => x.item_id || pick[x.key]).length} món theo menu · thêm ${nNew} · đổi giá ${nPrice}${nHide ? ` · ẩn ${nHide}` : ''}`}</button></div>
+    ${res.note ? html`<p class="small warn-text">📝 ${res.note}</p>` : null}
+    ${sections.map((sec) => html`<section class="card stack tight"><b>${sec || 'Không rõ nhóm'}</b>
+      ${rows.filter((x) => x.section === sec).map((x) => html`<div class="row between wrap tight" style="border-top:1px solid var(--line);padding-top:6px">
+        ${x.item_id ? html`<span class="grow">${x.old_name}${x.old_name !== x.name ? html` <small class="muted">(menu: ${x.name})</small>` : null}</span>
+          ${x.old_active === false ? html`<label class="check-row small"><input type="checkbox" checked=${!!pick[x.key]} onChange=${() => tick(x.key)} /> Đang ẩn → bật bán lại</label>`
+            : x.price > 0 && x.price !== x.old_price ? html`<label class="check-row small"><input type="checkbox" checked=${!!pick[x.key]} onChange=${() => tick(x.key)} /> Đổi giá ${vnd(x.old_price)} → <b>${vnd(x.price)}</b></label>`
+            : html`<small class="ok-text">✓ đã có · ${vnd(x.old_price)}</small>`}`
+        : html`<label class="check-row" style="flex-basis:100%"><input type="checkbox" checked=${!!pick[x.key]} onChange=${() => tick(x.key)} /> <b class="ok-text">＋ Món mới</b></label>
+          <input style="flex:2 1 10em" value=${x.name} onInput=${(e) => setEdit({ ...edit, [x.key]: { ...(edit[x.key] || {}), name: e.target.value } })} />
+          <input style="width:7em" inputmode="numeric" value=${x.price} onInput=${(e) => setEdit({ ...edit, [x.key]: { ...(edit[x.key] || {}), price: e.target.value } })} />
+          <small class="muted" style="flex-basis:100%">vào danh mục: ${x.cat_name}</small>`}
+      </div>`)}
+    </section>`)}
+    ${res.missing.length ? html`<section class="card stack tight"><b>Có trong app nhưng không thấy trên menu (${res.missing.length})</b>
+      <small class="muted">Để nguyên nếu vẫn bán (topping, món nội bộ…). Tick món đã ngừng bán để ẩn (không xoá, bật lại được).</small>
+      ${res.missing.map((x) => html`<label class="check-row small"><input type="checkbox" checked=${!!pick[`h${x.id}`]} onChange=${() => tick(`h${x.id}`)} /> Ẩn: ${x.name} <small class="muted">${x.cat} · ${vnd(x.price)}</small></label>`)}
+    </section>` : null}
+  </div><//>`;
+}
 
 function ItemForm({ init, menu, kits, ingredients, onClose }) {
   const [f, setF] = useState({
@@ -120,7 +188,8 @@ export function MenuView({ me }) {
   const [edit, setEdit] = useState(null);
   const [tab, setTab] = useState('mon');
   const [newCat, setNewCat] = useState('');
-  const [sell, setSell] = useState(''); // '' tất cả · 'on' đang bán · 'out' đang hết (chủ quán 29/10)
+  const [sell, setSell] = useState('');
+  const [imp, setImp] = useState(false); // '' tất cả · 'on' đang bán · 'out' đang hết (chủ quán 29/10)
   if (!st.data) return html`<${Loading} state=${st} />`;
   const m = st.data;
   const manager = atLeast(me, 'manager');
@@ -145,6 +214,7 @@ export function MenuView({ me }) {
       <input id="menu-q" type="search" placeholder="Tìm món" value=${q} onInput=${(e) => setQ(e.target.value)} />
       <div class="row">
         ${soldOut.length && (atLeast(me, 'manager') || me.acts?.['td.het'] === true) ? html`<button onClick=${() => act(() => api('POST', '/api/menu/reset-sold-out'), 'Đã mở bán lại')}>Mở bán lại ${soldOut.length} món hết</button>` : null}
+        ${manager ? html`<button onClick=${() => setImp(true)}>📷 Nhập từ ảnh menu</button>` : null}
         ${manager ? html`<button class="primary" onClick=${() => setEdit({ category_id: /^\d+$/.test(cat) ? Number(cat) : '' })}>+ Thêm món</button>` : null}
       </div>
     </div>
@@ -166,6 +236,7 @@ export function MenuView({ me }) {
       </div>`)}
       ${!items.length ? html`<div class="empty">Không có món nào.</div>` : null}
     </section>`}
+    ${imp ? html`<${MenuImport} onClose=${() => setImp(false)} />` : null}
     ${edit ? html`<${ItemForm} init=${edit} menu=${m} kits=${(kitsD.data?.kits || []).filter((k) => k.active)} ingredients=${ingredients} onClose=${() => setEdit(null)} />` : null}
   </div>`;
 }

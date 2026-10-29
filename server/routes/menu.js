@@ -1,5 +1,6 @@
 import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
+import { readMenu, billReaderKey } from '../lib/bill-reader.js';
 
 // Thực đơn (GĐ3A): danh mục, món, tuỳ chọn, phần in ra nhiều điểm, công thức trừ kho, điểm in
 export default function (r, ctx) {
@@ -113,6 +114,93 @@ export default function (r, ctx) {
     ctx.audit(me, 'menu.item.create', { id, name: f.name, price: f.price });
     ctx.broadcast('menu');
     return { id };
+  });
+
+  // ---------- Nhập từ ảnh menu mới nhất (chủ quán 29/10) ----------
+  // Đọc ảnh → so với món đang có: món cũ xếp lại đúng thứ tự menu (giữ danh mục, điểm in, công thức), món mới thêm vào, giá khác thì hỏi
+  const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  r.post('/api/menu/import/read', 'manager', async ({ body }) => {
+    const photos = (Array.isArray(body.photos) ? body.photos : []).slice(0, 8);
+    if (!photos.length) fail(400, 'Chụp ít nhất 1 trang menu');
+    const all = db.prepare('SELECT i.id, i.name, i.price, i.active, i.category_id, c.name AS cat FROM menu_items i LEFT JOIN menu_categories c ON c.id = i.category_id').all();
+    const cats = db.prepare('SELECT id, name FROM menu_categories').all();
+    let out;
+    try { out = await (ctx.readMenu || readMenu)(photos, all.filter((i) => i.active), { apiKey: billReaderKey(ctx) }); } catch (e) { fail(502, e.message); }
+    const byId = new Map(all.map((i) => [i.id, i]));
+    const used = new Set();
+    const rows = [];
+    for (const sec of out.sections || []) {
+      const secRows = [];
+      for (const it of sec.items || []) {
+        const name = String(it.name || '').trim().slice(0, 80);
+        if (!name) continue;
+        let m = it.item_id && byId.get(Number(it.item_id));
+        if (!m) m = all.find((x) => !used.has(x.id) && fold(x.name) === fold(name));
+        if (m && used.has(m.id)) m = null; // 1 món chỉ khớp 1 dòng
+        if (m) used.add(m.id);
+        secRows.push({ section: String(sec.name || '').trim().slice(0, 40), name, price: Math.max(0, Math.round(Number(it.price) || 0)), description: String(it.description || '').slice(0, 200),
+          item_id: m?.id || null, old_name: m?.name || '', old_price: m?.price ?? null, old_active: m ? !!m.active : null, cat_id: m?.category_id ?? null, cat_name: m?.cat || '' });
+      }
+      // Món mới: danh mục trùng tên nhóm trên menu → danh mục của món cũ gần nhất trong nhóm → tạo danh mục mới theo tên nhóm
+      const sameCat = cats.find((c) => fold(c.name) === fold(sec.name));
+      secRows.forEach((x, k) => {
+        if (x.item_id) return;
+        const near = [...secRows.slice(0, k).reverse(), ...secRows.slice(k + 1)].find((y) => y.item_id && y.cat_id);
+        const c = sameCat || (near ? { id: near.cat_id, name: near.cat_name } : null);
+        x.cat_id = c?.id ?? null; x.cat_name = c?.name || x.section || 'Món mới';
+      });
+      rows.push(...secRows);
+    }
+    const missing = all.filter((i) => i.active && !used.has(i.id)).map((i) => ({ id: i.id, name: i.name, price: i.price, cat: i.cat || '' }));
+    return { rows, missing, note: out.note || '' };
+  });
+  r.post('/api/menu/import/apply', 'manager', ({ me, body }) => {
+    const rows = (Array.isArray(body.rows) ? body.rows : []).slice(0, 400);
+    const hide = (Array.isArray(body.hide_ids) ? body.hide_ids : []).map(Number).filter((x) => Number.isInteger(x) && x > 0);
+    let added = 0, priced = 0, moved = 0;
+    tx(db, () => {
+      const catOrder = [], perCat = new Map(), placed = new Set();
+      const catId = (x) => {
+        if (x.cat_id && db.prepare('SELECT 1 FROM menu_categories WHERE id = ?').get(Number(x.cat_id))) return Number(x.cat_id);
+        const nm = v.text(x.cat_name || x.section || 'Món mới', { name: 'Tên danh mục', max: 40 }) || 'Món mới';
+        const ex = db.prepare('SELECT id, name FROM menu_categories').all().find((c) => fold(c.name) === fold(nm));
+        if (ex) return ex.id;
+        return Number(db.prepare('INSERT INTO menu_categories (name, sort) VALUES (?, (SELECT COALESCE(MAX(sort), -1) + 1 FROM menu_categories))').run(nm).lastInsertRowid);
+      };
+      for (const x of rows) {
+        let id = x.item_id ? Number(x.item_id) : null, cid;
+        if (id) {
+          const cur = db.prepare('SELECT id, category_id, price FROM menu_items WHERE id = ?').get(id);
+          if (!cur) continue;
+          cid = cur.category_id;
+          if (x.set_price && Number(x.price) > 0 && Number(x.price) !== cur.price) { db.prepare('UPDATE menu_items SET price = ? WHERE id = ?').run(price(x.price), id); priced++; }
+          if (x.reactivate) db.prepare('UPDATE menu_items SET active = 1 WHERE id = ?').run(id);
+        } else {
+          if (!x.add) continue;
+          cid = catId(x);
+          const st = db.prepare('SELECT station_id, COUNT(*) AS n FROM menu_items WHERE category_id = ? AND station_id IS NOT NULL GROUP BY station_id ORDER BY n DESC LIMIT 1').get(cid)?.station_id ?? null;
+          id = Number(db.prepare('INSERT INTO menu_items (category_id, name, description, price, station_id, active, sold_out, sort) VALUES (?, ?, ?, ?, ?, 1, 0, 0)')
+            .run(cid, v.text(x.name, { name: 'Tên món', required: true, max: 80 }), v.text(x.description || '', { name: 'Mô tả', max: 200 }), price(x.price), st).lastInsertRowid);
+          added++;
+        }
+        if (cid != null && !catOrder.includes(cid)) catOrder.push(cid);
+        const n = perCat.get(cid) || 0; perCat.set(cid, n + 1);
+        db.prepare('UPDATE menu_items SET sort = ? WHERE id = ?').run(n, id);
+        placed.add(id);
+        moved++;
+      }
+      // Món trong danh mục mà không có trên menu: xếp sau; danh mục theo thứ tự xuất hiện trên menu, danh mục khác xếp sau
+      for (const [cid, n] of perCat) {
+        const rest = db.prepare('SELECT id FROM menu_items WHERE category_id IS ? ORDER BY sort, id').all(cid).map((x) => x.id).filter((x) => !placed.has(x));
+        rest.forEach((x, k) => db.prepare('UPDATE menu_items SET sort = ? WHERE id = ?').run(n + k, x));
+      }
+      const others = db.prepare('SELECT id FROM menu_categories ORDER BY sort, id').all().map((c) => c.id).filter((x) => !catOrder.includes(x));
+      [...catOrder, ...others].forEach((cid, k) => db.prepare('UPDATE menu_categories SET sort = ? WHERE id = ?').run(k, cid));
+      for (const id of hide) db.prepare('UPDATE menu_items SET active = 0 WHERE id = ?').run(id);
+    });
+    ctx.audit(me, 'menu.import', { rows: rows.length, added, priced, hidden: hide.length });
+    ctx.broadcast('menu');
+    return { ok: true, added, priced, hidden: hide.length, sorted: moved };
   });
 
   // Ai được bấm Hết món / Bán lại: quản lý / chủ, thu ngân (trừ khi chủ quán bỏ tick), hoặc người được tick "td.het"

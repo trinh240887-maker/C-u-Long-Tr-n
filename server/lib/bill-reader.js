@@ -174,3 +174,69 @@ export async function readTimesheet(photos, { fetchImpl = globalThis.fetch, time
   const lines = (out.days || []).filter((d) => d.day && d.month && d.ranges?.length).map((d) => `${pad(d.day)}/${pad(d.month)} : ${d.ranges.map((r) => `${hm(r.start)} - ${hm(r.end)}`).join(' , ')}`);
   return { text: lines.join('\n'), note: out.note || '', usage: data.usage || null };
 }
+
+// ---------- Đọc ảnh menu (chủ quán 29/10): chụp menu mới nhất → thứ tự món, giá, món mới ----------
+const MENU_SCHEMA = {
+  type: 'object', additionalProperties: false,
+  required: ['sections', 'note'],
+  properties: {
+    note: { type: 'string', description: 'Chỗ mờ / không chắc, ngắn gọn tiếng Việt; trống nếu rõ hết' },
+    sections: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        required: ['name', 'items'],
+        properties: {
+          name: { type: 'string', description: 'Tên nhóm món như trên menu (vd STEAK, LẨU, NƯỚC ÉP)' },
+          items: {
+            type: 'array',
+            items: {
+              type: 'object', additionalProperties: false,
+              required: ['item_id', 'name', 'price', 'description'],
+              properties: {
+                item_id: { anyOf: [{ type: 'integer' }, { type: 'null' }], description: 'id món trong DANH SÁCH MÓN nếu đúng món đó, null nếu là món mới' },
+                name: { type: 'string', description: 'Tên món như trên menu' },
+                price: { type: 'integer', description: 'Giá VNĐ số nguyên (vd 79k → 79000), 0 nếu không có giá' },
+                description: { type: 'string', description: 'Mô tả ngắn dưới tên món nếu có, trống nếu không' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+const MENU_SYSTEM = `Bạn đọc ảnh menu (thực đơn) của một nhà hàng ở Việt Nam (steak, lẩu bò, nướng, đồ uống). Có thể nhiều trang.
+Nhiệm vụ: chép lại mọi món THEO ĐÚNG THỨ TỰ trên menu (trang 1 trước, trên xuống dưới, trái sang phải), chia theo nhóm món như menu ghi.
+- Không bỏ món, không bịa món. Giá là VNĐ số nguyên: "79k", "79.000", "79" (ở menu ghi nghìn) đều là 79000.
+- Món có nhiều cỡ / nhiều giá (vd lẩu nhỏ / lớn) thì ghi mỗi cỡ 1 dòng, tên kèm cỡ.
+- item_id: chọn trong DANH SÁCH MÓN bên dưới nếu là ĐÚNG món đó (tên gần giống, viết hoa / không dấu / viết tắt đều được). Món khác hẳn thì null. Không chắc thì null.
+- Chỗ nào mờ thì vẫn ghi phần đọc được và nêu trong note.`;
+
+export async function readMenu(photos, items, { fetchImpl = globalThis.fetch, timeoutMs = 180_000, apiKey = process.env.ANTHROPIC_API_KEY } = {}) {
+  if (!apiKey) throw new Error('Chưa cài đọc ảnh tự động: chủ quán dán mã Claude ở Cài đặt → Kết nối');
+  const images = photos.map((p) => /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(p || ''))).filter(Boolean);
+  if (!images.length) throw new Error('Chưa có ảnh menu hợp lệ');
+  const list = items.map((i) => `${i.id}: ${i.name} (${i.price})`).join('\n');
+  const body = {
+    model: MODEL, max_tokens: 32000, system: MENU_SYSTEM,
+    messages: [{ role: 'user', content: [...images.map(([, media_type, data]) => ({ type: 'image', source: { type: 'base64', media_type, data } })),
+      { type: 'text', text: `DANH SÁCH MÓN ĐANG CÓ TRONG APP (id: tên (giá)):\n${list}\n\nĐọc menu trong ảnh (${images.length} trang) và trả JSON.` }] }],
+    output_config: { effort: 'medium', format: { type: 'json_schema', schema: MENU_SCHEMA } },
+  };
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), timeoutMs);
+  let res, data;
+  try {
+    res = await fetchImpl(URL_, { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2026-10-21' }, body: JSON.stringify(body) });
+    data = await res.json().catch(() => ({}));
+  } catch (e) { throw new Error(e.name === 'AbortError' ? 'Đọc menu quá lâu, thử lại với ít trang hơn' : `Không gọi được máy đọc ảnh: ${e.message}`); } finally { clearTimeout(t); }
+  if (res.status === 401) throw new Error('Mã Claude sai hoặc đã bị xoá: dán lại ở Cài đặt → Kết nối');
+  if (res.status === 402 || (res.status === 400 && /credit|balance|billing/i.test(JSON.stringify(data)))) throw new Error('Tài khoản Claude hết tiền: nạp thêm ở console.anthropic.com');
+  if (res.status === 429) throw new Error('Máy đọc ảnh đang quá tải, thử lại sau 1 phút');
+  if (res.status >= 400) throw new Error(`Máy đọc ảnh báo lỗi ${res.status}: ${data?.error?.message || ''}`.trim());
+  if (data.stop_reason === 'refusal') throw new Error('Máy đọc ảnh từ chối ảnh này');
+  if (data.stop_reason === 'max_tokens') throw new Error('Menu quá dài cho 1 lần đọc: chụp ít trang hơn mỗi lần');
+  const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  try { return JSON.parse(text); } catch { throw new Error('Không đọc được kết quả, thử lại'); }
+}
