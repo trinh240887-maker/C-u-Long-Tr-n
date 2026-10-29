@@ -188,6 +188,7 @@ function Shell({ me, children, path, online }) {
         <button class="small" onClick=${() => window.__DEMO__.reset()}>Làm lại từ đầu</button>
         <button class="small" onClick=${async () => { try { await api('POST', '/api/logout'); window.dispatchEvent(new Event('auth:lost')); } catch (e) { toast(`Chưa đăng xuất được: ${e.message}`, true); } }}>Đổi tài khoản</button></div>` : null}
       ${!online ? html`<div class="banner">Mất kết nối tới máy chủ của quán. Đang thử kết nối lại…</div>` : null}
+      <${NewVerBanner} />
       <main class="content"><${GroupTabs} me=${me} path=${path} />${children}</main>
     </div>
     <nav class="tabbar">
@@ -200,9 +201,27 @@ function Shell({ me, children, path, online }) {
   </div>`;
 }
 
+// Bản app đang chạy (đường dẫn /v/<mã>/app.js). Máy chủ có bản mới → báo tải lại; chuyển trang thì tự tải bản mới
+// (chủ quán 29/10: điện thoại để tab mở sẵn vẫn chạy bản cũ, thiếu mục mới)
+const MY_VER = (/\/v\/([\w-]+)\//.exec(import.meta.url) || [])[1] || null;
+async function checkVersion() {
+  if (!MY_VER || window.__newVer) return;
+  try {
+    const j = await api('GET', '/api/version');
+    if (j?.version && j.version !== 'unknown' && j.version !== MY_VER) { window.__newVer = true; window.dispatchEvent(new Event('newver')); }
+  } catch { /* thử lại lần sau */ }
+}
+
+function NewVerBanner() {
+  const [on, setOn] = useState(!!window.__newVer);
+  useEffect(() => { const f = () => setOn(true); window.addEventListener('newver', f); return () => window.removeEventListener('newver', f); }, []);
+  return on ? html`<div class="banner newver">🔄 Có bản app mới. <button class="small primary" onClick=${() => location.reload()}>Tải lại ngay</button> <small>(chuyển trang khác cũng tự lên bản mới)</small></div>` : null;
+}
+
 function App() {
   const [me, setMe] = useState(undefined);
   const [online, setOnline] = useState(true);
+  useEffect(() => { const t = setInterval(checkVersion, 5 * 60_000); checkVersion(); return () => clearInterval(t); }, []);
   const path = useRoute();
   const live = useLive();
 
@@ -230,14 +249,14 @@ function App() {
       es?.close();
       es = new EventSource('/api/events');
       es.addEventListener('change', () => bump());
-      es.onopen = () => { ok(); bump(); };
+      es.onopen = () => { ok(); bump(); checkVersion(); };
       es.onerror = () => {
         lost();
         // Trình duyệt bỏ cuộc (CLOSED) thì tự mở lại sau 3 giây
         if (es.readyState === 2) retry = setTimeout(open, 3000);
       };
     };
-    const wake = () => { if (document.visibilityState === 'visible' && (!es || es.readyState !== 1)) open(); };
+    const wake = () => { if (document.visibilityState === 'visible') checkVersion(); if (document.visibilityState === 'visible' && (!es || es.readyState !== 1)) open(); };
     open();
     document.addEventListener('visibilitychange', wake);
     window.addEventListener('online', wake);

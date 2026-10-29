@@ -90,6 +90,7 @@ let memPath = '/';
 const currentPath = () => (window.__DEMO__ ? memPath : location.pathname + location.search);
 export function navigate(path) {
   if (currentPath() === path) return;
+  if (window.__newVer && !window.__DEMO__) { location.assign(path); return; } // có bản mới: chuyển trang = tải bản mới
   if (window.__DEMO__) memPath = path;
   else history.pushState(null, '', path);
   window.dispatchEvent(new Event('route'));

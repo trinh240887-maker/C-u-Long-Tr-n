@@ -89,7 +89,7 @@ export const ACT_GROUPS = [
   { name: 'Mua hàng & công nợ', acts: [
     A('mh.nhap', '/mua-hang', 'Nhập kho: chụp bill + hàng', 'staff', [['W', '/api/purchases'], ['W', '/api/purchases/read-bill']]),
     A('mh.xem', '/mua-hang', 'Xem bill đã nhận', 'staff', [['R', '/api/purchases'], ['R', `/api/purchases/photo/${ID}`]]),
-    A('mh.apbill', '/mua-hang', 'Áp bill NCC gửi trước (hàng chưa về)', 'owner', []), // chủ quán 28/10: chỉ người được chỉ định
+    A('mh.apbill', '/mua-hang', 'Áp bill NCC gửi trước (hàng chưa về)', 'manager', []), // chủ quán 28/10: chỉ người được chỉ định
     A('mh.duyet', '/mua-hang', 'Duyệt / trả lại bill', 'shift_lead', [['W', `/api/purchases/${ID}/(approve|return)`]], { team: 'Thu ngân' }),
     A('mh.sua', '/mua-hang', 'Sửa bill', 'shift_lead', [['W', `/api/purchases/${ID}`]], { team: 'Thu ngân' }),
     A('mh.huy', '/mua-hang', 'Huỷ bill', 'manager', [['W', `/api/purchases/${ID}/void`]]),
