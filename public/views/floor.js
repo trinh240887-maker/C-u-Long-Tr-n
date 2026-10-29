@@ -138,8 +138,8 @@ function People({ me, data }) {
     }).join(', ')}</section>` : null}
     ${zones.map((z) => html`<section class="card zone" style=${`--z:${z.color}`}>
       <div class="row between"><h3><i class="sw" style=${`background:${z.color}`}></i> ${z.name} <small class="muted">${z.table_count} bàn</small></h3>
-        ${z.on_now.length ? html`<span class="pill ok">${z.on_now.length} người đang trực</span>` : html`<span class="pill warn">Chưa ai trực</span>`}</div>
-      ${z.on_now.length ? html`<div class="people">${z.on_now.map((s) => html`<span class="person-chip"><b>${s.staff_name}</b> · ${s.tables_text ? `bàn ${s.tables_text}` : 'cả khu'} <small class="muted">${s.text}</small></span>`)}</div>` : null}
+        ${z.on_now.length ? html`<span class=${`pill ${z.on_now.some((s) => !s.working) ? 'warn' : 'ok'}`}>${z.on_now.filter((s) => s.working).length}/${z.on_now.length} người đang làm</span>` : html`<span class="pill warn">Chưa ai trực</span>`}</div>
+      ${z.on_now.length ? html`<div class="people">${z.on_now.map((s) => html`<span class=${`person-chip ${s.working ? '' : 'off'}`} title=${s.working ? 'Đã chấm công vào' : 'Chưa chấm công vào'}><i class=${`dot ${s.working ? 'on' : ''}`}></i><b>${s.staff_name}</b> · ${s.tables_text ? `bàn ${s.tables_text}` : 'cả khu'} <small class="muted">${s.text}</small></span>`)}</div>` : null}
       <div class="tables">${z.tables.map((t) => html`<button class=${`tbl ${t.people.length ? 'on' : ''} ${t.mine ? 'mine' : ''}`} onClick=${() => setPick({ z, t })}>${t.number}</button>`)}</div>
     </section>`)}
     ${pick ? html`<div class="toast" onClick=${() => setPick(null)}>Bàn ${pick.t.number} · ${pick.z.name}: ${pick.t.people.length ? pick.t.people.join(', ') : 'chưa ai phụ trách'}</div>` : null}

@@ -56,6 +56,7 @@ const FIELDS = {
   },
   tz_offset: (x) => { parseOffset(x); return String(x); },
   day_cutoff_hour: (x) => String(v.int(x, { min: 0, max: 12, name: 'Giờ chốt ngày' })),
+  pos_need_at_shop: (x) => (x === false || x === '0' || x === 0 ? '0' : '1'), // order phải ở quán (chủ quán 29/10)
   pos_need_shift: (x) => (x === true || x === '1' || x === 1 ? '1' : '0'), // chỉ người đang trong ca mới order (chủ quán 28/10)
   late_grace_minutes: (x) => String(v.int(x, { min: 0, max: 60, name: 'Số phút cho phép trễ' })),
   clock_early_minutes: (x) => String(v.int(x, { min: 0, max: 240, name: 'Số phút được chấm sớm' })),

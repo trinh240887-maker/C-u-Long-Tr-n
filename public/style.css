@@ -902,3 +902,8 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 /* Khung lương */
 .scale-row { display: grid; grid-template-columns: 1fr 7.5em 5.5em; gap: 8px; align-items: center; }
 .scale-row input, .scale-row select { width: 100%; min-width: 0; }
+
+/* Sơ đồ bàn: chấm xanh = đã chấm công vào, xám = chưa vào / nghỉ */
+.person-chip .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #9ca3af; margin-right: 6px; vertical-align: middle; }
+.person-chip .dot.on { background: #22c55e; box-shadow: 0 0 0 3px color-mix(in srgb, #22c55e 25%, transparent); }
+.person-chip.off { opacity: .6; }

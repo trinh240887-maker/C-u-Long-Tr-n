@@ -84,6 +84,8 @@ export default function (r, ctx) {
       ORDER BY a.start_min`).all(addDays(date, -1), date);
     const groups = new Map();
     for (const a of rows) groups.set(a.group_id, [...(groups.get(a.group_id) || []), a]);
+    // Đang làm thật (đã chấm công vào, chưa chấm ra) → chấm xanh; chưa vào / đã về → xám (chủ quán 29/10: điều phối người)
+    const working = new Map(db.prepare('SELECT staff_id, MIN(clock_in) AS t FROM attendance WHERE clock_out IS NULL GROUP BY staff_id').all().map((x) => [x.staff_id, x.t]));
     const shifts = [...groups.values()].map((segs) => {
       const f = segs[0];
       const ranges = segs.map((s) => ({ start: clock.toEpoch(s.date, s.start_min), end: clock.toEpoch(s.date, s.end_min) }));
@@ -92,6 +94,7 @@ export default function (r, ctx) {
         text: segs.map((s) => `${fmtHM(s.start_min)}–${fmtHM(s.end_min)}`).join(' + '),
         tables: parseTableList(f.tables_text), on_now: ranges.some((x) => x.start <= at && at < x.end),
         start: ranges[0].start, end: ranges.at(-1).end,
+        working: working.has(f.staff_id), clock_in: working.get(f.staff_id) || null,
       };
     }).filter((s) => s.date === date || s.on_now);
     const zs = zones().map((z) => {

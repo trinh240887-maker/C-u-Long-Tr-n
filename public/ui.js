@@ -15,7 +15,18 @@ function deviceId() {
     return d;
   } catch { return ''; }
 }
-export async function api(method, url, body) {
+// Vị trí hiện tại (tối đa 8 giây; máy không cho / GPS treo thì gửi rỗng)
+export function getPlace() {
+  return new Promise((done0) => {
+    let fin = false; const done = (v) => { if (!fin) { fin = true; done0(v); } };
+    setTimeout(() => done({}), 8000);
+    if (!navigator.geolocation) return done({});
+    navigator.geolocation.getCurrentPosition((p) => done({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) }),
+      () => done({}), { enableHighAccuracy: true, timeout: 7000, maximumAge: 60000 });
+  });
+}
+
+export async function api(method, url, body, _retried = false) {
   const opts = { method, headers: {} };
   const dev = deviceId();
   if (dev) opts.headers['X-Device'] = dev;
@@ -32,6 +43,11 @@ export async function api(method, url, body) {
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && url !== '/api/login') {
     window.dispatchEvent(new Event('auth:lost'));
+  }
+  // Order / tính tiền cần đang ở quán: lấy vị trí, báo máy chủ rồi thử lại 1 lần (chủ quán 29/10)
+  if (res.status === 403 && data.code === 'need_location' && !_retried) {
+    try { await api('POST', '/api/attendance/ping', await getPlace(), true); } catch { /* vẫn báo lỗi bên dưới */ }
+    return api(method, url, body, true);
   }
   if (!res.ok) throw new ApiError(data.error || `Lỗi ${res.status}`, res.status);
   return data;

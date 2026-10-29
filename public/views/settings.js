@@ -40,7 +40,7 @@ function General({ s, staff }) {
   const set = (k, v) => setF({ ...f, [k]: v });
   const inp = (k, label, props = {}, hint) => html`<${Field} label=${label} hint=${hint}><input id=${`set-${k}`} value=${f[k]} onInput=${(e) => set(k, e.target.value)} ...${props} /><//>`;
   const save = () => act(() => api('PUT', '/api/settings', {
-    shop_name: f.shop_name, public_url: f.public_url, day_cutoff_hour: f.day_cutoff_hour, late_grace_minutes: f.late_grace_minutes, pos_need_shift: f.pos_need_shift === '1' ? '1' : '0',
+    shop_name: f.shop_name, public_url: f.public_url, day_cutoff_hour: f.day_cutoff_hour, late_grace_minutes: f.late_grace_minutes, pos_need_at_shop: f.pos_need_at_shop === '0' ? '0' : '1', pos_need_shift: f.pos_need_shift === '1' ? '1' : '0',
     clock_early_minutes: f.clock_early_minutes, auto_close_after_minutes: f.auto_close_after_minutes, clock_ip_prefixes: f.clock_ip_prefixes, shop_lat: f.shop_lat, shop_lng: f.shop_lng, clock_radius_m: f.clock_radius_m || '150',
     labor_target_pct: f.labor_target_pct, idle_alert_minutes: f.idle_alert_minutes, count_tolerance_pct: f.count_tolerance_pct, spot_photos_per_run: f.spot_photos_per_run,
     night_bonus_pct: f.night_bonus_pct, pay_period_start_day: f.pay_period_start_day, month_paid_off_days: f.month_paid_off_days, ot_daily_hours: f.ot_daily_hours, ot_rate: f.ot_rate, ot_hour_days: f.ot_hour_days, ot_hour_hours: f.ot_hour_hours, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
@@ -59,6 +59,7 @@ function General({ s, staff }) {
       ${inp('count_tolerance_pct', 'Lệch kiểm kho cho phép (%)', { type: 'number', min: 0, max: 50 }, 'Cân tồn cuối ca lệch so với sổ (đã trừ theo định lượng) quá mức này thì báo chủ quán + quản lý.')}
     </div></section>
     <section class="card"><h3>Chấm công</h3><div class="form-grid">
+      <label class="check-row" style="grid-column:1/-1"><input id="set-pos-atshop" type="checkbox" checked=${f.pos_need_at_shop !== '0'} onChange=${(e) => set('pos_need_at_shop', e.target.checked ? '1' : '0')} /> <span>Order / tính tiền phải <b>đang ở quán</b> (wifi quán hoặc định vị trong bán kính). Chấm công rồi về nhà sẽ không thao tác được. Chủ + quản lý không bị chặn</span></label>
       <label class="check-row" style="grid-column:1/-1"><input id="set-pos-shift" type="checkbox" checked=${f.pos_need_shift === '1'} onChange=${(e) => set('pos_need_shift', e.target.checked ? '1' : '0')} />
         <span><b>Chỉ người đang trong ca mới được order / tính tiền</b><br /><small class="muted">Phải chấm công vào (ở quán) mới gọi món, gửi bếp, huỷ món, thu tiền được; chấm ra rồi hoặc ở nhà thì chỉ xem. Chủ quán + quản lý không bị chặn. Đang trong ca dùng 4G vẫn được.</small></span></label>
       ${inp('late_grace_minutes', 'Cho phép trễ (phút)', { type: 'number', min: 0 })}

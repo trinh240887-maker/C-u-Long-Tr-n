@@ -4,7 +4,7 @@ export class HttpError extends Error {
     this.status = status;
   }
 }
-export const fail = (status, message) => { throw new HttpError(status, message); };
+export const fail = (status, message, code) => { const e = new HttpError(status, message); if (code) e.code = code; throw e; };
 
 // Kiểm tra dữ liệu gửi lên
 export const v = {

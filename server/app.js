@@ -277,6 +277,12 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
           fail(403, 'Bạn chưa chấm công vào ca (hoặc đã chấm ra) nên chưa thao tác order / tính tiền được. Chấm công vào ở trang Hôm nay.');
         }
         try { ctx.seenAtShop?.(me, net); } catch { /* không chặn lệnh */ }
+        // Chủ quán 29/10: chấm công rồi về nhà vẫn order được → order / tính tiền phải đang ở quán (wifi quán hoặc GPS trong 10 phút).
+        // Chủ + quản lý không bị chặn. Tắt ở Cài đặt → Chấm công (pos_need_at_shop = 0). Quán chưa cài GPS / wifi thì không kiểm được, bỏ qua
+        if (me && req.method !== 'GET' && /^\/api\/(pos|payments)\//.test(pathname) && rank(me.real_role || me.role) < rank('manager')
+          && ctx.setting('pos_need_at_shop') !== '0' && ctx.shopCheckable?.() && !ctx.onShopWifi?.(net) && !ctx.atShopRecently?.(me.id)) {
+          fail(403, '📍 Bạn đang ở ngoài quán nên chưa order / tính tiền được. Bật định vị cho app (hoặc vào wifi quán) rồi bấm lại.', 'need_location');
+        }
         if (req.method !== 'GET') {
           // Chỉ nhận JSON để chặn trang web lạ gửi lệnh thay người dùng
           if (!(req.headers['content-type'] || '').startsWith('application/json')) fail(415, 'Cần gửi dữ liệu dạng JSON');
@@ -295,7 +301,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
       if (req.method !== 'GET') fail(405, 'Không hỗ trợ');
       return serveStatic(res, pathname, req);
     } catch (err) {
-      if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message });
+      if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message, ...(err.code ? { code: err.code } : {}) });
       console.error(err);
       return sendJson(res, 500, { error: 'Lỗi máy chủ, thử lại sau' });
     }

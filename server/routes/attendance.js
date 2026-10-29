@@ -229,8 +229,13 @@ export default function (r, ctx) {
   const markSeen = (staffId, how) => db.prepare("UPDATE attendance SET last_seen_at = ?, last_seen_how = ? WHERE staff_id = ? AND clock_out IS NULL").run(ctx.now(), how, staffId);
   const seenThrottle = new Map();
   // Mỗi lệnh API từ wifi quán (app.js gọi) → cập nhật, tối đa 1 lần / 2 phút / người
+  // Lần cuối thấy ở quán (wifi quán / GPS trong bán kính), kể cả chưa chấm công → dùng để chặn order từ xa (chủ quán 29/10)
+  const lastAtShop = new Map();
+  ctx.atShopRecently = (id, ms = 10 * 60_000) => ctx.now() - (lastAtShop.get(id) || 0) <= ms;
+  ctx.shopCheckable = () => { const p = place(); return p.gps || p.prefixes.length > 0; };
   ctx.seenAtShop = (me, net) => {
     if (!me || !onShopWifi(net)) return;
+    lastAtShop.set(me.id, ctx.now());
     const k = seenThrottle.get(me.id) || 0;
     if (ctx.now() - k < 120_000) return;
     seenThrottle.set(me.id, ctx.now());
@@ -238,16 +243,16 @@ export default function (r, ctx) {
   };
   // App đang mở trên màn hình gửi vị trí mỗi 5 phút khi đang trong ca
   r.post('/api/attendance/ping', 'staff', ({ me, net, body }) => {
-    if (!db.prepare('SELECT 1 FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id)) return { open: false };
-    if (onShopWifi(net)) { markSeen(me.id, 'wifi quán'); return { open: true, at_shop: true }; }
+    const open = !!db.prepare('SELECT 1 FROM attendance WHERE staff_id = ? AND clock_out IS NULL').get(me.id);
+    if (onShopWifi(net)) { lastAtShop.set(me.id, ctx.now()); if (open) markSeen(me.id, 'wifi quán'); return { open, at_shop: true }; }
     const p = place();
     const lat = Number(body?.lat), lng = Number(body?.lng), acc = Math.max(0, Number(body?.acc) || 0);
     if (p.gps && Number.isFinite(lat) && Number.isFinite(lng) && (lat || lng) && acc <= 1000) {
       const d = Math.round(distM(p.lat, p.lng, lat, lng));
-      if (d <= p.radius + Math.min(acc, 100)) { markSeen(me.id, `GPS cách quán ${d}m`); return { open: true, at_shop: true }; }
-      return { open: true, at_shop: false, dist: d };
+      if (d <= p.radius + Math.min(acc, 100)) { lastAtShop.set(me.id, ctx.now()); if (open) markSeen(me.id, `GPS cách quán ${d}m`); return { open, at_shop: true }; }
+      return { open, at_shop: false, dist: d };
     }
-    return { open: true, at_shop: null };
+    return { open, at_shop: null };
   });
 
   r.post('/api/attendance/clock-in', 'staff', ({ req, res, me, net, body }) => {
