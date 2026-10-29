@@ -111,12 +111,15 @@ export const ACT_GROUPS = [
     A('wh.xem', '/kho-tx', 'Kho & Tài sản: xem', 'staff', [['R', '/api/wh/.*']]),
     A('wh.lam', '/kho-tx', 'Kho & Tài sản: lập / duyệt chứng từ, tài sản', 'staff', [['W', '/api/wh/.*']]),
   ] },
+  // Nhóm riêng cho dễ tìm (chủ quán 29/10: cho thu ngân xem máy in)
+  { name: 'Máy in', acts: [
+    A('in.xem', '/may-in', 'Máy in: xem, in lại', 'shift_lead', [['R', '/api/print/status'], ['W', '/api/print/retry']]),
+    A('in.sua', '/may-in', 'Máy in: cài đặt, in thử', 'manager', [['*', '/api/print/(settings|test|setup\\.bat)']]),
+  ] },
   { name: 'Báo cáo & quản lý', acts: [
     A('bc.tongquan', '/quan-ly', 'Xem trang Quản lý (tổng quan)', 'shift_lead', [['R', '/api/dashboard']]),
     A('bc.doanhthu', '/bao-cao', 'Báo cáo doanh thu', 'manager', [['R', '/api/reports/sales(\\.xlsx)?']]),
     A('bc.nhansu', '/bao-cao', 'Báo cáo nhân sự (lương / giờ)', 'manager', [['R', '/api/reports/labor(\\.xlsx)?']]),
-    A('in.xem', '/may-in', 'Máy in: xem, in lại', 'shift_lead', [['R', '/api/print/status'], ['W', '/api/print/retry']]),
-    A('in.sua', '/may-in', 'Máy in: cài đặt, in thử', 'manager', [['*', '/api/print/(settings|test|setup\\.bat)']]),
     A('cd.sua', '/cai-dat', 'Cài đặt chung, khu & bàn, Zalo, sao lưu', 'manager', [['*', '/api/settings(/zalo-test)?'], ['W', `/api/zones(/${ID})?`], ['*', '/api/zalo-bot/.*'], ['W', '/api/backup'], ['R', '/api/bank/settings']]),
     A('cd.nhatky', '/cai-dat', 'Xem nhật ký thao tác', 'manager', [['R', '/api/audit']]),
   ] },
