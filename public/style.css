@@ -883,3 +883,9 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 .round-head:first-child { margin-top: 0; }
 /* Nút xác nhận chọn bàn nằm trên, dính khi cuộn (29/10) */
 .sticky-acts { position: sticky; top: 0; z-index: 2; background: var(--card, var(--bg, #fff)); padding: 6px 0; }
+
+/* Ô tick "Đã phục vụ" trên từng món đã gửi bếp (chủ quán 29/10) */
+.served-tick { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 10px; min-height: 40px; margin-right: auto; cursor: pointer; }
+.served-tick input { width: 22px; height: 22px; margin: 0; }
+.served-tick.on { color: var(--ok, #2e7d32); border-color: currentColor; }
+.ol.done b { opacity: .6; }

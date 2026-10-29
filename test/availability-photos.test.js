@@ -214,7 +214,8 @@ test('thực đơn: có sẵn menu quán, sửa giá/công thức, tổ trưởn
   await o('POST', '/api/staff', { name: 'Tài', role: 'team_lead', team_id: bep, pin: '6152' });
   const T = mk();
   await T('POST', '/api/login', { pin: '6152' });
-  assert.equal((await T('PATCH', `/api/menu/items/${combo3.id}`, { sold_out: true })).status, 200);
+  assert.equal((await T('PATCH', `/api/menu/items/${combo3.id}`, { sold_out: true })).status, 403); // chủ quán 29/10: tổ trưởng không bấm Hết món
+  assert.equal((await o('PATCH', `/api/menu/items/${combo3.id}`, { sold_out: true })).status, 200);
   assert.equal((await T('PATCH', `/api/menu/items/${combo3.id}`, { price: 1000 })).status, 403);
   assert.equal((await o('GET', '/api/menu')).data.items.find((i) => i.id === combo3.id).sold_out, true);
   assert.equal((await T('POST', '/api/menu/reset-sold-out')).status, 403);

@@ -143,7 +143,7 @@ export function MenuView({ me }) {
     <div class="row between wrap">
       <input id="menu-q" type="search" placeholder="Tìm món" value=${q} onInput=${(e) => setQ(e.target.value)} />
       <div class="row">
-        ${soldOut.length && atLeast(me, 'shift_lead') ? html`<button onClick=${() => act(() => api('POST', '/api/menu/reset-sold-out'), 'Đã mở bán lại')}>Mở bán lại ${soldOut.length} món hết</button>` : null}
+        ${soldOut.length && (atLeast(me, 'manager') || me.acts?.['td.het'] === true) ? html`<button onClick=${() => act(() => api('POST', '/api/menu/reset-sold-out'), 'Đã mở bán lại')}>Mở bán lại ${soldOut.length} món hết</button>` : null}
         ${manager ? html`<button class="primary" onClick=${() => setEdit({ category_id: /^\d+$/.test(cat) ? Number(cat) : '' })}>+ Thêm món</button>` : null}
       </div>
     </div>
@@ -160,7 +160,7 @@ export function MenuView({ me }) {
           <br /><small class="muted">${i.description}${i.description ? ' · ' : ''}${i.parts.length ? i.parts.map((p) => stName(p.station_id)).filter((x, k, a) => a.indexOf(x) === k).join(' + ') : stName(i.station_id) || 'không in'}${i.options.length ? ` · ${[...new Set(i.options.map((o) => o.group_name))].join(', ')}` : ''}${i.recipe.length ? ` · ${i.recipe.length} NL` : ''}</small>
         </button>
         <b class="num">${vnd(i.price)}</b>
-        ${(atLeast(me, 'team_lead') || me.acts?.['td.het'] === true) && i.active ? html`<button class=${`small ${i.sold_out ? 'primary' : ''}`} onClick=${() => act(() => api('PATCH', `/api/menu/items/${i.id}`, { sold_out: !i.sold_out }), i.sold_out ? 'Đã bán lại' : 'Đã báo hết món')}>${i.sold_out ? 'Bán lại' : 'Hết'}</button>` : null}
+        ${(atLeast(me, 'manager') || me.acts?.['td.het'] === true) && i.active ? html`<button class=${`small ${i.sold_out ? 'primary' : ''}`} onClick=${() => act(() => api('PATCH', `/api/menu/items/${i.id}`, { sold_out: !i.sold_out }), i.sold_out ? 'Đã bán lại' : 'Đã báo hết món')}>${i.sold_out ? 'Bán lại' : 'Hết'}</button>` : null}
       </div>`)}
       ${!items.length ? html`<div class="empty">Không có món nào.</div>` : null}
     </section>`}

@@ -8,7 +8,7 @@ import { createApp } from '../server/app.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-test('thu ngân bấm Hết món / Bán lại; phục vụ đang trong ca nhận thông báo; phục vụ thường không bấm được', async (t) => {
+test('chỉ quản lý + thu ngân bấm Hết món / Bán lại; phục vụ đang trong ca nhận thông báo; phục vụ thường không bấm được', async (t) => {
   const db = openDb(':memory:');
   const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
   const server = http.createServer(app.handler);
@@ -22,13 +22,21 @@ test('thu ngân bấm Hết món / Bán lại; phục vụ đang trong ca nhận
   const teams = (await o('GET', '/api/teams')).data;
   const tid = (n) => teams.find((x) => x.name === n).id;
   await o('POST', '/api/staff', { name: 'Ngân', role: 'staff', team_id: tid('Thu ngân'), pin: '7361' });
+  await o('POST', '/api/staff', { name: 'Trưởng ca', role: 'shift_lead', team_id: tid('Phục vụ'), pin: '7363' });
+  await o('POST', '/api/staff', { name: 'Tổ trưởng', role: 'team_lead', team_id: tid('Phục vụ'), pin: '7364' });
   const pvId = (await o('POST', '/api/staff', { name: 'Phúc', role: 'staff', team_id: tid('Phục vụ'), pin: '7362' })).data.id;
   const login = async (pin, np) => { const c = mk(); await c('POST', '/api/login', { pin }); await c('POST', '/api/me/pin', { current_pin: pin, new_pin: np }); return c; };
   const tn = await login('7361', '8361');
   const pv = await login('7362', '8362');
+  const tc = await login('7363', '8363');
+  const tt = await login('7364', '8364');
   db.prepare('INSERT INTO assignments (group_id, staff_id, team_id, date, start_min, end_min, created_at) VALUES (?, ?, ?, ?, 600, 1380, 0)').run('g1', pvId, tid('Phục vụ'), app.ctx.today());
   const item = db.prepare('SELECT id, name FROM menu_items WHERE active = 1 LIMIT 1').get();
   assert.equal((await pv('PATCH', `/api/menu/items/${item.id}`, { sold_out: true })).status, 403);
+  // Chủ quán 29/10: trưởng ca, tổ trưởng không bấm Hết / Bán lại
+  assert.equal((await tc('PATCH', `/api/menu/items/${item.id}`, { sold_out: true })).status, 403);
+  assert.equal((await tt('PATCH', `/api/menu/items/${item.id}`, { sold_out: true })).status, 403);
+  assert.equal((await tc('POST', '/api/menu/reset-sold-out')).status, 403);
   const r = await tn('PATCH', `/api/menu/items/${item.id}`, { sold_out: true });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(db.prepare('SELECT sold_out FROM menu_items WHERE id = ?').get(item.id).sold_out, 1);

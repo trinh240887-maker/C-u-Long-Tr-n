@@ -446,7 +446,7 @@ export default function (r, ctx) {
     if (rank(me.real_role || me.role) < rank('shift_lead') && overridesOf(ctx, me.id)['ban.huy'] !== true) fail(403, 'Món đã gửi bếp: báo trưởng ca hoặc quản lý huỷ');
     const late = i.status === 'done' || ctx.now() - (i.sent_at || 0) > CANCEL_GRACE_MS; // quá 2 phút: không trả kho
     const soldOut = v.bool(body.sold_out);
-    if (soldOut && rank(me.role) < rank('team_lead')) fail(403, 'Chỉ tổ trưởng trở lên mới báo hết món');
+    if (soldOut && !ctx.canSoldOut(me)) fail(403, 'Báo hết món: chỉ quản lý hoặc thu ngân');
     const s = session(i.session_id);
     tx(db, () => {
       db.prepare("UPDATE order_items SET status = 'cancelled', cancelled_at = ?, cancelled_by = ?, cancel_reason = ? WHERE id = ?").run(ctx.now(), me.id, reason, i.id);

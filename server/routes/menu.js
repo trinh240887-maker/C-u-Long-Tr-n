@@ -115,13 +115,22 @@ export default function (r, ctx) {
     return { id };
   });
 
+  // Ai được bấm Hết món / Bán lại: quản lý / chủ, thu ngân (trừ khi chủ quán bỏ tick), hoặc người được tick "td.het"
+  const canSoldOut = (me) => {
+    if (rank(me.real_role || me.role) >= rank('manager')) return true;
+    let actHet;
+    try { actHet = JSON.parse(ctx.setting('perm_user') || '{}')[String(me.id)]?.['td.het']; } catch {}
+    if (actHet === true) return true;
+    const isCashier = !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id);
+    return isCashier && actHet !== false;
+  };
+  ctx.canSoldOut = canSoldOut;
+
   r.patch('/api/menu/items/:id', 'staff', ({ me, params, body }) => {
     const cur = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(params.id);
     if (!cur) fail(404, 'Không tìm thấy món');
-    // Hết món / bán lại: tổ trưởng trở lên, thu ngân, hoặc người chủ quán tick riêng "Báo hết món" (chủ quán 29/10)
-    const isCashier = !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id);
-    const actHet = (() => { try { return JSON.parse(ctx.setting('perm_user') || '{}')[String(me.id)]?.['td.het']; } catch { return undefined; } })();
-    if (rank(me.role) < rank('team_lead') && !((isCashier && actHet !== false) || actHet === true)) fail(403, 'Chỉ tổ trưởng / thu ngân trở lên báo hết món');
+    // Hết món / bán lại: chỉ quản lý / chủ, thu ngân, hoặc người chủ quán tick riêng "Báo hết món" (chủ quán 29/10: trưởng ca, tổ trưởng không bấm)
+    if (!canSoldOut(me)) fail(403, 'Chỉ quản lý hoặc thu ngân báo hết món / bán lại');
     // Tổ trưởng / trưởng ca chỉ được bật tắt "Hết món"; sửa giá, công thức cần quản lý
     if (rank(me.role) < rank('manager') && Object.keys(body).some((k) => k !== 'sold_out')) fail(403, 'Chỉ quản lý mới sửa được món; bạn chỉ bật/tắt "Hết món"');
     const f = itemFields(body, cur);
@@ -158,7 +167,8 @@ export default function (r, ctx) {
   });
 
   // Mở lại mọi món "hết" (đầu ngày)
-  r.post('/api/menu/reset-sold-out', 'shift_lead', ({ me }) => {
+  r.post('/api/menu/reset-sold-out', 'staff', ({ me }) => {
+    if (!canSoldOut(me)) fail(403, 'Chỉ quản lý hoặc thu ngân mở bán lại');
     const n = db.prepare('UPDATE menu_items SET sold_out = 0 WHERE sold_out = 1').run().changes;
     ctx.audit(me, 'menu.soldout.reset', { n });
     ctx.broadcast('menu');

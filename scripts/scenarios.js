@@ -178,13 +178,14 @@ export async function run({ quiet = false } = {}) {
     expect(r1.status === 403 && r2.status === 200, `${r1.status}/${r2.status}`);
     return r1.data.error;
   });
-  await step('Bếp báo hết nguyên liệu → trưởng ca huỷ + báo HẾT MÓN → không ai gọi được nữa', async () => {
+  await step('Bếp báo hết nguyên liệu → quản lý huỷ + báo HẾT MÓN (trưởng ca không được báo hết) → không ai gọi được nữa', async () => {
     const B = await open(pv2, 13);
     const id = await add(pv2, B, 'Bò ướp mala 100g');
     await send(pv2, B);
     now += 3 * 60_000;
     expect((await bep('POST', `/api/pos/items/${id}/cancel`, { reason: 'Hết nguyên liệu', sold_out: true })).status === 403, 'tổ trưởng bếp tự huỷ được');
-    const r = await lead('POST', `/api/pos/items/${id}/cancel`, { reason: 'Hết nguyên liệu', sold_out: true });
+    expect((await lead('POST', `/api/pos/items/${id}/cancel`, { reason: 'Hết nguyên liệu', sold_out: true })).status === 403, 'trưởng ca báo hết món được');
+    const r = await owner('POST', `/api/pos/items/${id}/cancel`, { reason: 'Hết nguyên liệu', sold_out: true });
     expect(r.status === 200, r.data?.error);
     const again = await pv1('POST', `/api/pos/sessions/${A}/items`, { menu_item_id: M('Bò ướp mala 100g').id });
     expect(again.status === 400, `vẫn gọi được (${again.status})`);

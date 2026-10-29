@@ -66,7 +66,7 @@ export const ACT_GROUPS = [
     A('datban.tao', '/dat-ban', 'Tạo / sửa / xác nhận đặt bàn', 'shift_lead', [['W', `/api/reservations(/${ID}(/arrive|/confirm|/reject)?)?`]]),
   ] },
   { name: 'Thực đơn & khuyến mãi', acts: [
-    A('td.het', '/thuc-don', 'Báo hết món / mở bán lại', 'team_lead', [['W', '/api/menu/reset-sold-out']], { team: 'Thu ngân' }), // thu ngân báo hết món (chủ quán 29/10)
+    A('td.het', '/thuc-don', 'Báo hết món / mở bán lại', 'manager', [['W', '/api/menu/reset-sold-out']], { team: 'Thu ngân' }), // thu ngân báo hết món (chủ quán 29/10)
     A('td.sua', '/thuc-don', 'Thêm / sửa món, định lượng, danh mục', 'manager', [['W', `/api/menu/(items|categories)(/${ID})?`], ['W', `/api/kitchen-stations(/${ID})?`]]),
     A('km.sua', '/khuyen-mai', 'Tạo / sửa khuyến mãi', 'manager', [['W', `/api/promotions(/${ID})?`]]),
   ] },
