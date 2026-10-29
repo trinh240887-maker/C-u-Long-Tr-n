@@ -120,6 +120,7 @@ export function MenuView({ me }) {
   const [edit, setEdit] = useState(null);
   const [tab, setTab] = useState('mon');
   const [newCat, setNewCat] = useState('');
+  const [sell, setSell] = useState(''); // '' tất cả · 'on' đang bán · 'out' đang hết (chủ quán 29/10)
   if (!st.data) return html`<${Loading} state=${st} />`;
   const m = st.data;
   const manager = atLeast(me, 'manager');
@@ -132,7 +133,7 @@ export function MenuView({ me }) {
   const bigs = [...BIG4.map(([n]) => n), 'Khác'].filter((n) => m.categories.some((c) => bigOf(c.id) === n));
   const inCat = (i) => !cat || (/^\d+$/.test(cat) ? i.category_id === Number(cat) : bigOf(i.category_id) === cat);
   const big = !cat ? '' : /^\d+$/.test(cat) ? bigOf(Number(cat)) : cat;
-  const items = m.items.filter((i) => (!noRecipe || (i.active && !i.recipe.length)) && inCat(i) && (!q || i.name.toLowerCase().includes(q.toLowerCase())) && (manager || i.active))
+  const items = m.items.filter((i) => (!noRecipe || (i.active && !i.recipe.length)) && inCat(i) && (!sell || (sell === 'out' ? i.active && i.sold_out : i.active && !i.sold_out)) && (!q || i.name.toLowerCase().includes(q.toLowerCase())) && (manager || i.active))
     .sort((a, b) => catOrder(a.category_id) - catOrder(b.category_id) || a.sort - b.sort || a.id - b.id);
   const catName = (id) => m.categories.find((c) => c.id === id)?.name || 'Chưa có danh mục';
   const soldOut = m.items.filter((i) => i.sold_out && i.active);
@@ -148,6 +149,7 @@ export function MenuView({ me }) {
       </div>
     </div>
     ${manager && missing.length ? html`<button class=${`chip ${noRecipe ? 'on' : ''}`} style="align-self:flex-start" onClick=${() => setNoRecipe(!noRecipe)}>⚠ ${missing.length} món chưa có định lượng${noRecipe ? ' · bỏ lọc' : ' · xem'}</button>` : null}
+    <div class="chips">${[['', 'Tất cả'], ['on', `✅ Đang bán ${m.items.filter((i) => i.active && !i.sold_out).length}`], ['out', `⛔ Đang hết ${m.items.filter((i) => i.active && i.sold_out).length}`]].map(([k, l]) => html`<button class=${`chip ${sell === k ? 'on' : ''}`} onClick=${() => setSell(k)}>${l}</button>`)}</div>
     <div class="chips"><button class=${`chip ${!cat ? 'on' : ''}`} onClick=${() => setCat('')}>Tất cả <small>${m.items.filter((i) => i.active).length}</small></button>
       ${bigs.map((b) => html`<button class=${`chip big ${big === b ? 'on' : ''}`} onClick=${() => setCat(b)}>${b} <small>${m.items.filter((i) => i.active && bigOf(i.category_id) === b).length}</small></button>`)}</div>
     ${big ? html`<div class="chips small-chips">${m.categories.filter((c) => bigOf(c.id) === big).map((c) => html`<button class=${`chip ${cat === String(c.id) ? 'on' : ''} ${c.active ? '' : 'off'}`} onClick=${() => setCat(cat === String(c.id) ? big : String(c.id))}>${c.name} <small>${m.items.filter((i) => i.category_id === c.id && i.active).length}</small></button>`)}</div>` : null}
