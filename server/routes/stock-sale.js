@@ -32,8 +32,11 @@ export default function (r, ctx) {
   const mainStore = () => db.prepare("SELECT * FROM stores WHERE kind = 'main' AND active = 1 ORDER BY id LIMIT 1").get();
   const storeOf = (ing) => (ctx.setting('single_store') === '1' ? mainStore()?.id : ing.home_store_id || mainStore()?.id);
   const recipe = (menuItemId) => db.prepare(`SELECT r.qty, g.* FROM menu_recipes r JOIN ingredients g ON g.id = r.ingredient_id WHERE r.item_id = ?`).all(menuItemId);
+  // Người cần biết món hết / sắp hết: chủ + quản lý luôn nhận; trưởng ca, tổ trưởng, phục vụ, tiếp thực, thu ngân chỉ khi ĐANG TRONG CA hôm nay (chủ quán 29/10)
   const kitchenAndService = () => db.prepare(`SELECT s.id FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.active = 1
-    AND (s.role IN ('owner','manager','shift_lead','team_lead') OR t.name IN ('Phục vụ','Tiếp thực'))`).all().map((x) => x.id);
+    AND (s.role IN ('owner','manager') OR ((s.role IN ('shift_lead','team_lead') OR t.name IN ('Phục vụ','Tiếp thực','Thu ngân'))
+      AND (EXISTS (SELECT 1 FROM attendance a WHERE a.staff_id = s.id AND a.clock_out IS NULL) OR EXISTS (SELECT 1 FROM assignments a WHERE a.staff_id = s.id AND a.date = ?))))`).all(ctx.today()).map((x) => x.id);
+  ctx.soldOutAudience = kitchenAndService;
 
   // Nguyên liệu "đang theo dõi" = đã từng nhập kho / kiểm kho; chưa theo dõi thì không khoá món (tránh khoá cả thực đơn khi mới nhập định lượng)
   const tracked = (ingId) => !!db.prepare("SELECT 1 FROM stock_moves WHERE ingredient_id = ? AND type IN ('receive','adjust','transfer') LIMIT 1").get(ingId)

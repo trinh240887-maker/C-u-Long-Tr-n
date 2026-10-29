@@ -115,9 +115,13 @@ export default function (r, ctx) {
     return { id };
   });
 
-  r.patch('/api/menu/items/:id', 'team_lead', ({ me, params, body }) => {
+  r.patch('/api/menu/items/:id', 'staff', ({ me, params, body }) => {
     const cur = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(params.id);
     if (!cur) fail(404, 'Không tìm thấy món');
+    // Hết món / bán lại: tổ trưởng trở lên, thu ngân, hoặc người chủ quán tick riêng "Báo hết món" (chủ quán 29/10)
+    const isCashier = !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id);
+    const actHet = (() => { try { return JSON.parse(ctx.setting('perm_user') || '{}')[String(me.id)]?.['td.het']; } catch { return undefined; } })();
+    if (rank(me.role) < rank('team_lead') && !((isCashier && actHet !== false) || actHet === true)) fail(403, 'Chỉ tổ trưởng / thu ngân trở lên báo hết món');
     // Tổ trưởng / trưởng ca chỉ được bật tắt "Hết món"; sửa giá, công thức cần quản lý
     if (rank(me.role) < rank('manager') && Object.keys(body).some((k) => k !== 'sold_out')) fail(403, 'Chỉ quản lý mới sửa được món; bạn chỉ bật/tắt "Hết món"');
     const f = itemFields(body, cur);
@@ -126,6 +130,14 @@ export default function (r, ctx) {
         .run(f.category_id, f.name, f.description, f.price, f.station_id, f.kit_id, f.active, f.sold_out, cur.id);
       saveExtras(cur.id, body);
     });
+    // Bấm tay Hết món / Bán lại → báo phục vụ, thu ngân, trưởng ca đang trong ca (chủ quán 29/10)
+    if (body.sold_out !== undefined && !!f.sold_out !== !!cur.sold_out) {
+      const to = (ctx.soldOutAudience ? ctx.soldOutAudience() : []).filter((x) => x !== me.id);
+      if (to.length) ctx.notify(to, f.sold_out
+        ? { title: `⛔ Hết món: ${f.name}`, body: `${me.name} báo hết. Báo khách chọn món khác.`, link: '/thuc-don', urgent: true }
+        : { title: `✅ Bán lại: ${f.name}`, body: `${me.name} mở bán lại.`, link: '/thuc-don' });
+      if (!f.sold_out) db.prepare('UPDATE menu_items SET auto_sold_out = 0 WHERE id = ?').run(cur.id);
+    }
     ctx.audit(me, body.sold_out !== undefined && Object.keys(body).length === 1 ? 'menu.item.soldout' : 'menu.item.update',
       { id: cur.id, name: f.name, ...(f.price !== cur.price ? { price: [cur.price, f.price] } : {}), ...(body.sold_out !== undefined ? { sold_out: f.sold_out } : {}) });
     ctx.broadcast('menu');

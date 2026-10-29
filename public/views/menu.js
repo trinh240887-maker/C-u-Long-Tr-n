@@ -160,7 +160,7 @@ export function MenuView({ me }) {
           <br /><small class="muted">${i.description}${i.description ? ' · ' : ''}${i.parts.length ? i.parts.map((p) => stName(p.station_id)).filter((x, k, a) => a.indexOf(x) === k).join(' + ') : stName(i.station_id) || 'không in'}${i.options.length ? ` · ${[...new Set(i.options.map((o) => o.group_name))].join(', ')}` : ''}${i.recipe.length ? ` · ${i.recipe.length} NL` : ''}</small>
         </button>
         <b class="num">${vnd(i.price)}</b>
-        ${atLeast(me, 'team_lead') && i.active ? html`<button class=${`small ${i.sold_out ? 'primary' : ''}`} onClick=${() => act(() => api('PATCH', `/api/menu/items/${i.id}`, { sold_out: !i.sold_out }), i.sold_out ? 'Đã bán lại' : 'Đã báo hết món')}>${i.sold_out ? 'Bán lại' : 'Hết'}</button>` : null}
+        ${(atLeast(me, 'team_lead') || me.acts?.['td.het'] === true) && i.active ? html`<button class=${`small ${i.sold_out ? 'primary' : ''}`} onClick=${() => act(() => api('PATCH', `/api/menu/items/${i.id}`, { sold_out: !i.sold_out }), i.sold_out ? 'Đã bán lại' : 'Đã báo hết món')}>${i.sold_out ? 'Bán lại' : 'Hết'}</button>` : null}
       </div>`)}
       ${!items.length ? html`<div class="empty">Không có món nào.</div>` : null}
     </section>`}

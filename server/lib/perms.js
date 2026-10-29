@@ -21,7 +21,7 @@ export const PAGES = [
   { path: '/viec', label: 'Việc', role: 'staff', api: [['/api/tasks', 'all']] },
   { path: '/dat-ban', label: 'Đặt bàn', role: 'shift_lead', api: [['/api/reservations', 'all'], ['/api/waitlist', 'all']] },
   { path: '/phieu-bep', label: 'Phiếu bếp (máy in hỏng)', role: 'staff', teamsDefault: /bếp|bep|bar|lẩu|lau|nướng/i },
-  { path: '/thuc-don', label: 'Thực đơn', role: 'team_lead', api: [['/api/menu/items', 'w'], ['/api/menu/categories', 'w']] },
+  { path: '/thuc-don', label: 'Thực đơn', role: 'team_lead', team: 'Thu ngân', api: [['/api/menu/items', 'w'], ['/api/menu/categories', 'w']] },
   { path: '/ranh', label: 'Lịch rảnh', role: 'staff', api: [['/api/availability', 'all']] },
   { path: '/duyet-anh', label: 'Duyệt ảnh', role: 'team_lead', api: [['/api/checklists/review', 'all']] },
   { path: '/thu-ngan', label: 'Thu ngân & doanh thu', role: 'shift_lead', team: 'Thu ngân', api: [['/api/payments/close-day', 'all'], ['/api/payments/drawer', 'all'], ['/api/payments/reconcile', 'all'], ['/api/payments/bank-balance', 'all']] },
