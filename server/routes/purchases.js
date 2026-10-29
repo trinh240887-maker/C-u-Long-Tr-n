@@ -346,6 +346,12 @@ export default function (r, ctx) {
       .filter((x) => isCashier(me) || x.pre_by === me.id || ctx.canReceiveStore(me, x.store_id)).map((x) => load(x.id));
     return { bills: ids.map(load).filter((b) => b.status !== 'waiting'), arriving, pending: pending.n, pending_total: pending.t, can_approve: isCashier(me), is_boss: isBoss(me), bill_reader: billReaderReady(ctx) };
   });
+  // Người chỉ có quyền Nhập kho (không có "Xem bill đã nhận"): vẫn mở được màn Nhập kho + Chờ nhận hàng (chủ quán 29/10)
+  r.get('/api/purchases/info', 'staff', ({ me }) => ({
+    bills: [], pending: 0, pending_total: 0, can_approve: false, is_boss: isBoss(me), bill_reader: billReaderReady(ctx), limited: true,
+    arriving: db.prepare("SELECT id, store_id, pre_by FROM purchase_bills WHERE status = 'waiting' ORDER BY id").all()
+      .filter((x) => x.pre_by === me.id || ctx.canReceiveStore(me, x.store_id)).map((x) => load(x.id)),
+  }));
 
   // Đọc ảnh bill bằng AI → điền sẵn dòng hàng; nhân viên vẫn kiểm & sửa trước khi lưu. Giới hạn số lần / ngày để khỏi tốn tiền.
   r.post('/api/purchases/read-bill', 'staff', async ({ me, body }) => {

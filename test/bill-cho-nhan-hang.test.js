@@ -75,6 +75,13 @@ test('bill NCC gửi trước: chủ quán áp bill (kho chưa cộng) → bếp
   assert.equal(qty(), 18000);
   L = (await tai('GET', '/api/purchases')).data;
   assert.equal(L.arriving.length, 0);
+  // Tắt riêng "Xem bill đã nhận" của Tài: danh sách bị chặn nhưng màn Nhập kho vẫn mở được qua /info (chủ quán 29/10)
+  const taiId = db.prepare("SELECT id FROM staff WHERE name = 'Tài'").get().id;
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('perm_user', ?)").run(JSON.stringify({ [taiId]: { 'mh.xem': false } }));
+  assert.equal((await tai('GET', '/api/purchases')).status, 403);
+  const info = await tai('GET', '/api/purchases/info');
+  assert.equal(info.status, 200); assert.equal(info.data.limited, true);
+  db.prepare("DELETE FROM settings WHERE key = 'perm_user'").run();
   // Nhắc: bill chờ nhận quá 1 ngày → báo 1 lần / ngày
   await o('POST', '/api/purchases', pre);
   const nRem = () => db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE title LIKE '⏳ Bill%'").get().n;
