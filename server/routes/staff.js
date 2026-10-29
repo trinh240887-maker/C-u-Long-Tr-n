@@ -8,6 +8,8 @@ export default function (r, ctx) {
   const { db } = ctx;
 
   const teamExists = (id) => id === null || db.prepare('SELECT 1 FROM teams WHERE id = ?').get(id);
+  // Ai thêm nhân viên (chủ quán 29/10): báo chủ + hiện ở màn Quản lý
+  if (!db.prepare('PRAGMA table_info(staff)').all().some((c) => c.name === 'created_by')) db.exec('ALTER TABLE staff ADD COLUMN created_by INTEGER');
 
   // ---------- Tổ ----------
   r.get('/api/teams', 'staff', () => {
@@ -181,6 +183,34 @@ export default function (r, ctx) {
     return { list: out };
   });
 
+  // Báo chủ quán khi người khác thêm nhân viên: ai thêm, thêm ai, bộ phận đó giờ bao nhiêu người (chủ quán 29/10)
+  function tellOwner(me, id) {
+    if (realRole(me) === 'owner') return;
+    const s = db.prepare('SELECT s.name, s.role, s.team_id, t.name AS team FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.id = ?').get(id);
+    const n = s.team_id ? db.prepare('SELECT COUNT(*) AS n FROM staff WHERE active = 1 AND team_id = ?').get(s.team_id).n : 0;
+    const all = db.prepare("SELECT COUNT(*) AS n FROM staff WHERE active = 1 AND role != 'owner'").get().n;
+    const by = db.prepare('SELECT s.name, s.role, t.name AS team FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.id = ?').get(me.id);
+    const owners = db.prepare("SELECT id FROM staff WHERE active = 1 AND role = 'owner'").all().map((x) => x.id);
+    ctx.notify(owners, { title: `👤 ${by?.name || me.name} vừa thêm ${s.name}`, body: `${s.team || 'Chưa có bộ phận'} · ${ROLE_LABEL[s.role]}. ${s.team ? `${s.team} giờ có ${n} người · ` : ''}cả quán ${all} người. (Người thêm: ${ROLE_LABEL[by?.role] || ''}${by?.team ? ` ${by.team}` : ''})`, link: '/quan-ly' });
+  }
+  ctx.tellOwnerNewStaff = tellOwner;
+  // Duyệt nhân viên mới đăng ký qua bot (quyền "Duyệt nhân viên mới"): tạo tài khoản + PIN ngẫu nhiên.
+  // Không cần quyền "Thêm nhân viên" (chủ quán 29/10). Người duyệt dưới quản lý chỉ tạo Nhân viên / Tổ trưởng, không đặt lương.
+  ctx.createStaffFromRequest = (me, body) => {
+    const f = staffFields(body);
+    const maxRank = realRole(me) === 'owner' ? rank('owner') : rank(realRole(me)) >= rank('manager') ? rank(realRole(me)) : rank('shift_lead');
+    if (rank(f.role) >= maxRank) fail(403, `Bạn không thể tạo tài khoản ${ROLE_LABEL[f.role]}`);
+    if (!canSetPay(me, { id: 0, role: f.role }) || rank(realRole(me)) < rank('manager')) { f.payType = 'hour'; f.payRate = 0; }
+    let lookup = null, pin = '';
+    for (let k = 0; k < 8 && !lookup; k++) { pin = String(Math.floor(100000 + Math.random() * 900000)); try { lookup = validatePin(db, pin, f.role); } catch { lookup = null; } }
+    if (!lookup) fail(500, 'Không tạo được mã PIN, thử lại');
+    const id = Number(db.prepare(`INSERT INTO staff (name, phone, role, team_id, pin_lookup, pay_type, pay_rate, weekly_limit_hours, zalo_user_id, must_change_pin, created_at, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`).run(f.name, f.phone, f.role, f.teamId, lookup, f.payType, f.payRate, f.limit, f.zalo, ctx.now(), me.id).lastInsertRowid);
+    if (f.positionId) db.prepare('UPDATE staff SET position_id = ? WHERE id = ?').run(f.positionId, id);
+    ctx.audit(me, 'staff.create', { id, name: f.name, role: f.role, from: 'request' });
+    return { id, pin };
+  };
+
   r.post('/api/staff', 'manager', ({ me, body }) => {
     const f = staffFields(body);
     if (!canManage(me, f.role)) fail(403, `Bạn không thể tạo tài khoản ${ROLE_LABEL[f.role]}`);
@@ -191,11 +221,12 @@ export default function (r, ctx) {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`).run(f.name, f.phone, f.role, f.teamId, lookup, f.payType, f.payRate, f.limit, f.zalo, ctx.now()).lastInsertRowid);
       saveSkills(id, body.skills);
       savePositionSkills(id, body.pskills);
-      db.prepare('UPDATE staff SET position_id = ?, work_type = ? WHERE id = ?').run(f.positionId, f.workType, id);
+      db.prepare('UPDATE staff SET position_id = ?, work_type = ?, created_by = ? WHERE id = ?').run(f.positionId, f.workType, me.id, id);
       return id;
     });
     ctx.audit(me, 'staff.create', { id, name: f.name, role: f.role });
     ctx.broadcast('staff');
+    if (!body._from_request) try { tellOwner(me, id); } catch { /* không chặn */ }
     return { id };
   });
 

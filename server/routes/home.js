@@ -138,6 +138,15 @@ export default function (r, ctx) {
       unscheduled: unscheduled.map((u) => ({ staff_name: u.staff_name, clock_in: u.clock_in, clock_out: u.clock_out })),
       checklists: checklistByTeam,
       overdue, open_tasks: openTasks, pending_leave: pendingLeave, gaps,
+      // Nhân sự mới do quản lý / trưởng ca thêm 7 ngày qua (chỉ chủ xem, chủ quán 29/10)
+      new_staff: (me.real_role || me.role) !== 'owner' ? [] : (() => {
+        const hasCol = db.prepare('PRAGMA table_info(staff)').all().some((c) => c.name === 'created_by');
+        if (!hasCol) return [];
+        return db.prepare(`SELECT s.id, s.name, s.role, s.created_at, t.name AS team, b.name AS by_name, b.role AS by_role,
+            (SELECT COUNT(*) FROM staff x WHERE x.active = 1 AND x.team_id = s.team_id) AS team_total
+          FROM staff s JOIN staff b ON b.id = s.created_by LEFT JOIN teams t ON t.id = s.team_id
+          WHERE s.created_at >= ? AND b.role != 'owner' ORDER BY s.created_at DESC LIMIT 30`).all(t - 7 * 86_400_000);
+      })(),
       // Checklist không gắn tổ (cả quán) + bộ phận dùng chung (job_teams) cũng tính (rà soát 28/10)
       photos_pending: db.prepare(`SELECT tp.team_id, tp.job_teams FROM checklist_entries e JOIN checklist_runs r ON r.id = e.run_id JOIN checklist_items i ON i.id = e.item_id JOIN checklist_templates tp ON tp.id = r.template_id
         WHERE r.date = ? AND i.photo_required = 1 AND e.review_status IS NULL`).all(today).filter((x) => { if (!scope || x.team_id == null || scope.has(x.team_id)) return true; try { return JSON.parse(x.job_teams || '[]').some((y) => scope.has(y)); } catch { return false; } }).length,

@@ -580,10 +580,25 @@ export default function (r, ctx) {
     return db.prepare(`SELECT q.*, t.name AS team_name FROM staff_requests q LEFT JOIN teams t ON t.id = q.team_id
       WHERE q.status = 'pending' ORDER BY q.at DESC`).all();
   });
+  // Duyệt 1 bước (chủ quán 29/10): tạo tài khoản + PIN + liên kết Zalo + báo chủ. Chỉ cần quyền "Duyệt nhân viên mới"
+  r.post('/api/staff-requests/:id/approve', 'manager', async ({ me, params, body }) => {
+    const q = db.prepare('SELECT * FROM staff_requests WHERE id = ?').get(params.id);
+    if (!q || q.status !== 'pending') fail(404, 'Không tìm thấy yêu cầu');
+    const made = tx(db, () => ctx.createStaffFromRequest(me, { ...body, position_id: body.position_id ?? q.position_id }));
+    const out = await finishRequest(me, q, made.id);
+    try { ctx.tellOwnerNewStaff(me, made.id); } catch { /* không chặn */ }
+    ctx.broadcast('staff');
+    return { ...out, id: made.id, pin: made.pin };
+  });
   r.post('/api/staff-requests/:id/done', 'manager', async ({ me, params, body }) => {
     const q = db.prepare('SELECT * FROM staff_requests WHERE id = ?').get(params.id);
     if (!q || q.status !== 'pending') fail(404, 'Không tìm thấy yêu cầu');
-    const st = db.prepare('SELECT id, name FROM staff WHERE id = ? AND active = 1').get(v.int(body.staff_id, { min: 1, name: 'Nhân viên' }));
+    const out = await finishRequest(me, q, v.int(body.staff_id, { min: 1, name: 'Nhân viên' }));
+    ctx.broadcast('staff');
+    return out;
+  });
+  async function finishRequest(me, q, staffId) {
+    const st = db.prepare('SELECT id, name FROM staff WHERE id = ? AND active = 1').get(staffId);
     if (!st) fail(404, 'Không tìm thấy nhân viên vừa tạo');
     db.prepare("UPDATE staff_requests SET status = 'approved', staff_id = ?, decided_by = ?, decided_at = ? WHERE id = ?").run(st.id, me.id, ctx.now(), q.id);
     // Liên kết Zalo người nhắn ↔ nhân viên mới chỉ khi chính bạn ấy nhắn (tên Zalo khớp), tránh trưởng ca đăng ký hộ bị gắn nhầm
@@ -597,9 +612,8 @@ export default function (r, ctx) {
     }
     if (q.chat_id && ctx.zaloBot?.ready()) await ctx.zaloBot.send(q.chat_id, `✅ Đã thêm ${st.name} vào danh sách nhân viên.${extra}\nTừ giờ báo lịch: @bot ${st.name} 14-23${linked ? `\n🔑 ${st.name}: nhắn RIÊNG cho bot chữ PIN để nhận mã đăng nhập app.` : ''}`).catch(() => {});
     ctx.audit(me, 'staff_request.approve', { id: q.id, staff: st.id });
-    ctx.broadcast('staff');
     return { ok: true };
-  });
+  }
   r.post('/api/staff-requests/:id/reject', 'manager', async ({ me, params }) => {
     const q = db.prepare('SELECT * FROM staff_requests WHERE id = ?').get(params.id);
     if (!q || q.status !== 'pending') fail(404, 'Không tìm thấy yêu cầu');

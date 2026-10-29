@@ -44,13 +44,9 @@ function StaffRequests({ me, teams }) {
   const set = (q, k, v) => setF({ ...f, [q.id]: { ...(f[q.id] || {}), [k]: v } });
   const add = async (q) => {
     const body = { name: val(q, 'name'), phone: val(q, 'phone'), team_id: Number(val(q, 'team_id')) || null, role: val(q, 'role') || 'staff', pay_type: val(q, 'pay_type') || 'hour', pay_rate: Number(val(q, 'pay_rate')) || 0, position_id: q.position_id || null };
-    let res = null, pin = '';
-    for (let k = 0; k < 4 && !res; k++) {
-      pin = String(Math.floor(100000 + Math.random() * 900000));
-      try { res = await api('POST', '/api/staff', { ...body, pin }); } catch (e) { if (!/PIN/.test(e.message)) { act(() => Promise.reject(e)); return; } }
-    }
-    if (!res) return;
-    if (await act(() => api('POST', `/api/staff-requests/${q.id}/done`, { staff_id: res.id }), 'Đã thêm nhân viên')) setMade({ name: body.name, pin });
+    // 1 bước: tạo tài khoản + PIN + báo chủ; chỉ cần quyền "Duyệt nhân viên mới" (chủ quán 29/10)
+    const res = await act(() => api('POST', `/api/staff-requests/${q.id}/approve`, body), 'Đã thêm nhân viên');
+    if (res) setMade({ name: body.name, pin: res.pin });
   };
   return html`<section class="card stack attn">
     <h3>🆕 Nhân viên mới chờ duyệt (${rq.data?.length || 0})</h3>
@@ -61,8 +57,8 @@ function StaffRequests({ me, teams }) {
         <${Field} label="Họ tên"><input value=${val(q, 'name')} onInput=${(e) => set(q, 'name', e.target.value)} /><//>
         <${Field} label="Số điện thoại"><input value=${val(q, 'phone')} inputmode="tel" onInput=${(e) => set(q, 'phone', e.target.value)} /><//>
         <${Field} label="Bộ phận"><select value=${val(q, 'team_id')} onChange=${(e) => set(q, 'team_id', e.target.value)}><option value="">(chưa chọn)</option>${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
-        <${Field} label="Chức vụ"><select value=${val(q, 'role') || 'staff'} onChange=${(e) => set(q, 'role', e.target.value)}>${['staff', 'team_lead', 'shift_lead'].map((r) => html`<option value=${r}>${ROLE_LABEL[r]}</option>`)}</select><//>
-        ${atLeast(me, 'manager') ? html`<${Field} label="Tính lương"><select value=${val(q, 'pay_type') || 'hour'} onChange=${(e) => set(q, 'pay_type', e.target.value)}><option value="hour">Theo giờ</option><option value="shift">Theo ca</option><option value="month">Theo tháng</option></select><//>
+        <${Field} label="Chức vụ"><select value=${val(q, 'role') || 'staff'} onChange=${(e) => set(q, 'role', e.target.value)}>${(['manager', 'owner'].includes(me.real_role || me.role) ? ['staff', 'team_lead', 'shift_lead'] : ['staff', 'team_lead']).map((r) => html`<option value=${r}>${ROLE_LABEL[r]}</option>`)}</select><//>
+        ${['manager', 'owner'].includes(me.real_role || me.role) ? html`<${Field} label="Tính lương"><select value=${val(q, 'pay_type') || 'hour'} onChange=${(e) => set(q, 'pay_type', e.target.value)}><option value="hour">Theo giờ</option><option value="shift">Theo ca</option><option value="month">Theo tháng</option></select><//>
         <${Field} label="Mức lương (đ)"><input type="number" inputmode="numeric" step="1000" value=${val(q, 'pay_rate')} onInput=${(e) => set(q, 'pay_rate', e.target.value)} /><//>` : null}
       </div>
       ${q.avail_text ? html`<small class="muted">Lịch đã báo trước: "${q.avail_text.slice(0, 80)}" (duyệt xong tự điền)</small>` : null}

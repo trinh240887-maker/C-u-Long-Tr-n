@@ -21,7 +21,7 @@ export const ACT_GROUPS = [
     A('ranh.bao', '/ranh', 'Báo lịch rảnh của mình', 'staff', [['*', '/api/availability/me']]),
     A('ranh.xem', '/ranh', 'Xem lịch rảnh mọi người', 'staff', [['R', '/api/availability']]),
     A('ranh.nhac', '/lich#xep', 'Nhắc báo lịch rảnh', 'manager', [['W', '/api/availability/remind']]),
-    A('ranh.nvmoi', '/nhan-vien', 'Duyệt nhân viên mới đăng ký qua bot', 'manager', [['*', `/api/staff-requests(/${ID}/(done|reject))?`]]),
+    A('ranh.nvmoi', '/nhan-vien', 'Duyệt nhân viên mới đăng ký qua bot', 'manager', [['*', `/api/staff-requests(/${ID}/(done|reject|approve))?`]]),
   ] },
   { name: 'Báo nghỉ & thay ca', acts: [
     A('nghi.bao', '/nghi', 'Báo nghỉ, huỷ báo nghỉ', 'staff', [['*', '/api/leave'], ['W', `/api/leave/${ID}/cancel`]]),

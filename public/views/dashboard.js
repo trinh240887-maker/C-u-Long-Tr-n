@@ -1,4 +1,4 @@
-import { html, api, act, useData, Link, Loading, hm, dt, dayLabel, PHASE_LABEL } from '../ui.js';
+import { html, api, act, useData, Link, Loading, hm, dt, dayLabel, PHASE_LABEL, ROLE_LABEL } from '../ui.js';
 
 const STATUS = {
   working: ['Đang làm', 'ok'], upcoming: ['Sắp vào', ''], late: ['Chưa vào', 'warn'], absent: ['Vắng', 'bad'],
@@ -58,6 +58,11 @@ export function Dashboard() {
     ${d.avail?.total ? html`<${Link} href=${`/ranh?tab=all&week=${d.avail.week_start}`} class=${`card hint ${d.avail.missing ? '' : 'ok'}`}><span>
       Lịch rảnh tuần sau: <b>${d.avail.total - d.avail.missing}/${d.avail.total}</b> người đã gửi${d.avail.missing ? ` · còn ${d.avail.missing} người chưa gửi (hạn ${d.avail.deadline.date.slice(8)}/${d.avail.deadline.date.slice(5, 7)} ${d.avail.deadline.time})` : ''} →</span><//>` : null}
 
+    ${d.new_staff?.length ? html`<section class="card">
+      <h3>👤 Nhân sự mới thêm 7 ngày (${d.new_staff.length})</h3>
+      <ul class="plain">${d.new_staff.map((s) => html`<li><b>${s.name}</b> · ${s.team || 'chưa có bộ phận'} · ${ROLE_LABEL[s.role] || s.role}
+        <br /><small class="muted">${s.by_name} (${ROLE_LABEL[s.by_role] || s.by_role}) thêm ${dayLabel(new Date(s.created_at + 7 * 3600e3).toISOString().slice(0, 10))}${s.team ? ` · ${s.team} giờ ${s.team_total} người` : ''}</small></li>`)}</ul>
+    </section>` : null}
     <${JobsCard} groups=${d.jobs} />
     ${lateD.data?.length ? html`<section class="card attn">
       <h3>⏰ Món ra trễ (${lateD.data.length})</h3>
