@@ -301,7 +301,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
       if (req.method !== 'GET') fail(405, 'Không hỗ trợ');
       return serveStatic(res, pathname, req);
     } catch (err) {
-      if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message, ...(err.code ? { code: err.code } : {}) });
+      if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message, ...(err.code ? { code: err.code } : {}), ...(err.extra || {}) });
       console.error(err);
       return sendJson(res, 500, { error: 'Lỗi máy chủ, thử lại sau' });
     }

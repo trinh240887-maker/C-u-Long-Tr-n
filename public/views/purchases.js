@@ -116,6 +116,12 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
     if (mismatch && !okMismatch) { toast(`Cộng các dòng ${money(sum)} lệch tổng bill ${money(tot)}: sửa lại các dòng, hoặc tick "Đúng như bill" phía trên nút`, true); return; }
     // Bill giống bill đã lưu (cùng NCC, tổng, hàng) → hỏi có phải chụp trùng không (chủ quán 29/10)
     const postBill = (body) => api('POST', '/api/purchases', body).catch((e) => {
+      // Tên nơi bán gần giống NCC đã có → hỏi: đúng NCC đó (gộp chung công nợ) hay NCC mới (chủ quán 29/10)
+      if (e.code === 'similar_supplier') {
+        return confirm(`${e.message}\n\nOK = đúng NCC "${e.data.similar.name}" (chung công nợ).\nHuỷ = NCC mới khác.`)
+          ? postBill({ ...body, supplier_id: e.data.similar.id, supplier_name: undefined })
+          : postBill({ ...body, new_supplier: true });
+      }
       if (e.code !== 'dup_bill') throw e;
       if (!confirm(`⚠ ${e.message}\n\nOK = đây là bill KHÁC, vẫn lưu.\nHuỷ = chụp trùng, không lưu.`)) throw new Error('Không lưu: bill trùng');
       return api('POST', '/api/purchases', { ...body, confirm_dup: true });

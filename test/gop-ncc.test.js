@@ -23,11 +23,20 @@ test('NCC tên gần giống: bill mới khớp NCC cũ; công nợ báo "có th
   const A = Number(db.prepare("INSERT INTO suppliers (name) VALUES ('Vựa rau củ quả - Khoai bí Trung Thủy')").run().lastInsertRowid);
   const store = db.prepare("SELECT id FROM stores WHERE kind = 'area' LIMIT 1").get()?.id || db.prepare('SELECT id FROM stores LIMIT 1').get().id;
   const ing = Number(db.prepare("INSERT INTO ingredients (name, unit, purchase_unit, purchase_factor, price) VALUES ('Bí đỏ', 'kg', 'kg', 1, 10000)").run().lastInsertRowid);
-  // Bill ghi tên hơi khác → vào đúng NCC A, không tạo NCC mới
-  const r = await o('POST', '/api/purchases', { pre_bill: true, store_id: store, supplier_name: 'Rau củ quả - Khoai bí Trung Thủy', signer_name: 'Chủ', photos: [IMG], lines: [{ ingredient_id: ing, qty: 2, price: 10000 }] });
+  // Bill ghi tên hơi khác → hỏi lại "Có phải NCC …?" (409 similar_supplier); chọn đúng → vào NCC A; chọn NCC mới → tạo mới
+  const body = { pre_bill: true, store_id: store, supplier_name: 'Rau củ quả - Khoai bí Trung Thủy', signer_name: 'Chủ', photos: [IMG], lines: [{ ingredient_id: ing, qty: 2, price: 10000 }] };
+  const ask = await o('POST', '/api/purchases', body);
+  assert.equal(ask.status, 409); assert.equal(ask.data.code, 'similar_supplier'); assert.equal(ask.data.similar.id, A);
+  const r = await o('POST', '/api/purchases', { ...body, supplier_id: A, supplier_name: undefined });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(db.prepare('SELECT supplier_id FROM purchase_bills WHERE id = ?').get(r.data.id).supplier_id, A);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM suppliers WHERE name LIKE '%Trung Thủy%'").get().n, 1);
+  // Trùng y tên (khác hoa thường / dấu) → không hỏi
+  assert.equal((await o('POST', '/api/purchases', { ...body, supplier_name: 'VỰA RAU CỦ QUẢ - KHOAI BÍ TRUNG THỦY', lines: [{ ingredient_id: ing, qty: 5, price: 10000 }] })).status, 200);
+  const nw = await o('POST', '/api/purchases', { ...body, new_supplier: true, lines: [{ ingredient_id: ing, qty: 7, price: 10000 }] });
+  assert.equal(nw.status, 200);
+  assert.notEqual(db.prepare('SELECT supplier_id FROM purchase_bills WHERE id = ?').get(nw.data.id).supplier_id, A);
+  db.prepare("UPDATE suppliers SET active = 0 WHERE name = 'Rau củ quả - Khoai bí Trung Thủy'").run();
   // Tên khác hẳn → NCC mới
   assert.ok(!app.ctx.findSupplier('Tạp hoá Hiền'));
   // Dữ liệu cũ đã lỡ tách 2 NCC → công nợ báo, chủ gộp

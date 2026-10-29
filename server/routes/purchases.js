@@ -254,8 +254,12 @@ export default function (r, ctx) {
     const supplierName = supplierId ? supplierRow(supplierId).name : v.text(body.supplier_name, { name: 'Tên nơi bán', required: true, max: 300 });
     // Nơi bán ghi tay: tìm NCC trùng tên, chưa có thì tạo mới → bill ghi nợ không bị sót khỏi công nợ
     if (!supplierId) {
-      supplierId = findSupplier(supplierName)?.id
-        ?? Number(db.prepare("INSERT INTO suppliers (name, note) VALUES (?, 'Tự tạo khi nhận hàng')").run(supplierName).lastInsertRowid);
+      // Trùng y tên (bỏ dấu / hoa thường) → dùng luôn; tên gần giống → hỏi lại "Có phải NCC …?" (chủ quán 29/10)
+      const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, '');
+      const exact = db.prepare('SELECT id, name FROM suppliers ORDER BY active DESC, id').all().find((x) => fold(x.name) === fold(supplierName));
+      const near = exact ? null : findSupplier(supplierName);
+      if (near && !body.new_supplier) fail(409, `Có phải NCC "${near.name}" không? (bill ghi "${supplierName}")`, 'similar_supplier', { similar: { id: near.id, name: near.name } });
+      supplierId = exact?.id ?? Number(db.prepare("INSERT INTO suppliers (name, note) VALUES (?, 'Tự tạo khi nhận hàng')").run(supplierName).lastInsertRowid);
     }
     const signer = v.text(body.signer_name, { name: 'Tên người ký nhận trên bill', required: true, max: 150 });
     const photos = Array.isArray(body.photos) ? body.photos.slice(0, 4) : [];
