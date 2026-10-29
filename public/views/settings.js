@@ -2,7 +2,7 @@ import { useState, useEffect } from '../vendor/hooks.js';
 import { Samples } from './checklists.js';
 import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast, hm, dayLabel, SaveInput } from '../ui.js';
 
-const TABS = [['chung', 'Chung'], ['quyen', '🔐 Phân quyền'], ['bot', '🤖 Zalo Bot'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['ketnoi', 'Kết nối (mã)'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
+const TABS = [['chung', 'Chung'], ['quyen', '🔐 Phân quyền'], ['luong', '💵 Khung lương'], ['bot', '🤖 Zalo Bot'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['ketnoi', 'Kết nối (mã)'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
 
 const DEF_SLOTS = [{ key: 'sang', label: 'Sáng', start: '06:00', end: '12:00' }, { key: 'chieu', label: 'Chiều', start: '12:00', end: '17:00' }, { key: 'toi', label: 'Tối', start: '17:00', end: '24:00' }];
 
@@ -767,6 +767,51 @@ function Perms({ staffId }) {
   </div>`;
 }
 
+// 💵 Khung lương theo bộ phận × chức vụ (chủ quán 29/10, chỉ chủ): nhân viên "theo khung" tự lấy mức này
+function PayScales() {
+  const st = useData('/api/pay-scales');
+  const [draft, setDraft] = useState(null);
+  const [from, setFrom] = useState(null);
+  const [busy, setBusy] = useState(false);
+  if (!st.data) return html`<${Loading} state=${st} />`;
+  const d = st.data;
+  const val = (t, r, k) => draft?.[`${t}|${r}`]?.[k] ?? d.teams.find((x) => x.id === t).scales[r][k];
+  const set = (t, r, k, x) => setDraft({ ...(draft || {}), [`${t}|${r}`]: { ...(draft?.[`${t}|${r}`] || {}), [k]: x } });
+  const unit = (x) => ({ hour: 'giờ', shift: 'ca', month: 'tháng' })[x];
+  const save = async () => {
+    setBusy(true);
+    const items = Object.entries(draft || {}).map(([k]) => { const [t, r] = k.split('|'); return { team_id: Number(t), role: r, pay_type: val(Number(t), r, 'pay_type'), pay_rate: Number(String(val(Number(t), r, 'pay_rate') || 0).replace(/[.,\s]/g, '')) || 0 }; });
+    try { if (await act(() => api('PUT', '/api/pay-scales', { from_month: from || d.month, items }), 'Đã lưu khung lương')) setDraft(null); } finally { setBusy(false); }
+  };
+  return html`<div class="stack">
+    <section class="card stack tight">
+      <p class="small">Mỗi bộ phận × chức vụ 1 mức. Nhân viên <b>theo khung</b> tự lấy mức này, không phải điền tay từng người. Đổi khung thì mọi người trong khung đổi theo. Người có đặc quyền: bật <b>Lương riêng</b> trong form nhân viên.</p>
+      <p class="small muted">Để trống / 0 = chưa có khung (người đó dùng mức riêng cũ nếu có).</p>
+    </section>
+    ${d.teams.map((t) => html`<section class="card stack tight" key=${t.id}><h3>${t.name}</h3>
+      ${d.roles.map((r) => html`<div class="scale-row" key=${r.key}>
+        <span><b>${r.label}</b><br /><small class="muted">${t.scales[r.key].count} người</small></span>
+        <input inputmode="numeric" placeholder="0" value=${val(t.id, r.key, 'pay_rate') || ''} onInput=${(e) => set(t.id, r.key, 'pay_rate', e.target.value)} />
+        <select value=${val(t.id, r.key, 'pay_type')} onChange=${(e) => set(t.id, r.key, 'pay_type', e.target.value)}><option value="hour">/giờ</option><option value="shift">/ca</option><option value="month">/tháng</option></select>
+      </div>`)}
+    </section>`)}
+    ${draft ? html`<section class="card stack tight sticky-acts">
+      <label class="small">Áp dụng từ tháng <input type="month" value=${from || d.month} onInput=${(e) => setFrom(e.target.value)} /></label>
+      <small class="muted">Tháng trước giữ mức cũ. Chọn tháng sau để đặt trước.</small>
+      <div class="row tight"><button class="primary grow" disabled=${busy} onClick=${save}>Lưu khung lương</button><button onClick=${() => setDraft(null)}>Huỷ</button></div>
+    </section>` : null}
+    ${d.custom.length ? html`<section class="card stack tight"><h3>Đang lương riêng (${d.custom.length})</h3>
+      <small class="muted">Người có mức nhập tay. Chuyển về theo khung khi không còn đặc quyền.</small>
+      ${d.custom.map((p) => html`<div class="row between wrap" key=${p.id}><span><b>${p.name}</b> <small class="muted">${p.team_name} · ${p.role_label}</small><br /><small>${money0(p.pay_rate)}/${unit(p.pay_type)}${p.scale ? html` · khung: ${money0(p.scale.pay_rate)}/${unit(p.scale.pay_type)}` : html` · <span class="muted">chưa có khung</span>`}</small></span>
+        <button class="small" disabled=${!p.scale} onClick=${() => act(() => api('POST', '/api/pay-scales/use', { ids: [p.id], custom: false }), `${p.name}: theo khung`)}>Theo khung</button></div>`)}
+      ${d.custom.some((p) => p.scale) ? html`<button onClick=${() => confirm('Chuyển mọi người đã có khung về theo khung?') && act(() => api('POST', '/api/pay-scales/use', { ids: d.custom.filter((p) => p.scale).map((p) => p.id), custom: false }), 'Đã chuyển')}>Chuyển tất cả người đã có khung → theo khung</button>` : null}
+    </section>` : null}
+    ${d.no_scale.length ? html`<section class="card stack tight warn-card"><b>${d.no_scale.length} người theo khung nhưng bộ phận × chức vụ chưa có mức</b>
+      <small>${d.no_scale.map((p) => `${p.name} (${p.team_name || 'chưa có bộ phận'} · ${p.role_label})`).join(', ')}</small></section>` : null}
+  </div>`;
+}
+const money0 = (n) => `${Number(n || 0).toLocaleString('vi-VN')}đ`;
+
 export function SettingsView({ me, query }) {
   const tab = query.get('tab') || 'chung';
   const st = useData('/api/settings');
@@ -774,7 +819,7 @@ export function SettingsView({ me, query }) {
   const ver = useData('/api/version');
   return html`<div class="stack">
     ${ver.data ? html`<small class="muted">Phiên bản đang chạy: <b>${ver.data.version}</b> · khởi động ${hm(ver.data.started_at)} ${dayLabel(new Date(ver.data.started_at + 7 * 3600e3).toISOString().slice(0, 10))}</small>` : null}
-    <div class="tabs scroll">${TABS.filter(([k]) => k !== 'quyen' || me.role === 'owner').map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/cai-dat?tab=${k}`)}>${l}</button>`)}</div>
+    <div class="tabs scroll">${TABS.filter(([k]) => !['quyen', 'luong'].includes(k) || me.role === 'owner').map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/cai-dat?tab=${k}`)}>${l}</button>`)}</div>
     ${!st.data ? html`<${Loading} state=${st} />`
       : tab === 'chung' ? html`<${General} s=${st.data} staff=${(staff.data || []).filter((p) => p.active)} />`
       : tab === 'to' ? html`<${Teams} />`
@@ -784,6 +829,7 @@ export function SettingsView({ me, query }) {
       : tab === 'checklist' ? html`<${Checklists} me=${me} teams=${me.teams} />`
       : tab === 'ketnoi' ? html`<${Keys} s=${st.data} me=${me} only="claude" />`
       : tab === 'bot' ? html`<${Keys} s=${st.data} me=${me} only="bot" />`
+      : tab === 'luong' ? (me.role === 'owner' ? html`<${PayScales} />` : html`<p class="warn-text">Chỉ chủ quán xem / sửa khung lương.</p>`)
       : tab === 'quyen' ? (me.role === 'owner' ? html`<${PermTabs} staffId=${Number(query.get('staff')) || null} />` : html`<p class="warn-text">Chỉ chủ quán phân quyền.</p>`)
       : tab === 'zalo' ? html`<${Zalo} s=${st.data} />`
       : tab === 'saoluu' ? html`<${Backups} s=${st.data} />`

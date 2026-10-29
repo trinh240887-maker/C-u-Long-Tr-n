@@ -40,7 +40,8 @@ test('duyệt NV mới qua bot: chỉ cần quyền "Duyệt nhân viên mới" 
   assert.match(r.data.pin, /^\d{6}$/);
   const giang = db.prepare('SELECT * FROM staff WHERE id = ?').get(r.data.id);
   assert.equal(giang.created_by, phat);
-  assert.equal(giang.pay_rate, 30000); // quản lý thật đặt lương được
+  assert.equal(giang.pay_rate, 0); // chủ quán 29/10: chỉ chủ đặt lương; người khác duyệt → theo khung
+  assert.equal(giang.pay_custom, 0);
   assert.equal(db.prepare('SELECT status FROM staff_requests WHERE id = ?').get(q1).status, 'approved');
   const note = db.prepare('SELECT title, body FROM notifications WHERE staff_id = ? ORDER BY id DESC').get(ownerId);
   assert.match(note.title, /Phát vừa thêm Đặng Giang/);

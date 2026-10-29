@@ -58,7 +58,8 @@ function StaffRequests({ me, teams }) {
         <${Field} label="Số điện thoại"><input value=${val(q, 'phone')} inputmode="tel" onInput=${(e) => set(q, 'phone', e.target.value)} /><//>
         <${Field} label="Bộ phận"><select value=${val(q, 'team_id')} onChange=${(e) => set(q, 'team_id', e.target.value)}><option value="">(chưa chọn)</option>${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
         <${Field} label="Chức vụ"><select value=${val(q, 'role') || 'staff'} onChange=${(e) => set(q, 'role', e.target.value)}>${(['manager', 'owner'].includes(me.real_role || me.role) ? ['staff', 'team_lead', 'shift_lead'] : ['staff', 'team_lead']).map((r) => html`<option value=${r}>${ROLE_LABEL[r]}</option>`)}</select><//>
-        ${['manager', 'owner'].includes(me.real_role || me.role) ? html`<${Field} label="Tính lương"><select value=${val(q, 'pay_type') || 'hour'} onChange=${(e) => set(q, 'pay_type', e.target.value)}><option value="hour">Theo giờ</option><option value="shift">Theo ca</option><option value="month">Theo tháng</option></select><//>
+        ${me.role !== 'owner' ? html`<small class="muted">Lương tự lấy theo khung bộ phận × chức vụ (chủ quán đặt).</small>` : null}
+        ${me.role === 'owner' ? html`<${Field} label="Tính lương" hint="Để trống mức lương = theo khung"><select value=${val(q, 'pay_type') || 'hour'} onChange=${(e) => set(q, 'pay_type', e.target.value)}><option value="hour">Theo giờ</option><option value="shift">Theo ca</option><option value="month">Theo tháng</option></select><//>
         <${Field} label="Mức lương (đ)"><input type="number" inputmode="numeric" step="1000" value=${val(q, 'pay_rate')} onInput=${(e) => set(q, 'pay_rate', e.target.value)} /><//>` : null}
       </div>
       ${q.avail_text ? html`<small class="muted">Lịch đã báo trước: "${q.avail_text.slice(0, 80)}" (duyệt xong tự điền)</small>` : null}
@@ -78,7 +79,14 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
     zalo_user_id: init.zalo_user_id || '', active: init.active ?? true, pin: '',
     skills: init.skills || [], pskills: init.pskills || [], position_id: init.position_id ?? '', work_type: init.work_type || '', gender: init.gender || '',
     pay_rule: init.pay_rule == null ? '' : String(init.pay_rule), pay_from: me.today.slice(0, 7), home_zone_id: init.home_zone_id ?? '',
+    pay_custom: isNew ? false : !!init.pay_custom, role_from: me.today,
   });
+  // Khung lương (chủ quán 29/10): chỉ chủ đặt lương riêng; người khác thấy mức theo khung
+  const isOwner = me.role === 'owner';
+  const roleMoved = !isNew && (f.role !== init.role || Number(f.team_id || 0) !== Number(init.team_id || 0));
+  const unit = (t) => ({ hour: 'giờ', shift: 'ca', month: 'tháng' })[t] || t;
+  const scaleText = !isNew && !roleMoved && init.pay_scale ? `${money(init.pay_scale.pay_rate)}/${unit(init.pay_scale.pay_type)} (${init.team_name || ''} · ${ROLE_LABEL[init.role]})`
+    : 'Lấy theo khung của bộ phận × chức vụ (chủ quán đặt ở Cài đặt → Khung lương)';
   const set = (k, v) => setF({ ...f, [k]: v });
   const allowed = ROLES.filter((r) => me.role === 'owner' || ROLES.indexOf(r) < ROLES.indexOf(me.role));
   const skillOf = (id) => f.skills.find((s) => s.team_id === id)?.level || 0;
@@ -95,6 +103,9 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
   const save = async () => {
     const body = { ...f, home_zone_id: f.home_zone_id === '' ? null : f.home_zone_id, team_id: f.team_id || null, position_id: (f.team_id && f.position_id) || null, pay_rate: Number(f.pay_rate || 0), pay_rule: f.pay_rule === '' ? null : f.pay_rule === '1', pay_from: (Number(f.pay_rate || 0) !== Number(init.pay_rate || 0) || f.pay_type !== init.pay_type || f.pay_from !== me.today.slice(0, 7)) ? f.pay_from : undefined };
     if (!body.pin) delete body.pin;
+    if (!isOwner || !f.pay_custom) { delete body.pay_type; delete body.pay_rate; delete body.pay_from; }
+    if (!isOwner) { delete body.pay_custom; delete body.pay_rule; }
+    if (roleMoved) body.role_from = f.role_from; else delete body.role_from;
     const ok = await act(() => (isNew ? api('POST', '/api/staff', body) : api('PATCH', `/api/staff/${init.id}`, body)), isNew ? 'Đã thêm nhân viên' : 'Đã lưu');
     if (ok) onClose();
   };
@@ -106,6 +117,7 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
         ${(allowed.includes(f.role) ? allowed : [f.role, ...allowed]).map((r) => html`<option value=${r}>${ROLE_LABEL[r]}</option>`)}</select><//>
       <${Field} label="Bộ phận"><select id="st-team" value=${f.team_id} onChange=${(e) => setF({ ...f, team_id: e.target.value ? Number(e.target.value) : '', position_id: '' })}>
         <option value="">(chưa chọn bộ phận)</option>${teams.map((t) => html`<option value=${t.id}>${t.name}</option>`)}</select><//>
+      ${roleMoved ? html`<${Field} label="Chức vụ / bộ phận mới áp dụng từ ngày" hint="Vd lên tổ trưởng từ 28/10: ca từ 28/10 tính lương theo khung tổ trưởng"><input id="st-rolefrom" type="date" max=${me.today} value=${f.role_from} onInput=${(e) => set('role_from', e.target.value)} /><//>` : null}
       ${posOf(f.team_id).length ? html`<${Field} label="Vị trí chính" hint="Vị trí hay đứng nhất. Khi xếp ca vẫn đổi được"><select id="st-pos" value=${f.position_id} onChange=${(e) => set('position_id', e.target.value ? Number(e.target.value) : '')}>
         <option value="">(chưa chọn)</option>${posOf(f.team_id).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>` : null}
       ${zones.length ? html`<${Field} label="Khu cố định" hint="Người làm full 14–23 giữ 1 khu: mọi ca từ hôm nay và tuần sau tự vào khu này. Để trống = phân khu theo tuần"><select id="st-homezone" value=${f.home_zone_id} onChange=${(e) => set('home_zone_id', e.target.value ? Number(e.target.value) : '')}>
@@ -113,13 +125,17 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
       <${Field} label="Giới tính" hint="Việc chỉ nữ / chỉ nam (vd kiểm tra nhà vệ sinh nữ) chỉ giao đúng người"><div class="chips">${[['', 'Chưa ghi'], ['nu', 'Nữ'], ['nam', 'Nam']].map(([k, l]) => html`<button type="button" class=${`chip ${f.gender === k ? 'on' : ''}`} onClick=${() => set('gender', k)}>${l}</button>`)}</div><//>
       <${Field} label="Loại ca" hint="Hiện cạnh tên ở Lịch ca → Bảng tuần"><select id="st-worktype" value=${f.work_type} onChange=${(e) => set('work_type', e.target.value)}>
         <option value="">(chưa chọn)</option><option value="full">Full ca</option><option value="gay">Ca gãy</option><option value="part">Part-time</option></select><//>
-      <${Field} label="Tính lương"><select id="st-paytype" value=${f.pay_type} onChange=${(e) => set('pay_type', e.target.value)}>
+      ${isOwner ? html`<${Field} label="Lương" hint="Theo khung: tự lấy mức của bộ phận × chức vụ (Cài đặt → Khung lương). Lương riêng: chỉ cho người có đặc quyền">
+        <div class="chips"><button type="button" class=${`chip ${!f.pay_custom ? 'on' : ''}`} onClick=${() => set('pay_custom', false)}>Theo khung</button><button type="button" class=${`chip ${f.pay_custom ? 'on' : ''}`} onClick=${() => set('pay_custom', true)}>Lương riêng</button></div><//>` : null}
+      ${!f.pay_custom ? html`<${Field} label="Lương theo khung"><div class="muted small" style="padding-top:8px">${scaleText}</div><//>`
+        : !isOwner ? html`<${Field} label="Lương"><div class="muted small" style="padding-top:8px">Lương riêng (chủ quán đặt)</div><//>`
+        : html`<${Field} label="Tính lương"><select id="st-paytype" value=${f.pay_type} onChange=${(e) => set('pay_type', e.target.value)}>
         <option value="hour">Theo giờ</option><option value="shift">Theo ca</option><option value="month">Theo tháng</option></select><//>
       <${Field} label=${({ hour: 'Lương 1 giờ (đ)', shift: 'Lương 1 ca (đ)', month: 'Lương 1 tháng (đ)' })[f.pay_type]}><input id="st-rate" type="number" inputmode="numeric" min="0" step="1000" value=${f.pay_rate} onInput=${(e) => set('pay_rate', e.target.value)} /><//>
-      ${atLeast(me, 'manager') && !isNew ? html`<${Field} label="Mức lương áp dụng từ tháng" hint="Đổi lương thì chọn tháng bắt đầu. Tháng trước vẫn giữ mức cũ; chọn tháng sau để đặt trước (vd thử việc 23k, từ tháng sau 20k)">
+      ${!isNew ? html`<${Field} label="Mức lương áp dụng từ tháng" hint="Đổi lương thì chọn tháng bắt đầu. Tháng trước vẫn giữ mức cũ; chọn tháng sau để đặt trước (vd thử việc 23k, từ tháng sau 20k)">
         <input id="st-payfrom" type="month" value=${f.pay_from} onInput=${(e) => set('pay_from', e.target.value)} />
-        ${init.pay_history?.length ? html`<small class="muted">Lịch sử: ${init.pay_history.map((h) => `từ ${h.from_month.slice(5)}/${h.from_month.slice(0, 4)}: ${money(h.pay_rate)}/${({ hour: 'giờ', shift: 'ca', month: 'tháng' })[h.pay_type]}`).join(' · ')}</small>` : null}<//>` : null}
-      ${atLeast(me, 'manager') ? html`<${Field} label="Quy tắc lương bếp" hint="Nghỉ 2 ngày/tháng vẫn đủ lương + mỗi ngày quá 8 giờ tính vượt giờ (chỉnh số ở Cài đặt → Chung)"><select id="st-payrule" value=${f.pay_rule} onChange=${(e) => set('pay_rule', e.target.value)}>
+        ${init.pay_history?.length ? html`<small class="muted">Lịch sử: ${init.pay_history.map((h) => `từ ${h.from_month.slice(5)}/${h.from_month.slice(0, 4)}: ${money(h.pay_rate)}/${({ hour: 'giờ', shift: 'ca', month: 'tháng' })[h.pay_type]}`).join(' · ')}</small>` : null}<//>` : null}`}
+      ${isOwner ? html`<${Field} label="Quy tắc lương bếp" hint="Nghỉ 2 ngày/tháng vẫn đủ lương + mỗi ngày quá 8 giờ tính vượt giờ (chỉnh số ở Cài đặt → Chung)"><select id="st-payrule" value=${f.pay_rule} onChange=${(e) => set('pay_rule', e.target.value)}>
         <option value="">Theo bộ phận (bếp: có · khác: không)</option><option value="1">Có áp dụng</option><option value="0">Không áp dụng</option></select><//>` : null}
       <${Field} label="Tối đa giờ/tuần" hint="Dùng khi gợi ý người làm thay"><input id="st-limit" type="number" min="1" max="100" value=${f.weekly_limit_hours} onInput=${(e) => set('weekly_limit_hours', e.target.value)} /><//>
       <${Field} label=${isNew ? 'Mã PIN đăng nhập' : 'Đặt lại mã PIN (để trống nếu giữ nguyên)'} hint=${`${needPin}–8 chữ số. Nhân viên sẽ phải đổi PIN khi đăng nhập lần đầu.`}>
@@ -150,7 +166,7 @@ export function StaffView({ me }) {
   const [all, setAll] = useState(false);
   const [q, setQ] = useState('');
   const [dept, setDept] = useState(() => { try { return localStorage.getItem('staff-dept') || 'all'; } catch { return 'all'; } });
-  const st = useData(`/api/staff${all ? '?all=1' : ''}`);
+  const st = useData(`/api/staff?mine=1${all ? '&all=1' : ''}`); // quản lý bộ phận chỉ thấy người bộ phận mình (chủ quán 29/10)
   const posD = useData('/api/positions');
   const [edit, setEdit] = useState(null);
   const [bulk, setBulk] = useState(false);

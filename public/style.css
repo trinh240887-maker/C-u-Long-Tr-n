@@ -898,3 +898,7 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 
 .order-lines li.ol.new { flex-wrap: wrap; }
 .item-note { flex-basis: 100%; width: 100%; margin-top: 2px; min-height: 40px; font-size: 15px; }
+
+/* Khung lương */
+.scale-row { display: grid; grid-template-columns: 1fr 7.5em 5.5em; gap: 8px; align-items: center; }
+.scale-row input, .scale-row select { width: 100%; min-width: 0; }

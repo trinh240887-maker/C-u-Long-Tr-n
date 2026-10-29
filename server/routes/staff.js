@@ -3,7 +3,7 @@ import { fail, v } from '../http.js';
 import { tx, rank, ROLES, ROLE_LABEL } from '../db.js';
 import { validatePin } from './auth.js';
 import { can } from '../lib/perms.js';
-import { addDays } from '../lib/time.js';
+import { addDays, isDate } from '../lib/time.js';
 
 export default function (r, ctx) {
   const { db } = ctx;
@@ -68,6 +68,49 @@ export default function (r, ctx) {
   db.exec('CREATE TABLE IF NOT EXISTS pay_history (staff_id INTEGER NOT NULL, from_month TEXT NOT NULL, pay_type TEXT NOT NULL, pay_rate INTEGER NOT NULL, by_staff INTEGER, at INTEGER, PRIMARY KEY (staff_id, from_month))');
   const payAt = (staffId, month) => db.prepare('SELECT pay_type, pay_rate, from_month FROM pay_history WHERE staff_id = ? AND from_month <= ? ORDER BY from_month DESC LIMIT 1').get(staffId, month);
   ctx.payForMonth = (staffId, month) => payAt(staffId, month) || null;
+  // ---------- Khung lương theo bộ phận × chức vụ (chủ quán 29/10, chỉ chủ sửa) ----------
+  // Nhân viên "theo khung" (pay_custom = 0) tự lấy lương của khung; "lương riêng" (pay_custom = 1) dùng mức nhập tay như cũ.
+  // Khung có lịch sử theo tháng (from_month); pay_rate = 0 nghĩa là bỏ khung từ tháng đó.
+  // role_history: chức vụ / bộ phận từ ngày nào (lên chức từ 28/10 → ca từ 28/10 tính theo khung mới)
+  db.exec(`CREATE TABLE IF NOT EXISTS pay_scales (team_id INTEGER NOT NULL, role TEXT NOT NULL, from_month TEXT NOT NULL, pay_type TEXT NOT NULL, pay_rate INTEGER NOT NULL, by_staff INTEGER, at INTEGER, PRIMARY KEY (team_id, role, from_month));
+    CREATE TABLE IF NOT EXISTS role_history (staff_id INTEGER NOT NULL, from_date TEXT NOT NULL, role TEXT NOT NULL, team_id INTEGER, by_staff INTEGER, at INTEGER, PRIMARY KEY (staff_id, from_date));`);
+  if (!db.prepare('PRAGMA table_info(staff)').all().some((c) => c.name === 'pay_custom')) {
+    db.exec('ALTER TABLE staff ADD COLUMN pay_custom INTEGER NOT NULL DEFAULT 0');
+    db.exec('UPDATE staff SET pay_custom = 1 WHERE pay_rate > 0'); // người đang có lương nhập tay: giữ nguyên, chủ quán chuyển sang khung khi muốn
+  }
+  const seedRoles = () => db.exec("INSERT OR IGNORE INTO role_history (staff_id, from_date, role, team_id, at) SELECT id, '0000-00-00', role, team_id, 0 FROM staff WHERE id NOT IN (SELECT staff_id FROM role_history)");
+  seedRoles();
+  const scaleAt = (teamId, role, month) => {
+    if (!teamId) return null;
+    const x = db.prepare('SELECT pay_type, pay_rate, from_month FROM pay_scales WHERE team_id = ? AND role = ? AND from_month <= ? ORDER BY from_month DESC LIMIT 1').get(teamId, role, month);
+    return x && x.pay_rate > 0 ? x : null;
+  };
+  ctx.scaleAt = scaleAt;
+  // Các đoạn lương trong kỳ [from, to] của 1 người (đổi chức vụ / bộ phận giữa kỳ → nhiều đoạn)
+  ctx.paySegments = (id, from, to, month) => {
+    const s = db.prepare('SELECT id, role, team_id, pay_type, pay_rate, pay_custom FROM staff WHERE id = ?').get(id);
+    if (!s) return [];
+    const own = payAt(id, month) || { pay_type: s.pay_type, pay_rate: s.pay_rate };
+    if (s.pay_custom) return [{ from, to, role: s.role, team_id: s.team_id, pay_type: own.pay_type, pay_rate: own.pay_rate, source: 'custom' }];
+    const hist = db.prepare('SELECT from_date, role, team_id FROM role_history WHERE staff_id = ? ORDER BY from_date').all(id);
+    const start = [...hist].reverse().find((h) => h.from_date <= from) || hist[0] || { role: s.role, team_id: s.team_id };
+    const points = [{ from, role: start.role, team_id: start.team_id }, ...hist.filter((h) => h.from_date > from && h.from_date <= to).map((h) => ({ from: h.from_date, role: h.role, team_id: h.team_id }))];
+    const segs = [];
+    points.forEach((p, k) => {
+      const sc = scaleAt(p.team_id, p.role, month);
+      const pay = sc || own;
+      const seg = { from: p.from, to: k + 1 < points.length ? addDays(points[k + 1].from, -1) : to, role: p.role, team_id: p.team_id, pay_type: pay.pay_type, pay_rate: pay.pay_rate, source: sc ? 'scale' : 'own' };
+      const last = segs[segs.length - 1];
+      if (last && last.role === seg.role && last.pay_type === seg.pay_type && last.pay_rate === seg.pay_rate) last.to = seg.to; else segs.push(seg);
+    });
+    return segs;
+  };
+  // Ghi chức vụ / bộ phận từ ngày d (bỏ các mốc sau d vì thay đổi mới thay thế)
+  const setRoleFrom = (staffId, d, role, teamId, by) => {
+    db.prepare('DELETE FROM role_history WHERE staff_id = ? AND from_date >= ?').run(staffId, d);
+    db.prepare('INSERT INTO role_history (staff_id, from_date, role, team_id, by_staff, at) VALUES (?, ?, ?, ?, ?, ?)').run(staffId, d, role, teamId, by, ctx.now());
+  };
+
   // Sang tháng mới: mức đang dùng (staff.pay_*) = mức của tháng hiện tại theo lịch sử (cho báo cáo nhân sự, danh sách…)
   ctx.syncPay = () => {
     const m = ctx.today().slice(0, 7);
@@ -75,17 +118,81 @@ export default function (r, ctx) {
       const h = payAt(id, m);
       if (h) db.prepare('UPDATE staff SET pay_type = ?, pay_rate = ? WHERE id = ? AND (pay_type != ? OR pay_rate != ?)').run(h.pay_type, h.pay_rate, id, h.pay_type, h.pay_rate);
     }
+    // Người theo khung: mức đang dùng = khung của bộ phận × chức vụ hiện tại
+    for (const s of db.prepare('SELECT id, role, team_id, pay_type, pay_rate FROM staff WHERE pay_custom = 0').all()) {
+      const sc = scaleAt(s.team_id, s.role, m);
+      if (sc && (sc.pay_type !== s.pay_type || sc.pay_rate !== s.pay_rate)) db.prepare('UPDATE staff SET pay_type = ?, pay_rate = ? WHERE id = ?').run(sc.pay_type, sc.pay_rate, s.id);
+    }
   };
 
-  // ---------- Nhân viên ----------
-  function listStaff(me, { includeInactive = false } = {}) {
+  const ROLES_SCALE = ['staff', 'team_lead', 'shift_lead', 'manager'];
+  const isOwner = (me) => (me.real_role || me.role) === 'owner';
+  r.get('/api/pay-scales', 'manager', ({ me }) => {
+    if (!isOwner(me)) fail(403, 'Chỉ chủ quán xem / sửa khung lương');
     ctx.syncPay();
-    const canSeePay = rank(me.role) >= rank('manager');
+    const month = ctx.today().slice(0, 7);
+    const teams = db.prepare('SELECT id, name FROM teams WHERE active = 1 ORDER BY sort, id').all();
+    const people = db.prepare("SELECT s.id, s.name, s.role, s.team_id, s.pay_type, s.pay_rate, s.pay_custom, t.name AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.active = 1 AND s.role != 'owner' ORDER BY t.sort, s.name").all();
+    return {
+      month, roles: ROLES_SCALE.map((x) => ({ key: x, label: ROLE_LABEL[x] })),
+      teams: teams.map((t) => ({ ...t, scales: Object.fromEntries(ROLES_SCALE.map((ro) => {
+        const sc = scaleAt(t.id, ro, month);
+        const n = people.filter((p) => !p.pay_custom && p.team_id === t.id && p.role === ro).length;
+        return [ro, { pay_type: sc?.pay_type || 'hour', pay_rate: sc?.pay_rate || 0, from_month: sc?.from_month || '', count: n }];
+      })) })),
+      custom: people.filter((p) => p.pay_custom).map((p) => ({ id: p.id, name: p.name, role: p.role, role_label: ROLE_LABEL[p.role], team_name: p.team_name || '', pay_type: p.pay_type, pay_rate: p.pay_rate, scale: scaleAt(p.team_id, p.role, month) })),
+      no_scale: people.filter((p) => !p.pay_custom && !scaleAt(p.team_id, p.role, month)).map((p) => ({ id: p.id, name: p.name, role_label: ROLE_LABEL[p.role], team_name: p.team_name || '' })),
+    };
+  });
+  r.put('/api/pay-scales', 'manager', ({ me, body }) => {
+    if (!isOwner(me)) fail(403, 'Chỉ chủ quán sửa khung lương');
+    const fromMonth = body.from_month && /^\d{4}-\d{2}$/.test(body.from_month) ? body.from_month : ctx.today().slice(0, 7);
+    const items = Array.isArray(body.items) ? body.items.slice(0, 400) : [];
+    let n = 0;
+    tx(db, () => {
+      for (const it of items) {
+        const teamId = v.int(it.team_id, { min: 1, name: 'Bộ phận' });
+        if (!teamExists(teamId)) fail(400, 'Bộ phận không tồn tại');
+        const role = v.oneOf(it.role, ROLES_SCALE, { name: 'Chức vụ' });
+        const type = v.oneOf(it.pay_type || 'hour', ['hour', 'shift', 'month'], { name: 'Cách tính lương' });
+        const rate = v.int(Number(String(it.pay_rate ?? 0).replace(/[.,\s]/g, '') || 0), { min: 0, max: 100_000_000, name: 'Mức lương' });
+        const cur = scaleAt(teamId, role, fromMonth);
+        if ((cur?.pay_rate || 0) === rate && (!rate || cur.pay_type === type)) continue;
+        db.prepare('INSERT INTO pay_scales (team_id, role, from_month, pay_type, pay_rate, by_staff, at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (team_id, role, from_month) DO UPDATE SET pay_type = excluded.pay_type, pay_rate = excluded.pay_rate, by_staff = excluded.by_staff, at = excluded.at')
+          .run(teamId, role, fromMonth, type, rate, me.id, ctx.now());
+        n++;
+      }
+    });
+    ctx.syncPay();
+    ctx.audit(me, 'pay_scale.save', { from_month: fromMonth, changed: n });
+    ctx.broadcast('staff');
+    return { ok: true, changed: n, from_month: fromMonth };
+  });
+  // Chuyển người sang "theo khung" (custom = false) hoặc "lương riêng"
+  r.post('/api/pay-scales/use', 'manager', ({ me, body }) => {
+    if (!isOwner(me)) fail(403, 'Chỉ chủ quán đổi');
+    const ids = (Array.isArray(body.ids) ? body.ids : []).map(Number).filter((x) => Number.isInteger(x) && x > 0).slice(0, 300);
+    const custom = v.bool(body.custom) ? 1 : 0;
+    const n = ids.reduce((k, id) => k + db.prepare("UPDATE staff SET pay_custom = ? WHERE id = ? AND role != 'owner'").run(custom, id).changes, 0);
+    ctx.syncPay();
+    ctx.audit(me, 'pay_scale.use', { ids, custom });
+    ctx.broadcast('staff');
+    return { ok: true, n };
+  });
+
+  // ---------- Nhân viên ----------
+  function listStaff(me, { includeInactive = false, mine = false } = {}) {
+    ctx.syncPay();
+    // Quản lý bộ phận chỉ thấy nhân sự bộ phận mình (chủ quán 29/10): lương / máy chấm công người bộ phận khác bị ẩn; mine=1 (màn Nhân viên) bỏ hẳn
+    const realMe = { ...me, role: realRole(me) };
+    const scope = realMe.role === 'owner' ? null : ctx.dashboardScope?.(realMe) || null;
+    const inScope = (s) => !scope || s.id === me.id || s.created_by === me.id || (s.team_id && scope.has(s.team_id));
+    const month = ctx.today().slice(0, 7);
     const rows = db.prepare(`SELECT s.*, t.name AS team_name, p.name AS position_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id LEFT JOIN positions p ON p.id = s.position_id
       ${includeInactive ? '' : 'WHERE s.active = 1'} ORDER BY s.active DESC, ${rankSql()} DESC, t.sort, s.name`).all();
     const skills = db.prepare('SELECT staff_id, team_id, level FROM staff_skills').all();
     const pskills = db.prepare('SELECT staff_id, position_id, level FROM position_skills').all();
-    return rows.map((s) => ({
+    return rows.filter((s) => !mine || inScope(s)).map((s) => ({ s, canSeePay: rank(me.role) >= rank('manager') && inScope(s) })).map(({ s, canSeePay }) => ({
       id: s.id, name: s.name, phone: rank(me.role) >= rank('team_lead') ? s.phone : '',
       role: s.role, role_label: ROLE_LABEL[s.role], team_id: s.team_id, team_name: s.team_name || '',
       active: !!s.active, zalo_linked: !!s.zalo_user_id, weekly_limit_hours: s.weekly_limit_hours,
@@ -94,11 +201,11 @@ export default function (r, ctx) {
       ...(canSeePay ? { device_set: !!s.device_id, device_pending: !!s.device_pending, device_at: s.device_at || null } : {}),
       skills: skills.filter((k) => k.staff_id === s.id).map(({ team_id, level }) => ({ team_id, level })),
       pskills: pskills.filter((k) => k.staff_id === s.id).map(({ position_id, level }) => ({ position_id, level })),
-      ...(canSeePay ? { pay_type: s.pay_type, pay_rate: s.pay_rate, pay_rule: s.pay_rule ?? null, zalo_user_id: s.zalo_user_id, pay_history: db.prepare("SELECT from_month, pay_type, pay_rate FROM pay_history WHERE staff_id = ? AND from_month != '0000-00' ORDER BY from_month").all(s.id) } : {}),
+      ...(canSeePay ? { pay_custom: !!s.pay_custom, pay_scale: s.pay_custom ? null : scaleAt(s.team_id, s.role, month), pay_type: s.pay_type, pay_rate: s.pay_rate, pay_rule: s.pay_rule ?? null, zalo_user_id: s.zalo_user_id, pay_history: db.prepare("SELECT from_month, pay_type, pay_rate FROM pay_history WHERE staff_id = ? AND from_month != '0000-00' ORDER BY from_month").all(s.id) } : {}),
     }));
   }
 
-  r.get('/api/staff', 'staff', ({ me, query }) => listStaff(me, { includeInactive: query.get('all') === '1' && rank(me.role) >= rank('manager') }));
+  r.get('/api/staff', 'staff', ({ me, query }) => listStaff(me, { includeInactive: query.get('all') === '1' && rank(me.role) >= rank('manager'), mine: query.get('mine') === '1' }));
 
   // Máy chấm công: "Cho đổi máy" (nhận máy mới bạn ấy vừa thử chấm) hoặc "Gỡ máy" (lần chấm sau gắn máy mới)
   r.post('/api/staff/:id/device', 'manager', ({ me, params, body }) => {
@@ -120,10 +227,9 @@ export default function (r, ctx) {
     return rank(role) < rank(realRole(me));
   }
   // Đổi lương (rà soát 28/10): chỉ quản lý thật trở lên; lương của chính mình hoặc của quản lý / chủ chỉ chủ quán đổi
-  function canSetPay(me, target) {
-    if (me.role === 'owner') return true;
-    if (rank(realRole(me)) < rank('manager')) return false;
-    return target.id !== me.id && rank(target.role) < rank('manager');
+  // Chủ quán 29/10: lương theo khung bộ phận × chức vụ; lương riêng chỉ chủ quán đặt
+  function canSetPay(me) {
+    return realRole(me) === 'owner';
   }
 
   function staffFields(body, current = {}) {
@@ -201,13 +307,16 @@ export default function (r, ctx) {
     const f = staffFields(body);
     const maxRank = realRole(me) === 'owner' ? rank('owner') : rank(realRole(me)) >= rank('manager') ? rank(realRole(me)) : rank('shift_lead');
     if (rank(f.role) >= maxRank) fail(403, `Bạn không thể tạo tài khoản ${ROLE_LABEL[f.role]}`);
-    if (!canSetPay(me, { id: 0, role: f.role }) || rank(realRole(me)) < rank('manager')) { f.payType = 'hour'; f.payRate = 0; }
+    if (!canSetPay(me)) { f.payType = 'hour'; f.payRate = 0; } // theo khung bộ phận × chức vụ
     let lookup = null, pin = '';
     for (let k = 0; k < 8 && !lookup; k++) { pin = String(Math.floor(100000 + Math.random() * 900000)); try { lookup = validatePin(db, pin, f.role); } catch { lookup = null; } }
     if (!lookup) fail(500, 'Không tạo được mã PIN, thử lại');
     const id = Number(db.prepare(`INSERT INTO staff (name, phone, role, team_id, pin_lookup, pay_type, pay_rate, weekly_limit_hours, zalo_user_id, must_change_pin, created_at, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`).run(f.name, f.phone, f.role, f.teamId, lookup, f.payType, f.payRate, f.limit, f.zalo, ctx.now(), me.id).lastInsertRowid);
     if (f.positionId) db.prepare('UPDATE staff SET position_id = ? WHERE id = ?').run(f.positionId, id);
+    db.prepare('UPDATE staff SET pay_custom = ? WHERE id = ?').run(canSetPay(me) && f.payRate > 0 ? 1 : 0, id);
+    seedRoles();
+    ctx.syncPay();
     ctx.audit(me, 'staff.create', { id, name: f.name, role: f.role, from: 'request' });
     return { id, pin };
   };
@@ -215,14 +324,16 @@ export default function (r, ctx) {
   r.post('/api/staff', 'manager', ({ me, body }) => {
     const f = staffFields(body);
     if (!canManage(me, f.role)) fail(403, `Bạn không thể tạo tài khoản ${ROLE_LABEL[f.role]}`);
-    if (!canSetPay(me, { id: 0, role: f.role })) { f.payType = 'hour'; f.payRate = 0; } // người được nâng quyền không đặt lương (rà soát 28/10)
+    if (!canSetPay(me)) { f.payType = 'hour'; f.payRate = 0; } // chỉ chủ quán đặt lương riêng; người khác: theo khung
+    const custom = canSetPay(me) ? (body.pay_custom !== undefined ? (v.bool(body.pay_custom) ? 1 : 0) : (f.payRate > 0 ? 1 : 0)) : 0;
     const lookup = validatePin(db, body.pin, f.role);
     const id = tx(db, () => {
       const id = Number(db.prepare(`INSERT INTO staff (name, phone, role, team_id, pin_lookup, pay_type, pay_rate, weekly_limit_hours, zalo_user_id, must_change_pin, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`).run(f.name, f.phone, f.role, f.teamId, lookup, f.payType, f.payRate, f.limit, f.zalo, ctx.now()).lastInsertRowid);
       saveSkills(id, body.skills);
       savePositionSkills(id, body.pskills);
-      db.prepare('UPDATE staff SET position_id = ?, work_type = ?, created_by = ? WHERE id = ?').run(f.positionId, f.workType, me.id, id);
+      db.prepare('UPDATE staff SET position_id = ?, work_type = ?, created_by = ?, pay_custom = ? WHERE id = ?').run(f.positionId, f.workType, me.id, custom, id);
+      seedRoles();
       return id;
     });
     ctx.audit(me, 'staff.create', { id, name: f.name, role: f.role });
@@ -254,7 +365,17 @@ export default function (r, ctx) {
     // Đổi lương: ghi lịch sử theo tháng áp dụng; mức đang dùng = mức của tháng hiện tại (đặt trước cho tháng sau không đổi tháng này)
     const thisMonth = ctx.today().slice(0, 7);
     let payChanged = f.payType !== cur.pay_type || f.payRate !== cur.pay_rate || body.pay_from;
-    const payOk = canSetPay(me, cur);
+    const payOk = canSetPay(me);
+    // Lương riêng / theo khung: chỉ chủ quán đổi. Chuyển về theo khung thì không ghi lịch sử lương riêng
+    const wantCustom = payOk && body.pay_custom !== undefined ? (v.bool(body.pay_custom) ? 1 : 0) : null;
+    if (wantCustom === 0) { f.payType = cur.pay_type; f.payRate = cur.pay_rate; payChanged = false; }
+    // Đổi chức vụ / bộ phận: áp dụng từ ngày nào (vd lên tổ trưởng từ 28/10 → lương ca từ 28/10 theo khung tổ trưởng)
+    const roleMoved = f.role !== cur.role || (f.teamId ?? null) !== (cur.team_id ?? null);
+    let roleFrom = ctx.today();
+    if (roleMoved && body.role_from) {
+      if (!isDate(body.role_from) || body.role_from > ctx.today()) fail(400, 'Ngày áp dụng chức vụ không hợp lệ (không chọn ngày tương lai)');
+      roleFrom = body.role_from;
+    }
     if (payChanged && !payOk) {
       // Quản lý thật thấy lương nên báo rõ; người được nâng quyền (không thấy lương) thì giữ nguyên lương cũ (rà soát 28/10)
       if (rank(realRole(me)) >= rank('manager') && (f.payType !== cur.pay_type || f.payRate !== cur.pay_rate)) fail(403, cur.id === me.id ? 'Chỉ chủ quán đổi được lương của bạn' : 'Chỉ chủ quán đổi được lương của tài khoản này');
@@ -275,6 +396,9 @@ export default function (r, ctx) {
       saveSkills(cur.id, body.skills);
       savePositionSkills(cur.id, body.pskills);
       db.prepare('UPDATE staff SET position_id = ?, work_type = ? WHERE id = ?').run(f.positionId, f.workType, cur.id);
+      if (wantCustom !== null) db.prepare('UPDATE staff SET pay_custom = ? WHERE id = ?').run(wantCustom, cur.id);
+      else if (payChanged && payOk) db.prepare('UPDATE staff SET pay_custom = 1 WHERE id = ?').run(cur.id); // chủ quán gõ mức riêng → lương riêng
+      if (roleMoved) { seedRoles(); setRoleFrom(cur.id, roleFrom, f.role, f.teamId ?? null, me.id); }
       if (body.gender !== undefined) db.prepare('UPDATE staff SET gender = ? WHERE id = ?').run(v.oneOf(body.gender || '', ['', 'nam', 'nu'], { name: 'Giới tính' }), cur.id);
       if (body.home_zone_id !== undefined) {
         const hz = body.home_zone_id === null || body.home_zone_id === '' ? null : v.int(body.home_zone_id, { min: 1, name: 'Khu cố định' });
@@ -298,7 +422,8 @@ export default function (r, ctx) {
       }
     });
     if (cur.active && !active) { ctx.broadcast('schedule'); ctx.broadcast('availability'); }
-    ctx.audit(me, 'staff.update', { id: cur.id, name: f.name, active, pin_reset: !!body.pin });
+    ctx.syncPay();
+    ctx.audit(me, 'staff.update', { id: cur.id, name: f.name, active, pin_reset: !!body.pin, ...(roleMoved ? { role: f.role, team_id: f.teamId, role_from: roleFrom } : {}) });
     ctx.broadcast('staff');
     return { ok: true };
   });

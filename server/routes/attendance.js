@@ -555,7 +555,47 @@ export default function (r, ctx) {
     const paidOff = num('month_paid_off_days', 2);
     const stdDays = Math.max(1, monthDays - paidOff); // chủ quán 27/10: làm đủ tháng, nghỉ 2 ngày vẫn đủ lương
     const otH = num('ot_daily_hours', 8), otRate = num('ot_rate', 1);
-    const rows = computeTimesheet(ctx.payRecords(records), staff, clock, { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: num('month_standard_days', 26), ruleStandardDays: stdDays, otDailyHours: otH, otRate, otRoundMinutes: num('ot_round_minutes', 30), adjust: new Map(db.prepare('SELECT * FROM payroll_adjust WHERE month = ?').all(month).map((x) => [x.staff_id, x])) });
+    // Khung lương + lên chức giữa kỳ (chủ quán 29/10): mỗi người chia thành các đoạn (chức vụ, mức lương) theo ngày → tính từng đoạn rồi cộng
+    const adjustAll = new Map(db.prepare('SELECT * FROM payroll_adjust WHERE month = ?').all(month).map((x) => [x.staff_id, x]));
+    const pseudo = [], recOwner = new Map(), segInfo = new Map(), adjust = new Map();
+    let nextId = -1;
+    for (const x of staff) {
+      const segs = ctx.paySegments ? ctx.paySegments(x.id, from, to, month) : [];
+      if (segs.length <= 1) {
+        const g = segs[0];
+        pseudo.push(g ? { ...x, pay_type: g.pay_type, pay_rate: g.pay_rate } : x);
+        if (adjustAll.has(x.id)) adjust.set(x.id, adjustAll.get(x.id));
+        continue;
+      }
+      const owners = segs.map((g, k) => {
+        const pid = nextId--;
+        pseudo.push({ ...x, id: pid, pay_type: g.pay_type, pay_rate: g.pay_rate });
+        segInfo.set(pid, { real: x.id, seg: g });
+        if (k === segs.length - 1 && adjustAll.has(x.id)) adjust.set(pid, adjustAll.get(x.id)); // giờ vượt ghi tay: vào đoạn cuối
+        return { pid, g };
+      });
+      recOwner.set(x.id, owners);
+    }
+    const recs = ctx.payRecords(records).map((rc) => {
+      const list = recOwner.get(rc.staff_id);
+      if (!list) return rc;
+      const hit = list.find((o) => rc.date >= o.g.from && rc.date <= o.g.to) || list[list.length - 1];
+      return { ...rc, staff_id: hit.pid };
+    });
+    const raw = computeTimesheet(recs, pseudo, clock, { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: num('month_standard_days', 26), ruleStandardDays: stdDays, otDailyHours: otH, otRate, otRoundMinutes: num('ot_round_minutes', 30), adjust });
+    const merged = new Map();
+    const SUM = ['minutes', 'night_minutes', 'shifts', 'days', 'pay', 'open_records', 'ot_minutes', 'ot_pay', 'base_pay'];
+    for (const row of raw) {
+      const info = segInfo.get(row.staff_id);
+      if (!info) { merged.set(row.staff_id, row); continue; }
+      const seg = { from: info.seg.from, to: info.seg.to, role: info.seg.role, role_label: ROLE_LABEL[info.seg.role] || info.seg.role, pay_type: row.pay_type, pay_rate: row.pay_rate, pay: row.pay, minutes: row.minutes, days: row.days, shifts: row.shifts };
+      const m = merged.get(info.real);
+      if (!m) { merged.set(info.real, { ...row, staff_id: info.real, segments: [seg] }); continue; }
+      for (const k of SUM) m[k] = Math.round(((m[k] || 0) + (row[k] || 0)) * 100) / 100;
+      Object.assign(m, { pay_type: row.pay_type, pay_rate: row.pay_rate, ot_manual: m.ot_manual || row.ot_manual, ot_note: row.ot_note || m.ot_note, day_price: row.day_price, hour_price: row.hour_price });
+      m.segments.push(seg);
+    }
+    const rows = [...merged.values()];
     const stats = db.prepare(`SELECT staff_id, SUM(late_minutes > 0) AS late_count, SUM(late_minutes) AS late_minutes, SUM(auto_closed) AS auto_closed
       FROM attendance WHERE date BETWEEN ? AND ? GROUP BY staff_id`).all(from, to);
     const today = ctx.today();

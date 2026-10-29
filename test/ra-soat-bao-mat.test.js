@@ -123,7 +123,8 @@ test('lương: quản lý không tự đổi lương mình / lương quản lý 
   const self = await ql('PATCH', `/api/staff/${qlId}`, { pay_rate: 90000 });
   assert.equal(self.status, 403);
   assert.equal((await ql('PATCH', `/api/staff/${qlId}`, { pay_rate: 40000, name: 'Hậu QL' })).status, 200, 'sửa tên mình, lương giữ nguyên: được');
-  assert.equal((await ql('PATCH', `/api/staff/${nvId}`, { pay_rate: 22000 })).status, 200);
+  assert.equal((await ql('PATCH', `/api/staff/${nvId}`, { pay_rate: 22000 })).status, 403); // chủ quán 29/10: chỉ chủ đặt lương
+  assert.equal((await o('PATCH', `/api/staff/${nvId}`, { pay_rate: 22000 })).status, 200);
   assert.equal((await o('PATCH', `/api/staff/${qlId}`, { pay_rate: 45000 })).status, 200);
   const list = (await o('GET', '/api/staff')).data;
   assert.equal(list.find((x) => x.id === qlId).pay_rate, 45000);
