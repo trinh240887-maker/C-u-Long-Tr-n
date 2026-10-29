@@ -1,7 +1,53 @@
 // Dựng lệnh ESC/POS cho máy in nhiệt 80mm (48 ký tự/dòng cỡ thường).
 // Chữ tiếng Việt: máy in nhiệt rẻ thường không có bảng mã tiếng Việt, nên mặc định in KHÔNG DẤU (đọc được trên mọi máy).
 // Chế độ 'utf8' gửi nguyên chữ có dấu, chỉ dùng khi phiếu in thử cho thấy máy đọc đúng.
+// Chế độ 'anh' (chủ quán 29/10): app tự vẽ chữ có dấu thành ảnh (GS v 0) → máy in nhiệt nào cũng in đúng, không cần bảng mã.
+import { GLYPHS, GLYPH_W, GLYPH_H } from './vnfont.js';
 const ESC = 0x1b, GS = 0x1d;
+const DOTS = 576; // 80mm = 48 ký tự × 12 chấm
+const glyphCache = new Map();
+function glyph(ch) {
+  if (glyphCache.has(ch)) return glyphCache.get(ch);
+  let b64 = GLYPHS[ch];
+  if (!b64) { const plain = noAccent(ch); b64 = GLYPHS[plain[0]] || (/\s/.test(ch) ? GLYPHS[' '] : GLYPHS['?']); }
+  const g = Buffer.from(b64, 'base64');
+  glyphCache.set(ch, g);
+  return g;
+}
+// Vẽ 1 dòng (các đoạn chữ có cỡ / nền đen riêng) thành lệnh in ảnh GS v 0
+function rasterLine(segs, align) {
+  const chars = [];
+  for (const s of segs) for (const ch of [...String(s.text).normalize('NFC')]) chars.push({ ch, w: s.w, h: s.h, inv: s.inv });
+  const out = [];
+  // Dòng dài hơn giấy: cắt thành nhiều dòng
+  let start = 0;
+  while (start < chars.length || (start === 0 && !chars.length)) {
+    let width = 0, end = start;
+    while (end < chars.length && width + GLYPH_W * chars[end].w <= DOTS) { width += GLYPH_W * chars[end].w; end++; }
+    if (end === start && end < chars.length) end++;
+    const part = chars.slice(start, end);
+    const hMax = Math.max(1, ...part.map((c) => c.h));
+    const H = GLYPH_H * hMax, XB = DOTS / 8;
+    const bmp = Buffer.alloc(XB * H);
+    let x = align === 'center' ? Math.floor((DOTS - width) / 2) : align === 'right' ? DOTS - width : 0;
+    const set = (px, py) => { if (px >= 0 && px < DOTS && py >= 0 && py < H) bmp[py * XB + (px >> 3)] |= 0x80 >> (px & 7); };
+    for (const c of part) {
+      const g = glyph(c.ch), cw = GLYPH_W * c.w, ch = GLYPH_H * c.h, top = H - ch;
+      for (let yy = 0; yy < ch; yy++) {
+        const row = g.readUInt16BE(Math.floor(yy / c.h) * 2);
+        for (let xx = 0; xx < cw; xx++) {
+          const on = !!(row & (0x8000 >> Math.floor(xx / c.w)));
+          if (on !== c.inv) set(x + xx, top + yy);
+        }
+      }
+      x += cw;
+    }
+    out.push(Buffer.from([GS, 0x76, 0x30, 0, XB & 0xff, XB >> 8, H & 0xff, H >> 8]), bmp);
+    if (!chars.length) break;
+    start = end;
+  }
+  return Buffer.concat(out);
+}
 export const WIDTH = 48;
 
 export function noAccent(s) {
@@ -11,13 +57,25 @@ export function noAccent(s) {
 export function doc({ mode = 'khong_dau' } = {}) {
   const parts = [Buffer.from([ESC, 0x40])];
   const enc = (s) => (mode === 'utf8' ? Buffer.from(String(s ?? ''), 'utf8') : Buffer.from(noAccent(s), 'ascii'));
-  const cmd = (...b) => { parts.push(Buffer.from(b)); return api; };
+  const img = mode === 'anh';
+  const st = { align: 'left', w: 1, h: 1, inv: false };
+  let segs = [], segAlign = null;
+  const flush = () => { if (segs.length) { parts.push(rasterLine(segs, segAlign || st.align)); segs = []; segAlign = null; } };
+  const cmd = (...b) => { if (img) flush(); parts.push(Buffer.from(b)); return api; };
   const api = {
-    align: (a) => cmd(ESC, 0x61, { left: 0, center: 1, right: 2 }[a] ?? 0),
-    size: (w = 1, h = 1) => cmd(GS, 0x21, ((w - 1) << 4) | (h - 1)),
-    bold: (on) => cmd(ESC, 0x45, on ? 1 : 0),
-    invert: (on) => cmd(GS, 0x42, on ? 1 : 0),
-    text: (s) => { parts.push(enc(s)); return api; },
+    align: (a) => { st.align = a; return img ? api : cmd(ESC, 0x61, { left: 0, center: 1, right: 2 }[a] ?? 0); },
+    size: (w = 1, h = 1) => { st.w = w; st.h = h; return img ? api : cmd(GS, 0x21, ((w - 1) << 4) | (h - 1)); },
+    bold: (on) => (img ? api : cmd(ESC, 0x45, on ? 1 : 0)),
+    invert: (on) => { st.inv = !!on; return img ? api : cmd(GS, 0x42, on ? 1 : 0); },
+    text: (s) => {
+      if (!img) { parts.push(enc(s)); return api; }
+      const pieces = String(s ?? '').split('\n');
+      pieces.forEach((p, i) => {
+        if (p) { if (!segs.length) segAlign = st.align; segs.push({ text: p, w: st.w, h: st.h, inv: st.inv }); }
+        if (i < pieces.length - 1) { if (segs.length) flush(); else parts.push(Buffer.from('\n')); }
+      });
+      return api;
+    },
     line: (s = '') => api.text(`${s}\n`),
     rule: (ch = '-') => api.line(ch.repeat(WIDTH)),
     feed: (n = 1) => cmd(ESC, 0x64, n),
@@ -44,7 +102,7 @@ export function doc({ mode = 'khong_dau' } = {}) {
       parts.push(Buffer.from([GS, 0x28, 0x6b, n & 0xff, n >> 8, 0x31, 0x50, 0x30]), d);
       return cmd(GS, 0x28, 0x6b, 3, 0, 0x31, 0x51, 0x30);
     },
-    bytes: () => Buffer.concat(parts),
+    bytes: () => { if (img) flush(); return Buffer.concat(parts); },
   };
   return api;
 }
@@ -84,11 +142,13 @@ export function testBytes({ station = '', ip = '', time = '', qr = '' } = {}) {
   a.align('center').size(2, 2).bold(true).line('IN THU').size(1, 1).line(station).bold(false).line(`${ip}  ${time}`).rule();
   a.align('left').line('1) KHONG DAU: Ban 20 - 2 x Combo 2 - sot tieu den');
   const b = doc({ mode: 'utf8' });
-  b.line('2) CO DAU:  Bàn 20 - 2 x Combo 2 - sốt tiêu đen');
+  b.line('2) CO DAU UTF-8:  Bàn 20 - 2 x Combo 2 - sốt tiêu đen');
+  const e = doc({ mode: 'anh' });
+  e.line('3) CÓ DẤU (ẢNH): Bàn 20 - 2 x Bò ướp mala');
   const c = doc({ mode: 'khong_dau' });
-  c.rule().line('Dong 2 doc dung -> bat "In co dau" trong Cai dat.').line('Dong 2 ra ky tu la -> giu che do khong dau.');
+  c.rule().line('Dong 3 ro rang -> chon "Co dau (in dang anh)".').line('Dong 2 cung doc dung -> chon "Co dau UTF-8".').line('Ca 2 deu loi -> giu che do khong dau.');
   if (qr) c.rule().align('center').line('3) MA QR THU: quet bang app ngan hang').line('phai hien 1.000d, noi dung IN THU').qr(qr).line('').align('left');
-  return Buffer.concat([a.bytes(), b.bytes().subarray(2), c.cut().bytes().subarray(2)]);
+  return Buffer.concat([a.bytes(), b.bytes().subarray(2), e.bytes().subarray(2), c.cut().bytes().subarray(2)]);
 }
 
 const vnd = (n) => Number(n || 0).toLocaleString('vi-VN');
@@ -101,7 +161,7 @@ const lr = (l, r, w = WIDTH) => {
 // Bill khách (tạm tính trước khi trả, hoặc hoá đơn sau khi trả). b = dữ liệu từ payments.billData()
 export function billBytes(b, { mode } = {}) {
   const d = doc({ mode });
-  const t = (s) => (mode === 'utf8' ? String(s) : noAccent(s)); // độ dài để canh lề
+  const t = (s) => (mode === 'utf8' || mode === 'anh' ? String(s) : noAccent(s)); // độ dài để canh lề
   d.align('center').size(2, 2).bold(true).line(b.shop.name).size(1, 1).bold(false);
   if (b.shop.address) d.wrap(b.shop.address);
   if (b.shop.phone) d.line(`SĐT: ${b.shop.phone}`);
@@ -141,7 +201,7 @@ export function billBytes(b, { mode } = {}) {
 // Phiếu hoàn tiền: khách ký nhận, quản lý giữ lại
 export function refundBytes(r, { mode } = {}) {
   const d = doc({ mode });
-  const t = (s) => (mode === 'utf8' ? String(s) : noAccent(s));
+  const t = (s) => (mode === 'utf8' || mode === 'anh' ? String(s) : noAccent(s));
   d.align('center').size(1, 2).bold(true).line('PHIẾU HOÀN TIỀN').size(1, 1).bold(false).line(`Bill ${r.bill_no} · ${r.header}`).line(r.time).align('left').rule();
   for (const l of r.lines) d.line(t(lr(`${l.qty} x ${l.name}`.slice(0, 36), vnd(l.amount))));
   d.rule().bold(true).line(t(lr('HOÀN TIỀN MẶT', `${vnd(r.amount)}đ`))).bold(false);

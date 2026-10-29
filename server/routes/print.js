@@ -32,7 +32,7 @@ export default function (r, ctx) {
     ctx.broadcast('print');
     return id;
   };
-  ctx.printMode = () => (ctx.setting('print_text_mode') === 'utf8' ? 'utf8' : 'khong_dau');
+  ctx.printMode = () => (['utf8', 'anh'].includes(ctx.setting('print_text_mode')) ? ctx.setting('print_text_mode') : 'khong_dau');
   if (!ctx.setting('print_token')) ctx.setSetting('print_token', crypto.randomBytes(16).toString('hex'));
 
   const auth = (req) => {
@@ -58,7 +58,7 @@ export default function (r, ctx) {
     }
     return out;
   }
-  const mode = () => (ctx.setting('print_text_mode') === 'utf8' ? 'utf8' : 'khong_dau');
+  const mode = () => ctx.printMode();
   const offsetMin = () => {
     const m = /^([+-])(\d{2}):(\d{2})$/.exec(ctx.setting('tz_offset') || '+07:00');
     return m ? (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 420;
@@ -104,7 +104,7 @@ export default function (r, ctx) {
       if (!to.length) continue; // máy chưa có IP: chờ, màn quản lý báo "chưa cài máy in"
       const t = { ...k, lines: JSON.parse(k.lines || '[]'), time0: hm(k.created_at) };
       const lateMin = Math.floor((now - (k.reprint_at || k.created_at)) / 60_000);
-      jobs.push({ key: `t${k.id}`, station: k.station_name, targets: to, data: ticketBytes(t, { mode: mode(), time: `${hm(k.created_at)} ${ctx.clock().dateOf(k.created_at).slice(8, 10)}/${ctx.clock().dateOf(k.created_at).slice(5, 7)}`, by: k.by_name || '', lateMin }).toString('base64') });
+      jobs.push({ key: `t${k.id}`, station: k.station_name, targets: to, data: ticketBytes(t, { mode: mode(), time: hm(k.created_at), /* hm đã có ngày (trước in lặp "29/10 29/10") */ by: k.by_name || '', lateMin }).toString('base64') });
     }
     for (const p of db.prepare("SELECT p.*, st.name, st.printer_ip, st.printer_port FROM print_tests p JOIN kitchen_stations st ON st.id = p.station_id WHERE p.status = 'pending'").all()) {
       if (!p.printer_ip) { db.prepare("UPDATE print_tests SET status = 'failed', error = 'Chưa nhập IP' WHERE id = ?").run(p.id); continue; }
@@ -221,7 +221,7 @@ export default function (r, ctx) {
 
   r.post('/api/print/settings', 'manager', ({ me, body }) => {
     if (body.text_mode !== undefined) {
-      if (!['utf8', 'khong_dau'].includes(body.text_mode)) fail(400, 'Chế độ chữ không hợp lệ');
+      if (!['utf8', 'anh', 'khong_dau'].includes(body.text_mode)) fail(400, 'Chế độ chữ không hợp lệ');
       ctx.setSetting('print_text_mode', body.text_mode);
     }
     if (body.reset_token) {

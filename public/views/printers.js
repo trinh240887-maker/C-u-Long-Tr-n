@@ -69,7 +69,7 @@ export function PrintersView({ me }) {
     ${manager ? html`<div class="card stack">
       <b>Chữ trên phiếu</b>
       <div class="row wrap">
-        ${[['khong_dau', 'Không dấu (an toàn)'], ['utf8', 'Có dấu']].map(([k, label]) => html`<button class=${d.text_mode === k ? 'primary' : ''} onClick=${() => act(() => api('POST', '/api/print/settings', { text_mode: k }), 'Đã lưu')}>${label}</button>`)}
+        ${[['khong_dau', 'Không dấu'], ['anh', 'Có dấu (in dạng ảnh, mọi máy)'], ['utf8', 'Có dấu UTF-8 (máy hỗ trợ)']].map(([k, label]) => html`<button class=${d.text_mode === k ? 'primary' : ''} onClick=${() => act(() => api('POST', '/api/print/settings', { text_mode: k }), 'Đã lưu')}>${label}</button>`)}
       </div>
       <p class="muted small">In thử xong: dòng "CÓ DẤU" đọc đúng thì chọn Có dấu; ra ký tự lạ thì giữ Không dấu.</p>
     </div>` : ''}
