@@ -389,6 +389,49 @@ export default function (r, ctx) {
     };
   });
 
+  // So sánh giá NCC (chủ quán 29/10, chỉ chủ xem): giá thật đã mua theo từng NCC, cùng đơn vị mua của nguyên liệu.
+  // Nguồn: dòng bill đã nhận (bỏ bill huỷ / trả lại / chưa về / chưa quy đổi) + đơn đặt đã nhận không có bill.
+  r.get('/api/purchases/compare', 'staff', ({ me, query }) => {
+    if ((me.real_role || me.role) !== 'owner') fail(403, 'Chỉ chủ quán xem so sánh giá');
+    const days = Math.min(365, Math.max(7, Number(query.days) || 90));
+    const from = addDays(ctx.today(), -days);
+    const fromMs = ctx.now() - days * 86_400_000;
+    const rows = [
+      ...db.prepare(`SELECT l.ingredient_id AS ing, b.supplier_id AS sup, COALESCE(s.name, b.supplier_name) AS sup_name, b.date, b.id AS ord, l.qty, l.price
+        FROM purchase_bill_lines l JOIN purchase_bills b ON b.id = l.bill_id LEFT JOIN suppliers s ON s.id = b.supplier_id
+        WHERE l.ingredient_id IS NOT NULL AND l.bill_unit IS NULL AND l.price > 0 AND l.qty > 0 AND b.status NOT IN ('void', 'returned', 'waiting') AND b.date >= ?`).all(from),
+      ...db.prepare(`SELECT l.ingredient_id AS ing, p.supplier_id AS sup, s.name AS sup_name, date(p.received_at / 1000, 'unixepoch', '+7 hours') AS date, -p.id AS ord, l.qty_received AS qty, l.price_received AS price
+        FROM po_lines l JOIN purchase_orders p ON p.id = l.po_id LEFT JOIN suppliers s ON s.id = p.supplier_id
+        WHERE p.status = 'received' AND p.received_at >= ? AND l.price_received > 0 AND l.qty_received > 0 AND NOT EXISTS (SELECT 1 FROM purchase_bills b WHERE b.po_id = p.id)`).all(fromMs),
+    ].filter((x) => x.sup_name);
+    const ings = new Map(db.prepare('SELECT i.id, i.name, i.unit, i.purchase_unit, i.supplier_id, s.name AS sup_name FROM ingredients i LEFT JOIN suppliers s ON s.id = i.supplier_id').all().map((g) => [g.id, g]));
+    const by = new Map();
+    for (const x of rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.ord - b.ord))) {
+      const g = ings.get(x.ing); if (!g) continue;
+      if (!by.has(x.ing)) by.set(x.ing, new Map());
+      const key = x.sup ? `id${x.sup}` : `n${x.sup_name.toLowerCase()}`;
+      const m = by.get(x.ing);
+      const c = m.get(key) || { supplier_id: x.sup || null, name: x.sup_name, n: 0, qty: 0, spent: 0, min: Infinity, max: 0, last_price: 0, last_date: '' };
+      c.n++; c.qty += x.qty; c.spent += x.qty * x.price; c.min = Math.min(c.min, x.price); c.max = Math.max(c.max, x.price);
+      c.last_price = x.price; c.last_date = x.date; // đã sắp theo ngày tăng dần → dòng cuối là lần mua gần nhất
+      m.set(key, c);
+    }
+    const items = [];
+    for (const [id, m] of by) {
+      const g = ings.get(id);
+      const sups = [...m.values()].map((c) => ({ ...c, qty: Math.round(c.qty * 1000) / 1000, avg: Math.round(c.spent / c.qty), spent: Math.round(c.spent) })).sort((a, b) => a.last_price - b.last_price);
+      const best = sups[0];
+      const totalQty = sups.reduce((n, c) => n + c.qty, 0);
+      const spent = sups.reduce((n, c) => n + c.spent, 0);
+      // Nếu cả kỳ đều mua với giá rẻ nhất hiện tại → tiết kiệm được bao nhiêu (ước tính)
+      const save = sups.length > 1 ? Math.max(0, Math.round(spent - totalQty * best.last_price)) : 0;
+      const spread = sups.length > 1 ? Math.round((sups[sups.length - 1].last_price - best.last_price) * 100 / best.last_price) : 0;
+      items.push({ id, name: g.name, unit: g.purchase_unit || g.unit, default_supplier: g.sup_name || '', suppliers: sups, best_id: best.supplier_id, best_name: best.name, save, spread, spent });
+    }
+    items.sort((a, b) => (b.suppliers.length > 1) - (a.suppliers.length > 1) || b.save - a.save || b.spent - a.spent);
+    return { days, from, items, total_save: items.reduce((n, i) => n + i.save, 0) };
+  });
+
   // ⚖ Quy đổi ở Mua hàng (chủ quán 28/10): các dòng bill nhập đúng như bill, chưa quy đổi
   r.get('/api/purchases/unconverted', 'manager', () => db.prepare(`SELECT l.id, l.bill_id, l.ingredient_id, l.name, l.qty, l.price, l.amount, l.bill_unit, g.purchase_unit, g.unit AS use_unit, g.purchase_factor, b.date, b.supplier_name
     FROM purchase_bill_lines l JOIN purchase_bills b ON b.id = l.bill_id JOIN ingredients g ON g.id = l.ingredient_id WHERE l.bill_unit IS NOT NULL AND b.status != 'void' ORDER BY b.id DESC LIMIT 200`).all());

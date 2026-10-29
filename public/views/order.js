@@ -1,5 +1,8 @@
 import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, Modal, Field, money, hm, navigate, atLeast, toast, bump } from '../ui.js';
+// Ghi chú đang gõ dưới từng món chưa gửi (chủ quán 29/10): bấm Gửi bếp thì lưu trước rồi mới gửi, để phiếu bếp có ghi chú
+const pendingNotes = new Map();
+const saveNote = (id, note) => api('PATCH', `/api/pos/items/${id}`, { note: note.trim() }).then(() => { if (pendingNotes.get(id) === note) pendingNotes.delete(id); bump(); });
 import { PayModal, PaidPanel } from './pay.js';
 
 const STATUS = { new: 'Chưa gửi', sent: 'Đã gửi bếp', done: 'Đã ra', cancelled: 'Đã huỷ' };
@@ -196,7 +199,13 @@ export function OrderView({ me, query }) {
   const send = async () => {
     if (sending) return;
     setSending(true);
-    try { await act(() => api('POST', `/api/pos/sessions/${id}/send`), 'Đã gửi bếp'); } finally { setSending(false); }
+    try {
+      const ids = new Set(drafts.map((d) => d.id));
+      await act(async () => {
+        for (const [iid, note] of [...pendingNotes]) if (ids.has(iid)) await saveNote(iid, note);
+        return api('POST', `/api/pos/sessions/${id}/send`);
+      }, 'Đã gửi bếp');
+    } finally { setSending(false); }
   };
   const sessions = (tablesD.data?.zones || []).flatMap((z) => z.tables).filter((t) => t.session && t.session.id !== id)
     .map((t) => t.session).filter((x, k, a) => a.findIndex((y) => y.id === x.id) === k);
@@ -237,12 +246,13 @@ export function OrderView({ me, query }) {
       ${q && !items.length ? html`<div class="empty">Không thấy món "${q}".</div>` : null}` : null}
 
     ${tab === 'bill' && !closed && drafts.length ? html`<section class="card cart"><b>Lần ${rounds.length + 1} · chưa gửi bếp</b> <small class="muted">đọc lại cho khách xác nhận, bấm − / + để sửa, rồi bấm Gửi bếp</small>
-        <ul class="plain order-lines">${drafts.map((i) => html`<li class="ol new">
-          <div class="grow"><b>${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.note ? html`<br /><small class="muted">${i.note}</small>` : null}${i.promos?.length ? html`<br /><small class="promo-line">🎁 ${i.promos.map((p) => `${p.name} −${money(p.amount)}`).join(', ')}</small>` : null}</div>
+        <ul class="plain order-lines">${drafts.map((i) => html`<li class="ol new" key=${i.id}>
+          <div class="grow"><b>${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.promos?.length ? html`<br /><small class="promo-line">🎁 ${i.promos.map((p) => `${p.name} −${money(p.amount)}`).join(', ')}</small>` : null}</div>
           <div class="row tight">
             <button class="icon" onClick=${() => (i.qty > 1 ? act(() => api('PATCH', `/api/pos/items/${i.id}`, { qty: i.qty - 1 })) : act(() => api('POST', `/api/pos/items/${i.id}/cancel`, {})))}>−</button>
             <b>${i.qty}</b>
             <button class="icon" onClick=${() => act(() => api('PATCH', `/api/pos/items/${i.id}`, { qty: i.qty + 1 }))}>+</button></div>
+          <${NoteInput} item=${i} />
         </li>`)}</ul>
       </section>` : null}
     ${tab === 'bill' || s.status === 'cancelled' ? html`<section class="card">
@@ -313,4 +323,13 @@ function prompt_(cur) {
   const x = window.prompt('Số khách', String(cur));
   const n = Number(x);
   return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+// Ô ghi chú dưới món chưa gửi: bếp thấy trên phiếu in (dòng "* ghi chú")
+function NoteInput({ item }) {
+  const [v, setV] = useState(null);
+  const val = v ?? item.note ?? '';
+  const save = (text) => { if (text.trim() === (item.note || '')) { pendingNotes.delete(item.id); return; } saveNote(item.id, text).catch((e) => toast(e.message, true)); };
+  return html`<input class="item-note" maxlength="120" placeholder="✏️ Ghi chú cho bếp (ít cay, không hành…)" value=${val}
+    onInput=${(e) => { setV(e.target.value); pendingNotes.set(item.id, e.target.value); }} onChange=${(e) => save(e.target.value)} />`;
 }

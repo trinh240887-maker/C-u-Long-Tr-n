@@ -889,3 +889,12 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 .served-tick input { width: 22px; height: 22px; margin: 0; }
 .served-tick.on { color: var(--ok, #2e7d32); border-color: currentColor; }
 .ol.done b { opacity: .6; }
+
+/* So sánh giá NCC */
+.cmp-tbl { width: 100%; border-collapse: collapse; }
+.cmp-tbl th, .cmp-tbl td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: top; text-align: left; }
+.cmp-tbl .r { text-align: right; }
+.best-row td { background: color-mix(in srgb, var(--ok, #2e7d32) 12%, transparent); }
+
+.order-lines li.ol.new { flex-wrap: wrap; }
+.item-note { flex-basis: 100%; width: 100%; margin-top: 2px; min-height: 40px; font-size: 15px; }

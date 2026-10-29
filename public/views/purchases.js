@@ -393,6 +393,40 @@ function ArriveCard({ b, me }) {
 }
 
 // ⚖ Quy đổi ở Mua hàng (chủ quán 28/10): dòng bill nhập đúng như bill → nhập 1 mẹt = ? kg là app tự sửa kho + bill, nhớ cho lần sau
+// 💰 So sánh giá NCC (chủ quán 29/10, chỉ chủ): giá thật đã mua theo từng NCC, rẻ nhất tô xanh
+function CompareTab() {
+  const [days, setDays] = useState(90);
+  const [q, setQ] = useState('');
+  const [multi, setMulti] = useState(true);
+  const st = useData(`/api/purchases/compare?days=${days}`);
+  if (!st.data) return html`<${Loading} state=${st} />`;
+  const d = st.data;
+  const key = q.trim().toLowerCase();
+  const items = d.items.filter((i) => (!multi || i.suppliers.length > 1) && (!key || i.name.toLowerCase().includes(key) || i.suppliers.some((s) => s.name.toLowerCase().includes(key))));
+  return html`<div class="stack">
+    <section class="card stack tight">
+      <div class="row wrap tight">${[30, 90, 180].map((n) => html`<button class=${`small ${days === n ? 'primary' : ''}`} onClick=${() => setDays(n)}>${n} ngày</button>`)}</div>
+      <input placeholder="Tìm mặt hàng hoặc NCC…" value=${q} onInput=${(e) => setQ(e.target.value)} />
+      <label class="row tight" style="align-items:center"><input type="checkbox" checked=${multi} onChange=${(e) => setMulti(e.target.checked)} /> Chỉ hàng mua từ 2 NCC trở lên</label>
+      ${d.total_save ? html`<small>Nếu ${days} ngày qua mua hết ở NCC rẻ nhất (giá lần gần nhất): tiết kiệm khoảng <b class="ok-text">${money(d.total_save)}</b></small>` : null}
+      <small class="muted">Giá theo đơn vị mua của từng mặt hàng, lấy từ bill đã nhận (bỏ bill huỷ / trả lại / chưa quy đổi).</small>
+    </section>
+    ${!items.length ? html`<div class="empty">${multi ? 'Chưa có mặt hàng nào mua từ 2 NCC trong khoảng này. Bỏ tick để xem tất cả.' : 'Chưa có dữ liệu mua hàng.'}</div>` : null}
+    ${items.map((i) => html`<section class="card stack tight" key=${i.id}>
+      <div class="row between wrap"><b>${i.name}</b><small class="muted">/${i.unit}${i.spread ? html` · chênh <b class=${i.spread >= 10 ? 'danger-text' : ''}>${i.spread}%</b>` : null}</small></div>
+      ${i.default_supplier ? html`<small class="muted">NCC đang gán: ${i.default_supplier}</small>` : null}
+      <table class="cmp-tbl small"><thead><tr><th>NCC</th><th class="r">Lần gần nhất</th><th class="r">Thấp–cao</th><th class="r">TB</th></tr></thead><tbody>
+        ${i.suppliers.map((s, k) => html`<tr class=${k === 0 && i.suppliers.length > 1 ? 'best-row' : ''}>
+          <td>${k === 0 && i.suppliers.length > 1 ? '✅ ' : ''}${s.name}<br /><small class="muted">${s.n} lần · ${s.qty} ${i.unit}</small></td>
+          <td class="r"><b>${money(s.last_price)}</b><br /><small class="muted">${dayLabel(s.last_date)}</small></td>
+          <td class="r">${s.min === s.max ? money(s.min) : html`${money(s.min)}<br />${money(s.max)}`}</td>
+          <td class="r">${money(s.avg)}</td></tr>`)}
+      </tbody></table>
+      ${i.save ? html`<small>Mua hết ở <b>${i.best_name}</b> thì tiết kiệm ~<b class="ok-text">${money(i.save)}</b></small>` : null}
+    </section>`)}
+  </div>`;
+}
+
 function ConvTab({ meta }) {
   const st = useData('/api/purchases/unconverted');
   const [f, setF] = useState({});
@@ -432,7 +466,7 @@ export function PurchasesView({ me, query }) {
   // Công nợ NCC / Tạm ứng: theo Phân quyền (chủ quán tick từng người)
   const can = (k) => (Array.isArray(me.pages) ? me.pages.includes(`/mua-hang#${k}`) : k === 'congno' ? isCashier : true);
   const arriving = L.arriving || [];
-  const tabs = [...(canAct(me, 'mh.nhap') ? [['nhan', '📥 Nhập kho']] : []), ...(arriving.length || isCashier ? [['cho', `⏳ Chờ nhận hàng (${arriving.length})`]] : []), ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ...(L.limited ? [] : [['lichsu', 'Bill đã nhận']]), ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : []), ...(['manager', 'owner'].includes(me.role) ? [['quydoi', '⚖ Quy đổi']] : [])];
+  const tabs = [...(canAct(me, 'mh.nhap') ? [['nhan', '📥 Nhập kho']] : []), ...(arriving.length || isCashier ? [['cho', `⏳ Chờ nhận hàng (${arriving.length})`]] : []), ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ...(L.limited ? [] : [['lichsu', 'Bill đã nhận']]), ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : []), ...(['manager', 'owner'].includes(me.role) ? [['quydoi', '⚖ Quy đổi']] : []), ...((me.real_role || me.role) === 'owner' ? [['sosanh', '💰 So sánh giá']] : [])];
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/mua-hang?tab=${k}`)}>${l}</button>`)}</div>
     ${mineReturned.length && tab !== 'lichsu' ? html`<section class="card warn-card small">${mineReturned.length} bill bạn nhận bị thu ngân trả lại. <button class="small" onClick=${() => navigate('/mua-hang?tab=lichsu')}>Xem & sửa</button></section>` : null}
@@ -442,6 +476,7 @@ export function PurchasesView({ me, query }) {
     ${tab === 'congno' && can('congno') ? html`<${Debts} me=${me} />` : null}
     ${tab === 'cho' ? (arriving.length ? arriving.map((b) => html`<${ArriveCard} key=${b.id} b=${b} me=${me} />`) : html`<div class="empty">Không có bill nào chờ nhận hàng.</div>`) : null}
     ${tab === 'quydoi' && ['manager', 'owner'].includes(me.role) ? html`<${ConvTab} meta=${meta} />` : null}
+    ${tab === 'sosanh' && (me.real_role || me.role) === 'owner' ? html`<${CompareTab} />` : null}
     ${tab === 'tamung' && can('tamung') ? html`<${Advances} me=${me} isCashier=${isCashier} advances=${advances} />` : null}
   </div>`;
 }
