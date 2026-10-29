@@ -67,6 +67,9 @@ export default function (r, ctx) {
   if (!db.prepare('PRAGMA table_info(purchase_bill_lines)').all().some((c) => c.name === 'bill_unit')) db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN bill_unit TEXT');
   // Ngày hàng thực về (bill áp trước): giữ nguyên date = ngày áp bill để CK đã ghi không nhảy sang ngày khác (rà soát 28/10)
   if (!db.prepare('PRAGMA table_info(purchase_bills)').all().some((c) => c.name === 'received_date')) db.exec('ALTER TABLE purchase_bills ADD COLUMN received_date TEXT');
+  // Ghi chú quy đổi (chủ quán 29/10): "không cần quy đổi" + lý do → lần sau nhìn là hiểu
+  if (!db.prepare('PRAGMA table_info(unit_aliases)').all().some((c) => c.name === 'note')) db.exec("ALTER TABLE unit_aliases ADD COLUMN note TEXT NOT NULL DEFAULT ''");
+  if (!db.prepare('PRAGMA table_info(unit_aliases)').all().some((c) => c.name === 'keep')) db.exec('ALTER TABLE unit_aliases ADD COLUMN keep INTEGER NOT NULL DEFAULT 0');
   if (!db.prepare('PRAGMA table_info(purchase_bill_lines)').all().some((c) => c.name === 'old_price')) db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN old_price INTEGER'); // giá trước khi nhập bill này (huỷ bill thì trả lại)
   const isCashier = (me) => rank(me.role) >= rank('shift_lead') || !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id);
   const isBoss = (me) => rank(me.role) >= rank('manager');
@@ -499,8 +502,8 @@ export default function (r, ctx) {
   r.get('/api/purchases/unconverted', 'manager', () => db.prepare(`SELECT l.id, l.bill_id, l.ingredient_id, l.name, l.qty, l.price, l.amount, l.bill_unit, g.purchase_unit, g.unit AS use_unit, g.purchase_factor, b.date, b.supplier_name
     FROM purchase_bill_lines l JOIN purchase_bills b ON b.id = l.bill_id JOIN ingredients g ON g.id = l.ingredient_id WHERE l.bill_unit IS NOT NULL AND b.status != 'void' ORDER BY b.id DESC LIMIT 200`).all());
   // Nhập "1 mẹt = 2,5 kg" → app tự sửa số kho + dòng bill và nhớ cho lần đọc bill sau
-  r.post('/api/purchases/lines/:id/convert', 'manager', ({ me, params, body }) => {
-    const l = db.prepare('SELECT l.*, g.purchase_factor, g.purchase_unit, g.unit AS use_unit, g.shelf_days FROM purchase_bill_lines l JOIN ingredients g ON g.id = l.ingredient_id WHERE l.id = ?').get(Number(params.id));
+  function convertLine(me, lineId, body) {
+    const l = db.prepare('SELECT l.*, g.purchase_factor, g.purchase_unit, g.unit AS use_unit, g.shelf_days FROM purchase_bill_lines l JOIN ingredients g ON g.id = l.ingredient_id WHERE l.id = ?').get(Number(lineId));
     if (!l || !l.bill_unit) fail(404, 'Dòng này đã quy đổi rồi');
     const b = load(l.bill_id);
     if (b.status === 'void') fail(400, 'Bill đã huỷ');
@@ -522,18 +525,28 @@ export default function (r, ctx) {
       if (d) recordMove(db, { at, date, type: 'receive', ingredientId: l.ingredient_id, toStore: store, qty: d, cost: 0, ref: `fix-bill:${b.id}`, staffId: me.id, note: `Quy đổi bill #${b.id}: 1 ${l.bill_unit} = ${f} ${l.purchase_unit || l.use_unit}` });
       db.prepare('UPDATE purchase_bill_lines SET qty = ?, price = ?, unit = ?, bill_unit = NULL WHERE id = ?').run(qty, price, l.purchase_unit || l.use_unit, l.id);
       if (price > 0 && !waiting && !newer) db.prepare('UPDATE ingredients SET price = ? WHERE id = ?').run(price, l.ingredient_id);
-      db.prepare('INSERT INTO unit_aliases (ingredient_id, bill_unit, factor) VALUES (?, ?, ?) ON CONFLICT (ingredient_id, bill_unit) DO UPDATE SET factor = excluded.factor').run(l.ingredient_id, l.bill_unit, f * pf);
+      const keep = v.bool(body.keep) ? 1 : 0, note = v.text(body.note || '', { name: 'Ghi chú', max: 120 });
+      db.prepare('INSERT INTO unit_aliases (ingredient_id, bill_unit, factor, keep, note) VALUES (?, ?, ?, ?, ?) ON CONFLICT (ingredient_id, bill_unit) DO UPDATE SET factor = excluded.factor, keep = excluded.keep, note = excluded.note').run(l.ingredient_id, l.bill_unit, f * pf, keep, note);
       // Bỏ cờ "chưa quy đổi" theo mẫu (không so nguyên chuỗi: số lượng có thể đã sửa), dựng lại cho dòng còn chưa quy đổi (rà soát 28/10)
       const flags = [...b.flags.filter((x) => !isUnconvFlag(x)), ...unconvFlags(b.id)];
       db.prepare('UPDATE purchase_bills SET flags = ? WHERE id = ?').run(JSON.stringify(flags), b.id);
     });
     ctx.audit(me, 'purchase.convert', { line: l.id, bill: b.id, unit: l.bill_unit, factor: f });
-    ctx.broadcast('purchases');
-    return { ok: true, qty, price };
+    return { ok: true, qty, price, ingredient_id: l.ingredient_id, bill_unit: l.bill_unit };
+  }
+  // Quy đổi 1 dòng → các dòng chưa quy đổi khác cùng hàng + cùng đơn vị trên bill (bill chưa huỷ) cũng quy đổi luôn (chủ quán 29/10)
+  r.post('/api/purchases/lines/:id/convert', 'manager', ({ me, params, body }) => {
+    const out = convertLine(me, params.id, body);
+    let more = 0;
+    for (const x of db.prepare("SELECT l.id FROM purchase_bill_lines l JOIN purchase_bills b ON b.id = l.bill_id WHERE l.ingredient_id = ? AND l.bill_unit = ? AND b.status != 'void'").all(out.ingredient_id, out.bill_unit)) {
+      try { convertLine(me, x.id, body); more++; } catch { /* dòng lỗi thì để quy đổi tay */ }
+    }
+    ctx.broadcast('purchases'); ctx.broadcast('stock');
+    return { ...out, more };
   });
 
   // Đơn vị trên bill đã học (vd bill ghi "thùng" = 150 vắt) → hiện ở Kho → ⚖ Quy đổi
-  r.get('/api/stock/unit-aliases', 'manager', () => db.prepare('SELECT ingredient_id, bill_unit, factor FROM unit_aliases ORDER BY ingredient_id').all());
+  r.get('/api/stock/unit-aliases', 'manager', () => db.prepare('SELECT ingredient_id, bill_unit, factor, keep, note FROM unit_aliases ORDER BY ingredient_id').all());
   // Món ăn dùng nguyên liệu nào, bao nhiêu / phần → Quy đổi đánh dấu "cần quy đổi" (vd trừ 0,2 gói / phần)
   r.get('/api/stock/recipe-use', 'manager', () => db.prepare('SELECT r.ingredient_id, r.qty, m.name AS item FROM menu_recipes r JOIN menu_items m ON m.id = r.item_id WHERE m.active = 1 ORDER BY m.name').all());
   r.delete('/api/stock/unit-aliases', 'manager', ({ me, query }) => {

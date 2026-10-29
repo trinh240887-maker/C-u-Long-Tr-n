@@ -465,7 +465,12 @@ function ConvTab({ meta }) {
           <div class="row wrap tight" style="align-items:center"><span class="small">1 ${l.bill_unit} =</span>
             <input inputmode="decimal" style="width:6em" placeholder="?" value=${f[l.id] || ''} onInput=${(e) => setF({ ...f, [l.id]: e.target.value })} /><span class="small">${u}</span>
             <button class="primary small" disabled=${!qtyNum(f[l.id])} onClick=${() => act(() => api('POST', `/api/purchases/lines/${l.id}/convert`, { factor: String(f[l.id]).replace(',', '.') }), `Đã quy đổi ${l.name}`)}>Lưu</button>
-            <button class="small" onClick=${() => act(() => api('POST', `/api/purchases/lines/${l.id}/convert`, { factor: 1 }), 'Đã ghi: không quy đổi')}>1 ${l.bill_unit} = 1 ${u}</button></div>
+            <button class="small" onClick=${() => {
+              // Không cần quy đổi: ghi nhớ + ghi chú lý do để lần sau ai nhìn cũng hiểu (chủ quán 29/10)
+              const note = prompt(`${l.name}: không cần quy đổi "${l.bill_unit}" ra ${u}.\nGhi chú để lần sau hiểu (tuỳ chọn), vd "1 ${l.bill_unit} = 1 bịch 1kg", "tính theo ${l.bill_unit} luôn":`, `Tính theo ${l.bill_unit}, không quy đổi`);
+              if (note !== null) act(async () => { const r = await api('POST', `/api/purchases/lines/${l.id}/convert`, { factor: 1, keep: true, note }); if (r.more) toast(`Đã ghi ${l.name} không cần quy đổi (+${r.more} dòng ở bill khác)`); return r; });
+            }}>✓ Không cần quy đổi</button></div>
+          ${l.alias_note ? html`<small class="muted">📝 ${l.alias_note}</small>` : null}
           ${qtyNum(f[l.id]) ? html`<small class="ok-text">→ kho ${Math.round(l.qty * qtyNum(f[l.id]) * 1000) / 1000} ${u} · ${money(Math.round(l.price / qtyNum(f[l.id])))}/${u}</small>` : null}
         </div>`; })}`}
     </section>

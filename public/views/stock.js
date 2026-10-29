@@ -678,7 +678,7 @@ export function Conversions({ meta }) {
           <input id=${`qd-u-${g.id}`} style="width:6em" placeholder="vắt" aria-label="Đơn vị dùng" value=${val(g, 'unit')} onInput=${(e) => set(g, 'unit', e.target.value)} />
           ${dirty ? html`<button class="primary small" onClick=${() => save(g)}>Lưu</button>` : null}
         </div>
-        ${aliases(g.id).length ? html`<small class="muted">Bill ghi khác đã học: ${aliases(g.id).map((a) => html`<span class="pill muted" style="margin-right:4px">1 ${a.bill_unit} = ${a.factor} ${g.unit} <button class="link small" aria-label="Xoá" onClick=${() => act(() => api('DELETE', `/api/stock/unit-aliases?ingredient_id=${g.id}&bill_unit=${encodeURIComponent(a.bill_unit)}`), 'Đã xoá')}>✕</button></span>`)}</small>` : null}
+        ${aliases(g.id).length ? html`<small class="muted">Bill ghi khác đã học: ${aliases(g.id).map((a) => html`<span class="pill muted" style="margin-right:4px">${a.keep ? `${a.bill_unit}: không quy đổi` : `1 ${a.bill_unit} = ${a.factor} ${g.unit}`}${a.note ? ` · 📝 ${a.note}` : ''} <button class="link small" aria-label="Xoá" onClick=${() => act(() => api('DELETE', `/api/stock/unit-aliases?ingredient_id=${g.id}&bill_unit=${encodeURIComponent(a.bill_unit)}`), 'Đã xoá')}>✕</button></span>`)}</small>` : null}
       </div>`; })}
       ${!list.length ? html`<p class="muted">Không có nguyên liệu.</p>` : null}
     </section>
