@@ -93,6 +93,8 @@ function Split({ items, zones = [], onOk, onClose }) {
   const total = items.reduce((n, i) => n + (qty[i.id] || 0) * i.unit_price, 0);
   return html`<${Modal} title="Tách bàn" onClose=${onClose}><div class="stack">
     <p class="muted small"><b>1.</b> Bấm 1 bàn trống để tách sang. <b>2.</b> Hỏi khách món nào tách, bấm + số lượng. Không in phiếu bếp.</p>
+    <div class="row end sticky-acts"><button onClick=${onClose}>Thôi</button>
+      <button class="primary" disabled=${!chosen.length || !table} onClick=${() => onOk(Number(table), chosen.map(([id, n]) => ({ id: Number(id), qty: n })))}>${table ? `Tách ${chosen.reduce((n, [, q]) => n + q, 0)} món sang bàn ${table} · ${money(total)}` : 'Bấm chọn bàn trống'}</button></div>
     ${zones.map((z) => html`<div class="field"><span>${z.name}</span><div class="tbl-pick">${z.tables.map((t) => html`<button class=${`chip ${Number(table) === t.number ? 'on' : ''} ${t.session ? 'busy' : ''}`} disabled=${!!t.session} onClick=${() => setTable(String(t.number))}>${t.number}${t.reservation ? ' 📅' : ''}</button>`)}</div></div>`)}
     <ul class="plain order-lines">${items.map((i) => html`<li class="ol">
       <div class="grow"><b>${i.name}</b><br /><small class="muted">đang có ${i.qty} · ${money(i.unit_price)}/phần</small></div>
@@ -101,8 +103,6 @@ function Split({ items, zones = [], onOk, onClose }) {
         <b>${qty[i.id] || 0}</b>
         <button class="icon" onClick=${() => setQty({ ...qty, [i.id]: Math.min(i.qty, (qty[i.id] || 0) + 1) })}>+</button></div>
     </li>`)}</ul>
-    <div class="row end"><button onClick=${onClose}>Thôi</button>
-      <button class="primary" disabled=${!chosen.length || !table} onClick=${() => onOk(Number(table), chosen.map(([id, n]) => ({ id: Number(id), qty: n })))}>${table ? `Tách ${chosen.reduce((n, [, q]) => n + q, 0)} món sang bàn ${table} · ${money(total)}` : 'Bấm chọn bàn trống'}</button></div>
   </div><//>`;
 }
 
