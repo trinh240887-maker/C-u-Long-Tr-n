@@ -93,7 +93,8 @@ test('khuyến mãi: mua 1 tặng 1 theo ngày, tự hết hạn, báo nhân vi�
   // Khách huỷ Trà đào cam xả → còn 3 ly (25,25,20) → tặng 1 ly 25k, app tự tính lại
   now += 60_000;
   const cx = v.items.find((i) => i.name === 'Trà đào cam xả').id;
-  await H('POST', `/api/pos/items/${cx}/cancel`, { reason: 'Khách đổi ý' });
+  assert.equal((await H('POST', `/api/pos/items/${cx}/cancel`, { reason: 'Khách đổi ý' })).status, 403); // phục vụ không tự huỷ món đã gửi (chủ quán 29/10)
+  await o('POST', `/api/pos/items/${cx}/cancel`, { reason: 'Khách đổi ý' });
   v = (await H('GET', `/api/pos/sessions/${s}`)).data;
   assert.equal(v.discount, 25000);
 

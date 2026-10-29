@@ -250,12 +250,12 @@ export function OrderView({ me, query }) {
         ...(noSent.length ? [{ title: html`<b>Khác</b>`, list: noSent }] : [])].map((g) => html`<div class="round-head">${g.title}</div><ul class="plain order-lines">${g.list.map((i) => html`<li class=${`ol ${i.status}`}>
         <div class="grow"><b>${i.qty} × ${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}
           ${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.note ? html`<br /><small class="muted">${i.note}</small>` : null}
-          <br /><small class="muted">${STATUS[i.status]}${i.status === 'cancelled' ? `: ${i.cancel_reason}` : ` · ${hm(i.sent_at)}`}${i.status === 'sent' && i.wait_min !== null ? ` · chờ ${i.wait_min}′` : ''}</small>
-          ${i.late_min > 0 ? html`<br /><span class="pill bad">TRỄ ${i.late_min}′</span> <button class="small primary" onClick=${() => act(() => api('POST', `/api/pos/items/${i.id}/remind`), 'Đã nhắc bếp')}>Nhắc bếp</button>` : null}</div>
+          ${i.status === 'cancelled' ? html`<br /><small class="danger-text">Đã huỷ: ${i.cancel_reason}</small>` : null}</div>
         <div class="r"><span class="num">${money(i.total)}</span>${(i.promos || []).map((p) => html`<br /><small class="promo-line">−${money(p.amount)}</small>`)}</div>
         ${i.promos?.length ? html`<div class="promo-note">🎁 ${i.promos.map((p) => `${p.name}${p.free_qty ? ` (tặng ${p.free_qty})` : ''}`).join(', ')}</div>` : null}
-          ${!closed && i.status !== 'cancelled' ? html`<div class="row tight acts"><button class=${`small ${i.status === 'done' ? 'primary' : ''}`} onClick=${() => act(() => api('POST', `/api/pos/items/${i.id}/served`, { done: i.status !== 'done' }))}>${i.status === 'done' ? '✓ Đã ra' : 'Đã ra'}</button><button class="small" onClick=${() => setPrompt({ kind: 'item', item: i })}>Chuyển</button><button class="small" onClick=${() => setReason({ kind: 'redo', item: i })}>Làm lại</button><button class="small danger" onClick=${() => setReason({ kind: 'cancel', item: i })}>Huỷ</button></div>` : null}
+          ${!closed && i.status !== 'cancelled' && atLeast(me, 'shift_lead') ? html`<div class="row tight acts"><button class="small danger" onClick=${() => setReason({ kind: 'cancel', item: i })}>Huỷ món</button></div>` : null}
       </li>`)}</ul>`) : html`<p class="muted">Chưa gửi món nào.</p>`}
+      ${!closed && sent.some((i) => i.status !== 'cancelled') && !atLeast(me, 'shift_lead') ? html`<small class="muted">Khách muốn huỷ món đã gửi bếp: báo trưởng ca / quản lý huỷ.</small>` : null}
       <${Totals} s=${s} />
     </section>` : null}
 

@@ -1,5 +1,6 @@
 import { fail, v } from '../http.js';
 import { tx, rank } from '../db.js';
+import { overridesOf } from '../lib/acts.js';
 import { formatTableList, parseTableList } from '../lib/tables.js';
 import { applyPromos } from '../lib/promo.js';
 
@@ -431,9 +432,10 @@ export default function (r, ctx) {
       return { ok: true, deleted: true };
     }
     const reason = v.text(body.reason, { name: 'Lý do huỷ', required: true, max: 120 });
-    const late = i.status === 'done' || ctx.now() - (i.sent_at || 0) > CANCEL_GRACE_MS;
-    // Quá 2 phút: trưởng ca, hoặc tổ trưởng (vd tổ trưởng bếp báo hết nguyên liệu) mới huỷ được
-    if (late && rank(me.role) < rank('team_lead')) fail(403, 'Món đã gửi bếp quá 2 phút: nhờ trưởng ca hoặc tổ trưởng huỷ');
+    // Chủ quán 29/10: món ĐÃ GỬI BẾP chỉ trưởng ca / quản lý / chủ huỷ (hoặc người chủ quán tick riêng quyền "Huỷ món, huỷ bàn").
+    // Nhân viên phải báo trưởng ca / quản lý. Món chưa gửi bếp thì nhân viên vẫn bớt / xoá được.
+    if (rank(me.real_role || me.role) < rank('shift_lead') && overridesOf(ctx, me.id)['ban.huy'] !== true) fail(403, 'Món đã gửi bếp: báo trưởng ca hoặc quản lý huỷ');
+    const late = i.status === 'done' || ctx.now() - (i.sent_at || 0) > CANCEL_GRACE_MS; // quá 2 phút: không trả kho
     const soldOut = v.bool(body.sold_out);
     if (soldOut && rank(me.role) < rank('team_lead')) fail(403, 'Chỉ tổ trưởng trở lên mới báo hết món');
     const s = session(i.session_id);
@@ -599,7 +601,7 @@ export default function (r, ctx) {
   r.post('/api/pos/sessions/:id/cancel', 'staff', ({ me, params, body }) => {
     const s = openSession(params.id);
     const sent = s.items.filter((i) => ['sent', 'done'].includes(i.status));
-    if (sent.length && rank(me.role) < rank('shift_lead')) fail(403, 'Bàn đã gửi món bếp: nhờ trưởng ca huỷ');
+    if (sent.length && rank(me.real_role || me.role) < rank('shift_lead') && overridesOf(ctx, me.id)['ban.huy'] !== true) fail(403, 'Bàn đã gửi món bếp: báo trưởng ca hoặc quản lý huỷ');
     const reason = v.text(body.reason, { name: 'Lý do', max: 120 }) || 'Khách về / mở nhầm';
     tx(db, () => {
       if (sent.length) {
