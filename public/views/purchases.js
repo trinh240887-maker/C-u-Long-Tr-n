@@ -125,6 +125,11 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
   };
   if (!stores.length) return html`<div class="empty">Bạn chưa phụ trách khu nào để nhận hàng.</div>`;
   const myPos = (pos.data || []).filter((p) => stores.some((s) => s.id === p.store_id));
+  // Bill gửi trước: hỏi đã trả tiền chưa ngay dưới các dòng hàng (chủ quán 29/10: hay trả trước, chỉ chờ hàng về)
+  const payField = html`<${Field} label=${pre ? 'Đã trả tiền cho NCC chưa?' : 'Thanh toán'}><div class="chips">
+          ${[['', pre ? 'Chưa trả (ghi nợ)' : 'Ghi nợ'], ['transfer', pre ? '✅ Đã thanh toán (chuyển khoản)' : 'Đã CK tại chỗ'], ...(meta.is_cashier && !pre ? [['cash', 'Trả tiền mặt từ két']] : [])].map(([k, l]) => html`<button class=${`chip ${!f.advance_id && f.paid_method === k ? 'on' : ''}`} onClick=${() => setF({ ...f, paid_method: k, advance_id: '' })}>${l}</button>`)}
+          ${(pre ? [] : myAdv).map((a) => html`<button class=${`chip ${Number(f.advance_id) === a.id ? 'on' : ''}`} onClick=${() => setF({ ...f, advance_id: String(a.id), paid_method: '' })}>Tiền tạm ứng ${money(a.amount)} (còn ${money(a.should_return)})</button>`)}
+        </div><//>`;
   return html`<div class="stack">
     ${arriving.length && !pre ? html`<section class="card stack warn-card"><b>⏳ Hàng sắp về theo bill đã có (${arriving.length})</b>
       <small>Hàng về thuộc các bill này thì <b>không nhập lại ở đây</b>: bấm vào bill để kiểm & nhận.</small>
@@ -149,6 +154,7 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
           <option value="">Nơi khác (ghi tên) / đi chợ</option>${meta.suppliers.filter((s) => s.active).map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>
         ${!f.supplier_id ? html`<${Field} label="Tên nơi bán"><input value=${f.supplier_name} placeholder="vd Vựa rau Bé Thùy" onInput=${(e) => set('supplier_name', e.target.value)} /><//>` : null}` : null}
       <${Lines} lines=${lines} setLines=${setLines} ingredients=${meta.ingredients} />
+      ${pre ? payField : null}
       ${stores.length > 1 && !f.po_id ? html`<${Field} label="Khu nhận"><select value=${f.store_id} onChange=${(e) => set('store_id', e.target.value)}>${stores.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select><//>` : null}
     </section>
     <section class="card stack">
@@ -156,10 +162,7 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
       ${more ? html`
         <${Field} label="Tổng tiền ghi trên bill" hint=${`Cộng các dòng: ${money(sum)}. Để trống = lấy số cộng.`}><input inputmode="numeric" value=${f.total} placeholder=${String(sum || '')} onInput=${(e) => set('total', e.target.value)} /><//>
         <${Field} label="Người ký nhận trên bill"><input value=${f.signer_name} onInput=${(e) => set('signer_name', e.target.value)} /><//>
-        <${Field} label="Thanh toán"><div class="chips">
-          ${[['', 'Ghi nợ'], ['transfer', pre ? 'Đã chuyển khoản' : 'Đã CK tại chỗ'], ...(meta.is_cashier && !pre ? [['cash', 'Trả tiền mặt từ két']] : [])].map(([k, l]) => html`<button class=${`chip ${!f.advance_id && f.paid_method === k ? 'on' : ''}`} onClick=${() => setF({ ...f, paid_method: k, advance_id: '' })}>${l}</button>`)}
-          ${(pre ? [] : myAdv).map((a) => html`<button class=${`chip ${Number(f.advance_id) === a.id ? 'on' : ''}`} onClick=${() => setF({ ...f, advance_id: String(a.id), paid_method: '' })}>Tiền tạm ứng ${money(a.amount)} (còn ${money(a.should_return)})</button>`)}
-        </div><//>
+        ${!pre ? payField : null}
         <${Field} label="Ghi chú"><input value=${f.note} onInput=${(e) => set('note', e.target.value)} /><//>` : null}
     </section>
     <div class="sum-bar stack">
@@ -375,7 +378,7 @@ function ArriveCard({ b, me }) {
   const short = b.lines.filter((l) => qtyNum(val(l)) < l.qty - 1e-9);
   const boss = ['manager', 'owner'].includes(me.role) || me.role === 'shift_lead';
   return html`<section class="card stack warn-card">
-    <div class="row between wrap"><b>${b.supplier_name} · ${money(b.total)}</b><span class="pill warn">⏳ Chờ nhận hàng</span></div>
+    <div class="row between wrap"><b>${b.supplier_name} · ${money(b.total)}</b><span class="row tight">${b.paid_now ? html`<span class="pill ok">✅ Đã trả ${dayLabel(b.date)}</span>` : html`<span class="pill">Chưa trả</span>`}<span class="pill warn">⏳ Chờ nhận hàng</span></span></div>
     <small class="muted">#${b.id} · áp bill ${dayLabel(b.date)} ${hm(b.received_at)}${b.paid_method === 'transfer' ? ` · đã CK ${money(b.paid_now)}` : ' · ghi nợ'}${b.note ? ` · ${b.note}` : ''}</small>
     <${Photos} ids=${b.photos} />
     <small class="muted">Kiểm từng món, sửa số thực nhận nếu thiếu:</small>
