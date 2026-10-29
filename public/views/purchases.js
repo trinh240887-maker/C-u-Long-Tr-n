@@ -215,7 +215,7 @@ function BillCard({ b, canApprove, me }) {
     ${edit ? html`<${EditBill} b=${b} onClose=${() => setEdit(false)} />` : null}
     ${b.status === 'received' && b.received_by === me.id && me.role !== 'owner' ? html`<small class="muted">Chờ người khác duyệt (người nhận không tự duyệt).</small>` : null}
     ${b.status === 'returned' && b.received_by === me.id ? html`<${FixBill} b=${b} />` : null}
-    ${b.status === 'void' ? html`<p class="small muted">🗑 ${b.return_reason} (${b.returned_by_name})</p>` : !canAct(me, 'mh.huy') ? null : (['manager', 'owner'].includes(me.role) || me.acts?.['mh.huy'] === true || (b.status !== 'approved' && (b.received_by === me.id || canApprove))) ? html`<button class="link small danger-text" onClick=${() => { const r0 = prompt('Huỷ bill này? Hàng sẽ được trừ lại khỏi kho. Lý do:', 'Nhập sai'); if (r0) act(() => api('POST', `/api/purchases/${b.id}/void`, { reason: r0 }), 'Đã huỷ bill'); }}>🗑 Huỷ bill</button>` : null}
+    ${b.status === 'void' ? html`<p class="small muted">🗑 ${b.return_reason} (${b.returned_by_name})</p>` : !canAct(me, 'mh.huy') ? null : (b.status === 'approved' ? me.role === 'owner' : (['manager', 'owner'].includes(me.role) || me.acts?.['mh.huy'] === true || b.received_by === me.id || canApprove)) ? html`<button class="link small danger-text" onClick=${() => { const r0 = prompt('Huỷ bill này? Hàng sẽ được trừ lại khỏi kho. Lý do:', 'Nhập sai'); if (r0) act(() => api('POST', `/api/purchases/${b.id}/void`, { reason: r0 }), 'Đã huỷ bill'); }}>🗑 Huỷ bill</button>` : null}
     ${reason != null ? html`<${Modal} title="Trả lại bill" onClose=${() => setReason(null)}>
       <${Field} label="Lý do (vd ảnh mờ, sai số lượng, sai tổng)"><input value=${reason} onInput=${(e) => setReason(e.target.value)} /><//>
       <button class="primary" disabled=${!reason} onClick=${async () => { if (await act(() => api('POST', `/api/purchases/${b.id}/return`, { reason }), 'Đã trả lại cho khu sửa')) setReason(null); }}>Trả lại</button><//>` : null}
@@ -265,9 +265,14 @@ function FixBill({ b }) {
 }
 
 // Phiếu còn nợ: hiện luôn ảnh bill (bấm phóng to) + các món (chủ quán 28/10)
-function OpenBill({ b, check = null }) {
+// Phiếu giống nhau (cùng tổng + cùng món, số lượng) trong danh sách nợ của 1 NCC → nghi chụp trùng (chủ quán 29/10)
+const billSig = (b) => `${b.total}|${(b.lines || []).map((l) => `${l.name}:${l.qty}`).sort().join(',')}`;
+function OpenBill({ b, check = null, me = null, twins = [] }) {
+  const canVoid = me && me.role === 'owner' && b.remaining === b.total; // bill đã duyệt: chỉ chủ huỷ
   return html`<div class="card tight stack" style="padding:8px">
     <div class="row between wrap">${check || html`<b>Phiếu #${b.id}</b>`}<small>${b.date.split('-').reverse().join('/')} · tổng ${money(b.total)} · <b class="danger-text">còn ${money(b.remaining)}</b></small></div>
+    ${twins.length ? html`<div class="row between wrap"><span class="pill warn">⚠ Có thể trùng phiếu ${twins.map((x) => `#${x.id}`).join(', ')}</span>
+      ${canVoid ? html`<button class="small danger" onClick=${() => { const r0 = prompt(`Huỷ phiếu #${b.id} (${money(b.total)})? Kho trừ lại hàng của phiếu này, công nợ bỏ phiếu này.\nLý do:`, `Chụp trùng phiếu #${twins[0].id}`); if (r0) act(() => api('POST', `/api/purchases/${b.id}/void`, { reason: r0 }), `Đã huỷ phiếu #${b.id}`); }}>🗑 Huỷ phiếu này</button>` : null}</div>` : null}
     ${b.photos?.length ? html`<${Photos} ids=${b.photos} />` : html`<small class="muted">(không có ảnh bill)</small>`}
     ${b.lines?.length ? html`<details><summary class="small">${b.lines.length} món</summary><table class="list small"><tbody>${b.lines.map((l) => html`<tr><td>${l.name}</td><td class="r">${l.qty} ${l.unit}</td><td class="r">${money(l.amount)}</td></tr>`)}</tbody></table>
       ${b.goods_photos?.length ? html`<small class="muted">Ảnh hàng nhận:</small><${Photos} ids=${b.goods_photos} />` : null}</details>` : null}
@@ -293,7 +298,7 @@ function Debts({ me }) {
     ${[...d.suppliers].filter((s) => !q || fold(s.name).includes(fold(q))).sort((a, b) => b.debt - a.debt).map((s) => html`<section class="card stack">
       <div class="row between"><b>${s.name}</b><b class=${s.debt > 0 ? 'danger-text' : 'muted'}>${money(s.debt)}</b></div>
       <small class="muted">${s.last_bill ? `Lần mua cuối ${dayLabel(s.last_bill)}` : 'Chưa mua'}${s.pending.n ? ` · ${s.pending.n} bill chưa duyệt ${money(s.pending.t)}` : ''}</small>
-      ${(s.open_bills || []).length ? html`<div class="stack tight"><small class="muted">Phiếu còn nợ (${s.open_bills.length}):</small>${s.open_bills.map((b) => html`<${OpenBill} b=${b} />`)}</div>` : null}
+      ${(s.open_bills || []).length ? html`<div class="stack tight"><small class="muted">Phiếu còn nợ (${s.open_bills.length}):</small>${s.open_bills.map((b) => html`<${OpenBill} b=${b} me=${me} twins=${s.open_bills.filter((x) => x.id !== b.id && billSig(x) === billSig(b))} />`)}</div>` : null}
       <div class="row">
         <button class="small" onClick=${() => setStmt(s)}>Sổ nợ</button>
         ${s.debt > 0 ? html`<button class="small primary" onClick=${() => setPay(s)}>Trả</button>` : null}</div></section>`)}

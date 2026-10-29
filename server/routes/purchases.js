@@ -609,6 +609,8 @@ export default function (r, ctx) {
   r.post('/api/purchases/:id/void', 'staff', ({ me, params, body }) => {
     const b = load(params.id);
     if (b.status === 'void') fail(400, 'Bill đã huỷ');
+    // Chủ quán 29/10: bill đã duyệt (đã vào công nợ) chỉ chủ huỷ
+    if (b.status === 'approved' && (me.real_role || me.role) !== 'owner') fail(403, 'Bill đã duyệt: chỉ chủ quán huỷ được');
     const boss = rank(me.role) >= rank('manager');
     if (!boss && !(b.status !== 'approved' && (b.received_by === me.id || b.pre_by === me.id || isCashier(me)))) fail(403, b.status === 'approved' ? 'Bill đã duyệt: chỉ quản lý / chủ quán huỷ được' : 'Chỉ người nhận, thu ngân hoặc quản lý huỷ được');
     const reason = v.text(body.reason, { name: 'Lý do huỷ', required: true, max: 500 });
