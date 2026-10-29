@@ -319,6 +319,13 @@ export default function (r, ctx) {
     const dates = [...new Set([...Object.keys(picks), ...off])].filter((d) => d >= today && weekStart(d) >= from).sort();
     const weeks = new Set();
     tx(db, () => {
+      // Tuần đang là lịch cố định tự điền → bạn tự báo thì bỏ hết lịch tự điền của tuần đó, chỉ giữ đúng ngày bạn báo (chủ quán 29/10:
+      // trước đây ngày không nhắc vẫn giữ lịch cố định nên tuần sau trông y như tuần trước)
+      for (const ws of new Set(dates.map((d) => weekStart(d)))) {
+        if (db.prepare('SELECT note FROM availability_weeks WHERE staff_id = ? AND week_start = ?').get(staffId, ws)?.note === FIXED_NOTE) {
+          db.prepare('DELETE FROM availability WHERE staff_id = ? AND date BETWEEN ? AND ?').run(staffId, ws, addDays(ws, 6));
+        }
+      }
       for (const d of dates) {
         db.prepare('DELETE FROM availability WHERE staff_id = ? AND date = ?').run(staffId, d);
         for (const x of picks[d] || []) { const t = readPick(x); if (t) db.prepare('INSERT OR IGNORE INTO availability (staff_id, date, slot) VALUES (?, ?, ?)').run(staffId, d, t); }
@@ -484,6 +491,60 @@ export default function (r, ctx) {
     return `✅ Đã ghi lịch rảnh:\n${lines.join('\n')}${locked ? '\n(Tuần đã duyệt lịch: giờ mới đã báo quản lý, ca cũ giữ nguyên tới khi quản lý xếp lại)' : ''}`;
   }
   ctx.handleBotAvailMsg = handleBotMsg;
+
+  // Sửa tuần W (chủ quán 29/10): lịch cố định tự điền lẫn vào lịch bot / "Chép tuần trước" đè ngày nghỉ → tuần sau giống tuần trước.
+  // Đọc lại tin nhắn bot đã lưu (nhật ký) và ghi lại đúng; ca tuần W của người đã tự báo làm lại theo lịch báo. Tuần đã duyệt thì không đụng
+  function repairWeekFromBot(W) {
+    const out = { replayed: [], reshift: [], locked: [] };
+    const logs = db.prepare("SELECT detail, at FROM audit_log WHERE action = 'availability.zalo' AND at >= ? ORDER BY id").all(Date.parse(`${addDays(W, -14)}T00:00:00+07:00`));
+    const staffAll = db.prepare('SELECT id, name, phone FROM staff WHERE active = 1').all();
+    const msgs = new Map();
+    for (const l of logs) {
+      let d; try { d = JSON.parse(l.detail); } catch { continue; }
+      if (!d?.text || !Array.isArray(d.staff) || !d.staff.length) continue;
+      const day = new Date(l.at + 7 * 3600e3).toISOString().slice(0, 10);
+      let p; try { p = parseAvailMessage(stripBotName(d.text), { staff: staffAll, today: day, sender: d.staff[0] }); } catch { continue; }
+      if (p.week !== W) continue;
+      for (const id of d.staff) msgs.set(id, [...(msgs.get(id) || []), p]);
+    }
+    for (const [id, list] of msgs) {
+      if (db.prepare('SELECT note FROM availability_weeks WHERE staff_id = ? AND week_start = ?').get(id, W)?.note !== BOT_NOTE) continue;
+      if (!db.prepare('SELECT 1 FROM availability_fixed WHERE staff_id = ?').get(id)) continue; // không có lịch cố định → không bị lẫn
+      if (ctx.weekPublishedAt?.(W, id)) { out.locked.push(id); continue; }
+      db.prepare('UPDATE availability_weeks SET note = ? WHERE staff_id = ? AND week_start = ?').run(FIXED_NOTE, id, W);
+      for (const p of list) applyBot(id, p.picks, p.off, p.offParts || {});
+      out.replayed.push(id);
+    }
+    const copies = db.prepare("SELECT detail, at FROM audit_log WHERE action = 'schedule.copy' AND at >= ?").all(Date.parse(`${addDays(W, -14)}T00:00:00+07:00`))
+      .filter((x) => { try { return JSON.parse(x.detail).to === W; } catch { return false; } }).map((x) => x.at);
+    for (const { staff_id: id } of db.prepare('SELECT staff_id FROM availability_weeks WHERE week_start = ? AND note != ?').all(W, FIXED_NOTE)) {
+      if (ctx.weekPublishedAt?.(W, id)) { if (!out.locked.includes(id)) out.locked.push(id); continue; }
+      let n = 0;
+      for (const t of copies) n += db.prepare('DELETE FROM assignments WHERE staff_id = ? AND date BETWEEN ? AND ? AND created_at BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = assignments.group_id)')
+        .run(id, W, addDays(W, 6), t - 120_000, t).changes;
+      ctx.availToShifts?.(id, W, { id: null });
+      if (n) out.reshift.push(id);
+    }
+    return out;
+  }
+  ctx.repairWeekFromBot = repairWeekFromBot;
+  if (!ctx.setting('sua_lich_tuan_sau_v1')) {
+    setImmediate(() => {
+      try {
+        if (ctx.setting('sua_lich_tuan_sau_v1')) return;
+        const W = addDays(weekStart(ctx.today()), 7);
+        const r = repairWeekFromBot(W);
+        ctx.setSetting('sua_lich_tuan_sau_v1', JSON.stringify({ week: W, replayed: r.replayed.length, reshift: r.reshift.length, locked: r.locked.length }));
+        ctx.audit(null, 'availability.repair', { week: W, ...r });
+        ctx.broadcast('availability'); ctx.broadcast('schedule');
+        const name = (id) => db.prepare('SELECT name FROM staff WHERE id = ?').get(id)?.name || '';
+        if (r.replayed.length || r.reshift.length || r.locked.length) {
+          ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND role = 'owner'").all().map((x) => x.id), { title: `🛠 Đã sửa lịch tuần ${W.slice(8)}/${W.slice(5, 7)}`,
+            body: [r.replayed.length ? `Ghi lại lịch rảnh theo tin bot: ${r.replayed.map(name).join(', ')}` : '', r.reshift.length ? `Bỏ ca "chép tuần trước", xếp lại theo lịch báo: ${r.reshift.map(name).join(', ')}` : '', r.locked.length ? `Tuần đã duyệt, chưa đụng: ${r.locked.map(name).join(', ')}` : ''].filter(Boolean).join('\n'), link: '/lich' });
+        }
+      } catch { /* app đã đóng (test) */ }
+    });
+  }
   // Nhật ký bot: lần đọc gần nhất + 15 tin gần nhất và bot đã làm gì (Cài đặt → Zalo Bot)
   const botLog = { poll: null, msgs: [] };
   const logMsg = (u, result) => { botLog.msgs.unshift({ at: ctx.now(), chat: u.chat.name || u.chat.id, from: u.from.name, text: u.text.slice(0, 120), result }); botLog.msgs.length = Math.min(botLog.msgs.length, 15); };

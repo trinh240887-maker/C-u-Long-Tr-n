@@ -260,10 +260,6 @@ function FullSchedule({ me, query }) {
       <div class="row">
         <div class="seg-ctl"><button class=${mode === 'day' ? 'on' : ''} onClick=${() => setMode('day')}>Theo ngày</button><button class=${mode === 'week' ? 'on' : ''} onClick=${() => setMode('week')}>Cả tuần</button></div>
         ${canEdit ? html`
-          <button onClick=${() => act(async () => {
-            const r = await api('POST', '/api/schedule/copy', { from_week: addDays(d.week_start, -7), to_week: d.week_start });
-            return r;
-          }, 'Đã chép lịch tuần trước (bỏ qua ô đã có ca)')}>Chép tuần trước</button>
           <button onClick=${() => navigate(`/ranh?tab=all&week=${d.week_start}`)}>🗓 Xếp ca theo lịch rảnh (${d.avail_submitted?.length || 0} người đã báo)</button>
           <button class="primary" onClick=${() => act(() => api('POST', '/api/schedule/publish', { week: d.week_start }), 'Đã gửi lịch cho nhân viên')}>
             ${d.published_at ? 'Gửi lại lịch' : 'Gửi lịch cho nhân viên'}</button>` : null}

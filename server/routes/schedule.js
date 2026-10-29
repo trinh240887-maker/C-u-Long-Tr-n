@@ -272,36 +272,42 @@ export default function (r, ctx) {
     for (const a of rows) groups.set(a.group_id, [...(groups.get(a.group_id) || []), a]);
     let copied = 0;
     let skipped = 0;
+    // Người đã tự báo lịch rảnh tuần đích → lịch theo đúng người đó báo, không chép tuần trước đè vào ngày nghỉ (chủ quán 29/10)
+    const reported = new Set(db.prepare('SELECT staff_id FROM availability_weeks WHERE week_start = ? AND note != ?').all(to, FIXED_AVAIL_NOTE).map((x) => x.staff_id));
+    let reportedSkip = 0;
     tx(db, () => {
       for (const segs of groups.values()) {
         const first = segs[0];
         if (!inScope(me, first.staff_id, first.team_id)) continue;
+        if (reported.has(first.staff_id)) { reportedSkip++; continue; }
         const date = addDays(first.date, shift);
         const has = db.prepare('SELECT 1 FROM assignments WHERE staff_id = ? AND date = ?').get(first.staff_id, date);
         if (has) { skipped++; continue; }
         try {
-          createGroup(me, { staffId: first.staff_id, date, teamId: first.team_id, segs, templateId: first.template_id, label: first.label, note: first.note, zoneId: first.zone_id, tablesText: first.tables_text, positionId: first.position_id });
+          createGroup(me, { staffId: first.staff_id, date, teamId: first.team_id, segs, templateId: first.template_id, label: first.label, note: first.note === AUTO_NOTE ? AUTO_NOTE : COPY_NOTE, zoneId: first.zone_id, tablesText: first.tables_text, positionId: first.position_id });
           copied++;
         } catch {
           skipped++;
         }
       }
     });
-    ctx.audit(me, 'schedule.copy', { from, to, copied, skipped });
+    ctx.audit(me, 'schedule.copy', { from, to, copied, skipped, reported: reportedSkip });
     ctx.broadcast('schedule');
-    return { copied, skipped };
+    return { copied, skipped, reported: reportedSkip };
   });
 
   // Lịch rảnh nhân viên báo = lịch làm (chủ quán 24/10): báo xong tự thành ca, quản lý chỉ sửa / bỏ rồi Duyệt.
   // Gửi lại → thay các ca tự tạo (note 'Theo lịch rảnh') của tuần đó; ca quản lý tự xếp / đã sửa giữ nguyên. Tuần đã duyệt thì không tự đổi
   const AUTO_NOTE = 'Theo lịch rảnh';
+  const COPY_NOTE = 'Chép tuần trước'; // ca chép: nhân viên báo lịch rảnh sau đó thì thay bằng lịch báo
+  const FIXED_AVAIL_NOTE = 'Lịch cố định (tự động)';
   function availToShifts(staffId, start, me, { force = false } = {}) {
     if (!force && weekPublishedAt(start, staffId)) return { made: 0, skipped: 0 };
     const end = addDays(start, 6);
     const rows = db.prepare('SELECT date, slot FROM availability WHERE staff_id = ? AND date BETWEEN ? AND ? ORDER BY date, slot').all(staffId, start, end);
     let made = 0, skipped = 0;
     tx(db, () => {
-      db.prepare('DELETE FROM assignments WHERE staff_id = ? AND date BETWEEN ? AND ? AND note = ? AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = assignments.group_id)').run(staffId, start, end, AUTO_NOTE);
+      db.prepare('DELETE FROM assignments WHERE staff_id = ? AND date BETWEEN ? AND ? AND note IN (?, ?) AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.group_id = assignments.group_id)').run(staffId, start, end, AUTO_NOTE, COPY_NOTE);
       const byDay = new Map();
       for (const a of rows) { const r = ctx.availRange?.(a.slot); if (r) byDay.set(a.date, [...(byDay.get(a.date) || []), r]); }
       for (const [date, list] of byDay) {
