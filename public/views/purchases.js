@@ -298,6 +298,8 @@ function Debts({ me }) {
     ${[...d.suppliers].filter((s) => !q || fold(s.name).includes(fold(q))).sort((a, b) => b.debt - a.debt).map((s) => html`<section class="card stack">
       <div class="row between"><b>${s.name}</b><b class=${s.debt > 0 ? 'danger-text' : 'muted'}>${money(s.debt)}</b></div>
       <small class="muted">${s.last_bill ? `Lần mua cuối ${dayLabel(s.last_bill)}` : 'Chưa mua'}${s.pending.n ? ` · ${s.pending.n} bill chưa duyệt ${money(s.pending.t)}` : ''}</small>
+      ${(s.similar || []).map((x) => html`<div class="row between wrap warn-card card tight" style="padding:6px 8px"><small>⚠ Có thể cùng NCC với <b>${x.name}</b></small>
+        ${me.role === 'owner' ? html`<button class="small" onClick=${() => confirm(`Gộp "${s.name}" vào "${x.name}"?\nMọi bill, phiếu trả, công nợ của "${s.name}" chuyển sang "${x.name}". Không hoàn tác được.`) && act(() => api('POST', `/api/suppliers/${s.id}/merge`, { into: x.id }), `Đã gộp vào ${x.name}`)}>Gộp vào NCC này</button>` : null}</div>`)}
       ${(s.open_bills || []).length ? html`<div class="stack tight"><small class="muted">Phiếu còn nợ (${s.open_bills.length}):</small>${s.open_bills.map((b) => html`<${OpenBill} b=${b} me=${me} twins=${s.open_bills.filter((x) => x.id !== b.id && billSig(x) === billSig(b))} />`)}</div>` : null}
       <div class="row">
         <button class="small" onClick=${() => setStmt(s)}>Sổ nợ</button>

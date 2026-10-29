@@ -208,6 +208,38 @@ export default function (r, ctx) {
     });
   }
   const supplierRow = (id) => db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
+  // Tên NCC gần giống = cùng 1 NCC (chủ quán 29/10: "Vựa rau củ quả - Khoai bí Trung Thủy" / "Rau củ quả - Khoai bí Trung Thủy" thành 2 công nợ).
+  // Bỏ dấu, bỏ chữ chung (vựa, cửa hàng, tạp hoá…), 1 tên nằm trọn trong tên kia (đủ dài) thì coi là trùng
+  const supKey = (x) => ` ${String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `
+    .replace(/ (vua|cua hang|ch|tap hoa|shop|cong ty|cty|tnhh|nha cung cap|ncc|dai ly|co so|cs) /g, ' ').replace(/\s+/g, '');
+  const sameSup = (a, b) => { const x = supKey(a), y = supKey(b); if (!x || !y) return false; if (x === y) return true; const [s1, l1] = x.length <= y.length ? [x, y] : [y, x]; return s1.length >= 8 && l1.includes(s1); };
+  const findSupplier = (name) => {
+    const all = db.prepare('SELECT id, name, active FROM suppliers ORDER BY active DESC, id').all();
+    return all.find((x) => supKey(x.name) === supKey(name)) || all.find((x) => x.active && sameSup(x.name, name)) || null;
+  };
+  ctx.findSupplier = findSupplier;
+  // Gộp NCC trùng (chỉ chủ): chuyển hết bill, phiếu trả, đơn đặt, nguyên liệu, khu, nhóm Zalo sang NCC giữ lại, tắt NCC kia
+  r.post('/api/suppliers/:id/merge', 'manager', ({ me, params, body }) => {
+    if ((me.real_role || me.role) !== 'owner') fail(403, 'Chỉ chủ quán gộp NCC');
+    const from = supplierRow(Number(params.id)), into = supplierRow(v.int(body.into, { min: 1, name: 'NCC giữ lại' }));
+    if (!from || !into) fail(404, 'Không tìm thấy NCC');
+    if (from.id === into.id) fail(400, 'Chọn 2 NCC khác nhau');
+    const moved = {};
+    tx(db, () => {
+      for (const tb of ['purchase_bills', 'supplier_payments', 'purchase_orders', 'ingredients', 'stores', 'wh_vouchers', 'wh_assets']) {
+        try { moved[tb] = db.prepare(`UPDATE ${tb} SET supplier_id = ? WHERE supplier_id = ?`).run(into.id, from.id).changes; } catch { /* bảng chưa có */ }
+      }
+      try { db.prepare('UPDATE purchase_bills SET supplier_name = ? WHERE supplier_id = ? AND supplier_name = ?').run(into.name, into.id, from.name); } catch { /* bỏ qua */ }
+      try {
+        const g = JSON.parse(ctx.setting('zalo_supplier_groups') || '[]');
+        if (Array.isArray(g) && g.some((x) => x.supplier_id === from.id)) ctx.setSetting('zalo_supplier_groups', JSON.stringify(g.map((x) => (x.supplier_id === from.id ? { ...x, supplier_id: into.id } : x))));
+      } catch { /* bỏ qua */ }
+      db.prepare("UPDATE suppliers SET active = 0, note = TRIM(note || ' (đã gộp vào #' || ? || ')') WHERE id = ?").run(into.id, from.id);
+    });
+    ctx.audit(me, 'supplier.merge', { from: from.id, from_name: from.name, into: into.id, into_name: into.name, moved });
+    ctx.broadcast('purchases');
+    return { ok: true, moved };
+  });
 
   // ---------- Khu nhận hàng ----------
   r.post('/api/purchases', 'staff', ({ me, body }) => {
@@ -222,8 +254,7 @@ export default function (r, ctx) {
     const supplierName = supplierId ? supplierRow(supplierId).name : v.text(body.supplier_name, { name: 'Tên nơi bán', required: true, max: 300 });
     // Nơi bán ghi tay: tìm NCC trùng tên, chưa có thì tạo mới → bill ghi nợ không bị sót khỏi công nợ
     if (!supplierId) {
-      const norm = (x) => x.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
-      supplierId = db.prepare('SELECT id, name FROM suppliers').all().find((x) => norm(x.name) === norm(supplierName))?.id
+      supplierId = findSupplier(supplierName)?.id
         ?? Number(db.prepare("INSERT INTO suppliers (name, note) VALUES (?, 'Tự tạo khi nhận hàng')").run(supplierName).lastInsertRowid);
     }
     const signer = v.text(body.signer_name, { name: 'Tên người ký nhận trên bill', required: true, max: 150 });
@@ -239,11 +270,11 @@ export default function (r, ctx) {
     }
     noDupIng(lines);
     const total = body.total === undefined || body.total === '' ? lines.reduce((n, l) => n + l.amount, 0) : money(body.total, 'Tổng tiền bill');
-    // Chống chụp trùng bill (chủ quán 29/10: cùng 1 bill NT Hiếu chụp lên 2 lần): cùng NCC + cùng tổng tiền + cùng các dòng hàng trong 2 ngày → hỏi lại
+    // Chống chụp trùng bill (chủ quán 29/10: cùng 1 bill NT Hiếu chụp lên 2 lần): cùng NCC + cùng tổng tiền + cùng các dòng hàng trong 7 ngày → hỏi lại
     const sig = (ls) => ls.filter((l) => l.ingredient_id).map((l) => `${l.ingredient_id}:${Math.round(l.qty * 1000)}`).sort().join('|');
     const mySig = sig(lines);
     const twin = db.prepare("SELECT id, total, received_at, date, received_by, pre_by, supplier_name FROM purchase_bills WHERE supplier_id = ? AND total = ? AND status NOT IN ('void', 'returned') AND received_at >= ? ORDER BY id DESC")
-      .all(supplierId, total, ctx.now() - 2 * 86_400_000).find((x) => sig(db.prepare('SELECT ingredient_id, qty FROM purchase_bill_lines WHERE bill_id = ?').all(x.id)) === mySig);
+      .all(supplierId, total, ctx.now() - 7 * 86_400_000).find((x) => sig(db.prepare('SELECT ingredient_id, qty FROM purchase_bill_lines WHERE bill_id = ?').all(x.id)) === mySig);
     if (twin && !body.confirm_dup) {
       const who = db.prepare('SELECT name FROM staff WHERE id = ?').get(twin.received_by || twin.pre_by)?.name || '';
       fail(409, `Bill này giống bill #${twin.id} đã lưu (${twin.supplier_name} · ${vnd(twin.total)} · ${ctx.clock().fmt ? ctx.clock().fmt(twin.received_at) : twin.date}${who ? ` · ${who}` : ''}). Có phải chụp trùng không?`, 'dup_bill');
@@ -396,7 +427,7 @@ export default function (r, ctx) {
     try { out = await (ctx.readBill || readBill)(photos, ings, { apiKey: billReaderKey(ctx) }); } catch (e) { fail(502, e.message); }
     const norm = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
     const byId = new Map(ings.map((g) => [g.id, g]));
-    const sup = out.supplier_name ? db.prepare('SELECT id, name FROM suppliers WHERE active = 1').all().find((x) => norm(x.name) === norm(out.supplier_name) || norm(out.supplier_name).includes(norm(x.name))) : null;
+    const sup = out.supplier_name ? (db.prepare('SELECT id, name FROM suppliers WHERE active = 1').all().find((x) => norm(x.name) === norm(out.supplier_name) || norm(out.supplier_name).includes(norm(x.name))) || (() => { const f = findSupplier(out.supplier_name); return f?.active ? f : null; })()) : null;
     ctx.audit(me, 'purchase.read_bill', { photos: photos.length, lines: out.lines.length, usage: out.usage });
     return {
       supplier_id: sup?.id || null, supplier_name: sup ? sup.name : out.supplier_name || '', signer_name: out.signer_name || '', total: out.total || 0, note: out.note || '',
@@ -659,7 +690,9 @@ export default function (r, ctx) {
 
   r.get('/api/suppliers/debts', 'staff', ({ me }) => {
     if (!isCashier(me)) fail(403, 'Chỉ thu ngân / quản lý');
+    const actives = db.prepare('SELECT id, name FROM suppliers WHERE active = 1').all();
     const rows = db.prepare('SELECT id, name, phone FROM suppliers WHERE active = 1 ORDER BY name').all().map((s) => ({
+      similar: actives.filter((x) => x.id !== s.id && sameSup(x.name, s.name)),
       // Kèm ảnh bill + ảnh hàng của từng phiếu còn nợ để nhìn thấy ngay khi trả (chủ quán 28/10)
       ...s, debt: balance(s.id), open_bills: openBills(s.id).filter((b) => b.remaining > 0).map((b) => ({ ...b,
         photos: db.prepare("SELECT id FROM purchase_bill_photos WHERE bill_id = ? AND kind = 'bill' ORDER BY id").all(b.id).map((x) => x.id),
