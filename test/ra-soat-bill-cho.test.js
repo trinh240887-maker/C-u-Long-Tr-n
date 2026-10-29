@@ -58,6 +58,10 @@ test('bill chờ: quy đổi không đụng kho; sửa bill giữ id dòng + d�
   const dl = dup.data.lines.filter((l) => l.ingredient_id === bo);
   assert.equal(dl.length, 1);
   assert.deepEqual([dl[0].qty, dl[0].amount, dl[0].price], [11, 17000, 1545]);
+  assert.ok(dup.data.flags.some((f) => /2 dòng khác giá/.test(f)), 'khác giá phải báo');
+  const same = await pre([{ ingredient_id: bo, qty: 2, price: 1000 }, { ingredient_id: bo, qty: 3, price: 1000 }]);
+  assert.ok(!same.data.flags.some((f) => /khác giá/.test(f)));
+  await o('POST', `/api/purchases/${same.data.id}/void`, { reason: 'test' });
   await o('POST', `/api/purchases/${dup.data.id}/void`, { reason: 'test' });
   // Quy đổi trên bill chờ: chỉ sửa dòng, kho chưa cộng, giá nguyên liệu chưa đổi
   const un = (await o('GET', '/api/purchases/unconverted')).data.find((x) => x.bill_id === b.id);

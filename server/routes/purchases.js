@@ -177,6 +177,8 @@ export default function (r, ctx) {
       if (!o) { first.set(l.ingredient_id, l); continue; }
       const uo = o.raw?.unconv ? unitOf(o.raw.unit) : '', ul = l.raw?.unconv ? unitOf(l.raw.unit) : '';
       if (uo !== ul) fail(400, `${l.name} có 2 dòng khác đơn vị (${o.raw?.unit || o.unit} / ${l.raw?.unit || l.unit}): sửa cho cùng đơn vị rồi lưu`);
+      // Khác giá → vẫn gộp nhưng ghi cảnh báo vào bill (thu ngân thấy khi duyệt) + báo người nhập (chủ quán 29/10)
+      if (l.price !== o.price) o.dup_note = `${o.name}: 2 dòng khác giá ${vnd(o.price)} / ${vnd(l.price)}, đã gộp (giá trung bình), kiểm lại bill`;
       o.qty = Math.round((o.qty + l.qty) * 1000) / 1000;
       o.amount += l.amount;
       o.price = o.qty ? Math.round(o.amount / o.qty) : o.price;
@@ -263,6 +265,7 @@ export default function (r, ctx) {
       const flags = flagsOf({ total, lines, po, oldPrice });
       // Dòng chưa quy đổi: nhập đúng như bill, chủ quán kiểm & quy đổi sau (chủ quán 28/10)
       for (const l of lines) if (l.ingredient_id && l.raw?.unconv) flags.push(unconvFlag(l.name, l.qty, unitOf(l.raw.unit) || l.unit));
+      for (const l of lines) if (l.dup_note) flags.push(l.dup_note);
       const id = Number(db.prepare(`INSERT INTO purchase_bills (supplier_id, supplier_name, store_id, po_id, date, total, lines_total, paid_now, paid_method, advance_id, signer_name, note, flags, received_by, received_at, status, pre_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(supplierId, supplierName, storeId, poId, date, total, lines.reduce((n, l) => n + l.amount, 0), paidNow, paidMethod, advanceId,
         signer, v.text(body.note, { name: 'Ghi chú', max: 1000 }), JSON.stringify(flags), pre ? null : me.id, ctx.now(), pre ? 'waiting' : 'received', pre ? me.id : null).lastInsertRowid);
@@ -333,7 +336,8 @@ export default function (r, ctx) {
       }
       for (const ph of Array.isArray(body.photos) ? body.photos.slice(0, 4) : []) savePhoto(b.id, ph, me);
       const ls = db.prepare('SELECT * FROM purchase_bill_lines WHERE bill_id = ?').all(b.id);
-      const flags = [...b.flags.filter((x) => !isCalcFlag(x)), ...flagsOf({ total, lines: ls, po: null, oldPrice: new Map(ls.filter((l) => l.old_price != null).map((l) => [l.ingredient_id, l.old_price])) }), ...unconvFlags(b.id)];
+      const dupNotes = (lines || []).filter((l) => l.dup_note && !b.flags.includes(l.dup_note)).map((l) => l.dup_note);
+      const flags = [...b.flags.filter((x) => !isCalcFlag(x)), ...dupNotes, ...flagsOf({ total, lines: ls, po: null, oldPrice: new Map(ls.filter((l) => l.old_price != null).map((l) => [l.ingredient_id, l.old_price])) }), ...unconvFlags(b.id)];
       db.prepare(`UPDATE purchase_bills SET total = ?, lines_total = ?, signer_name = ?, note = ?, flags = ?, status = ${b.status === 'approved' ? "'approved'" : b.status === 'waiting' ? "'waiting'" : "'received'"} WHERE id = ?`)
         .run(total, ls.reduce((n, l) => n + l.amount, 0), body.signer_name ? v.text(body.signer_name, { name: 'Tên người ký', max: 150 }) : b.signer_name, body.note === undefined ? b.note : v.text(body.note, { max: 1000 }), JSON.stringify(flags), b.id);
     });

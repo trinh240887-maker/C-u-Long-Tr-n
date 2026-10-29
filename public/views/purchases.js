@@ -120,6 +120,8 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
       total: f.total === '' ? undefined : num(f.total), photos, goods_photos: goods,
       lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: qtyNum(l.qty), price: num(l.price), create_new: !l.ingredient_id && !!l.create_new, unconv: !!l.unconv })),
     }), pre ? 'Đã lưu bill chờ nhận hàng. Bếp nhận hàng xong kho mới cộng' : 'Đã nhập kho. Thu ngân sẽ duyệt công nợ');
+    const dupWarn = (r?.flags || []).filter((x) => /2 dòng khác giá/.test(x));
+    if (dupWarn.length) toast(`⚠ ${dupWarn.join('\n')}`, true);
     if (r && pre) { setLines([]); setPhotos([]); setGoods([]); setF({ ...f, supplier_id: '', supplier_name: '', total: '', note: '', paid_method: '' }); navigate('/mua-hang?tab=cho'); return; }
     if (r) { setLines([]); setPhotos([]); setGoods([]); setF({ ...f, po_id: '', supplier_id: '', supplier_name: '', total: '', signer_name: me.name, note: '', advance_id: '', paid_method: '' }); onDone(); }
   };
