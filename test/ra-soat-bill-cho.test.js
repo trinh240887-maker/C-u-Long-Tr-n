@@ -52,9 +52,13 @@ test('bill chờ: quy đổi không đụng kho; sửa bill giữ id dòng + d�
   assert.deepEqual(e1.data.lines.map((l) => l.id), b.lines.map((l) => l.id));
   assert.equal(e1.data.lines.find((l) => l.ingredient_id === pheo).bill_unit, 'mẹt');
   assert.ok(e1.data.flags.some((f) => /chưa quy đổi/.test(f)));
-  // 2 dòng cùng nguyên liệu → chặn ngay khi lưu
-  assert.equal((await o('PATCH', `/api/purchases/${b.id}`, { lines: [{ ingredient_id: bo, qty: 5, price: 1 }, { ingredient_id: bo, qty: 6, price: 1 }] })).status, 400);
-  assert.equal((await pre([{ ingredient_id: bo, qty: 5, price: 1 }, { ingredient_id: bo, qty: 6, price: 1 }])).status, 400);
+  // 2 dòng cùng nguyên liệu → app tự gộp 1 dòng: cộng số lượng + thành tiền, đơn giá trung bình (chủ quán 29/10)
+  const dup = await pre([{ ingredient_id: bo, qty: 5, price: 1000 }, { ingredient_id: bo, qty: 6, price: 2000 }]);
+  assert.equal(dup.status, 200, JSON.stringify(dup.data));
+  const dl = dup.data.lines.filter((l) => l.ingredient_id === bo);
+  assert.equal(dl.length, 1);
+  assert.deepEqual([dl[0].qty, dl[0].amount, dl[0].price], [11, 17000, 1545]);
+  await o('POST', `/api/purchases/${dup.data.id}/void`, { reason: 'test' });
   // Quy đổi trên bill chờ: chỉ sửa dòng, kho chưa cộng, giá nguyên liệu chưa đổi
   const un = (await o('GET', '/api/purchases/unconverted')).data.find((x) => x.bill_id === b.id);
   assert.equal((await o('POST', `/api/purchases/lines/${un.id}/convert`, { factor: 2 })).status, 200);

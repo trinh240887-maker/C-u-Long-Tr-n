@@ -166,9 +166,22 @@ export default function (r, ctx) {
   const isCalcFlag = (x) => isUnconvFlag(x) || /^Tổng bill .* khác cộng các dòng /.test(x) || /: giá tăng -?\d+% \(/.test(x);
   const unconvFlags = (billId) => db.prepare('SELECT name, qty, bill_unit FROM purchase_bill_lines WHERE bill_id = ? AND ingredient_id IS NOT NULL AND bill_unit IS NOT NULL ORDER BY id').all(billId).map((l) => unconvFlag(l.name, l.qty, l.bill_unit));
   // 1 nguyên liệu 2 dòng → lúc nhận hàng kho báo "nhập 2 lần" (rà soát 28/10): bắt gộp ngay khi lưu
+  // Chủ quán 29/10: bill thật hay có 1 món 2 dòng (vd Cải thảo 2 lần) → app tự gộp (cộng số lượng + thành tiền, đơn giá = trung bình).
+  // Chỉ báo lỗi khi 2 dòng khác kiểu đơn vị (1 dòng đã quy đổi, 1 dòng chưa) vì không cộng được
   const noDupIng = (lines) => {
-    const seen = new Set();
-    for (const l of lines) { if (!l.ingredient_id) continue; if (seen.has(l.ingredient_id)) fail(400, `${l.name} có 2 dòng trên bill: gộp thành 1 dòng (cộng số lượng)`); seen.add(l.ingredient_id); }
+    const first = new Map();
+    for (let k = 0; k < lines.length; k++) {
+      const l = lines[k];
+      if (!l.ingredient_id) continue;
+      const o = first.get(l.ingredient_id);
+      if (!o) { first.set(l.ingredient_id, l); continue; }
+      const uo = o.raw?.unconv ? unitOf(o.raw.unit) : '', ul = l.raw?.unconv ? unitOf(l.raw.unit) : '';
+      if (uo !== ul) fail(400, `${l.name} có 2 dòng khác đơn vị (${o.raw?.unit || o.unit} / ${l.raw?.unit || l.unit}): sửa cho cùng đơn vị rồi lưu`);
+      o.qty = Math.round((o.qty + l.qty) * 1000) / 1000;
+      o.amount += l.amount;
+      o.price = o.qty ? Math.round(o.amount / o.qty) : o.price;
+      lines.splice(k, 1); k--;
+    }
   };
   // Có bill khác nhận nguyên liệu này sau bill b không (để khỏi ghi đè giá mới bằng giá bill cũ) (rà soát 28/10)
   const newerReceive = (ingId, b) => !!db.prepare("SELECT 1 FROM purchase_bill_lines x JOIN purchase_bills y ON y.id = x.bill_id WHERE x.ingredient_id = ? AND y.id != ? AND y.status NOT IN ('void','waiting') AND (y.received_at > ? OR (y.received_at = ? AND y.id > ?)) LIMIT 1")
