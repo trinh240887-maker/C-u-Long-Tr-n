@@ -50,6 +50,13 @@ export function useLive() {
   useEffect(() => { listeners.add(setV); return () => listeners.delete(setV); }, []);
   return v;
 }
+// Ô sửa trực tiếp (lưu khi rời ô / Enter): giữ chữ đang gõ, không bị app tự tải lại ghi đè (chủ quán 28/10)
+export function SaveInput({ value, onSave, ...props }) {
+  const [v, setV] = useState(null);
+  useEffect(() => { setV(null); }, [value]); // máy chủ đã có giá trị mới → hiện theo máy chủ
+  return html`<input ...${props} value=${v ?? (value ?? '')} onInput=${(e) => setV(e.target.value)} onChange=${(e) => onSave(e.target.value)} />`;
+}
+
 export function useData(url) {
   const v = useLive();
   const [state, set] = useState({ data: null, error: null, loading: true });

@@ -1,5 +1,5 @@
 import { useState } from '../vendor/hooks.js';
-import { html, api, act, useData, Loading, Modal, Field, money, atLeast } from '../ui.js';
+import { html, api, act, useData, Loading, Modal, Field, money, atLeast, SaveInput } from '../ui.js';
 
 const vnd = (n) => money(n);
 
@@ -73,11 +73,11 @@ function Stations({ menu }) {
     <h3>Điểm in & máy in</h3>
     <p class="muted small">Mỗi điểm 1 máy in LAN (IP dán trên máy). Máy lỗi hoặc hết giấy thì in sang <b>máy dự phòng</b>. Cầu nối in ở quán sẽ dùng các IP này.</p>
     ${menu.stations.map((s) => html`<div class="row wrap st-row" key=${s.id}>
-      <input class="grow" value=${s.name} aria-label="Tên điểm in" onChange=${(e) => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { name: e.target.value }), 'Đã lưu')} />
-      <input class="ip-in" value=${s.printer_ip} placeholder="IP, vd 192.168.1.234" aria-label="IP máy in" onChange=${(e) => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { printer_ip: e.target.value.trim() }), 'Đã lưu IP')} />
+      <${SaveInput} class="grow" value=${s.name} aria-label="Tên điểm in" onSave=${(val) => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { name: val }), 'Đã lưu')} />
+      <${SaveInput} class="ip-in" value=${s.printer_ip} placeholder="IP, vd 192.168.1.234" aria-label="IP máy in" onSave=${(val) => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { printer_ip: val.trim() }), 'Đã lưu IP')} />
       <select value=${s.fallback_station_id ?? ''} aria-label="Máy dự phòng" onChange=${(e) => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { fallback_station_id: e.target.value || null }), 'Đã lưu')}>
         <option value="">Không dự phòng</option>${menu.stations.filter((x) => x.id !== s.id).map((x) => html`<option value=${x.id}>Lỗi → in ${x.name}</option>`)}</select>
-      <label class="row small">Báo trễ sau <input class="num-in" type="number" min="1" value=${s.late_minutes ?? 10} onChange=${(e) => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { late_minutes: e.target.value }), 'Đã lưu')} /> phút</label>
+      <label class="row small">Báo trễ sau <${SaveInput} class="num-in" type="number" min="1" value=${s.late_minutes ?? 10} onSave=${(val) => act(() => api('PATCH', `/api/kitchen-stations/${s.id}`, { late_minutes: val }), 'Đã lưu')} /> phút</label>
       ${!s.printer_ip ? html`<span class="pill warn">Chưa có IP</span>` : null}
     </div>`)}
     <div class="row"><input class="grow" placeholder="Điểm in mới, vd Nướng" value=${nn} onInput=${(e) => setNn(e.target.value)} />

@@ -1,6 +1,6 @@
 import { useState, useEffect } from '../vendor/hooks.js';
 import { Samples } from './checklists.js';
-import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast, hm, dayLabel } from '../ui.js';
+import { html, api, act, useData, Modal, Field, Loading, navigate, dt, PHASE_LABEL, toast, atLeast, hm, dayLabel, SaveInput } from '../ui.js';
 
 const TABS = [['chung', 'Chung'], ['quyen', '🔐 Phân quyền'], ['bot', '🤖 Zalo Bot'], ['to', 'Bộ phận & vị trí'], ['khu', 'Khu & bàn'], ['dung-cu', 'Dụng cụ'], ['ca', 'Loại ca'], ['checklist', 'Checklist'], ['ketnoi', 'Kết nối (mã)'], ['zalo', 'Zalo OA'], ['saoluu', 'Sao lưu'], ['nhatky', 'Nhật ký']];
 
@@ -106,15 +106,15 @@ function Teams() {
       "Tối thiểu" là số người cần mỗi ngày; lịch ca báo vàng khi thiếu. Đặt 0 để không cảnh báo.</p>
     ${active.map((t) => html`<div class="dept" key=${t.id}>
       <div class="row team-row">
-        <input id=${`tm-n${t.id}`} class="grow" value=${t.name} aria-label="Tên bộ phận" onChange=${(e) => act(() => api('PATCH', `/api/teams/${t.id}`, { name: e.target.value }), 'Đã đổi tên')} />
-        <label class="row small">Tối thiểu <input id=${`tm-m${t.id}`} class="num-in" type="number" min="0" value=${t.min_staff} onChange=${(e) => act(() => api('PATCH', `/api/teams/${t.id}`, { min_staff: e.target.value }), 'Đã lưu')} /></label>
+        <${SaveInput} id=${`tm-n${t.id}`} class="grow" value=${t.name} aria-label="Tên bộ phận" onSave=${(val) => act(() => api('PATCH', `/api/teams/${t.id}`, { name: val }), 'Đã đổi tên')} />
+        <label class="row small">Tối thiểu <${SaveInput} id=${`tm-m${t.id}`} class="num-in" type="number" min="0" value=${t.min_staff} onSave=${(val) => act(() => api('PATCH', `/api/teams/${t.id}`, { min_staff: val }), 'Đã lưu')} /></label>
         <label class="check-row small"><input type="checkbox" checked=${!!t.active} onChange=${(e) => act(() => api('PATCH', `/api/teams/${t.id}`, { active: e.target.checked }), 'Đã lưu')} /> Dùng</label>
       </div>
       <div class="pos-list">
         ${t.positions.map((p) => html`<div class="row pos-row" key=${p.id}>
           <span class="muted">↳</span>
-          <input class="grow" value=${p.name} aria-label="Tên vị trí" onChange=${(e) => act(() => api('PATCH', `/api/positions/${p.id}`, { name: e.target.value }), 'Đã đổi tên')} />
-          <label class="row small">Tối thiểu <input class="num-in" type="number" min="0" value=${p.min_staff} onChange=${(e) => act(() => api('PATCH', `/api/positions/${p.id}`, { min_staff: e.target.value }), 'Đã lưu')} /></label>
+          <${SaveInput} class="grow" value=${p.name} aria-label="Tên vị trí" onSave=${(val) => act(() => api('PATCH', `/api/positions/${p.id}`, { name: val }), 'Đã đổi tên')} />
+          <label class="row small">Tối thiểu <${SaveInput} class="num-in" type="number" min="0" value=${p.min_staff} onSave=${(val) => act(() => api('PATCH', `/api/positions/${p.id}`, { min_staff: val }), 'Đã lưu')} /></label>
           <button class="btn-link small" onClick=${() => confirm(`Bỏ vị trí ${p.name}? Ca cũ vẫn giữ.`) && act(() => api('PATCH', `/api/positions/${p.id}`, { active: false }), 'Đã bỏ vị trí')}>Bỏ</button>
         </div>`)}
         <div class="row pos-row"><span class="muted">+</span>
@@ -162,8 +162,8 @@ function Utensils({ s }) {
       <h3>1. Dụng cụ của quán</h3>
       <p class="muted small">Nhập <b>số đang có</b> (đếm thật). Đổi tên, thêm, hoặc bỏ chọn "Dùng" để ẩn.</p>
       ${utensils.map((u) => html`<div class="row ut-row" key=${u.id}>
-        <input class="grow" value=${u.name} aria-label="Tên dụng cụ" onChange=${(e) => act(() => api('PATCH', `/api/utensils/${u.id}`, { name: e.target.value }), 'Đã lưu')} />
-        <label class="row small">Đang có <input class="num-in" type="number" min="0" value=${u.on_hand} onChange=${(e) => act(() => api('PATCH', `/api/utensils/${u.id}`, { on_hand: e.target.value }), 'Đã lưu')} /></label>
+        <${SaveInput} class="grow" value=${u.name} aria-label="Tên dụng cụ" onSave=${(val) => act(() => api('PATCH', `/api/utensils/${u.id}`, { name: val }), 'Đã lưu')} />
+        <label class="row small">Đang có <${SaveInput} class="num-in" type="number" min="0" value=${u.on_hand} onSave=${(val) => act(() => api('PATCH', `/api/utensils/${u.id}`, { on_hand: val }), 'Đã lưu')} /></label>
         <label class="check-row small"><input type="checkbox" checked=${u.active} onChange=${(e) => act(() => api('PATCH', `/api/utensils/${u.id}`, { active: e.target.checked }), 'Đã lưu')} /> Dùng</label>
       </div>`)}
       <div class="row"><input id="ut-new" class="grow" placeholder="Dụng cụ mới, vd Kẹp gắp" value=${nu} onInput=${(e) => setNu(e.target.value)} />
@@ -176,7 +176,7 @@ function Utensils({ s }) {
       <div class="table-wrap"><table class="list kit-grid">
         <thead><tr><th>Dụng cụ</th>${kits.filter((k) => k.active).map((k) => html`<th class="r">${k.name}</th>`)}</tr></thead>
         <tbody>${active.map((u) => html`<tr><td>${u.name}</td>${kits.filter((k) => k.active).map((k) => html`<td class="r">
-          <input class="num-in" inputmode="decimal" value=${perGuest(k, u.id)} placeholder="–" aria-label=${`${u.name} cho ${k.name}`} onChange=${(e) => setKitItem(k, u.id, e.target.value)} /></td>`)}</tr>`)}</tbody>
+          <${SaveInput} class="num-in" inputmode="decimal" value=${perGuest(k, u.id)} placeholder="–" aria-label=${`${u.name} cho ${k.name}`} onSave=${(val) => setKitItem(k, u.id, val)} /></td>`)}</tr>`)}</tbody>
       </table></div>
       <div class="row"><input id="kit-new" class="grow" placeholder="Kiểu phục vụ mới, vd Combo nướng" value=${nk} onInput=${(e) => setNk(e.target.value)} />
         <button disabled=${!nk.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/service-kits', { name: nk, items: [] }), 'Đã thêm')) setNk(''); }}>Thêm kiểu</button></div>
@@ -216,9 +216,9 @@ function Zones() {
   return html`<section class="card stack">
     <p class="muted small">Mỗi khu gồm các số bàn, ghi kiểu <b>1-20</b> hoặc <b>1-10, 15, 20-22</b>. Một bàn chỉ thuộc 1 khu. Phân người vào khu khi xếp ca.</p>
     ${st.data.map((z) => html`<div class="zone-row" key=${z.id}>
-      <input type="color" value=${z.color} aria-label="Màu" onChange=${(e) => act(() => api('PATCH', `/api/zones/${z.id}`, { color: e.target.value }), 'Đã đổi màu')} />
-      <input class="grow" value=${z.name} aria-label="Tên khu" onChange=${(e) => act(() => api('PATCH', `/api/zones/${z.id}`, { name: e.target.value }), 'Đã đổi tên')} />
-      <input class="grow" value=${z.tables_text} placeholder="vd 1-40" aria-label="Các bàn" onChange=${(e) => act(() => api('PATCH', `/api/zones/${z.id}`, { tables: e.target.value }), 'Đã lưu bàn')} />
+      <${SaveInput} type="color" value=${z.color} aria-label="Màu" onSave=${(val) => act(() => api('PATCH', `/api/zones/${z.id}`, { color: val }), 'Đã đổi màu')} />
+      <${SaveInput} class="grow" value=${z.name} aria-label="Tên khu" onSave=${(val) => act(() => api('PATCH', `/api/zones/${z.id}`, { name: val }), 'Đã đổi tên')} />
+      <${SaveInput} class="grow" value=${z.tables_text} placeholder="vd 1-40" aria-label="Các bàn" onSave=${(val) => act(() => api('PATCH', `/api/zones/${z.id}`, { tables: val }), 'Đã lưu bàn')} />
       <span class="muted small">${z.table_count} bàn</span>
       <label class="check-row small"><input type="checkbox" checked=${z.active} onChange=${(e) => act(() => api('PATCH', `/api/zones/${z.id}`, { active: e.target.checked }), 'Đã lưu')} /> Dùng</label>
     </div>`)}

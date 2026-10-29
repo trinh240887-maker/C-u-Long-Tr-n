@@ -1,6 +1,6 @@
 // Kho & Tài sản theo chứng từ (spec chủ quán 25/10). Mỗi vai trò chỉ thấy nút của mình; dùng tốt trên điện thoại ~380px.
 import { useState, useEffect, useRef } from '../vendor/hooks.js';
-import { html, api, act, useData, Loading, Modal, Field, navigate, toast, dt, money, atLeast } from '../ui.js';
+import { html, api, act, useData, Loading, Modal, Field, navigate, toast, dt, money, atLeast, SaveInput } from '../ui.js';
 import { compressImage } from './checklists.js';
 import qrcode from '../vendor/qrcode.js';
 
@@ -376,10 +376,10 @@ function Config({ meta }) {
       <section class="card stack"><h4>Vai trò kho của nhân viên</h4>${meta.staff.filter((s) => s.role !== 'owner').map((s) => { const cur = (s.wh_roles || '').split(',').filter(Boolean); return html`<div class="stack tight"><b class="small">${s.name}</b><div class="row wrap">${Object.entries(meta.role_names).map(([k, n]) => html`<button class=${`chip ${cur.includes(k) ? 'on' : ''}`} onClick=${() => act(() => api('PUT', `/api/wh/staff/${s.id}/roles`, { roles: cur.includes(k) ? cur.filter((y) => y !== k) : [...cur, k] }), 'Đã lưu')}>${n}</button>`)}</div></div>`; })}</section>
       <section class="card stack"><h4>Nhóm hàng: tần suất kiểm & ngưỡng lệch</h4>${meta.groups.map((g) => html`<div class="stack tight"><b class="small">${g.code} · ${g.name}</b><div class="row wrap">
         <select value=${g.count_freq} onChange=${(e) => act(() => api('PUT', `/api/wh/groups/${g.code}`, { count_freq: e.target.value }), 'Đã lưu')}>${Object.entries(FREQ).map(([k, n]) => html`<option value=${k}>${n}</option>`)}</select>
-        <label class="row">Vàng > <input class="num-in" type="number" value=${g.warn_pct} onChange=${(e) => act(() => api('PUT', `/api/wh/groups/${g.code}`, { warn_pct: e.target.value }), 'Đã lưu')} />%</label>
-        <label class="row">Đỏ > <input class="num-in" type="number" value=${g.red_pct} onChange=${(e) => act(() => api('PUT', `/api/wh/groups/${g.code}`, { red_pct: e.target.value }), 'Đã lưu')} />%</label></div></div>`)}</section>` : html`<p class="small muted">Ngưỡng, người phụ trách, vai trò: chỉ chủ quán sửa.</p>`}
+        <label class="row">Vàng > <${SaveInput} class="num-in" type="number" value=${g.warn_pct} onSave=${(val) => act(() => api('PUT', `/api/wh/groups/${g.code}`, { warn_pct: val }), 'Đã lưu')} />%</label>
+        <label class="row">Đỏ > <${SaveInput} class="num-in" type="number" value=${g.red_pct} onSave=${(val) => act(() => api('PUT', `/api/wh/groups/${g.code}`, { red_pct: val }), 'Đã lưu')} />%</label></div></div>`)}</section>` : html`<p class="small muted">Ngưỡng, người phụ trách, vai trò: chỉ chủ quán sửa.</p>`}
     <section class="card stack"><h4>Mức chuẩn mỗi ca (par)</h4><${StorePick} stores=${meta.stores} value=${store} onChange=${setStore} codes=${['BEP', 'BAR']} />
-      ${(par.data || []).map((p) => html`<div class="row"><span class="grow">${p.name}</span><input class="num-in" type="number" value=${p.qty} onChange=${(e) => act(() => api('PUT', '/api/wh/par', { store, items: [{ ingredient_id: p.ingredient_id, qty: e.target.value }] }), 'Đã lưu')} /><small>${p.unit}</small></div>`)}
+      ${(par.data || []).map((p) => html`<div class="row"><span class="grow">${p.name}</span><${SaveInput} class="num-in" type="number" value=${p.qty} onSave=${(val) => act(() => api('PUT', '/api/wh/par', { store, items: [{ ingredient_id: p.ingredient_id, qty: val }] }), 'Đã lưu')} /><small>${p.unit}</small></div>`)}
       <${ItemPick} items=${meta.items} value=${np.ingredient_id} onChange=${(id) => setNp({ ...np, ingredient_id: id })} />
       <div class="row"><input class="num-in" type="number" placeholder="Mức chuẩn" value=${np.qty} onInput=${(e) => setNp({ ...np, qty: e.target.value })} /><button class="small" disabled=${!np.ingredient_id} onClick=${() => act(() => api('PUT', '/api/wh/par', { store, items: [np] }), 'Đã thêm').then((r) => r && setNp({ ingredient_id: null, qty: '' }))}>Thêm</button></div></section>
     <section class="card stack"><h4>Bán thành phẩm (yield chuẩn)</h4>${(prep.data || []).map((p) => html`<small>• ${p.input_qty} ${p.input_unit} ${p.input_name} → ${p.output_qty} ${p.output_unit} ${p.output_name}</small>`)}
@@ -395,8 +395,8 @@ function ItemsEdit({ meta }) {
   return html`<section class="card stack"><h4>Mặt hàng (nhóm, tối thiểu / tối đa)</h4><input placeholder="Tìm…" value=${q} onInput=${(e) => setQ(e.target.value)} />
     ${list.slice(0, 30).map((x) => html`<div class="stack tight"><b class="small">${x.name}${x.need_review ? html` <span class="pill warn">mới từ kiểm kê, cần bổ sung</span>` : ''}</b><div class="row wrap">
       <select value=${x.group_code || ''} onChange=${(e) => upd(x.id, { group_code: e.target.value })}><option value="">(nhóm)</option>${meta.groups.map((g) => html`<option value=${g.code}>${g.code}</option>`)}</select>
-      <input class="num-in" type="number" placeholder="tối thiểu" value=${x.min_stock || ''} onChange=${(e) => upd(x.id, { min_stock: e.target.value })} />
-      <input class="num-in" type="number" placeholder="tối đa" value=${x.max_stock || ''} onChange=${(e) => upd(x.id, { max_stock: e.target.value })} />
+      <${SaveInput} class="num-in" type="number" placeholder="tối thiểu" value=${x.min_stock || ''} onSave=${(val) => upd(x.id, { min_stock: val })} />
+      <${SaveInput} class="num-in" type="number" placeholder="tối đa" value=${x.max_stock || ''} onSave=${(val) => upd(x.id, { max_stock: val })} />
       ${x.need_review ? html`<button class="small" onClick=${() => upd(x.id, { need_review: false })}>Đã bổ sung</button>` : null}</div></div>`)}</section>`;
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from '../vendor/hooks.js';
-import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays, can } from '../ui.js';
+import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays, can, SaveInput } from '../ui.js';
 
 const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['hh', '📉 Hao hụt', 'manager'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['quydoi', '⚖ Quy đổi', 'manager'], ['ls', 'Lịch sử']];
 const STATUS = { out: ['Hết', 'bad'], low: ['Sắp hết', 'warn'], ok: ['Đủ', 'ok'] };
@@ -153,7 +153,7 @@ function KindSetup({ meta, onClose }) {
     <input placeholder="🔍 Tìm hàng" value=${q} onInput=${(e) => setQ(e.target.value)} />
     ${['finished', 'material', 'supply'].map((k) => { const rows = list.filter((i) => i.kind_eff === k); return rows.length ? html`<b>${KIND_ICON[k]} ${meta.kinds[k]} (${rows.length})</b>
       <div class="sapo-list">${rows.map((i) => html`<div class="sapo-row"><span class="grow">${i.name} <small class="muted">${i.unit}${i.kind_auto ? ' · tự xếp' : ''}</small></span>
-        ${k === 'material' ? html`<input class="num-in" style="width:4.5em" inputmode="decimal" placeholder=${`${meta.loss_default}%`} value=${i.loss_pct ?? ''} title="Định mức hao hụt riêng (%)" onChange=${(e) => save(i, { loss_pct: e.target.value })} />` : null}
+        ${k === 'material' ? html`<${SaveInput} class="num-in" style="width:4.5em" inputmode="decimal" placeholder=${`${meta.loss_default}%`} value=${i.loss_pct ?? ''} title="Định mức hao hụt riêng (%)" onSave=${(val) => save(i, { loss_pct: val })} />` : null}
         <select value=${i.kind || ''} onChange=${(e) => save(i, { kind: e.target.value })}><option value="">Tự xếp (${meta.kinds[i.kind_eff]})</option><option value="finished">🥤 Thành phẩm</option><option value="material">🥩 Vật liệu</option><option value="supply">🔥 Tiêu hao</option></select>
         ${meta.groups ? html`<select value=${i.count_group || ''} title="Khung kiểm" onChange=${(e) => save(i, { count_group: e.target.value })}><option value="">Tự xếp (${GROUP_ICON[i.group_eff]} ${meta.groups[i.group_eff]})</option>${Object.entries(meta.groups).map(([k, l]) => html`<option value=${k}>${GROUP_ICON[k]} ${l}</option>`)}</select>` : null}</div>`)}</div>` : null; })}
   </div><//>`;

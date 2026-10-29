@@ -125,9 +125,9 @@ function Mine({ me }) {
     ${to_check ? html`<button class="card hint" onClick=${() => navigate('/viec-ca?tab=khu')}>🔍 ${to_check} việc chờ bạn kiểm tra →</button>` : null}
     ${!on_shift && !mine.length ? html`<p class="muted">Hôm nay bạn không có ca nên chưa có việc.</p>` : null}
     ${mine.length ? html`<h3>Việc của tôi <small class="muted">${left.length ? `còn ${left.length}` : 'đã xong hết 👍'}</small></h3>` : on_shift ? html`<p class="muted">Chưa có việc nào giao cho bạn.</p>` : null}
-    ${[...left, ...mine.filter((j) => !left.includes(j))].map((j) => html`<${JobCard} j=${j} now=${now} mine=${true} />`)}
+    ${[...left, ...mine.filter((j) => !left.includes(j))].map((j) => html`<${JobCard} key=${j.id} j=${j} now=${now} mine=${true} />`)}
     ${pool.length ? html`<${PoolList} pool=${pool} crew=${crew} me=${me} />` : null}
-    ${open.length ? html`<h3>Việc còn trống <small class="muted">nhận để hỗ trợ</small></h3>${open.map((j) => html`<${JobCard} j=${j} now=${now} />`)}` : null}
+    ${open.length ? html`<h3>Việc còn trống <small class="muted">nhận để hỗ trợ</small></h3>${open.map((j) => html`<${JobCard} key=${j.id} j=${j} now=${now} />`)}` : null}
   </div>`;
 }
 
@@ -211,7 +211,7 @@ function Board({ me }) {
     ${future ? html`<p class="small muted">Ngày tới: app tự chia lại theo lịch ca / phân khu mới nhất. Việc anh chọn tay sẽ được giữ.</p>` : null}
     ${canAll && !past ? html`<button onClick=${() => confirm('Chia lại các việc chưa ai bắt đầu theo gợi ý của app (kể cả việc đã chọn tay)?') && act(() => api('POST', '/api/jobs/reassign', { date, template_id: cur.id }), 'Đã chia lại')}>🔄 Chia lại theo gợi ý</button>` : null}
     ${canAll ? html`<small class="muted">Đổi người: chọn tên ở từng việc. Thêm / sửa việc (phút, số lượng, chỗ lấy đồ): <a href="/cai-dat?tab=checklist" onClick=${(e) => { e.preventDefault(); navigate('/cai-dat?tab=checklist'); }}>Cài đặt → Checklist</a>; việc mới tự thêm vào các ngày.</small>` : null}
-    ${cur.zones.length ? cur.zones.map((z) => html`<${ZoneBoard} t=${cur} z=${z} now=${now} today=${date === me.today} />`) : html`<p class="muted">Chưa có việc ngày này.</p>`}
+    ${cur.zones.length ? cur.zones.map((z) => html`<${ZoneBoard} key=${`${cur.id}-${z.zone_id}`} t=${cur} z=${z} now=${now} today=${date === me.today} />`) : html`<p class="muted">Chưa có việc ngày này.</p>`}
     ${['shift_lead', 'manager', 'owner'].includes(me.role) ? html`<details class="card"><summary><b>➕ Chuyển thêm checklist khác sang giao việc</b> (vd Đóng ca, gom khăn)</summary><${PickChecklist} me=${me} /></details>` : null}
   </div>`;
 }
