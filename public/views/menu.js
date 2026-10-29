@@ -67,6 +67,31 @@ function ItemForm({ init, menu, kits, ingredients, onClose }) {
   <//>`;
 }
 
+// Chuyển nhiều món sang 1 điểm in: chọn nhóm (hoặc tìm tên) → tick món → chọn điểm in → Chuyển (chủ quán 29/10)
+function MoveToStation({ menu }) {
+  const [cat, setCat] = useState('');
+  const [q, setQ] = useState('');
+  const [to, setTo] = useState('');
+  const [off, setOff] = useState({}); // món bỏ tick
+  const fold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase();
+  const stName = (id) => menu.stations.find((s) => s.id === id)?.name || 'không in';
+  const list = (cat || q) ? menu.items.filter((i) => (!cat || i.category_id === Number(cat)) && (!q || fold(i.name).includes(fold(q)))) : [];
+  const picked = list.filter((i) => !off[i.id] && !i.parts?.length);
+  return html`<section class="card stack">
+    <h3>🔀 Chuyển món sang điểm in khác</h3>
+    <small class="muted">Chọn nhóm món (hoặc gõ tên), bỏ tick món không chuyển, chọn điểm in rồi bấm Chuyển. Món combo in nhiều máy thì sửa riêng trong món.</small>
+    <div class="row wrap">
+      <select value=${cat} onChange=${(e) => { setCat(e.target.value); setOff({}); }}><option value="">— Chọn nhóm món —</option>${menu.categories.map((c) => html`<option value=${c.id}>${c.name} (${menu.items.filter((i) => i.category_id === c.id).length})</option>`)}</select>
+      <input type="search" class="grow" placeholder="…hoặc gõ tên, vd nướng" value=${q} onInput=${(e) => { setQ(e.target.value); setOff({}); }} />
+    </div>
+    ${list.length ? html`<div class="sapo-list">${list.map((i) => html`<label class="check-row"><input type="checkbox" disabled=${!!i.parts?.length} checked=${!off[i.id] && !i.parts?.length} onChange=${(e) => setOff({ ...off, [i.id]: !e.target.checked })} />
+      <span>${i.name} <small class="muted">· đang in: ${i.parts?.length ? 'combo nhiều máy (sửa riêng)' : stName(i.station_id)}</small></span></label>`)}</div>` : (cat || q) ? html`<small class="muted">Không có món nào.</small>` : null}
+    ${list.length ? html`<div class="row wrap">
+      <select value=${to} onChange=${(e) => setTo(e.target.value)}><option value="">— Chuyển sang điểm in —</option>${menu.stations.map((s) => html`<option value=${s.id}>${s.name}${s.printer_ip ? ` (${s.printer_ip})` : ' (chưa có IP)'}</option>`)}</select>
+      <button class="primary" disabled=${!to || !picked.length} onClick=${async () => { const r = await act(() => api('POST', '/api/menu/items/station', { station_id: Number(to), item_ids: picked.map((i) => i.id) }), `Đã chuyển ${picked.length} món sang ${stName(Number(to))}`); if (r) setOff({}); }}>Chuyển ${picked.length} món</button></div>` : null}
+  </section>`;
+}
+
 function Stations({ menu }) {
   const [nn, setNn] = useState('');
   return html`<section class="card stack">
@@ -108,7 +133,7 @@ export function MenuView({ me }) {
   const ingredients = (ingD.data?.ingredients || []).filter((g) => g.active !== false);
   return html`<div class="stack">
     ${manager ? html`<div class="tabs"><button class=${tab === 'mon' ? 'on' : ''} onClick=${() => setTab('mon')}>Món</button><button class=${tab === 'in' ? 'on' : ''} onClick=${() => setTab('in')}>Điểm in</button></div>` : null}
-    ${tab === 'in' && manager ? html`<${Stations} menu=${m} />` : html`
+    ${tab === 'in' && manager ? html`<${Stations} menu=${m} /><${MoveToStation} menu=${m} />` : html`
     <div class="row between wrap">
       <input id="menu-q" type="search" placeholder="Tìm món" value=${q} onInput=${(e) => setQ(e.target.value)} />
       <div class="row">

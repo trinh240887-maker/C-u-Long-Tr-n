@@ -132,6 +132,19 @@ export default function (r, ctx) {
     return { ok: true };
   });
 
+  // Chuyển nhiều món sang 1 điểm in (chủ quán 29/10: tách xiên nướng ra máy riêng)
+  r.post('/api/menu/items/station', 'manager', ({ me, body }) => {
+    const sid = body.station_id ? v.int(body.station_id, { min: 1, name: 'Điểm in' }) : null;
+    if (sid && !db.prepare('SELECT 1 FROM kitchen_stations WHERE id = ?').get(sid)) fail(404, 'Không tìm thấy điểm in');
+    const ids = (Array.isArray(body.item_ids) ? body.item_ids : []).map(Number).filter((x) => x > 0).slice(0, 500);
+    if (!ids.length) fail(400, 'Chọn ít nhất 1 món');
+    let n = 0;
+    tx(db, () => { for (const id of ids) n += Number(db.prepare('UPDATE menu_items SET station_id = ? WHERE id = ?').run(sid, id).changes); });
+    ctx.audit(me, 'menu.item.bulk_station', { station: sid, items: ids.length });
+    ctx.broadcast('menu');
+    return { ok: true, changed: n };
+  });
+
   // Mở lại mọi món "hết" (đầu ngày)
   r.post('/api/menu/reset-sold-out', 'shift_lead', ({ me }) => {
     const n = db.prepare('UPDATE menu_items SET sold_out = 0 WHERE sold_out = 1').run().changes;
