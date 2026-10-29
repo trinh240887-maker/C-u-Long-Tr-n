@@ -126,7 +126,13 @@ export function MenuView({ me }) {
   const stName = (id) => m.stations.find((s) => s.id === id)?.name || '';
   const catOrder = (id) => { const k = m.categories.findIndex((c) => c.id === id); return k < 0 ? 999 : k; };
   const missing = m.items.filter((i) => i.active && !i.recipe.length);
-  const items = m.items.filter((i) => (!noRecipe || (i.active && !i.recipe.length)) && (!cat || i.category_id === Number(cat)) && (!q || i.name.toLowerCase().includes(q.toLowerCase())) && (manager || i.active))
+  // Gom nhóm món thành 4 mục lớn cho gọn (chủ quán 29/10): Steak · Lẩu · Nướng · Bar; nhóm khác vào "Khác". Bấm mục lớn → hiện các nhóm con.
+  const BIG4 = [['Steak', /steak/i], ['Lẩu', /lẩu|lau|bò tươi|bò nhập|topping|rau|nấm|mì|thịt/i], ['Nướng', /nướng|xiên/i], ['Bar', /cà phê|cafe|trà|nước|bia|soju|rượu|sinh tố|ép|đồ uống|bar/i]];
+  const bigOf = (catId) => { const c = m.categories.find((x) => x.id === catId); return (c && BIG4.find(([, re]) => re.test(c.name))?.[0]) || 'Khác'; };
+  const bigs = [...BIG4.map(([n]) => n), 'Khác'].filter((n) => m.categories.some((c) => bigOf(c.id) === n));
+  const inCat = (i) => !cat || (/^\d+$/.test(cat) ? i.category_id === Number(cat) : bigOf(i.category_id) === cat);
+  const big = !cat ? '' : /^\d+$/.test(cat) ? bigOf(Number(cat)) : cat;
+  const items = m.items.filter((i) => (!noRecipe || (i.active && !i.recipe.length)) && inCat(i) && (!q || i.name.toLowerCase().includes(q.toLowerCase())) && (manager || i.active))
     .sort((a, b) => catOrder(a.category_id) - catOrder(b.category_id) || a.sort - b.sort || a.id - b.id);
   const catName = (id) => m.categories.find((c) => c.id === id)?.name || 'Chưa có danh mục';
   const soldOut = m.items.filter((i) => i.sold_out && i.active);
@@ -138,16 +144,17 @@ export function MenuView({ me }) {
       <input id="menu-q" type="search" placeholder="Tìm món" value=${q} onInput=${(e) => setQ(e.target.value)} />
       <div class="row">
         ${soldOut.length && atLeast(me, 'shift_lead') ? html`<button onClick=${() => act(() => api('POST', '/api/menu/reset-sold-out'), 'Đã mở bán lại')}>Mở bán lại ${soldOut.length} món hết</button>` : null}
-        ${manager ? html`<button class="primary" onClick=${() => setEdit({ category_id: cat ? Number(cat) : '' })}>+ Thêm món</button>` : null}
+        ${manager ? html`<button class="primary" onClick=${() => setEdit({ category_id: /^\d+$/.test(cat) ? Number(cat) : '' })}>+ Thêm món</button>` : null}
       </div>
     </div>
     ${manager && missing.length ? html`<button class=${`chip ${noRecipe ? 'on' : ''}`} style="align-self:flex-start" onClick=${() => setNoRecipe(!noRecipe)}>⚠ ${missing.length} món chưa có định lượng${noRecipe ? ' · bỏ lọc' : ' · xem'}</button>` : null}
     <div class="chips"><button class=${`chip ${!cat ? 'on' : ''}`} onClick=${() => setCat('')}>Tất cả <small>${m.items.filter((i) => i.active).length}</small></button>
-      ${m.categories.map((c) => html`<button class=${`chip ${cat === String(c.id) ? 'on' : ''} ${c.active ? '' : 'off'}`} onClick=${() => setCat(String(c.id))}>${c.name} <small>${m.items.filter((i) => i.category_id === c.id && i.active).length}</small></button>`)}</div>
+      ${bigs.map((b) => html`<button class=${`chip big ${big === b ? 'on' : ''}`} onClick=${() => setCat(b)}>${b} <small>${m.items.filter((i) => i.active && bigOf(i.category_id) === b).length}</small></button>`)}</div>
+    ${big ? html`<div class="chips small-chips">${m.categories.filter((c) => bigOf(c.id) === big).map((c) => html`<button class=${`chip ${cat === String(c.id) ? 'on' : ''} ${c.active ? '' : 'off'}`} onClick=${() => setCat(cat === String(c.id) ? big : String(c.id))}>${c.name} <small>${m.items.filter((i) => i.category_id === c.id && i.active).length}</small></button>`)}</div>` : null}
     ${manager ? html`<div class="row"><input class="grow" placeholder="Danh mục mới" value=${newCat} onInput=${(e) => setNewCat(e.target.value)} />
       <button disabled=${!newCat.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/menu/categories', { name: newCat }), 'Đã thêm danh mục')) setNewCat(''); }}>Thêm danh mục</button></div>` : null}
     <section class="card menu-list">
-      ${items.map((i, k) => html`${!cat && (k === 0 || items[k - 1].category_id !== i.category_id) ? html`<div class="menu-cat">${catName(i.category_id)}</div>` : null}<div class=${`menu-row ${i.active ? '' : 'off'} ${i.sold_out ? 'soldout' : ''}`} key=${i.id}>
+      ${items.map((i, k) => html`${!/^\d+$/.test(cat) && (k === 0 || items[k - 1].category_id !== i.category_id) ? html`<div class="menu-cat">${catName(i.category_id)}</div>` : null}<div class=${`menu-row ${i.active ? '' : 'off'} ${i.sold_out ? 'soldout' : ''}`} key=${i.id}>
         <button class="grow menu-main" disabled=${!manager} onClick=${() => setEdit(i)}>
           <b>${i.name}</b> ${!i.active ? html`<span class="pill muted">Ẩn</span>` : null}${manager && i.active && !i.recipe.length ? html`<span class="pill warn">chưa định lượng</span>` : null}${i.sold_out ? html`<span class="pill bad">Hết</span>` : null}
           <br /><small class="muted">${i.description}${i.description ? ' · ' : ''}${i.parts.length ? i.parts.map((p) => stName(p.station_id)).filter((x, k, a) => a.indexOf(x) === k).join(' + ') : stName(i.station_id) || 'không in'}${i.options.length ? ` · ${[...new Set(i.options.map((o) => o.group_name))].join(', ')}` : ''}${i.recipe.length ? ` · ${i.recipe.length} NL` : ''}</small>
