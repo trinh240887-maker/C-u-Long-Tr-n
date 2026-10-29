@@ -110,6 +110,11 @@ export function apiGate(ctx, me, method, pathname) {
   if (!me || me.role === 'owner') return null;
   // Quyền chi tiết từng người (chủ quán tick riêng) thắng quy định theo mục
   const act = matchAct(method, pathname);
+  // Người có quyền "Thêm nhân viên" / "Duyệt nhân viên mới" được mở form sửa để ĐẶT PIN (chủ quán 29/10).
+  // Không có quyền "Sửa nhân viên" thì máy chủ chỉ đổi PIN (và sửa đủ người do chính mình thêm), xem PATCH /api/staff/:id
+  if (act?.key === 'nv.sua' && method === 'PATCH' && !can(ctx, me, 'nv.sua') && (can(ctx, me, 'nv.them') || can(ctx, me, 'ranh.nvmoi'))) {
+    return rank(me.role) < rank('manager') ? 'manager' : null;
+  }
   if (act) {
     const ov = overridesOf(ctx, me.id)[act.key];
     if (ov === false) return 'deny';

@@ -65,4 +65,25 @@ test('duyệt NV mới qua bot: chỉ cần quyền "Duyệt nhân viên mới" 
   const V = await login('7363', '8363');
   assert.equal((await V('POST', `/api/staff-requests/${req('X')}/approve`, { name: 'X', role: 'staff' })).status, 403);
   assert.ok(pv);
+
+  // Nhân viên được tick riêng "Duyệt nhân viên mới" (không có "Sửa nhân viên"): mở form đặt PIN được
+  const ht = (await o('POST', '/api/staff', { name: 'Hà', role: 'staff', team_id: bep.id, pin: '7364' })).data.id;
+  const cur = JSON.parse(app.ctx.setting('perm_user')); cur[ht] = { 'ranh.nvmoi': true }; app.ctx.setSetting('perm_user', JSON.stringify(cur));
+  const H = await login('7364', '8364');
+  const r3 = await H('POST', `/api/staff-requests/${req('Minh')}/approve`, { name: 'Minh', phone: '0911000111', team_id: bep.id, role: 'staff' });
+  assert.equal(r3.status, 200, JSON.stringify(r3.data));
+  // người do mình thêm: sửa đủ + đặt PIN
+  assert.equal((await H('PATCH', `/api/staff/${r3.data.id}`, { name: 'Minh Bếp', pin: '4455' })).status, 200);
+  assert.equal(db.prepare('SELECT name FROM staff WHERE id = ?').get(r3.data.id).name, 'Minh Bếp');
+  // người khác thêm (Phúc): chỉ đặt lại PIN, không đổi gì khác
+  const pr = await H('PATCH', `/api/staff/${pv}`, { name: 'Đổi tên', pin: '4456' });
+  assert.equal(pr.status, 200, JSON.stringify(pr.data));
+  assert.equal(db.prepare('SELECT name FROM staff WHERE id = ?').get(pv).name, 'Phúc');
+  assert.equal((await H('PATCH', `/api/staff/${pv}`, { name: 'Đổi tên' })).status, 403);
+  // không đặt PIN cho trưởng ca / quản lý
+  assert.equal((await H('PATCH', `/api/staff/${tc}`, { pin: '445566' })).status, 403);
+  // lỗi quyền ghi rõ thiếu quyền gì
+  const den = await H('POST', '/api/staff', { name: 'Y', role: 'staff', pin: '4457' });
+  assert.equal(den.status, 403);
+  assert.match(den.data.error, /Thêm nhân viên/);
 });

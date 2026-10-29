@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { fail, v } from '../http.js';
 import { tx, rank, ROLES, ROLE_LABEL } from '../db.js';
 import { validatePin } from './auth.js';
+import { can } from '../lib/perms.js';
 import { addDays } from '../lib/time.js';
 
 export default function (r, ctx) {
@@ -233,9 +234,18 @@ export default function (r, ctx) {
   r.patch('/api/staff/:id', 'manager', ({ me, params, body }) => {
     const cur = ctx.staff(params.id);
     if (!cur) fail(404, 'Không tìm thấy nhân viên');
-    if (cur.id !== me.id && !canManage(me, cur.role)) fail(403, 'Bạn không thể sửa tài khoản này');
+    // Không có quyền "Sửa nhân viên" (chỉ có Thêm / Duyệt NV mới): người do mình thêm thì sửa đủ, người khác chỉ đặt lại PIN (chủ quán 29/10)
+    const realMe = { ...me, role: realRole(me) };
+    const adder = realRole(me) !== 'owner' && !can(ctx, realMe, 'nv.sua') && (can(ctx, realMe, 'nv.them') || can(ctx, realMe, 'ranh.nvmoi'));
+    if (adder && db.prepare('SELECT created_by FROM staff WHERE id = ?').get(cur.id)?.created_by !== me.id) {
+      if (!body.pin) fail(403, 'Bạn chỉ đặt lại mã PIN được (chưa có quyền "Sửa nhân viên")');
+      body = { pin: body.pin };
+    }
+    // Người thêm NV dưới quản lý: sửa / đặt PIN cho Nhân viên, Tổ trưởng (như lúc duyệt)
+    const manageOk = adder && rank(realRole(me)) < rank('manager') ? rank(cur.role) < rank('shift_lead') : canManage(me, cur.role);
+    if (cur.id !== me.id && !manageOk) fail(403, 'Bạn không thể sửa tài khoản này');
     const f = staffFields(body, cur);
-    if (f.role !== cur.role && (cur.id === me.id || !canManage(me, f.role))) fail(403, 'Bạn không thể đổi sang vai trò này');
+    if (f.role !== cur.role && (cur.id === me.id || !(adder && rank(realRole(me)) < rank('manager') ? rank(f.role) < rank('shift_lead') : canManage(me, f.role)))) fail(403, 'Bạn không thể đổi sang vai trò này');
     const active = body.active === undefined ? cur.active : v.bool(body.active);
     if (cur.role === 'owner' && (!active || f.role !== 'owner')) {
       const owners = db.prepare("SELECT COUNT(*) AS n FROM staff WHERE role = 'owner' AND active = 1").get().n;

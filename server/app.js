@@ -16,6 +16,7 @@ import paymentRoutes from './routes/payments.js';
 import { codeHash } from './lib/version.js';
 import { createZaloBot } from './lib/zalo-bot.js';
 import { apiGate } from './lib/perms.js';
+import { matchAct } from './lib/acts.js';
 import { createZns } from './notify/zns.js';
 import bankRoutes from './routes/bank.js';
 import daybookRoutes from './routes/daybook.js';
@@ -264,7 +265,7 @@ export function createApp({ db, publicDir, now = () => Date.now(), zaloTransport
         if (route.role && me) {
           // Phân quyền từng mục (Cài đặt → Phân quyền): chặn mục bị bỏ, nâng quyền cho người được cấp riêng (không bao giờ thành chủ)
           const gate = apiGate(ctx, me, req.method, pathname);
-          if (gate === 'deny') fail(403, 'Bạn chưa được cấp quyền mục này');
+          if (gate === 'deny') { const a = matchAct(req.method, pathname); fail(403, a ? `Bạn chưa được cấp quyền "${a.label}". Nhờ chủ quán bật ở Cài đặt → Phân quyền.` : 'Bạn chưa được cấp quyền mục này'); }
           // real_role = chức vụ thật (rà soát 28/10): lệnh nhạy cảm (đặt PIN, lương, sửa người cấp cao) xét theo chức vụ thật, không theo quyền được nâng
           if (gate && route.role !== 'owner') me = { ...me, role: gate, real_role: me.role };
         }
