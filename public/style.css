@@ -881,3 +881,5 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 /* Đã gọi: chia theo lần gửi bếp (29/10) */
 .round-head { margin: 10px 0 2px; padding: 4px 8px; border-radius: 8px; background: var(--chip, rgba(127,127,127,.12)); }
 .round-head:first-child { margin-top: 0; }
+/* Nút xác nhận chọn bàn nằm trên, dính khi cuộn (29/10) */
+.sticky-acts { position: sticky; top: 0; z-index: 2; background: var(--card, var(--bg, #fff)); padding: 6px 0; }

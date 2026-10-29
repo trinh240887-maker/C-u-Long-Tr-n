@@ -110,6 +110,7 @@ function TablePrompt({ title, hint, onOk, onClose, items = null, zones = [], sel
   const toggle = (n) => setSel(sel.includes(n) ? sel.filter((x) => x !== n) : multi ? [...sel, n] : [n]);
   return html`<${Modal} title=${title} onClose=${onClose}><div class="stack">
     <small class="muted">${hint}</small>
+    <div class="row end sticky-acts"><button onClick=${onClose}>Thôi</button><button class="primary" disabled=${!sel.length} onClick=${() => onOk(sel.join(', '), [...pick])}>${sel.length ? `${/gộp/i.test(title) ? 'Gộp' : 'Chuyển sang'} bàn ${sel.join(', ')}` : 'Bấm chọn bàn'}</button></div>
     ${zones.map((z) => html`<div class="field"><span>${z.name}</span><div class="tbl-pick">${z.tables.map((t) => {
       const busy = t.session && t.session.id !== selfId;
       const mine = t.session && t.session.id === selfId;
@@ -118,7 +119,6 @@ function TablePrompt({ title, hint, onOk, onClose, items = null, zones = [], sel
     ${items?.length ? html`<div class="field"><span>Báo bếp giao sang bàn mới: chỉ tick món <b>CHƯA RA</b></span>
       ${items.map((i) => html`<label class="check-row"><input type="checkbox" checked=${pick.has(i.id)} onChange=${(e) => { const n = new Set(pick); if (e.target.checked) n.add(i.id); else n.delete(i.id); setPick(n); }} /> ${i.qty} × ${i.name}</label>`)}
       <small class="muted">Món đã ra bàn thì bỏ tick, bếp không nhận phiếu.</small></div>` : null}
-    <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" disabled=${!sel.length} onClick=${() => onOk(sel.join(', '), [...pick])}>${sel.length ? `Chuyển sang bàn ${sel.join(', ')}` : 'Bấm chọn bàn'}</button></div>
   </div><//>`;
 }
 

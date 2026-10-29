@@ -456,11 +456,8 @@ export default function (r, ctx) {
     });
     if (soldOut) ctx.broadcast('menu');
     ctx.audit(me, 'pos.item.cancel', { id: i.id, name: i.name, qty: i.qty, reason, sold_out: soldOut });
-    // Báo thu ngân đang trong ca (chủ quán 29/10): bàn này đã huỷ món, bill tự trừ tiền
-    const cashiers = db.prepare(`SELECT s.id FROM staff s WHERE s.active = 1 AND s.team_id IN (SELECT id FROM teams WHERE name = 'Thu ngân')
-      AND (EXISTS (SELECT 1 FROM attendance a WHERE a.staff_id = s.id AND a.clock_out IS NULL) OR EXISTS (SELECT 1 FROM assignments a WHERE a.staff_id = s.id AND a.date = ?))`).all(ctx.today()).map((x) => x.id);
-    const to = [...new Set([...cashiers, ...(i.cancel_req_by ? [i.cancel_req_by] : [])])].filter((x) => x !== me.id);
-    if (to.length) ctx.notify(to, { title: `Bàn ${s.header} huỷ món: ${i.qty} × ${i.name}`, body: `${me.name} duyệt huỷ · lý do: ${reason} · bill đã tự trừ ${(i.unit_price * i.qty).toLocaleString('vi-VN')}đ`, link: `/goi-mon?s=${s.id}` });
+    // Báo lại người xin huỷ là đã được duyệt (chủ quán 29/10: không cần báo thu ngân, bill tự trừ món đã huỷ)
+    if (i.cancel_req_by && i.cancel_req_by !== me.id) ctx.notify([i.cancel_req_by], { title: `Đã huỷ: ${i.qty} × ${i.name} · Bàn ${s.header}`, body: `${me.name} đồng ý huỷ · lý do: ${reason}`, link: `/goi-mon?s=${s.id}` });
     ctx.broadcast('pos');
     ctx.broadcast('tickets');
     return { ok: true };

@@ -81,7 +81,6 @@ export function PayModal({ me, id, onClose, onDone, defaultMethod = 'transfer' }
   return html`<${Modal} title=${`Tính tiền bàn ${b.header} · bill ${b.bill_no}`} onClose=${onClose}>
     <div class="stack">
       ${b.unsent ? html`<p class="warn-text">Còn ${b.unsent} món chưa gửi bếp. Gửi hoặc xoá trước khi tính tiền.</p>` : null}
-      ${b.unserved ? html`<p class="warn-text small">Còn ${b.unserved} món chưa bấm "Đã ra": hỏi khách đã nhận đủ món chưa.</p>` : null}
       <${BillLines} b=${b} />
       <div class="tabs">${Object.entries(METHOD).filter(([k]) => cashier || k !== 'mixed').map(([k, l]) => html`<button class=${method === k ? 'on' : ''} onClick=${() => setMethod(k)}>${l}</button>`)}</div>
       ${method === 'transfer' ? html`<div class="stack center">

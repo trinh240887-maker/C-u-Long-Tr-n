@@ -517,6 +517,11 @@ function migrate(db, { real = false } = {}) {
     });
   }
   if (real || process.env.DINH_LUONG === '1') { seedDinhLuong(db); seedThitTuoi(db); dropSetNoodlePart(db); renameLau(db); singleStoreV1(db); } // dữ liệu thật của quán; DB tạm trong bộ nhớ (test, giả lập) giữ thực đơn mẫu
+  // Chủ quán 29/10: đổi tên điểm in "Topping – Nướng – Rau" → "Topping – Rau" (xiên nướng đã tách máy riêng). 1 lần
+  if (real && !db.prepare("SELECT 1 FROM settings WHERE key = 'ten_may_in_topping_v1'").get()) { // chỉ dữ liệu thật (DB thử giữ tên mẫu)
+    db.prepare("UPDATE kitchen_stations SET name = 'Topping – Rau' WHERE name = 'Topping – Nướng – Rau'").run();
+    db.prepare("INSERT INTO settings (key, value) VALUES ('ten_may_in_topping_v1', '1')").run();
+  }
 }
 
 export function tx(db, fn) {

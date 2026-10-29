@@ -265,10 +265,7 @@ export default function (r, ctx) {
     if (s.unsent) fail(400, `Còn ${s.unsent} món chưa gửi bếp: gửi hoặc xoá trước khi tính tiền`);
     const live = s.items.filter((i) => i.status !== 'cancelled');
     if (!live.length) fail(400, 'Bàn chưa có món nào');
-    const unserved = live.filter((i) => i.status === 'sent');
-    if (unserved.length && !body.confirm_unserved) {
-      fail(409, `Còn ${unserved.length} món chưa bấm "Đã ra" (${unserved.slice(0, 3).map((i) => i.name).join(', ')}${unserved.length > 3 ? '…' : ''}). Hỏi khách đã nhận đủ món chưa?`);
-    }
+    // Chủ quán 29/10: quán không dùng bước "Đã ra" → không hỏi món chưa ra khi tính tiền
     const method = v.oneOf(body.method, ['cash', 'transfer', 'mixed'], { name: 'Cách trả' });
     // Chỉ thu ngân / trưởng ca trở lên thu tiền mặt đóng bill; phục vụ bấm "Báo thu ngân" (chủ quán 24/10)
     if (method !== 'transfer' && !canCollect(me)) fail(403, 'Chỉ thu ngân / chủ quán thu tiền mặt, đóng bill');
@@ -310,7 +307,7 @@ export default function (r, ctx) {
     if (transfer > 0 && got > transfer) setExcess(s.id, got - transfer, total);
     let printed = false;
     if (body.print) { try { printed = !!printBill(s.id); } catch { printed = false; } } // chưa có máy in bill thì vẫn đóng bill bình thường
-    ctx.audit(me, 'pay.close', { id: s.id, total, method: payMethod, cash, transfer, tip_cash: tipCash, tip_transfer: tipTransfer, unserved: unserved.length });
+    ctx.audit(me, 'pay.close', { id: s.id, total, method: payMethod, cash, transfer, tip_cash: tipCash, tip_transfer: tipTransfer });
     ctx.broadcast('pos');
     return { ok: true, total, method: payMethod, bank_received: got, change: given ? given - cash - tipCash : 0, tip: tipCash, hand_over: cash + tipCash, printed };
   });
