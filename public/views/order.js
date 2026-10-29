@@ -164,6 +164,11 @@ export function OrderView({ me, query }) {
   groups.sort((x, y) => (BIG.findIndex(([n]) => n === x.key) + 1 || 99) - (BIG.findIndex(([n]) => n === y.key) + 1 || 99));
   const drafts = s.items.filter((i) => i.status === 'new');
   const sent = s.items.filter((i) => i.status !== 'new');
+  // Chia theo lần gửi bếp (chủ quán 29/10): cùng 1 lần bấm Gửi bếp = cùng giờ gửi → Lần 1, Lần 2… (chỉ trên màn phục vụ, phiếu in giữ nguyên)
+  const sendTimes = [...new Set(sent.filter((i) => i.sent_at).map((i) => i.sent_at))].sort((a, b) => a - b);
+  const rounds = sendTimes.map((at, k) => ({ no: k + 1, at, items: sent.filter((i) => i.sent_at === at) }));
+  const noSent = sent.filter((i) => !i.sent_at);
+  const agoMin = (at) => Math.max(0, Math.floor((Date.now() - at) / 60_000));
   const add = async (bodies) => {
     const list = Array.isArray(bodies) ? [...bodies] : [bodies];
     for (const b0 of [...list]) {
@@ -231,7 +236,7 @@ export function OrderView({ me, query }) {
         <b>${i.name}</b><small>${i.sold_out ? (i.auto_sold_out ? 'Hết nguyên liệu' : 'Hết món') : money(i.price)}</small>${!i.sold_out && i.left != null && i.left <= 5 ? html`<span class="left-tag">còn ${i.left} phần</span>` : null}${!i.sold_out && m.promo?.tags?.[i.id] ? html`<span class="promo-tag" title=${m.promo.tags[i.id]}>🎁 KM</span>` : null}</button>`)}</div>`)}`)}
       ${q && !items.length ? html`<div class="empty">Không thấy món "${q}".</div>` : null}` : null}
 
-    ${tab === 'bill' && !closed && drafts.length ? html`<section class="card cart"><b>Chưa gửi bếp (bấm − / + để sửa)</b>
+    ${tab === 'bill' && !closed && drafts.length ? html`<section class="card cart"><b>Lần ${rounds.length + 1} · chưa gửi bếp</b> <small class="muted">đọc lại cho khách xác nhận, bấm − / + để sửa, rồi bấm Gửi bếp</small>
         <ul class="plain order-lines">${drafts.map((i) => html`<li class="ol new">
           <div class="grow"><b>${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.note ? html`<br /><small class="muted">${i.note}</small>` : null}${i.promos?.length ? html`<br /><small class="promo-line">🎁 ${i.promos.map((p) => `${p.name} −${money(p.amount)}`).join(', ')}</small>` : null}</div>
           <div class="row tight">
@@ -241,7 +246,8 @@ export function OrderView({ me, query }) {
         </li>`)}</ul>
       </section>` : null}
     ${tab === 'bill' || s.status === 'cancelled' ? html`<section class="card">
-      ${sent.length ? html`<ul class="plain order-lines">${sent.map((i) => html`<li class=${`ol ${i.status}`}>
+      ${sent.length ? [...rounds.slice().reverse().map((r) => ({ title: html`<b>Lần ${r.no}</b> <small class="muted">· gửi ${hm(r.at)} · ${agoMin(r.at)} phút trước · ${r.items.filter((i) => i.status !== 'cancelled').reduce((n, i) => n + i.qty, 0)} món</small>`, list: r.items })),
+        ...(noSent.length ? [{ title: html`<b>Khác</b>`, list: noSent }] : [])].map((g) => html`<div class="round-head">${g.title}</div><ul class="plain order-lines">${g.list.map((i) => html`<li class=${`ol ${i.status}`}>
         <div class="grow"><b>${i.qty} × ${i.name}</b>${i.rush ? html` <span class="pill bad">Gấp</span>` : null}
           ${i.options.length ? html`<br /><small>${i.options.map((o) => o.name).join(', ')}</small>` : null}${i.note ? html`<br /><small class="muted">${i.note}</small>` : null}
           <br /><small class="muted">${STATUS[i.status]}${i.status === 'cancelled' ? `: ${i.cancel_reason}` : ` · ${hm(i.sent_at)}`}${i.status === 'sent' && i.wait_min !== null ? ` · chờ ${i.wait_min}′` : ''}</small>
@@ -249,14 +255,16 @@ export function OrderView({ me, query }) {
         <div class="r"><span class="num">${money(i.total)}</span>${(i.promos || []).map((p) => html`<br /><small class="promo-line">−${money(p.amount)}</small>`)}</div>
         ${i.promos?.length ? html`<div class="promo-note">🎁 ${i.promos.map((p) => `${p.name}${p.free_qty ? ` (tặng ${p.free_qty})` : ''}`).join(', ')}</div>` : null}
           ${!closed && i.status !== 'cancelled' ? html`<div class="row tight acts"><button class=${`small ${i.status === 'done' ? 'primary' : ''}`} onClick=${() => act(() => api('POST', `/api/pos/items/${i.id}/served`, { done: i.status !== 'done' }))}>${i.status === 'done' ? '✓ Đã ra' : 'Đã ra'}</button><button class="small" onClick=${() => setPrompt({ kind: 'item', item: i })}>Chuyển</button><button class="small" onClick=${() => setReason({ kind: 'redo', item: i })}>Làm lại</button><button class="small danger" onClick=${() => setReason({ kind: 'cancel', item: i })}>Huỷ</button></div>` : null}
-      </li>`)}</ul>` : html`<p class="muted">Chưa gửi món nào.</p>`}
+      </li>`)}</ul>`) : html`<p class="muted">Chưa gửi món nào.</p>`}
       <${Totals} s=${s} />
     </section>` : null}
 
     ${!closed ? html`<div class="cart-bar">
 
       <div class="row">
-        <button class="primary big grow" disabled=${!drafts.length || sending} onClick=${send}>${sending ? 'Đang gửi…' : drafts.length ? `Gửi bếp (${drafts.reduce((n, i) => n + i.qty, 0)} món)` : 'Chọn món để gửi bếp'}</button>
+        ${tab === 'menu'
+          ? html`<button class="primary big grow" disabled=${!drafts.length} onClick=${() => { setTab('bill'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>${drafts.length ? `Xác nhận với khách (${drafts.reduce((n, i) => n + i.qty, 0)} món) →` : 'Chọn món'}</button>`
+          : html`<button class="primary big grow" disabled=${!drafts.length || sending} onClick=${send}>${sending ? 'Đang gửi…' : drafts.length ? `Gửi bếp lần ${rounds.length + 1} (${drafts.reduce((n, i) => n + i.qty, 0)} món)` : 'Không có món mới để gửi'}</button>`}
         ${sent.length ? html`<button class="big" onClick=${() => setPaying(true)}>₫ Thanh toán</button>` : null}
       </div>
     </div>` : null}

@@ -878,3 +878,6 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 .sapo-row.bad { background: #fff5f5; }
 .sapo-row select { max-width: 48%; }
 .loss-over td { background: #fff5f5; }
+/* Đã gọi: chia theo lần gửi bếp (29/10) */
+.round-head { margin: 10px 0 2px; padding: 4px 8px; border-radius: 8px; background: var(--chip, rgba(127,127,127,.12)); }
+.round-head:first-child { margin-top: 0; }
