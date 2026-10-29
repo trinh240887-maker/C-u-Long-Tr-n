@@ -35,7 +35,7 @@ async function setup(t) {
   const lau = (await o('GET', '/api/stock/meta')).data.stores.find((s) => s.name === 'Kho Lẩu');
   const ing = async (name, price = 100000) => (await o('POST', '/api/stock/ingredients', { name, unit: 'g', freshness: 'fresh', home_store_id: lau.id, purchase_unit: 'kg', purchase_factor: 1000, price })).data.id;
   const qty = (id) => db.prepare('SELECT COALESCE(SUM(qty), 0) AS q FROM stock_lots WHERE ingredient_id = ?').get(id).q;
-  const pre = (lines, extra = {}) => o('POST', '/api/purchases', { pre_bill: true, store_id: lau.id, supplier_name: 'Sạp A', signer_name: 'Chủ', photos: [IMG], lines, ...extra });
+  const pre = (lines, extra = {}) => o('POST', '/api/purchases', { pre_bill: true, store_id: lau.id, supplier_name: 'Sạp A', signer_name: 'Chủ', photos: [IMG], lines, confirm_dup: true, ...extra });
   return { st, db, o, tai, teams, login, lau, ing, qty, pre };
 }
 
@@ -52,6 +52,17 @@ test('bill chờ: quy đổi không đụng kho; sửa bill giữ id dòng + d�
   assert.deepEqual(e1.data.lines.map((l) => l.id), b.lines.map((l) => l.id));
   assert.equal(e1.data.lines.find((l) => l.ingredient_id === pheo).bill_unit, 'mẹt');
   assert.ok(e1.data.flags.some((f) => /chưa quy đổi/.test(f)));
+  // Chụp trùng bill (chủ quán 29/10): cùng NCC + tổng + hàng trong 2 ngày → hỏi lại (409 dup_bill); xác nhận "bill khác" thì lưu + gắn cờ
+  const t1 = await pre([{ ingredient_id: bo, qty: 3, price: 7000 }], { confirm_dup: false });
+  assert.equal(t1.status, 200, JSON.stringify(t1.data));
+  const t2 = await pre([{ ingredient_id: bo, qty: 3, price: 7000 }], { confirm_dup: false });
+  assert.equal(t2.status, 409); assert.equal(t2.data.code, 'dup_bill'); assert.match(t2.data.error, new RegExp(`#${t1.data.id}`));
+  assert.equal((await pre([{ ingredient_id: bo, qty: 4, price: 7000 }], { confirm_dup: false })).status, 200); // khác số lượng → không hỏi
+  const t3 = await pre([{ ingredient_id: bo, qty: 3, price: 7000 }]);
+  assert.ok(t3.data.flags.some((f) => /Giống bill #/.test(f)));
+  for (const x of [t1.data.id, t3.data.id]) await o('POST', `/api/purchases/${x}/void`, { reason: 'test' });
+  const t4 = db.prepare("SELECT id FROM purchase_bills WHERE status = 'waiting' AND total = 28000").get();
+  if (t4) await o('POST', `/api/purchases/${t4.id}/void`, { reason: 'test' });
   // 2 dòng cùng nguyên liệu → app tự gộp 1 dòng: cộng số lượng + thành tiền, đơn giá trung bình (chủ quán 29/10)
   const dup = await pre([{ ingredient_id: bo, qty: 5, price: 1000 }, { ingredient_id: bo, qty: 6, price: 2000 }]);
   assert.equal(dup.status, 200, JSON.stringify(dup.data));

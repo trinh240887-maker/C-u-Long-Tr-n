@@ -34,7 +34,7 @@ test('bill NCC gửi trước: chủ quán áp bill (kho chưa cộng) → bếp
   const lau = (await o('GET', '/api/stock/meta')).data.stores.find((s) => s.name === 'Kho Lẩu');
   const bo = (await o('POST', '/api/stock/ingredients', { name: 'Bò bắp', unit: 'g', freshness: 'fresh', home_store_id: lau.id, purchase_unit: 'kg', purchase_factor: 1000, price: 260000 })).data.id;
   const qty = () => db.prepare('SELECT COALESCE(SUM(qty), 0) AS q FROM stock_lots WHERE ingredient_id = ?').get(bo).q;
-  const pre = { pre_bill: true, store_id: lau.id, supplier_name: 'Sạp bò A', signer_name: 'Chủ', photos: [IMG], lines: [{ ingredient_id: bo, qty: 10, price: 260000 }] };
+  const pre = { confirm_dup: true /* test cố ý lưu nhiều bill giống nhau */, pre_bill: true, store_id: lau.id, supplier_name: 'Sạp bò A', signer_name: 'Chủ', photos: [IMG], lines: [{ ingredient_id: bo, qty: 10, price: 260000 }] };
   // Nhân viên không áp bill trước được
   assert.equal((await tai('POST', '/api/purchases', pre)).status, 403);
   // Trưởng ca mặc định cũng không; chủ quán tick riêng → được

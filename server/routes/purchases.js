@@ -239,6 +239,16 @@ export default function (r, ctx) {
     }
     noDupIng(lines);
     const total = body.total === undefined || body.total === '' ? lines.reduce((n, l) => n + l.amount, 0) : money(body.total, 'Tổng tiền bill');
+    // Chống chụp trùng bill (chủ quán 29/10: cùng 1 bill NT Hiếu chụp lên 2 lần): cùng NCC + cùng tổng tiền + cùng các dòng hàng trong 2 ngày → hỏi lại
+    const sig = (ls) => ls.filter((l) => l.ingredient_id).map((l) => `${l.ingredient_id}:${Math.round(l.qty * 1000)}`).sort().join('|');
+    const mySig = sig(lines);
+    const twin = db.prepare("SELECT id, total, received_at, date, received_by, pre_by, supplier_name FROM purchase_bills WHERE supplier_id = ? AND total = ? AND status NOT IN ('void', 'returned') AND received_at >= ? ORDER BY id DESC")
+      .all(supplierId, total, ctx.now() - 2 * 86_400_000).find((x) => sig(db.prepare('SELECT ingredient_id, qty FROM purchase_bill_lines WHERE bill_id = ?').all(x.id)) === mySig);
+    if (twin && !body.confirm_dup) {
+      const who = db.prepare('SELECT name FROM staff WHERE id = ?').get(twin.received_by || twin.pre_by)?.name || '';
+      fail(409, `Bill này giống bill #${twin.id} đã lưu (${twin.supplier_name} · ${vnd(twin.total)} · ${ctx.clock().fmt ? ctx.clock().fmt(twin.received_at) : twin.date}${who ? ` · ${who}` : ''}). Có phải chụp trùng không?`, 'dup_bill');
+    }
+    const dupOf = twin ? twin.id : null;
     // Cộng các dòng lệch nhiều so với tổng bill (vd gõ / đọc mất dấu phẩy: 28,1 → 281) → phải xác nhận mới lưu (chủ quán 26/10)
     const linesSum = lines.reduce((n, l) => n + l.amount, 0);
     if (lines.length && body.total !== undefined && body.total !== '' && Math.abs(linesSum - total) > Math.max(50000, total * 0.05) && !body.confirm_mismatch) {
@@ -266,6 +276,7 @@ export default function (r, ctx) {
       // Dòng chưa quy đổi: nhập đúng như bill, chủ quán kiểm & quy đổi sau (chủ quán 28/10)
       for (const l of lines) if (l.ingredient_id && l.raw?.unconv) flags.push(unconvFlag(l.name, l.qty, unitOf(l.raw.unit) || l.unit));
       for (const l of lines) if (l.dup_note) flags.push(l.dup_note);
+      if (dupOf) flags.push(`Giống bill #${dupOf} (cùng NCC, tổng tiền, hàng): người nhập xác nhận là bill khác, kiểm lại`);
       const id = Number(db.prepare(`INSERT INTO purchase_bills (supplier_id, supplier_name, store_id, po_id, date, total, lines_total, paid_now, paid_method, advance_id, signer_name, note, flags, received_by, received_at, status, pre_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(supplierId, supplierName, storeId, poId, date, total, lines.reduce((n, l) => n + l.amount, 0), paidNow, paidMethod, advanceId,
         signer, v.text(body.note, { name: 'Ghi chú', max: 1000 }), JSON.stringify(flags), pre ? null : me.id, ctx.now(), pre ? 'waiting' : 'received', pre ? me.id : null).lastInsertRowid);

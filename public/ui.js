@@ -6,7 +6,7 @@ export const html = htm.bind(h);
 export const TZ = 'Asia/Ho_Chi_Minh';
 
 // ---------- Gọi máy chủ ----------
-export class ApiError extends Error { constructor(msg, status) { super(msg); this.status = status; } }
+export class ApiError extends Error { constructor(msg, status, code) { super(msg); this.status = status; this.code = code; } }
 // Mã điện thoại (chống chấm công hộ): tạo 1 lần, lưu trong máy, gửi kèm mọi yêu cầu
 function deviceId() {
   try {
@@ -49,7 +49,7 @@ export async function api(method, url, body, _retried = false) {
     try { await api('POST', '/api/attendance/ping', await getPlace(), true); } catch { /* vẫn báo lỗi bên dưới */ }
     return api(method, url, body, true);
   }
-  if (!res.ok) throw new ApiError(data.error || `Lỗi ${res.status}`, res.status);
+  if (!res.ok) throw new ApiError(data.error || `Lỗi ${res.status}`, res.status, data.code);
   return data;
 }
 

@@ -114,7 +114,13 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
     const tot = f.total === '' ? sum : num(f.total);
     const confirm_mismatch = mismatch ? okMismatch : false;
     if (mismatch && !okMismatch) { toast(`Cộng các dòng ${money(sum)} lệch tổng bill ${money(tot)}: sửa lại các dòng, hoặc tick "Đúng như bill" phía trên nút`, true); return; }
-    const r = await act(() => api('POST', '/api/purchases', { confirm_mismatch, pre_bill: pre || undefined,
+    // Bill giống bill đã lưu (cùng NCC, tổng, hàng) → hỏi có phải chụp trùng không (chủ quán 29/10)
+    const postBill = (body) => api('POST', '/api/purchases', body).catch((e) => {
+      if (e.code !== 'dup_bill') throw e;
+      if (!confirm(`⚠ ${e.message}\n\nOK = đây là bill KHÁC, vẫn lưu.\nHuỷ = chụp trùng, không lưu.`)) throw new Error('Không lưu: bill trùng');
+      return api('POST', '/api/purchases', { ...body, confirm_dup: true });
+    });
+    const r = await act(() => postBill({ confirm_mismatch, pre_bill: pre || undefined,
       ...f, store_id: Number(f.store_id), po_id: !pre && f.po_id ? Number(f.po_id) : undefined, // bill gửi trước: không theo đơn (rà soát 28/10) supplier_id: f.supplier_id ? Number(f.supplier_id) : undefined,
       advance_id: f.advance_id ? Number(f.advance_id) : undefined, paid_method: f.advance_id ? undefined : f.paid_method,
       total: f.total === '' ? undefined : num(f.total), photos, goods_photos: goods,
