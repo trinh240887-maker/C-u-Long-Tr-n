@@ -43,7 +43,7 @@ function General({ s, staff }) {
     shop_name: f.shop_name, public_url: f.public_url, day_cutoff_hour: f.day_cutoff_hour, late_grace_minutes: f.late_grace_minutes, pos_need_shift: f.pos_need_shift === '1' ? '1' : '0',
     clock_early_minutes: f.clock_early_minutes, auto_close_after_minutes: f.auto_close_after_minutes, clock_ip_prefixes: f.clock_ip_prefixes, shop_lat: f.shop_lat, shop_lng: f.shop_lng, clock_radius_m: f.clock_radius_m || '150',
     labor_target_pct: f.labor_target_pct, idle_alert_minutes: f.idle_alert_minutes, count_tolerance_pct: f.count_tolerance_pct, spot_photos_per_run: f.spot_photos_per_run,
-    night_bonus_pct: f.night_bonus_pct, pay_period_start_day: f.pay_period_start_day, month_paid_off_days: f.month_paid_off_days, ot_daily_hours: f.ot_daily_hours, ot_rate: f.ot_rate, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
+    night_bonus_pct: f.night_bonus_pct, pay_period_start_day: f.pay_period_start_day, month_paid_off_days: f.month_paid_off_days, ot_daily_hours: f.ot_daily_hours, ot_rate: f.ot_rate, ot_hour_days: f.ot_hour_days, ot_hour_hours: f.ot_hour_hours, quiet_from: f.quiet_from, quiet_to: f.quiet_to, kho_tong_staff_id: f.kho_tong_staff_id,
     avail_deadline_dow: f.avail_deadline_dow, avail_deadline_time: f.avail_deadline_time, avail_slots: JSON.stringify(slots),
   }), 'Đã lưu cài đặt');
   const slots = (() => { try { const x = JSON.parse(f.avail_slots || '[]'); return x.length ? x : DEF_SLOTS; } catch { return DEF_SLOTS; } })();
@@ -75,6 +75,8 @@ function General({ s, staff }) {
       ${inp('month_paid_off_days', 'Lương tháng: ngày nghỉ vẫn đủ lương / tháng', { type: 'number', min: 0, max: 15 }, 'vd 2: tháng 31 ngày làm 29 ngày là đủ lương; nghỉ thêm mỗi ngày trừ 1/29')}
       ${inp('ot_daily_hours', 'Giờ chuẩn / ngày (quá là vượt giờ)', { type: 'number', min: 0, max: 16 }, 'vd 8: ca 8–12 + 14–23 (13 giờ) → vượt 5 giờ. 0 = không tính vượt giờ')}
       ${inp('ot_rate', 'Hệ số tiền vượt giờ', { inputmode: 'decimal' }, '1 = giá giờ thường; 1,5 = trả 150%')}
+      ${inp('ot_hour_days', 'Giá 1 giờ làm thêm: chia cho bao nhiêu ngày', { type: 'number', min: 0, max: 31 }, 'vd 30: lương 7tr ÷ 30 ÷ 8 giờ = 29.167đ/giờ. 0 = theo ngày công chuẩn của tháng')}
+      ${inp('ot_hour_hours', 'Giá 1 giờ làm thêm: chia cho bao nhiêu giờ', { type: 'number', min: 0, max: 16 }, 'vd 8. 0 = theo giờ chuẩn / ngày')}
     </div></section>
     <section class="card"><h3>Lịch rảnh</h3><p class="muted small">Nhân viên báo buổi rảnh của tuần sau trước hạn này. Giờ của buổi dùng để so với ca đã xếp.</p>
       <div class="row">
@@ -788,6 +790,7 @@ function PayScales() {
       <p class="small">Mỗi bộ phận × chức vụ 1 mức. Nhân viên <b>theo khung</b> tự lấy mức này, không phải điền tay từng người. Đổi khung thì mọi người trong khung đổi theo. Người có đặc quyền: bật <b>Lương riêng</b> trong form nhân viên.</p>
       <p class="small muted">Để trống / 0 = chưa có khung (người đó dùng mức riêng cũ nếu có).</p>
     </section>
+    <${OtCard} d=${d} />
     ${d.teams.map((t) => html`<section class="card stack tight" key=${t.id}><h3>${t.name}</h3>
       ${d.roles.map((r) => html`<div class="scale-row" key=${r.key}>
         <span><b>${r.label}</b><br /><small class="muted">${t.scales[r.key].count} người</small></span>
@@ -811,6 +814,29 @@ function PayScales() {
   </div>`;
 }
 const money0 = (n) => `${Number(n || 0).toLocaleString('vi-VN')}đ`;
+// Lương tháng (bếp) + làm thêm ca sáng: giải thích bằng ví dụ theo khung đang có (chủ quán 29/10)
+function OtCard({ d }) {
+  const [f, setF] = useState(null);
+  const ot = { ...d.ot, ...(f || {}) };
+  const num = (x) => Number(String(x).replace(',', '.')) || 0;
+  const ex = d.teams.flatMap((t) => d.roles.filter((r) => t.scales[r.key].pay_type === 'month' && t.scales[r.key].pay_rate > 0).map((r) => ({ name: `${t.name} · ${r.label}`, rate: t.scales[r.key].pay_rate })));
+  const hourDays = num(ot.hour_days) || 30, hourHours = num(ot.hour_hours) || num(ot.daily_hours) || 8;
+  const set = (k, x) => setF({ ...(f || {}), [k]: x });
+  return html`<section class="card stack tight">
+    <h3>⏱ Lương tháng & làm thêm giờ</h3>
+    <p class="small">Ca chuẩn làm đủ <b>${ot.daily_hours} giờ</b>/ngày (vd 14–23) = 1 ngày công. Làm thêm ngoài ca chuẩn (vd ca sáng 8–12) → cộng tiền số giờ đó.
+      Giá 1 giờ = lương tháng ÷ <b>${hourDays}</b> ngày ÷ <b>${hourHours}</b> giờ${num(ot.rate) !== 1 ? html` × <b>${ot.rate}</b>` : ''}. Nghỉ ${ot.paid_off} ngày/tháng vẫn đủ lương.</p>
+    ${ex.slice(0, 4).map((x) => { const h = x.rate / hourDays / hourHours * (num(ot.rate) || 1); return html`<div class="small">• <b>${x.name}</b> ${money0(x.rate)}/tháng → 1 giờ thêm <b>${money0(Math.round(h))}</b> · ca sáng 8–12 (4 giờ) <b>${money0(Math.round(h * 4 / 1000) * 1000)}</b></div>`; })}
+    <details><summary class="small">Chỉnh cách tính</summary>
+      <div class="scale-row"><span class="small">Giờ ca chuẩn / ngày (quá là làm thêm)</span><input inputmode="numeric" value=${ot.daily_hours} onInput=${(e) => set('daily_hours', e.target.value)} /><span></span></div>
+      <div class="scale-row"><span class="small">Giá 1 giờ: chia số ngày</span><input inputmode="numeric" value=${ot.hour_days} onInput=${(e) => set('hour_days', e.target.value)} /><span></span></div>
+      <div class="scale-row"><span class="small">Giá 1 giờ: chia số giờ</span><input inputmode="numeric" value=${ot.hour_hours} onInput=${(e) => set('hour_hours', e.target.value)} /><span></span></div>
+      <div class="scale-row"><span class="small">Hệ số giờ làm thêm (1 = như giờ thường)</span><input inputmode="decimal" value=${ot.rate} onInput=${(e) => set('rate', e.target.value)} /><span></span></div>
+      <div class="scale-row"><span class="small">Ngày nghỉ vẫn đủ lương / tháng</span><input inputmode="numeric" value=${ot.paid_off} onInput=${(e) => set('paid_off', e.target.value)} /><span></span></div>
+      ${f ? html`<button class="primary" onClick=${async () => { if (await act(() => api('PUT', '/api/settings', { ot_daily_hours: ot.daily_hours, ot_hour_days: ot.hour_days, ot_hour_hours: ot.hour_hours, ot_rate: ot.rate, month_paid_off_days: ot.paid_off }), 'Đã lưu cách tính')) setF(null); }}>Lưu cách tính</button>` : null}
+    </details>
+  </section>`;
+}
 
 export function SettingsView({ me, query }) {
   const tab = query.get('tab') || 'chung';

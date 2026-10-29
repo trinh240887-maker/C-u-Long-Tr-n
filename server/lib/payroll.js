@@ -5,7 +5,7 @@ import { nightMinutes, MIN } from './time.js';
 //  staff:   [{ id, name, pay_type: 'hour' | 'shift', pay_rate }]
 //  options: { nightBonusPct } phụ cấp làm đêm (22h–6h) tính thêm trên lương giờ
 // otDailyHours > 0: mỗi ngày làm quá số giờ này → phần dư là vượt giờ, tính × otRate (chủ quán 27/10: chuẩn 8 giờ, × 1,5)
-export function computeTimesheet(records, staff, clock, { nightBonusPct = 30, monthStandardDays = 26, otDailyHours = 0, otRate = 1.5, ruleStandardDays = null, otRoundMinutes = 30, adjust = new Map(), hoursPerDay = 8 } = {}) {
+export function computeTimesheet(records, staff, clock, { nightBonusPct = 30, monthStandardDays = 26, otDailyHours = 0, otRate = 1.5, ruleStandardDays = null, otRoundMinutes = 30, adjust = new Map(), hoursPerDay = 8, otHourDays = 0, otHourHours = 0 } = {}) {
   const rows = new Map(staff.map((s) => [s.id, {
     staff_id: s.id, name: s.name, pay_type: s.pay_type, pay_rate: s.pay_rate, rule: s.rule !== false,
     minutes: 0, night_minutes: 0, shifts: 0, days: 0, pay: 0, open_records: 0, ot_minutes: 0, ot_pay: 0, base_pay: 0,
@@ -45,21 +45,22 @@ export function computeTimesheet(records, staff, clock, { nightBonusPct = 30, mo
     if (adj && adj.ot_minutes != null) { row.ot_minutes = adj.ot_minutes; row.ot_manual = true; }
     row.ot_note = adj?.note || '';
     row.std_days = std;
-    row.pay = payFor(row, nightBonusPct, std, { otDailyHours: useRule ? otDailyHours : 0, otRate, hoursPerDay: otDailyHours || hoursPerDay });
-    if (row.pay_type === 'month' && std > 0) { row.day_price = Math.round(row.pay_rate / std / 1000) * 1000; row.hour_price = Math.round(row.pay_rate / (std * (otDailyHours || hoursPerDay)) / 1000) * 1000; }
+    row.pay = payFor(row, nightBonusPct, std, { otDailyHours: useRule ? otDailyHours : 0, otRate, hoursPerDay: otDailyHours || hoursPerDay, otHourDays, otHourHours });
+    if (row.pay_type === 'month' && std > 0) { row.day_price = Math.round(row.pay_rate / std / 1000) * 1000; row.hour_price = Math.round(row.pay_rate / ((otHourDays || std) * (otHourHours || otDailyHours || hoursPerDay)) / 1000) * 1000; }
   }
   return [...rows.values()];
 }
 
 // Lương tháng: = lương tháng × số ngày công / ngày công chuẩn (tối đa đủ 1 tháng). Ngày công chuẩn = 0 → trả đủ lương cố định.
 // Vượt giờ: lương tháng → giá 1 giờ = lương ÷ (ngày chuẩn × giờ chuẩn), trả × otRate; lương giờ → giờ dư đã có 1×, cộng thêm (otRate − 1)×. Lương ca: không tính vượt giờ.
-export function payFor(row, nightBonusPct = 30, monthStandardDays = 26, { otDailyHours = 0, otRate = 1.5, hoursPerDay = 8 } = {}) {
+export function payFor(row, nightBonusPct = 30, monthStandardDays = 26, { otDailyHours = 0, otRate = 1.5, hoursPerDay = 8, otHourDays = 0, otHourHours = 0 } = {}) {
   const rate = Number(row.pay_rate) || 0;
   const ot = (row.ot_minutes || 0) / 60;
   let base = 0, otPay = 0;
   if (row.pay_type === 'month') {
     base = monthStandardDays > 0 ? rate * Math.min(1, row.days / monthStandardDays) : rate;
-    if (ot && monthStandardDays > 0) otPay = ot * (rate / (monthStandardDays * (otDailyHours || hoursPerDay))) * otRate;
+    // Giá 1 giờ làm thêm: lương ÷ (số ngày chia, vd 30) ÷ (số giờ chia, vd 8); chưa đặt thì theo ngày công chuẩn × giờ chuẩn như cũ
+    if (ot && monthStandardDays > 0) otPay = ot * (rate / ((otHourDays || monthStandardDays) * (otHourHours || otDailyHours || hoursPerDay))) * otRate;
   } else if (row.pay_type === 'shift') base = row.shifts * rate;
   else {
     base = (row.minutes / 60) * rate + (row.night_minutes / 60) * rate * (nightBonusPct / 100);

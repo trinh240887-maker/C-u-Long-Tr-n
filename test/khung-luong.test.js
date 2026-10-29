@@ -71,4 +71,19 @@ test('khung lương bộ phận × chức vụ: chỉ chủ sửa; NV theo khung
   assert.equal(all.find((x) => x.id === ngocAnh).pay_rate, undefined);
   // Quản lý không đặt lương
   assert.equal((await Q('PATCH', `/api/staff/${mine.find((x) => x.name === 'Bar 1').id}`, { pay_rate: 30000 })).status, 403);
+
+  // Lương bếp (chủ quán 29/10): 7tr/tháng, ca chuẩn 14–23 đủ ngày; thêm ca sáng 8–12 → cộng 4 giờ × 7tr ÷ 30 ÷ 8
+  const bepT = teams.find((x) => /bếp/i.test(x.name)).id;
+  assert.equal((await Q('PUT', '/api/settings', { ot_rate: 2 })).status, 403); // chỉ chủ đổi cách tính
+  assert.equal((await o('PUT', '/api/settings', { ot_daily_hours: 9, ot_rate: 1, ot_hour_days: 30, ot_hour_hours: 8 })).status, 200);
+  await o('PUT', '/api/pay-scales', { from_month: '2026-10', items: [{ team_id: bepT, role: 'staff', pay_type: 'month', pay_rate: 7_000_000 }] });
+  const cook = await mkStaff('Bếp A', 'staff', bepT, '7391');
+  const at2 = (d, h1, h2) => db.prepare('INSERT INTO attendance (staff_id, date, clock_in, clock_out) VALUES (?, ?, ?, ?)').run(cook, d, Date.parse(`${d}T${h1}:00+07:00`), Date.parse(`${d}T${h2}:00+07:00`));
+  at2('2026-10-21', '14:00', '23:00');
+  at2('2026-10-22', '08:00', '12:00'); at2('2026-10-22', '14:00', '23:00');
+  const ck = (await o('GET', '/api/timesheet?month=2026-10')).data.rows.find((x) => x.staff_id === cook);
+  assert.equal(ck.ot_minutes, 4 * 60);
+  assert.equal(ck.ot_pay, Math.round(7_000_000 / 30 / 8 * 4 / 1000) * 1000);
+  const ps2 = (await o('GET', '/api/pay-scales')).data;
+  assert.deepEqual([ps2.ot.daily_hours, ps2.ot.hour_days, ps2.ot.hour_hours], [9, 30, 8]);
 });

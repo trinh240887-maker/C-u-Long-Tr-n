@@ -582,7 +582,7 @@ export default function (r, ctx) {
       const hit = list.find((o) => rc.date >= o.g.from && rc.date <= o.g.to) || list[list.length - 1];
       return { ...rc, staff_id: hit.pid };
     });
-    const raw = computeTimesheet(recs, pseudo, clock, { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: num('month_standard_days', 26), ruleStandardDays: stdDays, otDailyHours: otH, otRate, otRoundMinutes: num('ot_round_minutes', 30), adjust });
+    const raw = computeTimesheet(recs, pseudo, clock, { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: num('month_standard_days', 26), ruleStandardDays: stdDays, otDailyHours: otH, otRate, otRoundMinutes: num('ot_round_minutes', 30), adjust, otHourDays: num('ot_hour_days', 0), otHourHours: num('ot_hour_hours', 0) });
     const merged = new Map();
     const SUM = ['minutes', 'night_minutes', 'shifts', 'days', 'pay', 'open_records', 'ot_minutes', 'ot_pay', 'base_pay'];
     for (const row of raw) {

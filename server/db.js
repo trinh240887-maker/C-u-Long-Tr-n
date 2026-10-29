@@ -522,6 +522,12 @@ function migrate(db, { real = false } = {}) {
     db.prepare("UPDATE kitchen_stations SET name = 'Topping – Rau' WHERE name = 'Topping – Nướng – Rau'").run();
     db.prepare("INSERT INTO settings (key, value) VALUES ('ten_may_in_topping_v1', '1')").run();
   }
+  // Chủ quán 29/10 — lương bếp: ca chuẩn 14–23 (9 giờ) đủ 1 ngày công; làm thêm ca sáng 8–12 → cộng tiền giờ đó,
+  // giá 1 giờ = lương tháng ÷ 30 ÷ 8 (không nhân hệ số). Vd 7tr: 4 giờ ca bù ≈ 116.667đ = nửa ngày → ngày đó 1,5 ngày lương
+  if (real && !db.prepare("SELECT 1 FROM settings WHERE key = 'luong_bep_v1'").get()) {
+    const put = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value');
+    for (const [k, val] of [['ot_daily_hours', '9'], ['ot_rate', '1'], ['ot_hour_days', '30'], ['ot_hour_hours', '8'], ['luong_bep_v1', '1']]) put.run(k, val);
+  }
 }
 
 export function tx(db, fn) {

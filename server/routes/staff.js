@@ -135,6 +135,7 @@ export default function (r, ctx) {
     const people = db.prepare("SELECT s.id, s.name, s.role, s.team_id, s.pay_type, s.pay_rate, s.pay_custom, t.name AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.active = 1 AND s.role != 'owner' ORDER BY t.sort, s.name").all();
     return {
       month, roles: ROLES_SCALE.map((x) => ({ key: x, label: ROLE_LABEL[x] })),
+      ot: { daily_hours: Number(ctx.setting('ot_daily_hours') ?? 8), rate: Number(ctx.setting('ot_rate') || 1), hour_days: Number(ctx.setting('ot_hour_days') || 0), hour_hours: Number(ctx.setting('ot_hour_hours') || 0), paid_off: Number(ctx.setting('month_paid_off_days') ?? 2) },
       teams: teams.map((t) => ({ ...t, scales: Object.fromEntries(ROLES_SCALE.map((ro) => {
         const sc = scaleAt(t.id, ro, month);
         const n = people.filter((p) => !p.pay_custom && p.team_id === t.id && p.role === ro).length;
