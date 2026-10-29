@@ -244,7 +244,13 @@ export default function (r, ctx) {
     });
     ctx.setSetting('lead_pool_v1', '1');
   }
-  ctx.jobsResetTemplate = (date, tid) => { db.prepare("DELETE FROM jobs WHERE date >= ? AND template_id = ? AND status = 'todo'").run(date, tid); ensureDay(date); };
+  // Đổi cấu hình việc → chia lại việc chưa làm, NHƯNG giữ việc trưởng ca / tổ trưởng đã giao tay (assigned_by)
+  // (chủ quán 29/10: trưởng ca phân lúc 12h, có người chỉnh cài đặt → mất hết, phải phân lại)
+  const resetJobs = (sql, args, why) => {
+    const n = db.prepare(`DELETE FROM jobs WHERE ${sql} AND status = 'todo' AND assigned_by IS NULL`).run(...args).changes;
+    if (n) ctx.audit(null, 'jobs.reset', { why, n });
+  };
+  ctx.jobsResetTemplate = (date, tid) => { resetJobs('date >= ? AND template_id = ?', [date, tid], `template ${tid}`); ensureDay(date); };
   // Việc chỉ tổ trưởng / trưởng ca (chủ quán 27/10): quản lý cũng làm được
   const LEAD = ['team_lead', 'shift_lead', 'manager'];
   const fitPool = (ps, it) => genderPool(it.job_role === 'lead' ? ps.filter((p) => LEAD.includes(p.role)) : ps, it.job_gender);
@@ -295,8 +301,8 @@ export default function (r, ctx) {
       }
     }
   };
-  ctx.jobsResetItem = (date, itemId) => { db.prepare("DELETE FROM jobs WHERE date >= ? AND item_id = ? AND status = 'todo'").run(date, itemId); ensureDay(date); };
-  ctx.jobsApplyFixed = (date) => { db.prepare("DELETE FROM jobs WHERE date >= ? AND status = 'todo' AND zone_id != 0 AND item_id IN (SELECT id FROM checklist_items WHERE job_scope = 'shop')").run(date); ensureDay(date); };
+  ctx.jobsResetItem = (date, itemId) => { resetJobs('date >= ? AND item_id = ?', [date, itemId], `item ${itemId}`); ensureDay(date); };
+  ctx.jobsApplyFixed = (date) => { resetJobs("date >= ? AND zone_id != 0 AND item_id IN (SELECT id FROM checklist_items WHERE job_scope = 'shop')", [date], 'fixed'); ensureDay(date); };
   // Hôm nay: giữ ổn định; các ngày tới (tối đa 14 ngày): luôn theo lịch ca / phân khu mới nhất
   ctx.jobsEnsureDay = (date) => ensureDay(date); // màn Checklist dùng để hiện ai làm việc nào theo khu
   const ensureDay = (date) => {

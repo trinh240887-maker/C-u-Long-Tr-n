@@ -96,4 +96,11 @@ test('Trưởng ca + tổ trưởng điều phối: việc không chia từng ng
   app.ctx.jobsLeftTick();
   assert.ok(db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE title LIKE '%việc chưa xong%' AND staff_id = ?").get(tcA).n > 0);
   void ttB;
+  // Chủ quán 29/10: có người chỉnh cài đặt việc trong ngày → việc trưởng ca / tổ trưởng đã giao tay vẫn giữ
+  assert.equal((await O('PUT', `/api/checklist-templates/${tpl}/zone-lead`, { zone_id: za, staff_id: ttA })).status, 200);
+  assert.equal((await O('PUT', `/api/checklist-templates/${tpl}/lead-pool`, { on: true })).status, 200);
+  assert.equal((await O('PATCH', `/api/checklist-items/${iA}`, { job_fixed_staff: ttA })).status, 200);
+  assert.equal(db.prepare('SELECT staff_id FROM jobs WHERE id = ?').get(jA.id)?.staff_id, nv, 'việc đã giao tay bị mất');
+  await O('PUT', `/api/checklist-templates/${tpl}/zone-lead`, { zone_id: za, staff_id: null });
+  await O('PATCH', `/api/checklist-items/${iA}`, { job_fixed_staff: null });
 });
