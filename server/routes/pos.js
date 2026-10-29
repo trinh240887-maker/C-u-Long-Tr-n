@@ -45,6 +45,15 @@ export default function (r, ctx) {
     const lim = lateLimit(i.menu_item_id);
     return { wait_min: wait, limit_min: lim, late_min: Math.max(0, wait - lim) };
   };
+  // Nhân viên xin huỷ món đã gửi bếp (chủ quán 29/10): ghi lý do → báo trưởng ca / quản lý duyệt
+  for (const [c, d] of [['cancel_req_reason', 'TEXT'], ['cancel_req_by', 'INTEGER'], ['cancel_req_at', 'INTEGER']]) {
+    if (!db.prepare('PRAGMA table_info(order_items)').all().some((x) => x.name === c)) db.exec(`ALTER TABLE order_items ADD COLUMN ${c} ${d}`);
+  }
+  const leadsOnShift = () => {
+    const ids = db.prepare(`SELECT DISTINCT s.id FROM staff s WHERE s.active = 1 AND s.role IN ('shift_lead','manager')
+      AND (EXISTS (SELECT 1 FROM attendance a WHERE a.staff_id = s.id AND a.clock_out IS NULL) OR EXISTS (SELECT 1 FROM assignments a WHERE a.staff_id = s.id AND a.date = ?))`).all(ctx.today()).map((x) => x.id);
+    return ids.length ? ids : db.prepare("SELECT id FROM staff WHERE active = 1 AND role IN ('owner','manager')").all().map((x) => x.id);
+  };
   const itemView = (i) => ({ ...i, options: JSON.parse(i.options || '[]'), rush: !!i.rush, total: i.unit_price * i.qty, ...waitInfo(i) });
   // Món đã gửi bếp quá ngưỡng mà chưa ra (dùng cho sơ đồ bàn, màn Quản lý, nhắc bếp)
   function lateItems() {
@@ -57,8 +66,8 @@ export default function (r, ctx) {
   function session(id) {
     const s = db.prepare('SELECT s.*, o.name AS opened_by_name FROM table_sessions s LEFT JOIN staff o ON o.id = s.opened_by WHERE s.id = ?').get(id);
     if (!s) fail(404, 'Không tìm thấy bàn');
-    const rows = db.prepare(`SELECT i.*, c.name AS created_by_name, m.category_id FROM order_items i LEFT JOIN staff c ON c.id = i.created_by
-      LEFT JOIN menu_items m ON m.id = i.menu_item_id WHERE i.session_id = ? ORDER BY i.id`).all(id).map(itemView);
+    const rows = db.prepare(`SELECT i.*, c.name AS created_by_name, m.category_id, rq.name AS cancel_req_by_name FROM order_items i LEFT JOIN staff c ON c.id = i.created_by
+      LEFT JOIN staff rq ON rq.id = i.cancel_req_by LEFT JOIN menu_items m ON m.id = i.menu_item_id WHERE i.session_id = ? ORDER BY i.id`).all(id).map(itemView);
     // Khuyến mãi chỉ đổi tiền: tính lại mỗi lần xem bàn (huỷ / tách / gộp món thì tự đúng)
     let pr = applyPromos(rows.filter((i) => i.status !== 'cancelled'), ctx.promosFor ? ctx.promosFor() : [], { clock: ctx.clock(), openedAt: s.opened_at || s.created_at });
     // Bill đã thanh toán: dùng số đã chốt lúc thu tiền (sửa / hết khuyến mãi sau này không làm đổi bill cũ)
@@ -431,7 +440,7 @@ export default function (r, ctx) {
       ctx.broadcast('pos');
       return { ok: true, deleted: true };
     }
-    const reason = v.text(body.reason, { name: 'Lý do huỷ', required: true, max: 120 });
+    const reason = v.text(body.reason || i.cancel_req_reason, { name: 'Lý do huỷ', required: true, max: 120 }); // duyệt yêu cầu xin huỷ: dùng lý do nhân viên ghi
     // Chủ quán 29/10: món ĐÃ GỬI BẾP chỉ trưởng ca / quản lý / chủ huỷ (hoặc người chủ quán tick riêng quyền "Huỷ món, huỷ bàn").
     // Nhân viên phải báo trưởng ca / quản lý. Món chưa gửi bếp thì nhân viên vẫn bớt / xoá được.
     if (rank(me.real_role || me.role) < rank('shift_lead') && overridesOf(ctx, me.id)['ban.huy'] !== true) fail(403, 'Món đã gửi bếp: báo trưởng ca hoặc quản lý huỷ');
@@ -453,6 +462,28 @@ export default function (r, ctx) {
   });
 
   // Phục vụ bấm "Đã ra" khi bưng món ra bàn (bấm lại để bỏ)
+  r.post('/api/pos/items/:id/cancel-request', 'staff', ({ me, params, body }) => {
+    const i = loadItem(params.id);
+    if (!['sent', 'done'].includes(i.status)) fail(400, 'Chỉ xin huỷ món đã gửi bếp');
+    const reason = v.text(body.reason, { name: 'Lý do huỷ', required: true, max: 120 });
+    db.prepare('UPDATE order_items SET cancel_req_reason = ?, cancel_req_by = ?, cancel_req_at = ? WHERE id = ?').run(reason, me.id, ctx.now(), i.id);
+    const s = session(i.session_id);
+    ctx.notify(leadsOnShift().filter((x) => x !== me.id), { title: `Xin huỷ món · Bàn ${s.header}`, body: `${me.name}: ${i.qty} × ${i.name} · lý do: ${reason}`, link: `/goi-mon?s=${s.id}`, urgent: true });
+    ctx.audit(me, 'pos.item.cancel_request', { id: i.id, reason });
+    ctx.broadcast('pos');
+    return { ok: true };
+  });
+  r.post('/api/pos/items/:id/cancel-reject', 'staff', ({ me, params }) => {
+    if (rank(me.real_role || me.role) < rank('shift_lead') && overridesOf(ctx, me.id)['ban.huy'] !== true) fail(403, 'Trưởng ca / quản lý mới duyệt huỷ');
+    const i = loadItem(params.id);
+    if (!i.cancel_req_by) fail(400, 'Món này không có yêu cầu huỷ');
+    db.prepare('UPDATE order_items SET cancel_req_reason = NULL, cancel_req_by = NULL, cancel_req_at = NULL WHERE id = ?').run(i.id);
+    ctx.notify([i.cancel_req_by], { title: `Không huỷ: ${i.name}`, body: `${me.name} không đồng ý huỷ món này`, link: `/goi-mon?s=${i.session_id}` });
+    ctx.audit(me, 'pos.item.cancel_reject', { id: i.id });
+    ctx.broadcast('pos');
+    return { ok: true };
+  });
+
   r.post('/api/pos/items/:id/served', 'staff', ({ me, params, body }) => {
     const i = loadItem(params.id);
     if (!['sent', 'done'].includes(i.status)) fail(400, 'Món chưa gửi bếp');

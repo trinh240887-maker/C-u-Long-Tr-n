@@ -253,9 +253,14 @@ export function OrderView({ me, query }) {
           ${i.status === 'cancelled' ? html`<br /><small class="danger-text">Đã huỷ: ${i.cancel_reason}</small>` : null}</div>
         <div class="r"><span class="num">${money(i.total)}</span>${(i.promos || []).map((p) => html`<br /><small class="promo-line">−${money(p.amount)}</small>`)}</div>
         ${i.promos?.length ? html`<div class="promo-note">🎁 ${i.promos.map((p) => `${p.name}${p.free_qty ? ` (tặng ${p.free_qty})` : ''}`).join(', ')}</div>` : null}
-          ${!closed && i.status !== 'cancelled' && atLeast(me, 'shift_lead') ? html`<div class="row tight acts"><button class="small danger" onClick=${() => setReason({ kind: 'cancel', item: i })}>Huỷ món</button></div>` : null}
+          ${!closed && i.status !== 'cancelled' && i.cancel_req_by ? html`<div class="promo-note warn-text">⏳ ${i.cancel_req_by_name || 'Nhân viên'} xin huỷ: <b>${i.cancel_req_reason}</b>${atLeast(me, 'shift_lead') ? '' : ' · chờ trưởng ca / quản lý duyệt'}</div>` : null}
+          ${!closed && i.status !== 'cancelled' ? html`<div class="row tight acts">${atLeast(me, 'shift_lead')
+            ? (i.cancel_req_by
+              ? html`<button class="small danger" onClick=${() => act(() => api('POST', `/api/pos/items/${i.id}/cancel`, { reason: i.cancel_req_reason }), 'Đã huỷ món')}>✓ Đồng ý huỷ</button><button class="small" onClick=${() => act(() => api('POST', `/api/pos/items/${i.id}/cancel-reject`), 'Đã báo không huỷ')}>Không huỷ</button>`
+              : html`<button class="small danger" onClick=${() => setReason({ kind: 'cancel', item: i })}>Huỷ món</button>`)
+            : (i.cancel_req_by ? null : html`<button class="small" onClick=${() => setReason({ kind: 'cancelreq', item: i })}>Xin huỷ</button>`)}</div>` : null}
       </li>`)}</ul>`) : html`<p class="muted">Chưa gửi món nào.</p>`}
-      ${!closed && sent.some((i) => i.status !== 'cancelled') && !atLeast(me, 'shift_lead') ? html`<small class="muted">Khách muốn huỷ món đã gửi bếp: báo trưởng ca / quản lý huỷ.</small>` : null}
+      ${!closed && sent.some((i) => i.status !== 'cancelled') && !atLeast(me, 'shift_lead') ? html`<small class="muted">Khách muốn huỷ món đã gửi bếp: bấm <b>Xin huỷ</b>, ghi lý do → trưởng ca / quản lý duyệt.</small>` : null}
       <${Totals} s=${s} />
     </section>` : null}
 
@@ -273,13 +278,13 @@ export function OrderView({ me, query }) {
 
     ${paying ? html`<${PayModal} me=${me} id=${id} onClose=${() => setPaying(false)} onDone=${(r) => { setPaying(false); toast(r.requested ? 'Đã báo thu ngân thu tiền mặt' : r.auto ? 'Đã nhận tiền, bàn trống' : r.hand_over ? `Đã đóng bill.${r.change ? ` Thối khách ${money(r.change)}.` : ''} Giao ${money(r.hand_over)} + bill cho thu ngân` : 'Đã đóng bill, bàn trống'); bump(); navigate('/ban'); }} />` : null}
     ${adding ? html`<${AddItem} item=${adding} addons=${addons} bogo=${bogoOf(adding, adding.gift)} catName=${m.categories.find((c) => c.id === adding.category_id)?.name} onAdd=${add} onClose=${() => setAdding(null)} />` : null}
-    ${reason ? html`<${Reason} title=${reason.kind === 'redo' ? `Làm lại: ${reason.item.name}` : reason.kind === 'cancel' ? `Huỷ: ${reason.item.name}` : 'Huỷ cả bàn'}
+    ${reason ? html`<${Reason} title=${reason.kind === 'redo' ? `Làm lại: ${reason.item.name}` : reason.kind === 'cancel' ? `Huỷ: ${reason.item.name}` : reason.kind === 'cancelreq' ? `Xin huỷ: ${reason.item.name} (ghi lý do)` : 'Huỷ cả bàn'}
       chips=${reason.kind === 'redo' ? ['Khách chê', 'Làm hỏng', 'Sai món', 'Rơi đổ'] : ['Khách đổi ý', 'Gọi nhầm', 'Ra lâu, khách huỷ', 'Hết nguyên liệu']}
       onClose=${() => setReason(null)}
       soldOutOption=${reason.kind === 'cancel' && atLeast(me, 'team_lead')}
       onOk=${async (txt, soldOut) => {
-        const url = reason.kind === 'close' ? `/api/pos/sessions/${id}/cancel` : `/api/pos/items/${reason.item.id}/${reason.kind === 'redo' ? 'redo' : 'cancel'}`;
-        if (await act(() => api('POST', url, { reason: txt, sold_out: !!soldOut }), reason.kind === 'redo' ? 'Đã báo làm lại' : 'Đã huỷ')) { setReason(null); if (reason.kind === 'close') navigate('/ban'); }
+        const url = reason.kind === 'close' ? `/api/pos/sessions/${id}/cancel` : `/api/pos/items/${reason.item.id}/${reason.kind === 'redo' ? 'redo' : reason.kind === 'cancelreq' ? 'cancel-request' : 'cancel'}`;
+        if (await act(() => api('POST', url, { reason: txt, sold_out: !!soldOut }), reason.kind === 'redo' ? 'Đã báo làm lại' : reason.kind === 'cancelreq' ? 'Đã gửi trưởng ca / quản lý duyệt huỷ' : 'Đã huỷ')) { setReason(null); if (reason.kind === 'close') navigate('/ban'); }
       }} />` : null}
     ${prompt === 'split' ? html`<${Split} items=${s.items.filter((i) => i.status !== 'cancelled')} zones=${tablesD.data?.zones || []} onClose=${() => setPrompt(null)}
       onOk=${async (table, items) => { const r = await act(() => api('POST', `/api/pos/sessions/${id}/split`, { table, items }), `Đã tách sang bàn ${table}`); if (r) setPrompt(null); }} />` : null}

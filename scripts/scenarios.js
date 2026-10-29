@@ -157,6 +157,19 @@ export async function run({ quiet = false } = {}) {
     expect(r.status === 200 && k.kind === 'cancel', `${r.status} ${k.kind}`);
     return `${st[k.station_id]}: HUỶ Sprite (Gọi nhầm)`;
   });
+  await step('Phục vụ xin huỷ (bắt ghi lý do) → báo trưởng ca; trưởng ca từ chối / đồng ý', async () => {
+    const id = await add(pv1, A, 'Sprite');
+    await send(pv1, A);
+    expect((await pv1('POST', `/api/pos/items/${id}/cancel-request`, {})).status === 400, 'không bắt lý do');
+    expect((await pv1('POST', `/api/pos/items/${id}/cancel-request`, { reason: 'Khách đổi ý' })).status === 200, 'xin huỷ lỗi');
+    expect((await pv1('POST', `/api/pos/items/${id}/cancel-reject`)).status === 403, 'phục vụ tự duyệt được');
+    expect((await lead('POST', `/api/pos/items/${id}/cancel-reject`)).status === 200, 'trưởng ca từ chối lỗi');
+    await pv1('POST', `/api/pos/items/${id}/cancel-request`, { reason: 'Khách đổi ý' });
+    const r = await lead('POST', `/api/pos/items/${id}/cancel`, {});
+    const it = (await sess(A)).items.find((x) => x.id === id);
+    expect(r.status === 200 && it.status === 'cancelled' && it.cancel_reason === 'Khách đổi ý', `${r.status} ${it.status} ${it.cancel_reason}`);
+    return 'Xin huỷ → trưởng ca duyệt, lý do giữ đúng';
+  });
   await step('Phục vụ huỷ món đã gửi quá 2 phút → bị chặn; trưởng ca huỷ được', async () => {
     const id = (await sess(A)).items.find((i) => i.name === 'Trà đào').id;
     now += 5 * 60_000;
