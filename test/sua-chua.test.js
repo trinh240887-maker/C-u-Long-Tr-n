@@ -41,4 +41,18 @@ test('bill mua: dòng sửa chữa / đồ dùng / tài sản không nhập kho;
   assert.equal(q.parts, 62000); assert.equal(q.labor, 150000); assert.equal(q.total, 212000);
   assert.equal(v.by_kind.repair, 62000); assert.equal(v.by_kind.tool, 120000); assert.equal(v.by_kind.asset, 790000);
   assert.equal((await o('PATCH', `/api/repairs/${rep.id}`, { done: true })).status, 200);
+
+  // Thu ngân đổi NCC ghi sai → công nợ chuyển, NCC tên sai tự ẩn, app nhớ tên sai
+  const bid = r.data.id;
+  const oldSup = db.prepare('SELECT supplier_id FROM purchase_bills WHERE id = ?').get(bid).supplier_id;
+  const good = Number(db.prepare("INSERT INTO suppliers (name) VALUES ('Điện nước Ngũ Kiệt Q7')").run().lastInsertRowid);
+  const fx = await o('PATCH', `/api/purchases/${bid}`, { supplier_id: good });
+  assert.equal(fx.status, 200, JSON.stringify(fx.data));
+  assert.equal(db.prepare('SELECT supplier_id, supplier_name FROM purchase_bills WHERE id = ?').get(bid).supplier_id, good);
+  assert.equal(db.prepare('SELECT active FROM suppliers WHERE id = ?').get(oldSup).active, 0, 'NCC tên sai tự ẩn');
+  assert.equal(db.prepare('SELECT supplier_id FROM supplier_aliases').get().supplier_id, good);
+  // Bill đã duyệt: thu ngân vẫn đổi được NCC
+  assert.equal((await o('POST', `/api/purchases/${bid}/approve`)).status, 200);
+  assert.equal((await o('PATCH', `/api/purchases/${bid}`, { supplier_name: 'Ngũ Kiệt' })).status, 200);
+  assert.equal(db.prepare('SELECT supplier_name FROM purchase_bills WHERE id = ?').get(bid).supplier_name, 'Ngũ Kiệt');
 });

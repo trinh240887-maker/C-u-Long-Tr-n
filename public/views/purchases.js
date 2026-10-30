@@ -234,6 +234,7 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
 
 function BillCard({ b, canApprove, me }) {
   const [reason, setReason] = useState(null);
+  const [supFix, setSupFix] = useState(false);
   const [edit, setEdit] = useState(false);
   const [payBill, setPayBill] = useState(false);
   const [st, cls] = STATUS[b.status] || [b.status, ''];
@@ -260,6 +261,8 @@ function BillCard({ b, canApprove, me }) {
       <button onClick=${() => setReason('')}>Trả lại</button></div>` : null}
     ${b.status === 'returned' && (b.received_by === me.id || canApprove) ? html`<button class="small" onClick=${() => setEdit(true)}>✏️ Sửa từng dòng</button>` : null}
     ${b.status === 'approved' && (['manager', 'owner'].includes(me.role) || me.acts?.['mh.sua'] === true) && canAct(me, 'mh.sua') ? html`<button class="small" onClick=${() => setEdit(true)}>✏️ Sửa bill${b.lines.some((l) => !l.ingredient_id) ? ' / gắn hàng vào kho' : ''}</button>` : null}
+    ${['received', 'approved', 'returned', 'waiting'].includes(b.status) && canApprove ? html`<button class="small" onClick=${() => setSupFix(true)}>🏪 Sai tên NCC? Đổi NCC</button>` : null}
+    ${supFix ? html`<${SupFix} b=${b} onClose=${() => setSupFix(false)} />` : null}
     ${edit ? html`<${EditBill} b=${b} onClose=${() => setEdit(false)} />` : null}
     ${b.status === 'received' && b.received_by === me.id && me.role !== 'owner' ? html`<small class="muted">Chờ người khác duyệt (người nhận không tự duyệt).</small>` : null}
     ${b.status === 'returned' && b.received_by === me.id ? html`<${FixBill} b=${b} />` : null}
@@ -590,4 +593,22 @@ function RepairsTab({ me }) {
       <${Field} label="Ghi chú"><input value=${nw.note} placeholder="vd hư tụ, thợ Minh sửa" onInput=${(e) => setNw({ ...nw, note: e.target.value })} /><//>
       <button class="primary" disabled=${!nw.title.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/repairs', nw), 'Đã tạo việc sửa')) setNw(null); }}>Tạo</button></div><//>` : null}
   </div>`;
+}
+
+// Đổi NCC của bill (chủ quán 30/10: thu ngân sửa khi tên NCC bị ghi sai); app nhớ tên sai → lần sau đọc bill tự nhận đúng NCC
+function SupFix({ b, onClose }) {
+  const meta = useData('/api/stock/meta');
+  const [q, setQ] = useState('');
+  const sups = (meta.data?.suppliers || []).filter((x) => x.active && x.id !== b.supplier_id);
+  const words = foldv(q).split(' ').filter(Boolean);
+  const hits = words.length ? sups.filter((x) => words.every((w) => foldv(x.name).includes(w))).slice(0, 8)
+    : sups.map((x) => ({ x, s: simil(b.supplier_name, x.name) })).filter((y) => y.s >= 0.3).sort((a, c) => c.s - a.s).slice(0, 5).map((y) => y.x);
+  const save = async (body, label) => { if (confirm(`Đổi NCC của bill này từ "${b.supplier_name}" sang "${label}"?\nCông nợ chuyển theo.`) && await act(() => api('PATCH', `/api/purchases/${b.id}`, body), 'Đã đổi NCC')) onClose(); };
+  return html`<${Modal} title="🏪 Đổi nhà cung cấp" onClose=${onClose}><div class="stack">
+    <small>Đang ghi: <b>${b.supplier_name}</b></small>
+    <input type="search" placeholder="🔍 Gõ tên NCC đúng (không dấu cũng được)" value=${q} onInput=${(e) => setQ(e.target.value)} />
+    ${hits.length ? html`<div class="stack tight">${!words.length ? html`<small class="muted">Gần giống:</small>` : null}${hits.map((x) => html`<button onClick=${() => save({ supplier_id: x.id }, x.name)}>${x.name}</button>`)}</div>` : null}
+    ${q.trim() ? html`<button class="primary" onClick=${() => save({ supplier_name: q.trim() }, q.trim())}>＋ Dùng tên mới "${q.trim()}"</button>` : null}
+    <small class="muted">Công nợ chuyển sang NCC mới. NCC tên sai không còn bill nào thì tự ẩn. App nhớ tên sai này, lần sau đọc bill ra tên đó sẽ tự chọn đúng NCC.</small>
+  </div><//>`;
 }

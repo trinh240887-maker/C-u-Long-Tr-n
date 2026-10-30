@@ -60,6 +60,9 @@ export default function (r, ctx) {
   // Loại dòng bill (chủ quán 30/10: đồ mua để sửa quán không nhập kho): '' = nhập kho · repair = sửa chữa / bảo trì · tool = đồ dùng / công cụ · asset = tài sản · other = chi phí khác
   try { db.exec("ALTER TABLE purchase_bill_lines ADD COLUMN kind TEXT NOT NULL DEFAULT ''"); } catch { /* đã có */ }
   try { db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN repair_id INTEGER'); } catch { /* đã có */ }
+  // Tên NCC máy đọc sai mà thu ngân đã sửa → lần sau đọc ra tên đó thì tự nhận đúng NCC (chủ quán 30/10)
+  db.exec('CREATE TABLE IF NOT EXISTS supplier_aliases (name TEXT PRIMARY KEY, supplier_id INTEGER NOT NULL)');
+  const supFold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, '');
   db.exec(`CREATE TABLE IF NOT EXISTS repairs (id INTEGER PRIMARY KEY, date TEXT NOT NULL, title TEXT NOT NULL, area TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'open', created_by INTEGER, created_at INTEGER NOT NULL, done_at INTEGER)`);
 
@@ -428,12 +431,32 @@ export default function (r, ctx) {
     if (b.status === 'waiting') { if (!isCashier(me) && !canPerm(ctx, me, 'mh.apbill')) fail(403, 'Thu ngân / trưởng ca trở lên mới sửa bill chờ nhận hàng'); }
     else if (b.status === 'returned') { if (b.received_by !== me.id && rank(me.role) < rank('shift_lead')) fail(403, 'Người nhận hàng sửa lại'); }
     else if (b.status === 'received') { if (!isCashier(me)) fail(403, 'Thu ngân / trưởng ca trở lên mới sửa bill đang chờ duyệt'); }
-    else if (b.status === 'approved') { if (rank(me.role) < rank('manager')) fail(403, 'Bill đã duyệt: quản lý / chủ quán mới sửa được'); } // chủ quán 26/10: gắn dòng "hàng khác" vào kho
+    else if (b.status === 'approved') { const supOnly = (body.supplier_id !== undefined || body.supplier_name !== undefined) && body.lines === undefined && body.total === undefined; if (rank(me.role) < rank('manager') && !(supOnly && isCashier(me))) fail(403, 'Bill đã duyệt: quản lý / chủ quán mới sửa được (thu ngân chỉ đổi tên NCC)'); } // chủ quán 26/10: gắn dòng "hàng khác" vào kho
     else fail(400, 'Bill này không sửa được');
     const lines = body.lines ? readLines(body.lines) : null;
     let created = [];
     const total = body.total === undefined ? b.total : money(body.total, 'Tổng tiền bill');
+    // Đổi NCC (chủ quán 30/10: thu ngân sửa khi máy đọc / người nhập ghi sai tên NCC)
+    let newSup = null;
+    if (body.supplier_id !== undefined || body.supplier_name !== undefined) {
+      if (!isCashier(me)) fail(403, 'Thu ngân / trưởng ca trở lên mới đổi NCC');
+      if (body.supplier_id) { newSup = supplierRow(v.int(body.supplier_id, { min: 1, name: 'NCC' })); if (!newSup) fail(404, 'Không tìm thấy NCC'); }
+      else {
+        const nm = v.text(body.supplier_name, { name: 'Tên NCC', required: true, max: 300 });
+        newSup = db.prepare('SELECT * FROM suppliers ORDER BY active DESC, id').all().find((x) => supFold(x.name) === supFold(nm));
+        if (!newSup) newSup = supplierRow(Number(db.prepare('INSERT INTO suppliers (name) VALUES (?)').run(nm).lastInsertRowid));
+      }
+      if (newSup.id === b.supplier_id) newSup = null;
+    }
     tx(db, () => {
+      if (newSup) {
+        const oldId = b.supplier_id;
+        db.prepare('UPDATE purchase_bills SET supplier_id = ?, supplier_name = ? WHERE id = ?').run(newSup.id, newSup.name, b.id);
+        if (!newSup.active) db.prepare('UPDATE suppliers SET active = 1 WHERE id = ?').run(newSup.id);
+        if (b.supplier_name) db.prepare('INSERT OR REPLACE INTO supplier_aliases (name, supplier_id) VALUES (?, ?)').run(supFold(b.supplier_name), newSup.id);
+        // NCC tên sai không còn bill / phiếu trả / đơn nào → ẩn đi cho khỏi rối công nợ
+        if (oldId && !db.prepare('SELECT 1 FROM purchase_bills WHERE supplier_id = ? LIMIT 1').get(oldId) && !db.prepare('SELECT 1 FROM supplier_payments WHERE supplier_id = ? LIMIT 1').get(oldId) && !db.prepare('SELECT 1 FROM purchase_orders WHERE supplier_id = ? LIMIT 1').get(oldId)) db.prepare('UPDATE suppliers SET active = 0 WHERE id = ?').run(oldId);
+      }
       if (lines && b.status === 'waiting') {
         // Hàng chưa về: chỉ sửa dòng bill, chưa đụng kho
         created = createNew(lines, b.store_id);
@@ -468,7 +491,7 @@ export default function (r, ctx) {
     });
     notifyCreated(me, created, b);
     if (b.status !== 'approved' && b.status !== 'waiting') ctx.notify(cashiers().filter((x) => x !== me.id), { title: `Bill mua đã sửa, duyệt lại: ${b.supplier_name} ${vnd(total)}`, link: '/mua-hang' });
-    ctx.audit(me, 'purchase.fix', { id: b.id, total, was: b.status });
+    ctx.audit(me, 'purchase.fix', { id: b.id, total, was: b.status, ...(newSup ? { supplier_from: b.supplier_name, supplier_to: newSup.name } : {}) });
     ctx.broadcast('purchases');
     return load(b.id);
   });
@@ -510,7 +533,8 @@ export default function (r, ctx) {
     try { out = await (ctx.readBill || readBill)(photos, ings, { apiKey: billReaderKey(ctx) }); } catch (e) { fail(502, e.message); }
     const norm = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
     const byId = new Map(ings.map((g) => [g.id, g]));
-    const sup = out.supplier_name ? (db.prepare('SELECT id, name FROM suppliers WHERE active = 1').all().find((x) => norm(x.name) === norm(out.supplier_name) || norm(out.supplier_name).includes(norm(x.name))) || (() => { const f = findSupplier(out.supplier_name); return f?.active ? f : null; })()) : null;
+    const alias = out.supplier_name ? db.prepare('SELECT s.id, s.name FROM supplier_aliases a JOIN suppliers s ON s.id = a.supplier_id WHERE a.name = ? AND s.active = 1').get(supFold(out.supplier_name)) : null;
+    const sup = alias || out.supplier_name ? alias || (db.prepare('SELECT id, name FROM suppliers WHERE active = 1').all().find((x) => norm(x.name) === norm(out.supplier_name) || norm(out.supplier_name).includes(norm(x.name))) || (() => { const f = findSupplier(out.supplier_name); return f?.active ? f : null; })()) : null;
     ctx.audit(me, 'purchase.read_bill', { photos: photos.length, lines: out.lines.length, usage: out.usage });
     return {
       supplier_id: sup?.id || null, supplier_name: sup ? sup.name : out.supplier_name || '', signer_name: out.signer_name || '', total: out.total || 0, note: out.note || '',
