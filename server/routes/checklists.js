@@ -229,7 +229,7 @@ export default function (r, ctx) {
     });
     ctx.setSetting('tv_bar_bep_clear_v1', '1');
   }
-  r.get('/api/checklist-templates', 'staff', ({ query }) => templates({ activeOnly: query.get('all') !== '1' }));
+  r.get('/api/checklist-templates', 'staff', ({ me, query }) => templates({ activeOnly: query.get('all') !== '1' }).filter((t) => seesTeam(me, t.team_id)));
 
   function saveItems(templateId, items) {
     if (!Array.isArray(items) || !items.length) fail(400, 'Checklist cần ít nhất một việc');
@@ -319,10 +319,24 @@ export default function (r, ctx) {
   }
 
   // Tổ trưởng chỉ tạo/sửa checklist của tổ mình; trưởng ca trở lên sửa mọi tổ và checklist "Cả quán"
+  // Bộ phận nhìn thấy (chủ quán 30/10: bếp và phục vụ tách biệt, quản lý bên này không thấy checklist bên kia).
+  // null = chủ quán thấy hết. Quản lý / trưởng ca có bộ phận = bộ phận đó (Phục vụ + Tiếp thực chung); quản lý không bộ phận = mọi bộ phận trừ bếp
+  const KITCHEN_RE = /bếp|bep|lẩu|lau|nướng|nuong|steak/i;
+  function teamView(me) {
+    if (me.role === 'owner') return null;
+    if (rank(me.role) >= rank('shift_lead')) {
+      const s = ctx.dashboardScope?.(me);
+      if (s) return s;
+      return new Set(db.prepare('SELECT id, name FROM teams').all().filter((t) => !KITCHEN_RE.test(t.name)).map((t) => t.id));
+    }
+    return new Set(me.team_id ? [me.team_id] : []);
+  }
+  const seesTeam = (me, teamId) => { const v = teamView(me); return !v || teamId == null || v.has(teamId); };
   function canEditTpl(me, teamId) {
-    if (rank(me.role) >= rank('shift_lead')) return;
+    if (me.role === 'owner') return;
+    if (rank(me.role) >= rank('shift_lead') && seesTeam(me, teamId)) return;
     if (me.role === 'team_lead' && teamId && teamId === me.team_id) return;
-    fail(403, me.role === 'team_lead' ? 'Tổ trưởng chỉ tạo và sửa checklist của tổ mình' : 'Bạn không có quyền sửa checklist');
+    fail(403, me.role === 'team_lead' ? 'Tổ trưởng chỉ tạo và sửa checklist của tổ mình' : rank(me.role) >= rank('shift_lead') ? 'Bạn chỉ sửa checklist bộ phận mình' : 'Bạn không có quyền sửa checklist');
   }
 
   r.post('/api/checklist-templates', 'team_lead', ({ me, body }) => {
@@ -500,7 +514,8 @@ export default function (r, ctx) {
   // ---------- Checklist trong ngày ----------
   // Chủ quán 30/10: khu nào thấy khu đó — nhân viên, tổ trưởng, trưởng ca chỉ thấy checklist bộ phận mình (+ bộ phận được xếp ca hôm nay); quản lý / chủ thấy hết
   function myScope(me, date) {
-    if (rank(me.role) >= rank('manager')) return null;
+    if (me.role === 'owner') return null;
+    if (rank(me.role) >= rank('manager')) return { teams: teamView(me), all: true, shifts: new Set(), positions: new Set(), zones: new Set(), off: false, me: me.id };
     const teams = new Set(me.team_id ? [me.team_id] : []);
     const shifts = new Set();
     const positions = new Set(me.position_id ? [me.position_id] : []);
@@ -519,7 +534,7 @@ export default function (r, ctx) {
     const off = !rows.length && !db.prepare('SELECT 1 FROM attendance WHERE staff_id = ? AND date = ?').get(me.id, date);
     return { teams, shifts, positions, zones, off, me: me.id };
   }
-  const inScope = (scope, t) => !scope || (!scope.off && (t.doer || '') === '' && (t.team_id === null || scope.teams.has(t.team_id))
+  const inScope = (scope, t) => !scope || (scope.all && (t.team_id == null || scope.teams.has(t.team_id))) || (!scope.all && !scope.off && (t.doer || '') === '' && (t.team_id === null || scope.teams.has(t.team_id))
     && (t.shift_template_id === null || scope.shifts.has(t.shift_template_id))
     && (!t.position_id || scope.positions.has(t.position_id))
     && (!t.zone_id || scope.zones.has(t.zone_id))) || (!!scope && !scope.off && (t.doer || '') === `staff:${scope.me}`);
@@ -785,7 +800,7 @@ export default function (r, ctx) {
 
   // ---------- Duyệt ảnh: Đạt / Làm lại ----------
   // Duyệt ảnh: quản lý / chủ mọi bộ phận; tổ trưởng, trưởng ca chỉ bộ phận mình (chủ quán 30/10: khu nào thấy khu đó)
-  const canReview = (me, teamId) => rank(me.role) >= rank('manager') || (['team_lead', 'shift_lead'].includes(me.role) && teamId && teamId === me.team_id) || (me.role === 'shift_lead' && !teamId);
+  const canReview = (me, teamId) => me.role === 'owner' || (rank(me.role) >= rank('manager') && seesTeam(me, teamId)) || (['team_lead', 'shift_lead'].includes(me.role) && teamId && teamId === me.team_id) || (me.role === 'shift_lead' && !teamId);
 
   r.get('/api/checklists/review', 'team_lead', ({ me, query }) => {
     const date = query.get('date') || ctx.today();
@@ -805,7 +820,7 @@ export default function (r, ctx) {
     const score = db.prepare(`SELECT s.id, s.name, s.team_id, SUM(CASE WHEN e.review_status = 'ok' THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN e.review_status = 'redo' THEN 1 ELSE 0 END) AS redo,
         SUM(CASE WHEN e.review_status IS NULL THEN 1 ELSE 0 END) AS pending, COUNT(*) AS total
       FROM checklist_entries e JOIN checklist_runs r ON r.id = e.run_id JOIN checklist_items i ON i.id = e.item_id JOIN staff s ON s.id = e.done_by
-      WHERE r.date BETWEEN ? AND ? AND i.photo_required = 1 GROUP BY s.id ORDER BY redo DESC, s.name`).all(from, date).filter((x) => rank(me.role) >= rank('manager') || x.team_id === me.team_id);
+      WHERE r.date BETWEEN ? AND ? AND i.photo_required = 1 GROUP BY s.id ORDER BY redo DESC, s.name`).all(from, date).filter((x) => me.role === 'owner' || (rank(me.role) >= rank('manager') ? seesTeam(me, x.team_id) : x.team_id === me.team_id));
     return { date, items, score: { from, to: date, people: score } };
   });
 

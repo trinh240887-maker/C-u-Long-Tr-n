@@ -18,6 +18,11 @@ const fold = (x) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').rep
 
 export default function (r, ctx) {
   const { db } = ctx;
+  // Bếp tách riêng phục vụ (chủ quán 30/10): công thức chỉ chủ + người thuộc bộ phận bếp (Bếp steak / Lẩu / Nướng…); quản lý bên phục vụ không xem
+  const KITCHEN_RE = /bếp|bep|lẩu|lau|nướng|nuong|steak/i;
+  const isKitchen = (me) => { const t = me?.team_id ? db.prepare('SELECT name FROM teams WHERE id = ?').get(me.team_id) : null; return !!t && KITCHEN_RE.test(t.name); };
+  const chef = (me) => !!me && (me.role === 'owner' || (rank(me.role) >= rank('manager') && isKitchen(me)));
+  const needChef = (me) => { if (!chef(me)) fail(403, 'Chỉ chủ quán hoặc quản lý bếp xem / sửa công thức'); };
   db.exec(`CREATE TABLE IF NOT EXISTS preps (
       id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, book TEXT NOT NULL DEFAULT '', sheet TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
       kind TEXT NOT NULL DEFAULT 'batch', batch_col TEXT NOT NULL DEFAULT '', out_qty REAL, out_unit TEXT NOT NULL DEFAULT 'g',
@@ -99,7 +104,7 @@ export default function (r, ctx) {
       unmatched: lines.filter((l) => !l.ingredient_id && (l.unit_price || 0) > 0).length };
   };
   // Sổ công thức đầy đủ: chỉ quản lý trở lên (chủ quán 30/10: sợ lộ công thức). Bếp xem việc được giao qua /api/preps/plan
-  r.get('/api/preps', 'manager', ({ me }) => (me.role !== 'owner' && ctx.audit(me, 'preps.view_book', {}), {
+  r.get('/api/preps', 'manager', ({ me }) => (needChef(me), me.role !== 'owner' && ctx.audit(me, 'preps.view_book', {}), {
     version: ctx.setting('preps_version') || null, seed_version: (() => { try { return seed().version; } catch { return null; } })(),
     preps: db.prepare('SELECT * FROM preps WHERE active = 1 ORDER BY id').all().map(load),
   }));
@@ -108,9 +113,10 @@ export default function (r, ctx) {
     if (!canCook(me)) fail(403, 'Chỉ tổ trưởng bếp hoặc quản lý');
     return db.prepare("SELECT id, book, name, kind FROM preps WHERE active = 1 ORDER BY id").all();
   });
-  r.post('/api/preps/import', 'manager', ({ me }) => importSeed(me));
+  r.post('/api/preps/import', 'manager', ({ me }) => { needChef(me); return importSeed(me); });
   // Sửa phút đứng bếp / phút chờ từng bước (bếp trưởng chỉnh theo thực tế) → nạp lại sổ không ghi đè
   r.patch('/api/preps/:id/steps', 'manager', ({ me, params, body }) => {
+    needChef(me);
     const p = db.prepare('SELECT * FROM preps WHERE id = ?').get(params.id);
     if (!p) fail(404, 'Không tìm thấy bán thành phẩm');
     const steps = (Array.isArray(body.steps) ? body.steps : []).slice(0, 40).map((s) => ({ text: v.text(s.text, { name: 'Bước', required: true, max: 600 }), min: v.int(s.min || 0, { min: 0, max: 1440, name: 'Phút' }), wait: v.int(s.wait || 0, { min: 0, max: 2880, name: 'Phút chờ' }) }));
@@ -121,6 +127,7 @@ export default function (r, ctx) {
   });
   // Tạo mã kho hàng loạt cho nguyên liệu trong sổ chưa có trong kho (giá = đơn giá trong sổ, đơn vị g / ml)
   r.post('/api/preps/create-missing', 'manager', ({ me }) => {
+    needChef(me);
     const miss = db.prepare("SELECT code, name, unit, MAX(unit_price) AS price FROM prep_lines WHERE ingredient_id IS NULL AND unit_price > 0 GROUP BY CASE WHEN code != '' THEN code ELSE name END").all();
     let made = 0;
     tx(db, () => {
@@ -140,6 +147,7 @@ export default function (r, ctx) {
   });
   // Gắn tay 1 dòng nguyên liệu với mã kho (hoặc tạo mã kho mới theo đơn giá trong sổ)
   r.patch('/api/preps/lines/:id', 'manager', ({ me, params, body }) => {
+    needChef(me);
     const l = db.prepare('SELECT * FROM prep_lines WHERE id = ?').get(params.id);
     if (!l) fail(404, 'Không tìm thấy dòng');
     if (body.secret !== undefined) {
@@ -196,15 +204,14 @@ export default function (r, ctx) {
   const totalStock = (ingId) => r3(db.prepare('SELECT COALESCE(SUM(qty), 0) AS q FROM stock_lots WHERE ingredient_id = ?').get(ingId).q);
   // Chỉ nhân sự bếp (Bếp steak, Lẩu, Nướng…) + quản lý / chủ (chủ quán 30/10: tổ trưởng, trưởng ca bộ phận khác không xem công thức)
   const canCook = (me) => {
-    if (rank(me.role) >= rank('manager')) return true;
-    const t = me.team_id ? db.prepare('SELECT name FROM teams WHERE id = ?').get(me.team_id) : null;
-    return !!t && /bếp|bep|lẩu|lau|nướng|steak/i.test(t.name);
+    return me.role === 'owner' || isKitchen(me);
   };
   const ingOf = (id) => (id ? db.prepare('SELECT * FROM ingredients WHERE id = ?').get(id) : null);
   const outPerBatch = (p, ing) => { const f = conv(p.out_unit, ing.unit); return p.out_qty && f ? r3(p.out_qty * f) : null; };
 
   // Gắn mã kho thành phẩm (vd "Cốt lẩu Tứ Xuyên") cho bán thành phẩm, hoặc tạo mới
   r.patch('/api/preps/:id/output', 'manager', ({ me, params, body }) => {
+    needChef(me);
     const p = db.prepare('SELECT * FROM preps WHERE id = ?').get(params.id);
     if (!p) fail(404, 'Không tìm thấy bán thành phẩm');
     let ingId = body.ingredient_id ? v.int(body.ingredient_id, { min: 1, name: 'Mã thành phẩm' }) : null;
@@ -223,6 +230,7 @@ export default function (r, ctx) {
   });
   // Đổi điểm làm (Lẩu / Steak / Nướng…) mặc định của bán thành phẩm
   r.patch('/api/preps/:id/station', 'manager', ({ me, params, body }) => {
+    needChef(me);
     const p = db.prepare('SELECT id FROM preps WHERE id = ?').get(params.id);
     if (!p) fail(404, 'Không tìm thấy bán thành phẩm');
     db.prepare('UPDATE preps SET station = ? WHERE id = ?').run(v.text(body.station || '', { name: 'Điểm làm', max: 30 }), p.id);
@@ -297,6 +305,7 @@ export default function (r, ctx) {
   });
   // Huỷ mẻ ghi nhầm (trong ngày): trả nguyên liệu sống về kho, bỏ thành phẩm đã cộng
   r.post('/api/preps/batches/:id/void', 'manager', ({ me, params }) => {
+    needChef(me);
     const b = db.prepare('SELECT * FROM prep_batches WHERE id = ?').get(params.id);
     if (!b) fail(404, 'Không tìm thấy mẻ');
     if (b.voided_at) fail(409, 'Mẻ này đã huỷ');
@@ -501,7 +510,7 @@ export default function (r, ctx) {
     return t.replace(/(Gói G\d+)(\s*(?:,|và|\+)\s*\1)+/g, '$1');
   };
   function planView(date, me) {
-    const boss = !!me && rank(me.role) >= rank('manager');
+    const boss = chef(me);
     const rows = db.prepare(`SELECT pl.*, s.name AS staff_name FROM prep_plan pl LEFT JOIN staff s ON s.id = pl.staff_id WHERE pl.date = ? ORDER BY pl.station, pl.id`).all(date);
     const done = db.prepare('SELECT prep_id, SUM(batches) AS n, SUM(minutes) AS m, COUNT(minutes) AS cm, SUM(out_qty) AS q FROM prep_batches WHERE date = ? AND voided_at IS NULL GROUP BY prep_id').all(date);
     const doneBy = new Map(done.map((x) => [x.prep_id, x]));
@@ -562,7 +571,7 @@ export default function (r, ctx) {
     if (!canCook(me)) fail(403, 'Chỉ nhân viên bếp hoặc tổ trưởng trở lên');
     if (pl.date !== ctx.today()) fail(409, 'Chỉ tick việc của hôm nay');
     const step = v.int(body.step, { min: 0, max: 400, name: 'Bước' }); // 0–99 bước làm, 100+ = đã lấy nguyên liệu dòng (pos), 300 = gói bí mật đã pha (quản lý)
-    if (step === 300 && rank(me.role) < rank('manager')) fail(403, 'Chỉ quản lý đánh dấu đã pha gói');
+    if (step === 300 && !chef(me)) fail(403, 'Chỉ chủ / quản lý bếp đánh dấu đã pha gói');
     if (body.done === false) db.prepare('DELETE FROM prep_plan_ticks WHERE plan_id = ? AND step = ?').run(pl.id, step);
     else db.prepare('INSERT OR REPLACE INTO prep_plan_ticks (plan_id, step, staff_id, at) VALUES (?, ?, ?, ?)').run(pl.id, step, me.id, ctx.now());
     ctx.broadcast('stock');
@@ -576,7 +585,8 @@ export default function (r, ctx) {
     return planView(date, me);
   });
   // Xem trước cần bao nhiêu (mọi bán thành phẩm đã gắn mã thành phẩm), kể cả món không cần nấu
-  r.get('/api/preps/plan/preview', 'manager', ({ query }) => {
+  r.get('/api/preps/plan/preview', 'manager', ({ me, query }) => {
+    needChef(me);
     const date = query.get('date') || ctx.today();
     return buildPlan(date).map((x) => ({ prep_id: x.p.id, name: x.p.name, out_name: x.out.name, unit: x.out.unit, per: x.per, cover: x.cover, forecast: x.forecast, extra: r3(x.extra), stock: x.stock, need: x.need, batches: x.batches, basis: x.basis }));
   });

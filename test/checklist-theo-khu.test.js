@@ -34,4 +34,19 @@ test('checklist: khu nào thấy khu đó — trưởng ca / tổ trưởng ch�
   assert.deepEqual(await titles(), ['CK phục vụ']);
   cookie = null; await o('POST', '/api/login', { pin: '8475' });
   assert.deepEqual(await titles(), ['CK bếp']);
+  // Quản lý phục vụ / quản lý không bộ phận: không thấy bếp (2 bên tách biệt); quản lý bếp chỉ thấy bếp
+  cookie = null; await o('POST', '/api/login', { pin: '582914' });
+  await o('POST', '/api/staff', { name: 'QL PV', team_id: pv, role: 'manager', pin: '736451' });
+  await o('POST', '/api/staff', { name: 'QL chung', role: 'manager', pin: '847562' });
+  await o('POST', '/api/staff', { name: 'QL bếp', team_id: bep, role: 'manager', pin: '958673' });
+  const want = { 736451: ['CK phục vụ'], 847562: ['CK phục vụ'], 958673: ['CK bếp'] };
+  for (const [pin, w] of Object.entries(want)) {
+    cookie = null; const lg = await o('POST', '/api/login', { pin });
+    assert.equal(lg.status, 200, JSON.stringify(lg.data));
+    assert.deepEqual(await titles(), w, `quản lý ${pin}`);
+    const tp = (await o('GET', '/api/checklist-templates')).data.map((x) => x.title);
+    assert.equal(tp.includes('CK bếp'), pin === '958673', `mẫu checklist ${pin}`);
+    assert.equal((await o('GET', '/api/preps')).status, pin === '958673' ? 200 : 403, `sổ công thức ${pin}`);
+    assert.equal((await o('GET', '/api/preps/plan')).status, pin === '958673' ? 200 : 403, `việc nấu ${pin}`);
+  }
 });

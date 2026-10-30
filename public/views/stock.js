@@ -834,7 +834,8 @@ export function StockView({ me, query }) {
   const [menu, setMenu] = useState(false);
   const TAB_ACT = { ton: 'kho.xem', nxt: 'kho.nxt', kiem: 'kho.kiem', linh: 'kho.linh', dat: 'kho.dathang', nl: 'kho.nguyenlieu', quydoi: 'kho.nguyenlieu', ls: 'kho.xem' };
   const tabs = TABS.filter(([k]) => !(meta.data?.single && k === 'linh')).filter(([k, , role]) => (TAB_ACT[k] && me.acts?.[TAB_ACT[k]] === true) || ((!role || atLeast(me, role)) && (!TAB_ACT[k] || can(me, TAB_ACT[k]))));
-  const ok = new Set(tabs.map(([k]) => k));
+  const chefOk = me.role === 'owner' || /bếp|lẩu|steak|nướng/i.test(me.team?.name || ''); // sổ công thức: chủ + quản lý bếp (bếp tách riêng phục vụ)
+  const ok = new Set(tabs.map(([k]) => k).filter((k) => k !== 'btp' || chefOk));
   const groups = GROUPS.map(([g, l, ks]) => [g, l, ks.filter((k) => ok.has(k))]).filter(([, , ks]) => ks.length);
   const curG = groups.find(([, , ks]) => ks.includes(tab)) || groups[0];
   const more = atLeast(me, 'manager') || (me.role === 'owner' && !me.wh_live);
@@ -852,7 +853,7 @@ export function StockView({ me, query }) {
       : tab === 'linh' ? html`<${Transfers} me=${me} meta=${meta.data} />`
       : tab === 'dodung' ? html`<${Utensils} me=${me} />`
       : tab === 'dat' ? html`<${Orders} me=${me} meta=${meta.data} />`
-      : tab === 'btp' ? html`<${Preps} me=${me} meta=${meta.data} />`
+      : tab === 'btp' && chefOk ? html`<${Preps} me=${me} meta=${meta.data} />`
       : tab === 'nl' && atLeast(me, 'manager') ? html`<${Setup} meta=${meta.data} />`
       : tab === 'quydoi' && atLeast(me, 'manager') ? html`<${Conversions} meta=${meta.data} />`
       : tab === 'ls' ? html`<${History} me=${me} />`
