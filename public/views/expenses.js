@@ -21,6 +21,7 @@ export function ExpenseForm({ source: fixed, title, onClose }) {
       <${Field} label="Số tiền (đ)"><input inputmode="numeric" value=${f.amount} placeholder="vd 150.000" onInput=${(e) => setF({ ...f, amount: e.target.value.replace(/\D/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.') })} /><//>
       ${f.source === 'drawer' && amt > m.approve_over && !m.is_boss ? html`<small class="warn-text">Trên ${money(m.approve_over)}: trưởng ca / quản lý phải duyệt.</small>` : null}
       <div class="field"><span>Loại chi</span><div class="row wrap">${m.categories.map((c) => html`<button class=${`chip ${f.category === c ? 'on' : ''}`} onClick=${() => setF({ ...f, category: c })}>${c}</button>`)}</div></div>
+      ${/sửa/i.test(f.category) ? html`<${RepairPick} value=${f.repair_id} onChange=${(id) => setF({ ...f, repair_id: id })} />` : null}
       <${Field} label="Nội dung"><input value=${f.note} placeholder="vd Mua 5 bao đá, ship rau" onInput=${(e) => setF({ ...f, note: e.target.value })} /><//>
       <div class="row wrap"><label class=${`button ${f.photo ? '' : 'primary'}`}>📷 ${f.photo ? 'Chụp lại' : 'Chụp hoá đơn / chứng từ (bắt buộc)'}<input type="file" accept="image/*" capture="environment" hidden onChange=${pick} /></label>
         ${f.photo ? html`<img src=${f.photo} style="width:64px;height:64px;object-fit:cover;border-radius:8px" />` : null}</div>
@@ -105,4 +106,13 @@ export function MoneyNow({ me }) {
     </section>
     ${form ? html`<${ExpenseForm} source=${form} title=${form === 'bank' ? '➖ Chi chuyển khoản' : '➖ Chi tiền mặt đang giữ'} onClose=${() => setForm('')} />` : null}
   </div>`;
+}
+
+// Phiếu chi "Sửa chữa" (công thợ): gắn vào việc sửa trong Sổ sửa chữa
+function RepairPick({ value, onChange }) {
+  const rp = useData('/api/repairs/open');
+  return html`<${Field} label="Sửa việc gì (Sổ sửa chữa)"><select value=${value || ''} onChange=${async (e) => {
+    if (e.target.value === 'new') { const title = prompt('Sửa cái gì? (vd Quạt khu B)'); if (!title) return; const r = await act(() => api('POST', '/api/repairs', { title })); if (r) onChange(r.id); return; }
+    onChange(e.target.value ? Number(e.target.value) : null); }}>
+    <option value="">— không gắn —</option>${(rp.data || []).map((x) => html`<option value=${x.id}>${x.title}${x.area ? ` · ${x.area}` : ''}</option>`)}<option value="new">＋ Việc sửa mới…</option></select><//>`;
 }

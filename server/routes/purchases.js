@@ -57,6 +57,12 @@ export default function (r, ctx) {
 
   // Ảnh hàng thực nhận (chủ quán 24/10): cùng bảng ảnh, phân biệt bằng kind
   try { db.exec("ALTER TABLE purchase_bill_photos ADD COLUMN kind TEXT NOT NULL DEFAULT 'bill'"); } catch { /* đã có */ }
+  // Loại dòng bill (chủ quán 30/10: đồ mua để sửa quán không nhập kho): '' = nhập kho · repair = sửa chữa / bảo trì · tool = đồ dùng / công cụ · asset = tài sản · other = chi phí khác
+  try { db.exec("ALTER TABLE purchase_bill_lines ADD COLUMN kind TEXT NOT NULL DEFAULT ''"); } catch { /* đã có */ }
+  try { db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN repair_id INTEGER'); } catch { /* đã có */ }
+  db.exec(`CREATE TABLE IF NOT EXISTS repairs (id INTEGER PRIMARY KEY, date TEXT NOT NULL, title TEXT NOT NULL, area TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'open', created_by INTEGER, created_at INTEGER NOT NULL, done_at INTEGER)`);
+
   const photoDir = path.join(ctx.photoDir || path.join(os.tmpdir(), 'quanly-photos'), 'hoadon-mua');
   const r3 = (x) => Math.round(x * 1000) / 1000;
   const vnd = (n) => `${Number(n || 0).toLocaleString('vi-VN')}đ`;
@@ -90,16 +96,23 @@ export default function (r, ctx) {
     db.prepare('INSERT INTO purchase_bill_photos (bill_id, file, created_by, created_at, kind) VALUES (?, ?, ?, ?, ?)').run(billId, file, me.id, ctx.now(), kind);
   }
 
+  const LINE_KINDS = ['', 'repair', 'tool', 'asset', 'other'];
+  // Đoán loại dòng không có mã kho theo tên (đồ điện nước, ốc vít… = sửa chữa)
+  const HW_RE = /(vít|ốc|ke\b|bulong|bu lông|tắc kê|đinh|ổ cắm|ổ điện|công tắc|cầu dao|aptomat|cb\b|dây điện|dây cáp|bóng đèn|đèn led|máng đèn|ống nước|co nối|tê nối|van|vòi|keo|silicon|băng keo|sơn|xi măng|gạch|nẹp|ron|bản lề|khoá|ổ khoá|tay nắm|pake|ba ?lát|chấn lưu|tụ điện|cầu chì|domino|ống luồn|lục giác|mỏ lết|kìm)/i;
+  const TOOL_RE = /(nồi|chảo|xoong|dao|thớt|muỗng|thìa|đũa|ly|cốc|chén|bát|dĩa|đĩa|khay|rổ|thau|xô|kẹp gắp|vá|muôi|giá đỡ|hộp nhựa|thùng rác)/i;
+  const guessKind = (name) => (HW_RE.test(name || '') ? 'repair' : TOOL_RE.test(name || '') ? 'tool' : '');
   function readLines(list) {
     if (!Array.isArray(list)) return [];
     return list.filter((l) => l && (l.name || l.ingredient_id)).slice(0, 60).map((l) => {
-      const ing = l.ingredient_id ? db.prepare('SELECT * FROM ingredients WHERE id = ?').get(Number(l.ingredient_id)) : null;
-      if (l.ingredient_id && !ing) fail(404, 'Không tìm thấy nguyên liệu');
+      const kind = LINE_KINDS.includes(l.kind) ? l.kind : '';
+      const ing = l.ingredient_id && !kind ? db.prepare('SELECT * FROM ingredients WHERE id = ?').get(Number(l.ingredient_id)) : null; // không nhập kho → không gắn mã kho
+      if (l.ingredient_id && !kind && !ing) fail(404, 'Không tìm thấy nguyên liệu');
       const name = ing ? ing.name : v.text(l.name, { name: 'Tên hàng', required: true, max: 300 });
       const qty = Number(String(l.qty ?? '').replace(',', '.'));
       if (!Number.isFinite(qty) || qty < 0 || qty > 1e6) fail(400, `Số lượng ${name} không hợp lệ`);
       const price = money(l.price, `Đơn giá ${name}`);
-      return { ingredient_id: ing?.id ?? null, name, qty, unit: ing ? ing.purchase_unit || ing.unit : v.text(l.unit, { name: 'Đơn vị', max: 40 }), price, amount: Math.round(qty * price), raw: l };
+      const repairId = kind === 'repair' && l.repair_id ? Number(l.repair_id) || null : null;
+      return { ingredient_id: ing?.id ?? null, name, qty, unit: ing ? ing.purchase_unit || ing.unit : v.text(l.unit, { name: 'Đơn vị', max: 40 }), price, amount: Math.round(qty * price), kind, repair_id: repairId, raw: kind ? { ...l, create_new: false } : l };
     });
   }
 
@@ -199,15 +212,15 @@ export default function (r, ctx) {
     lines.forEach((l, i) => { if (pair[i] || !l.ingredient_id) return; const o = old.find((x) => !used.has(x.id) && x.ingredient_id === l.ingredient_id); if (o) { used.add(o.id); pair[i] = o; } });
     const priceByIng = new Map(old.filter((o) => o.ingredient_id).map((o) => [o.ingredient_id, o.old_price]));
     for (const o of old) if (!used.has(o.id)) db.prepare('DELETE FROM purchase_bill_lines WHERE id = ?').run(o.id);
-    const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price, bill_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    const upd = db.prepare('UPDATE purchase_bill_lines SET ingredient_id = ?, name = ?, qty = ?, unit = ?, price = ?, amount = ?, old_price = ?, bill_unit = ? WHERE id = ?');
+    const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price, bill_unit, kind, repair_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const upd = db.prepare('UPDATE purchase_bill_lines SET ingredient_id = ?, name = ?, qty = ?, unit = ?, price = ?, amount = ?, old_price = ?, bill_unit = ?, kind = ?, repair_id = ? WHERE id = ?');
     lines.forEach((l, i) => {
       const o = pair[i];
       const same = o && o.ingredient_id === l.ingredient_id; // đổi sang hàng khác → bỏ dấu chưa quy đổi
       const oldPrice = same ? o.old_price : l.ingredient_id ? priceByIng.get(l.ingredient_id) ?? null : null;
       const billUnit = same && l.ingredient_id ? o.bill_unit : null;
-      if (o) upd.run(l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, oldPrice, billUnit, o.id);
-      else add.run(billId, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, oldPrice, billUnit);
+      if (o) upd.run(l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, oldPrice, billUnit, l.kind || '', l.repair_id ?? null, o.id);
+      else add.run(billId, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, oldPrice, billUnit, l.kind || '', l.repair_id ?? null);
     });
   }
   const supplierRow = (id) => db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
@@ -245,6 +258,68 @@ export default function (r, ctx) {
   });
 
   // ---------- Khu nhận hàng ----------
+  // Đồ dùng → cộng vào 🍽 Đồ dùng (kiểm vỡ / mất hằng tuần); tài sản → danh sách Tài sản (ngày mua, giá, NCC)
+  function toolsAndAssets(me, billId, lines, supplierId, date) {
+    for (const l of lines) {
+      if (l.kind === 'tool') {
+        const name = l.name.slice(0, 80);
+        const u = db.prepare('SELECT * FROM utensils WHERE lower(name) = lower(?)').get(name);
+        if (u) db.prepare('UPDATE utensils SET on_hand = on_hand + ?, active = 1 WHERE id = ?').run(Math.round(l.qty), u.id);
+        else db.prepare('INSERT INTO utensils (name, unit, on_hand) VALUES (?, ?, ?)').run(name, l.unit || 'cái', Math.round(l.qty));
+      }
+      if (l.kind === 'asset') {
+        try {
+          const n = Math.max(1, Math.min(50, Math.round(l.qty)));
+          for (let k = 0; k < n; k++) {
+            const code = `TS${String(Number(db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM wh_assets').get().m) + 1).padStart(4, '0')}`;
+            db.prepare('INSERT INTO wh_assets (code, name, bought_on, price, supplier_id, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(code, l.name.slice(0, 120), date, l.price, supplierId, `Từ bill mua #${billId}`, ctx.now());
+          }
+        } catch (e) { console.error('Ghi tài sản lỗi:', e.message); }
+      }
+    }
+  }
+
+  // ---------- 🔧 Sổ sửa chữa (chủ quán 30/10): sửa cái gì, ở đâu, vật tư (dòng bill) + công thợ (phiếu chi "Sửa chữa") ----------
+  const repairCost = (id) => ({
+    parts: db.prepare("SELECT COALESCE(SUM(l.amount), 0) AS t FROM purchase_bill_lines l JOIN purchase_bills b ON b.id = l.bill_id WHERE l.repair_id = ? AND b.status NOT IN ('void')").get(id).t,
+    labor: (() => { try { return db.prepare("SELECT COALESCE(SUM(amount), 0) AS t FROM expenses WHERE repair_id = ? AND status = 'done'").get(id).t; } catch { return 0; } })(),
+  });
+  r.get('/api/repairs', 'staff', ({ me, query }) => {
+    if (rank(me.role) < rank('shift_lead') && !isCashier(me)) fail(403, 'Chỉ trưởng ca, thu ngân, quản lý');
+    const month = /^\d{4}-\d{2}$/.test(query.get('month') || '') ? query.get('month') : ctx.today().slice(0, 7);
+    const list = db.prepare("SELECT r.*, s.name AS by_name FROM repairs r LEFT JOIN staff s ON s.id = r.created_by WHERE r.status = 'open' OR substr(r.date, 1, 7) = ? ORDER BY r.status DESC, r.date DESC, r.id DESC").all(month)
+      .map((x) => { const c = repairCost(x.id); return { ...x, ...c, total: c.parts + c.labor,
+        lines: db.prepare("SELECT l.name, l.qty, l.unit, l.amount, b.id AS bill_id, b.date, b.supplier_name FROM purchase_bill_lines l JOIN purchase_bills b ON b.id = l.bill_id WHERE l.repair_id = ? AND b.status != 'void' ORDER BY b.date").all(x.id),
+        labor_list: (() => { try { return db.prepare("SELECT id, date, amount, note FROM expenses WHERE repair_id = ? AND status = 'done' ORDER BY date").all(x.id); } catch { return []; } })() }; });
+    // Tổng chi tháng theo loại: nhập kho / sửa chữa / đồ dùng / tài sản / khác (+ phiếu chi theo loại)
+    const byKind = Object.fromEntries(db.prepare("SELECT l.kind, COALESCE(SUM(l.amount), 0) AS t FROM purchase_bill_lines l JOIN purchase_bills b ON b.id = l.bill_id WHERE b.status IN ('approved','received') AND substr(b.date, 1, 7) = ? GROUP BY l.kind").all(month).map((x) => [x.kind || 'stock', x.t]));
+    let exp = [];
+    try { exp = db.prepare("SELECT category, COALESCE(SUM(amount), 0) AS t FROM expenses WHERE status = 'done' AND substr(date, 1, 7) = ? GROUP BY category ORDER BY t DESC").all(month); } catch { /* chưa có bảng */ }
+    const noJob = db.prepare("SELECT COALESCE(SUM(l.amount), 0) AS t FROM purchase_bill_lines l JOIN purchase_bills b ON b.id = l.bill_id WHERE l.kind = 'repair' AND l.repair_id IS NULL AND b.status != 'void' AND substr(b.date, 1, 7) = ?").get(month).t;
+    let laborFree = [];
+    try { laborFree = db.prepare("SELECT id, date, amount, note FROM expenses WHERE status = 'done' AND repair_id IS NULL AND category LIKE '%sửa%' AND substr(date, 1, 7) = ? ORDER BY date DESC").all(month); } catch { /* chưa có bảng */ }
+    return { month, labor_free: laborFree, repairs: list, by_kind: byKind, expenses: exp, repair_unlinked: noJob, open: db.prepare("SELECT id, title, area FROM repairs WHERE status = 'open' ORDER BY id DESC").all() };
+  });
+  r.get('/api/repairs/open', 'staff', () => db.prepare("SELECT id, title, area FROM repairs WHERE status = 'open' ORDER BY id DESC").all());
+  r.post('/api/repairs', 'staff', ({ me, body }) => {
+    const title = v.text(body.title, { name: 'Sửa gì', required: true, max: 120 });
+    const id = Number(db.prepare('INSERT INTO repairs (date, title, area, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(ctx.today(), title, v.text(body.area || '', { name: 'Ở đâu', max: 80 }), v.text(body.note || '', { name: 'Ghi chú', max: 500 }), me.id, ctx.now()).lastInsertRowid);
+    ctx.audit(me, 'repair.create', { id, title });
+    ctx.broadcast('purchases');
+    return { id, title };
+  });
+  r.patch('/api/repairs/:id', 'staff', ({ me, params, body }) => {
+    if (rank(me.role) < rank('shift_lead') && !isCashier(me)) fail(403, 'Chỉ trưởng ca, thu ngân, quản lý');
+    const x = db.prepare('SELECT * FROM repairs WHERE id = ?').get(params.id);
+    if (!x) fail(404, 'Không tìm thấy');
+    if (body.done !== undefined) db.prepare('UPDATE repairs SET status = ?, done_at = ? WHERE id = ?').run(body.done ? 'done' : 'open', body.done ? ctx.now() : null, x.id);
+    if (body.title !== undefined || body.area !== undefined || body.note !== undefined) db.prepare('UPDATE repairs SET title = ?, area = ?, note = ? WHERE id = ?').run(body.title === undefined ? x.title : v.text(body.title, { name: 'Sửa gì', required: true, max: 120 }), body.area === undefined ? x.area : v.text(body.area, { name: 'Ở đâu', max: 80 }), body.note === undefined ? x.note : v.text(body.note, { name: 'Ghi chú', max: 500 }), x.id);
+    if (body.expense_id) db.prepare('UPDATE expenses SET repair_id = ? WHERE id = ?').run(body.unlink ? null : x.id, Number(body.expense_id));
+    ctx.audit(me, 'repair.update', { id: x.id });
+    ctx.broadcast('purchases');
+    return { ok: true };
+  });
+
   r.post('/api/purchases', 'staff', ({ me, body }) => {
     const pre = !!body.pre_bill;
     if (pre && !canPerm(ctx, me, 'mh.apbill')) fail(403, 'Chỉ người được chủ quán chỉ định mới áp bill trước (hàng chưa về)');
@@ -318,8 +393,9 @@ export default function (r, ctx) {
       const id = Number(db.prepare(`INSERT INTO purchase_bills (supplier_id, supplier_name, store_id, po_id, date, total, lines_total, paid_now, paid_method, advance_id, signer_name, note, flags, received_by, received_at, status, pre_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(supplierId, supplierName, storeId, poId, date, total, lines.reduce((n, l) => n + l.amount, 0), paidNow, paidMethod, advanceId,
         signer, v.text(body.note, { name: 'Ghi chú', max: 1000 }), JSON.stringify(flags), pre ? null : me.id, ctx.now(), pre ? 'waiting' : 'received', pre ? me.id : null).lastInsertRowid);
-      const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price, bill_unit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-      for (const l of lines) add.run(id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, l.ingredient_id ? oldPrice.get(l.ingredient_id) ?? null : null, l.ingredient_id && l.raw?.unconv ? unitOf(l.raw.unit) : null);
+      const add = db.prepare('INSERT INTO purchase_bill_lines (bill_id, ingredient_id, name, qty, unit, price, amount, old_price, bill_unit, kind, repair_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const l of lines) add.run(id, l.ingredient_id, l.name, l.qty, l.unit, l.price, l.amount, l.ingredient_id ? oldPrice.get(l.ingredient_id) ?? null : null, l.ingredient_id && l.raw?.unconv ? unitOf(l.raw.unit) : null, l.kind || '', l.repair_id ?? null);
+      if (!pre) toolsAndAssets(me, id, lines, supplierId, date);
       for (const ph of photos) savePhoto(id, ph, me);
       for (const ph of goodsPhotos) savePhoto(id, ph, me, 'goods');
       // Nhớ quy đổi nhân viên vừa nhập (1 két = 24 chai) cho lần đọc bill sau
@@ -441,7 +517,7 @@ export default function (r, ctx) {
       lines: out.lines.map((l) => {
         const g = l.ingredient_id ? byId.get(l.ingredient_id) : null;
         const ku = g ? g.purchase_unit || g.unit : '';
-        const base = { ingredient_id: g?.id || null, name: g ? g.name : l.name, bill_name: l.name, unit: g ? ku : l.unit, bill_unit: l.unit, bill_qty: l.qty, bill_price: l.price, qty: l.qty, price: l.price,
+        const base = { kind: g ? '' : guessKind(l.name), ingredient_id: g?.id || null, name: g ? g.name : l.name, bill_name: l.name, unit: g ? ku : l.unit, bill_unit: l.unit, bill_qty: l.qty, bill_price: l.price, qty: l.qty, price: l.price,
           use_unit: g?.unit || '', pf: g?.purchase_factor || 1, unit_mismatch: false, need_factor: false, factor: null };
         if (!g || !l.unit || norm(ku) === norm(l.unit) || norm(g.unit) === norm(l.unit)) {
           // Bill ghi theo đơn vị dùng (vd chai) mà kho mua theo thùng → đổi ra thùng

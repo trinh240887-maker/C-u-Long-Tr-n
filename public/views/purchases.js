@@ -32,10 +32,27 @@ function PhotoPicker({ photos, setPhotos, first = '📷 Chụp bill NCC (bắt b
   </div>`;
 }
 
+// Loại dòng bill (chủ quán 30/10): đồ sửa quán / đồ dùng / tài sản không nhập kho
+export const LINE_KIND = [['', '🥩 Nhập kho'], ['repair', '🔧 Sửa chữa'], ['tool', '🍽 Đồ dùng'], ['asset', '🏷 Tài sản'], ['other', '📦 Chi khác']];
+function KindPick({ l, onKind, repairs, onRepair }) {
+  return html`<div class="row wrap tight" style="align-items:center">
+    <select class="auto small" value=${l.kind || ''} onChange=${(e) => onKind(e.target.value)}>${LINE_KIND.map(([k, t]) => html`<option value=${k}>${t}</option>`)}</select>
+    ${l.kind === 'repair' ? html`<select class="auto small" value=${l.repair_id || ''} onChange=${async (e) => {
+        if (e.target.value === 'new') { const title = prompt('Sửa cái gì? (vd Quạt khu B, Bồn rửa bếp)'); if (!title) return; const r = await act(() => api('POST', '/api/repairs', { title })); if (r) onRepair(r.id, r); return; }
+        onRepair(e.target.value ? Number(e.target.value) : null); }}>
+      <option value="">— sửa việc gì? —</option>${(repairs || []).map((x) => html`<option value=${x.id}>${x.title}${x.area ? ` · ${x.area}` : ''}</option>`)}<option value="new">＋ Việc sửa mới…</option></select>` : null}
+    ${l.kind === 'tool' ? html`<small class="muted">→ cộng vào Kho · Đồ dùng</small>` : l.kind === 'asset' ? html`<small class="muted">→ ghi vào danh sách Tài sản</small>` : l.kind ? html`<small class="muted">không nhập kho</small>` : null}</div>`;
+}
 function Lines({ lines, setLines, ingredients }) {
   const set = (i, k, val) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: val } : l)));
+  const rp = useData('/api/repairs/open');
+  const [extra, setExtra] = useState([]);
+  const repairs = [...extra, ...(rp.data || [])];
+  const setKind = (i, k) => setLines(lines.map((l, j) => (j === i ? { ...l, kind: k, ...(k ? { ingredient_id: undefined, create_new: false, warn: '' } : {}), ...(k !== 'repair' ? { repair_id: null } : {}) } : l)));
+  const allKind = (k) => setLines(lines.map((l) => ({ ...l, kind: k, ...(k ? { ingredient_id: undefined, create_new: false, warn: '' } : {}), ...(k !== 'repair' ? { repair_id: null } : {}) })));
   return html`<div class="stack">
-    ${lines.map((l, i) => html`<div class=${`pline ${l.warn ? "pline-warn" : ""}`}>
+    ${lines.length > 1 ? html`<div class="row wrap tight" style="align-items:center"><small>Cả bill là:</small>${LINE_KIND.slice(0, 3).map(([k, t]) => html`<button class="small" onClick=${() => allKind(k)}>${t}</button>`)}</div>` : null}
+    ${lines.map((l, i) => html`<div class=${`pline ${l.warn && !l.kind ? "pline-warn" : ""}`}>
       ${l.ingredient_id ? html`<b>${l.name}</b>${(() => { const u = ingredients.find((x) => x.id === l.ingredient_id)?.used_for || []; return u.length ? html`<small class="muted"> · 🍽 ${usedText(u)}</small>` : null; })()}` : html`<input placeholder="Tên hàng (vd Cải thìa)" value=${l.name} onInput=${(e) => set(i, 'name', e.target.value)} />`}
       <div class="row">
         <label>SL <input inputmode="decimal" style="width:5em" value=${l.qty} onInput=${(e) => set(i, 'qty', e.target.value)} /> ${l.unit || ''}</label>
@@ -53,15 +70,16 @@ function Lines({ lines, setLines, ingredients }) {
             <small class=${l.factor_changed ? 'warn-text' : 'muted'}>${l.factor_changed ? '· lần này khác, app sẽ nhớ số mới' : '· đã nhớ, lần này khác thì sửa'}</small></div>`;
         })() : null}
       <small class="muted">= ${money(Math.round(qtyNum(l.qty) * num(l.price)))}${l.ordered != null ? ` · đặt ${l.ordered}` : ''}${l.ai ? ' · 📖 máy đọc' : ''}</small>
-      ${l.warn ? html`<small class="warn-text">⚠ ${l.warn}</small>` : null}
+      <${KindPick} l=${l} onKind=${(k) => setKind(i, k)} repairs=${repairs} onRepair=${(id, r) => { if (r) setExtra([{ id: r.id, title: r.title, area: '' }, ...extra]); set(i, 'repair_id', id); }} />
+      ${l.warn && !l.kind ? html`<small class="warn-text">⚠ ${l.warn}</small>` : null}
       ${num(l.price) >= 5_000_000 || Math.round(qtyNum(l.qty) * num(l.price)) >= 50_000_000 ? html`<small class="danger-text">⚠ Số tiền dòng này quá lớn (${money(Math.round(qtyNum(l.qty) * num(l.price)))}): máy đọc có thể thừa số 0, sửa SL / đơn giá</small>` : null}
-      ${!l.ingredient_id && (l.name || '').trim() ? (l.create_new
+      ${!l.ingredient_id && !l.kind && (l.name || '').trim() ? (l.create_new
         ? html`<small class="ok-text">✅ Lưu bill sẽ tạo mã mới trong kho: <b>${l.name}</b> (${l.unit || 'cái'}) · <button class="link small" onClick=${() => setLines(lines.map((x, j) => (j === i ? { ...x, create_new: false } : x)))}>bỏ</button></small>`
         : html`<div class="stack tight">
           <button class="primary small" onClick=${() => setLines(lines.map((x, j) => (j === i ? { ...x, create_new: true, warn: '' } : x)))}>✅ OK, tạo mã mới "${l.name}" trong kho</button>
           <select onChange=${(e) => { const g = ingredients.find((x) => x.id === Number(e.target.value)); if (g) setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, warn: '' } : x))); }}>
             <option value="">…hoặc là hàng có sẵn trong kho (tên khác)</option>${ingredients.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>
-          <small class="muted">Hàng không cần theo dõi kho (ga, đá…) thì để nguyên.</small></div>`) : null}
+          <small class="muted">Đồ sửa quán, đồ dùng, tài sản: đổi loại ở ô trên (không cần mã kho).</small></div>`) : null}
     </div>`)}
     <div class="row wrap">
       <select onChange=${(e) => { const g = ingredients.find((x) => x.id === Number(e.target.value)); e.target.value = ''; if (g && !lines.some((l) => l.ingredient_id === g.id)) setLines([...lines, { ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, qty: '', price: g.price || '' }]); }}>
@@ -93,7 +111,7 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
         bill_qty: l.bill_qty, bill_unit: l.bill_unit, bill_price: l.bill_price, factor: l.factor,
         // Chưa biết quy đổi (bill ghi két, kho tính chai…): nhập đúng số trên bill, chủ quán quy đổi sau (chủ quán 28/10)
         ...(l.need_factor ? { unconv: true, unit: l.bill_unit, qty: String(l.bill_qty), price: String(l.bill_price) } : {}),
-        warn: !l.ingredient_id ? 'Chưa có trong kho' : '' }));
+        kind: l.kind || '', warn: !l.ingredient_id && !l.kind ? 'Chưa có trong kho' : '' }));
       setLines((cur) => (f.po_id ? cur.map((l) => { const g = got.find((x) => x.ingredient_id && x.ingredient_id === l.ingredient_id); return g ? { ...l, qty: g.qty, price: g.price, ai: true, warn: g.warn } : l; }).concat(got.filter((g) => !cur.some((l) => l.ingredient_id && l.ingredient_id === g.ingredient_id))) : got));
       // Khu nhận tự chọn theo "khu chính" của các mặt hàng trên bill (vd nước ngọt → Bar, gas → Bếp) (chủ quán 26/10)
       const votes = new Map();
@@ -113,7 +131,7 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
     setLines(po ? po.lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.purchase_unit || l.unit, qty: String(l.qty), price: String(l.price), ordered: l.qty })) : []);
   };
   const sum = lines.reduce((n, l) => n + Math.round(qtyNum(l.qty) * num(l.price)), 0);
-  const warns = lines.filter((l) => l.warn).length;
+  const warns = lines.filter((l) => l.warn && !l.kind).length;
   const ready = photos.length && (pre || goods.length) && lines.length && (f.supplier_id || f.supplier_name || f.po_id) && f.signer_name;
   const totNow = f.total === '' ? sum : num(f.total);
   const mismatch = f.total !== '' && Math.abs(sum - totNow) > Math.max(50000, totNow * 0.05);
@@ -138,7 +156,7 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
       ...f, store_id: Number(f.store_id), po_id: !pre && f.po_id ? Number(f.po_id) : undefined, // bill gửi trước: không theo đơn (rà soát 28/10) supplier_id: f.supplier_id ? Number(f.supplier_id) : undefined,
       advance_id: f.advance_id ? Number(f.advance_id) : undefined, paid_method: f.advance_id ? undefined : f.paid_method,
       total: f.total === '' ? undefined : num(f.total), photos, goods_photos: goods,
-      lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: qtyNum(l.qty), price: num(l.price), create_new: !l.ingredient_id && !!l.create_new, unconv: !!l.unconv })),
+      lines: lines.map((l) => ({ ingredient_id: l.kind ? undefined : l.ingredient_id, name: l.name, unit: l.unit, qty: qtyNum(l.qty), price: num(l.price), create_new: !l.kind && !l.ingredient_id && !!l.create_new, unconv: !!l.unconv, kind: l.kind || '', repair_id: l.repair_id || null })),
       conversions: lines.filter((l) => l.factor_changed && l.ingredient_id && l.bill_unit && l.factor > 0).map((l) => ({ ingredient_id: l.ingredient_id, bill_unit: l.bill_unit, factor: l.factor })),
     }), pre ? 'Đã lưu bill chờ nhận hàng. Bếp nhận hàng xong kho mới cộng' : 'Đã nhập kho. Thu ngân sẽ duyệt công nợ');
     const dupWarn = (r?.flags || []).filter((x) => /2 dòng khác giá/.test(x));
@@ -245,7 +263,7 @@ function EditBill({ b, onClose }) {
   const set = (i, k, v0) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: v0 } : l)));
   const sum = lines.reduce((n, l) => n + Math.round((Number(String(l.qty).replace(',', '.')) || 0) * (num(l.price) || 0)), 0);
   const save = async () => {
-    const r = await act(() => api('PATCH', `/api/purchases/${b.id}`, { total: num(total), lines: lines.map((l) => ({ id: l.id, ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: String(l.qty).replace(',', '.'), price: num(l.price), create_new: !l.ingredient_id && !!l.create_new })) }), 'Đã sửa bill');
+    const r = await act(() => api('PATCH', `/api/purchases/${b.id}`, { total: num(total), lines: lines.map((l) => ({ id: l.id, ingredient_id: l.kind ? undefined : l.ingredient_id, name: l.name, unit: l.unit, qty: String(l.qty).replace(',', '.'), price: num(l.price), create_new: !l.kind && !l.ingredient_id && !!l.create_new, kind: l.kind || '', repair_id: l.repair_id || null })) }), 'Đã sửa bill');
     if (r) onClose();
   };
   return html`<${Modal} title=${`Sửa bill ${b.supplier_name}`} onClose=${onClose} wide>
@@ -257,7 +275,8 @@ function EditBill({ b, onClose }) {
         <label class="row tight small"><input class="num-in" inputmode="decimal" value=${l.qty} onInput=${(e) => set(i, 'qty', e.target.value)} /> ${l.unit}</label>
         <label class="row tight small">× <input class="num-in wide" inputmode="numeric" value=${l.price} onInput=${(e) => set(i, 'price', e.target.value)} />đ</label>
         <small class="muted">= ${money(Math.round((Number(String(l.qty).replace(',', '.')) || 0) * (num(l.price) || 0)))}</small>
-        ${!l.ingredient_id ? (l.create_new
+        ${!l.ingredient_id || l.kind ? html`<select class="auto small" value=${l.kind || ''} onChange=${(e) => setLines(lines.map((x, j) => (j === i ? { ...x, kind: e.target.value, ...(e.target.value ? { ingredient_id: null, create_new: false } : {}) } : x)))}>${LINE_KIND.map(([k, t]) => html`<option value=${k}>${t}</option>`)}</select>` : null}
+        ${!l.ingredient_id && !l.kind ? (l.create_new
           ? html`<small class="ok-text" style="flex-basis:100%">✅ Lưu sẽ tạo mã mới trong kho: <b>${l.name}</b> (${l.unit || 'cái'}), cộng ${l.qty} vào kho · <button class="link small" onClick=${() => set(i, 'create_new', false)}>bỏ</button></small>`
           : html`<div class="stack tight" style="flex-basis:100%"><small class="warn-text">⚠ Chưa có trong kho</small>
             <button class="small primary" onClick=${() => set(i, 'create_new', true)}>✅ OK, tạo mã mới "${l.name}" trong kho</button>
@@ -504,7 +523,7 @@ export function PurchasesView({ me, query }) {
   // Công nợ NCC / Tạm ứng: theo Phân quyền (chủ quán tick từng người)
   const can = (k) => (Array.isArray(me.pages) ? me.pages.includes(`/mua-hang#${k}`) : k === 'congno' ? isCashier : true);
   const arriving = L.arriving || [];
-  const tabs = [...(canAct(me, 'mh.nhap') ? [['nhan', '📥 Nhập kho']] : []), ...(arriving.length || isCashier ? [['cho', `⏳ Chờ nhận hàng (${arriving.length})`]] : []), ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ...(L.limited ? [] : [['lichsu', 'Bill đã nhận']]), ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : []), ...(['manager', 'owner'].includes(me.role) ? [['quydoi', '⚖ Quy đổi']] : []), ...((me.real_role || me.role) === 'owner' ? [['sosanh', '💰 So sánh giá']] : [])];
+  const tabs = [...(canAct(me, 'mh.nhap') ? [['nhan', '📥 Nhập kho']] : []), ...(arriving.length || isCashier ? [['cho', `⏳ Chờ nhận hàng (${arriving.length})`]] : []), ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ...(L.limited ? [] : [['lichsu', 'Bill đã nhận']]), ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : []), ...(['manager', 'owner'].includes(me.role) ? [['quydoi', '⚖ Quy đổi']] : []), ...((me.real_role || me.role) === 'owner' ? [['sosanh', '💰 So sánh giá']] : []), ...(isCashier || atLeastRole(me, 'shift_lead') ? [['suachua', '🔧 Sửa chữa & chi phí']] : [])];
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/mua-hang?tab=${k}`)}>${l}</button>`)}</div>
     ${mineReturned.length && tab !== 'lichsu' ? html`<section class="card warn-card small">${mineReturned.length} bill bạn nhận bị thu ngân trả lại. <button class="small" onClick=${() => navigate('/mua-hang?tab=lichsu')}>Xem & sửa</button></section>` : null}
@@ -515,6 +534,45 @@ export function PurchasesView({ me, query }) {
     ${tab === 'cho' ? (arriving.length ? arriving.map((b) => html`<${ArriveCard} key=${b.id} b=${b} me=${me} />`) : html`<div class="empty">Không có bill nào chờ nhận hàng.</div>`) : null}
     ${tab === 'quydoi' && ['manager', 'owner'].includes(me.role) ? html`<${ConvTab} meta=${meta} />` : null}
     ${tab === 'sosanh' && (me.real_role || me.role) === 'owner' ? html`<${CompareTab} />` : null}
+    ${tab === 'suachua' ? html`<${RepairsTab} me=${me} />` : null}
     ${tab === 'tamung' && can('tamung') ? html`<${Advances} me=${me} isCashier=${isCashier} advances=${advances} />` : null}
+  </div>`;
+}
+
+const atLeastRole = (me, r) => ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'].indexOf(me.role) >= ['staff', 'team_lead', 'shift_lead', 'manager', 'owner'].indexOf(r);
+// 🔧 Sổ sửa chữa + chi phí tháng theo loại (chủ quán 30/10)
+function RepairsTab({ me }) {
+  const [month, setMonth] = useState(new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 7));
+  const d = useData(`/api/repairs?month=${month}`);
+  const [open, setOpen] = useState(null);
+  const [nw, setNw] = useState(null);
+  if (!d.data) return html`<${Loading} state=${d} />`;
+  const x = d.data;
+  const K = { stock: '🥩 Nhập kho (nguyên liệu)', repair: '🔧 Sửa chữa (vật tư)', tool: '🍽 Đồ dùng', asset: '🏷 Tài sản', other: '📦 Chi khác' };
+  const laborAll = x.repairs.reduce((n, r) => n + r.labor, 0);
+  return html`<div class="stack">
+    <div class="row wrap"><label>Tháng <input type="month" value=${month} onInput=${(e) => e.target.value && setMonth(e.target.value)} /></label></div>
+    <section class="card stack tight"><b>Chi mua hàng tháng ${month.slice(5)}/${month.slice(0, 4)} theo loại</b>
+      ${Object.entries(K).map(([k, t]) => html`<div class="row between"><span>${t}</span><b class="num">${money(x.by_kind[k] || 0)}</b></div>`)}
+      ${x.expenses.length ? html`<b class="small" style="margin-top:6px">Phiếu chi theo loại</b>${x.expenses.map((e) => html`<div class="row between small"><span>${e.category}</span><span class="num">${money(e.t)}</span></div>`)}` : null}
+      <small class="muted">Sửa chữa tháng này: vật tư ${money(x.by_kind.repair || 0)} + công thợ (phiếu chi gắn việc sửa) ${money(laborAll)}.${x.repair_unlinked ? ` Còn ${money(x.repair_unlinked)} vật tư chưa gắn việc sửa.` : ''}</small>
+    </section>
+    <div class="row between"><b>🔧 Sổ sửa chữa</b><button class="small primary" onClick=${() => setNw({ title: '', area: '', note: '' })}>＋ Việc sửa mới</button></div>
+    ${!x.repairs.length ? html`<div class="empty">Chưa có việc sửa nào trong tháng. Khi nhập bill đồ sửa quán, chọn loại 🔧 Sửa chữa và chọn / tạo việc sửa.</div>` : null}
+    ${x.repairs.map((r) => html`<section class="card stack tight" key=${r.id}>
+      <button class="link" style="text-align:left" onClick=${() => setOpen(open === r.id ? null : r.id)}><div class="row between wrap"><b>${r.status === 'done' ? '✅ ' : '🔧 '}${r.title}${r.area ? html` <small class="muted">· ${r.area}</small>` : ''}</b><b class="num">${money(r.total)}</b></div>
+        <small class="muted">${r.date.split('-').reverse().join('/')} · vật tư ${money(r.parts)} · công thợ ${money(r.labor)}${r.by_name ? ` · ${r.by_name}` : ''}</small></button>
+      ${open === r.id ? html`
+        ${r.note ? html`<small>${r.note}</small>` : null}
+        ${r.lines.length ? html`<b class="small">Vật tư (từ bill)</b>${r.lines.map((l) => html`<small>${l.name} × ${l.qty} ${l.unit} · <b>${money(l.amount)}</b> <span class="muted">· bill #${l.bill_id} ${l.supplier_name}</span></small>`)}` : null}
+        ${r.labor_list.length ? html`<b class="small">Công thợ (phiếu chi)</b>${r.labor_list.map((e) => html`<small>${e.date.split('-').reverse().join('/')} · ${e.note} · <b>${money(e.amount)}</b> <button class="link small" onClick=${() => act(() => api('PATCH', `/api/repairs/${r.id}`, { expense_id: e.id, unlink: true }), 'Đã bỏ gắn')}>bỏ</button></small>`)}` : null}
+        ${x.labor_free.length ? html`<select class="small" value="" onChange=${(e) => e.target.value && act(() => api('PATCH', `/api/repairs/${r.id}`, { expense_id: Number(e.target.value) }), 'Đã gắn công thợ')}><option value="">＋ Gắn phiếu chi công thợ…</option>${x.labor_free.map((e) => html`<option value=${e.id}>${e.date.slice(8)}/${e.date.slice(5, 7)} · ${money(e.amount)} · ${e.note}</option>`)}</select>` : null}
+        <div class="row tight"><button class="small" onClick=${() => act(() => api('PATCH', `/api/repairs/${r.id}`, { done: r.status !== 'done' }), r.status === 'done' ? 'Đã mở lại' : 'Đã xong')}>${r.status === 'done' ? '↩ Mở lại' : '✅ Sửa xong'}</button></div>` : null}
+    </section>`)}
+    ${nw ? html`<${Modal} title="＋ Việc sửa mới" onClose=${() => setNw(null)}><div class="stack">
+      <${Field} label="Sửa cái gì"><input value=${nw.title} placeholder="vd Quạt trần khu B, Bồn rửa bếp" onInput=${(e) => setNw({ ...nw, title: e.target.value })} /><//>
+      <${Field} label="Ở đâu"><input value=${nw.area} placeholder="vd Khu B, Bếp, Quầy bar" onInput=${(e) => setNw({ ...nw, area: e.target.value })} /><//>
+      <${Field} label="Ghi chú"><input value=${nw.note} placeholder="vd hư tụ, thợ Minh sửa" onInput=${(e) => setNw({ ...nw, note: e.target.value })} /><//>
+      <button class="primary" disabled=${!nw.title.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/repairs', nw), 'Đã tạo việc sửa')) setNw(null); }}>Tạo</button></div><//>` : null}
   </div>`;
 }

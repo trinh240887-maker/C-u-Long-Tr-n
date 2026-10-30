@@ -26,6 +26,8 @@ export default function (r, ctx) {
     created_by INTEGER, created_at INTEGER NOT NULL, approved_by INTEGER, approved_at INTEGER, decision_note TEXT NOT NULL DEFAULT ''
   );
   CREATE INDEX IF NOT EXISTS expenses_by_date ON expenses(date);`);
+  // Phiếu chi công thợ sửa chữa gắn vào Sổ sửa chữa (chủ quán 30/10)
+  if (!db.prepare('PRAGMA table_info(expenses)').all().some((c) => c.name === 'repair_id')) db.exec('ALTER TABLE expenses ADD COLUMN repair_id INTEGER');
   // Trả NCC bằng tiền mặt: lấy từ két hay tiền quản lý giữ (trước đây coi như từ két)
   if (!db.prepare('PRAGMA table_info(supplier_payments)').all().some((c) => c.name === 'source')) db.exec("ALTER TABLE supplier_payments ADD COLUMN source TEXT NOT NULL DEFAULT 'drawer'");
 
@@ -90,8 +92,9 @@ export default function (r, ctx) {
     const photo = `${date}-${crypto.randomBytes(6).toString('hex')}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
     fs.writeFileSync(path.join(photoDir, photo), buf);
     const pending = source === 'drawer' && amount > approveOver() && rank(me.role) < rank('shift_lead');
-    const id = Number(db.prepare('INSERT INTO expenses (date, amount, source, category, note, photo, status, created_by, created_at, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(date, amount, source, category, note, photo, pending ? 'pending' : 'done', me.id, ctx.now(), pending ? null : me.id, pending ? null : ctx.now()).lastInsertRowid);
+    const repairId = body.repair_id && db.prepare('SELECT 1 FROM repairs WHERE id = ?').get(Number(body.repair_id)) ? Number(body.repair_id) : null;
+    const id = Number(db.prepare('INSERT INTO expenses (date, amount, source, category, note, photo, status, created_by, created_at, approved_by, approved_at, repair_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(date, amount, source, category, note, photo, pending ? 'pending' : 'done', me.id, ctx.now(), pending ? null : me.id, pending ? null : ctx.now(), repairId).lastInsertRowid);
     const title = `${pending ? 'Duyệt chi' : 'Đã chi'} ${vnd(amount)}: ${category}`;
     ctx.notify((pending ? approvers() : bosses()).filter((x) => x !== me.id), { title, body: `${me.name} · ${SOURCES[source]} · ${note}`, link: '/chi', urgent: pending });
     ctx.audit(me, 'expense.create', { id, amount, source, category, pending });
