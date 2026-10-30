@@ -308,7 +308,7 @@ try { sessionStorage.removeItem('clt_retry'); } catch { /* bỏ qua */ }
   const open = (urls, i) => {
     close(); list = urls; idx = i;
     box = document.createElement('div');
-    box.className = 'pv';
+    box.className = 'photo-pv';
     box.innerHTML = '<img alt="Ảnh" /><button class="pv-x" aria-label="Đóng">✕</button><button class="pv-prev" aria-label="Ảnh trước">‹</button><button class="pv-next" aria-label="Ảnh sau">›</button><div class="pv-n"></div>';
     box.querySelector('.pv-x').onclick = close;
     box.querySelector('.pv-prev').onclick = (e) => { e.stopPropagation(); go(-1); };
