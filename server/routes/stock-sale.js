@@ -31,7 +31,10 @@ export default function (r, ctx) {
   const lowN = () => Number(ctx.setting('low_portions_alert') || 5);
   const mainStore = () => db.prepare("SELECT * FROM stores WHERE kind = 'main' AND active = 1 ORDER BY id LIMIT 1").get();
   const storeOf = (ing) => (ctx.setting('single_store') === '1' ? mainStore()?.id : ing.home_store_id || mainStore()?.id);
-  const recipe = (menuItemId) => db.prepare(`SELECT r.qty, g.* FROM menu_recipes r JOIN ingredients g ON g.id = r.ingredient_id WHERE r.item_id = ?`).all(menuItemId);
+  // Định lượng món; mã "pha 1 phần" (vd Ngăn nước lẩu = Pha 1 nồi trong sổ) → trừ thẳng cốt + nước dùng theo sổ (chủ quán 30/10; topping đã nằm trong định lượng món nên không trừ lại)
+  // Dòng tách ra mang via = mã gốc (để dự báo kế hoạch nấu không đếm 2 lần)
+  const recipe = (menuItemId) => db.prepare(`SELECT r.qty, g.* FROM menu_recipes r JOIN ingredients g ON g.id = r.ingredient_id WHERE r.item_id = ?`).all(menuItemId)
+    .flatMap((r) => { const parts = ctx.servingParts?.(r.id); return parts?.length ? parts.map((x) => ({ ...x, qty: x.qty * r.qty, via: r.id, via_qty: r.qty })) : [r]; });
   // Người cần biết món hết / sắp hết: chủ + quản lý luôn nhận; trưởng ca, tổ trưởng, phục vụ, tiếp thực, thu ngân chỉ khi ĐANG TRONG CA hôm nay (chủ quán 29/10)
   const kitchenAndService = () => db.prepare(`SELECT s.id FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.active = 1
     AND (s.role IN ('owner','manager') OR ((s.role IN ('shift_lead','team_lead') OR t.name IN ('Phục vụ','Tiếp thực','Thu ngân'))
@@ -45,7 +48,7 @@ export default function (r, ctx) {
   const usable = (g) => { const home = storeOf(g); const main = mainStore()?.id; return stockQty(db, home, g.id) + (main && main !== home ? stockQty(db, main, g.id) : 0); };
   // Số phần còn làm được = min(tồn dùng được / định lượng); null = món chưa có định lượng hoặc nguyên liệu chưa theo dõi
   ctx.portionsLeft = (menuItemId) => {
-    const rs = recipe(menuItemId).filter((g) => tracked(g.id));
+    const rs = recipe(menuItemId).filter((g) => !g.via && tracked(g.id)); // phần tách từ ngăn lẩu (cốt, nước dùng) không tự khoá món
     if (!rs.length) return null;
     return Math.max(0, Math.min(...rs.map((g) => Math.floor((usable(g) + 1e-9) / g.qty))));
   };
@@ -68,6 +71,7 @@ export default function (r, ctx) {
   // Lượng dùng chuẩn theo định lượng của món đã bán (đủ số, kể cả khi kho trên sổ không đủ để trừ) → báo cáo hao hụt
   db.exec('CREATE TABLE IF NOT EXISTS sale_usage (id INTEGER PRIMARY KEY, date TEXT NOT NULL, ingredient_id INTEGER NOT NULL, qty REAL NOT NULL, ref TEXT NOT NULL)');
   db.exec('CREATE INDEX IF NOT EXISTS sale_usage_by_date ON sale_usage(date)');
+  if (!db.prepare('PRAGMA table_info(sale_usage)').all().some((c) => c.name === 'via')) db.exec('ALTER TABLE sale_usage ADD COLUMN via INTEGER');
   ctx.consumeSale = (me, items, opts = {}) => {
     if (!enabled() && !opts.force) return [];
     const at = opts.at ?? ctx.now();
@@ -76,9 +80,12 @@ export default function (r, ctx) {
     const touched = new Set();
     for (const i of items) {
       if (!i.menu_item_id) continue;
+      const viaDone = new Set();
       for (const g of recipe(i.menu_item_id)) {
         const need = g.qty * i.qty;
-        if (need > 1e-9) db.prepare('INSERT INTO sale_usage (date, ingredient_id, qty, ref) VALUES (?, ?, ?, ?)').run(date, g.id, need, `sale:${i.id}`);
+        if (need > 1e-9) db.prepare('INSERT INTO sale_usage (date, ingredient_id, qty, ref, via) VALUES (?, ?, ?, ?, ?)').run(date, g.id, need, `sale:${i.id}`, g.via ?? null);
+        // Ghi cả số "ngăn" đã bán (không trừ kho) để dự báo số nồi tiếp tục liền mạch
+        if (g.via && !viaDone.has(g.via)) { viaDone.add(g.via); db.prepare('INSERT INTO sale_usage (date, ingredient_id, qty, ref) VALUES (?, ?, ?, ?)').run(date, g.via, g.via_qty * i.qty, `sale:${i.id}`); }
         // Lấy ở kho khu trước, thiếu thì lấy tiếp kho tổng
         const main = mainStore()?.id;
         let left = need;
@@ -95,7 +102,7 @@ export default function (r, ctx) {
           }
         }
         if (left > 1e-9 && live) ctx.whRecordShort?.(storeOf(g), g.id, left, `${i.name} ×${i.qty}: bán vượt tồn sổ`);
-        if (left > 1e-9 && tracked(g.id)) short.push({ ingredient: g.name, need: left, unit: g.unit, item: i.name });
+        if (left > 1e-9 && !g.via && tracked(g.id)) short.push({ ingredient: g.name, need: left, unit: g.unit, item: i.name });
       }
       touched.add(i.menu_item_id);
     }
@@ -146,7 +153,7 @@ export default function (r, ctx) {
     }
     for (const u of db.prepare('SELECT * FROM sale_usage WHERE ref = ?').all(from)) {
       db.prepare('UPDATE sale_usage SET qty = ? WHERE id = ?').run(u.qty * (1 - f), u.id);
-      db.prepare('INSERT INTO sale_usage (date, ingredient_id, qty, ref) VALUES (?, ?, ?, ?)').run(u.date, u.ingredient_id, u.qty * f, to);
+      db.prepare('INSERT INTO sale_usage (date, ingredient_id, qty, ref, via) VALUES (?, ?, ?, ?, ?)').run(u.date, u.ingredient_id, u.qty * f, to, u.via ?? null);
     }
   };
 
@@ -160,7 +167,7 @@ export default function (r, ctx) {
       if (!m || !m.active) continue;
       if (left === 0 && !m.sold_out) {
         db.prepare('UPDATE menu_items SET sold_out = 1, auto_sold_out = 1 WHERE id = ?').run(id);
-        const miss = recipe(id).filter((g) => tracked(g.id) && usable(g) + 1e-9 < g.qty).map((g) => g.name);
+        const miss = recipe(id).filter((g) => !g.via && tracked(g.id) && usable(g) + 1e-9 < g.qty).map((g) => g.name);
         changed.out.push(`${m.name}${miss.length ? ` (hết ${miss.join(', ')})` : ''}`);
       }
       else if (left > 0 && m.sold_out && m.auto_sold_out) { db.prepare('UPDATE menu_items SET sold_out = 0, auto_sold_out = 0 WHERE id = ?').run(id); changed.back.push(`${m.name} (${left} phần)`); }

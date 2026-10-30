@@ -360,13 +360,30 @@ export default function (r, ctx) {
     return { made, linked };
   }
   ctx.linkPrepChain = linkChain;
+  // Mã "pha 1 phần" bán ra → phần trừ kho thật: dòng có mã kho, bỏ Topping (đã có trong định lượng món), đổi đơn vị sổ → đơn vị kho
+  const partsCache = { at: 0, map: new Map() };
+  ctx.servingParts = (ingId) => {
+    if (ctx.setting('sale_expand_preps') === '0') return null;
+    if (Date.now() - partsCache.at > 5000) { partsCache.map = new Map(); partsCache.at = Date.now(); }
+    if (partsCache.map.has(ingId)) return partsCache.map.get(ingId);
+    const p = db.prepare("SELECT * FROM preps WHERE active = 1 AND kind = 'serving' AND output_ingredient_id = ? ORDER BY id LIMIT 1").get(ingId);
+    let parts = null;
+    if (p) {
+      parts = db.prepare('SELECT l.*, g.id AS gid FROM prep_lines l JOIN ingredients g ON g.id = l.ingredient_id WHERE l.prep_id = ? AND l.qty > 0 AND (l.unit_price > 0 OR l.sub_prep_id IS NOT NULL)').all(p.id)
+        .filter((l) => !/^\s*topping/i.test(l.name) && l.gid !== ingId)
+        .map((l) => { const g = ingOf(l.gid); const f = conv(l.unit, g.unit); return f == null ? null : { ...g, qty: r3(l.qty * f) }; }).filter(Boolean);
+      if (!parts.length) parts = null;
+    }
+    partsCache.map.set(ingId, parts);
+    return parts;
+  };
   if (!ctx.setting('preps_chain_v1')) { try { linkChain(); } catch (e) { console.error('Nối chuỗi bán thành phẩm lỗi:', e.message); } ctx.setSetting('preps_chain_v1', '1'); }
 
   const PLAN_DAYS = 3;
   const usageOf = (ingId, before) => {
     const from = addDays(before, -35);
     const rows = db.prepare(`SELECT date, SUM(q) AS q FROM (
-        SELECT date, qty AS q FROM sale_usage WHERE ingredient_id = ? AND date >= ? AND date < ?
+        SELECT date, qty AS q FROM sale_usage WHERE ingredient_id = ? AND date >= ? AND date < ? AND via IS NULL
         UNION ALL SELECT date, qty AS q FROM stock_moves WHERE ingredient_id = ? AND type = 'consume' AND ref LIKE 'prep:%' AND date >= ? AND date < ?
       ) GROUP BY date`).all(ingId, from, before, ingId, from, before);
     return new Map(rows.map((x) => [x.date, x.q]));

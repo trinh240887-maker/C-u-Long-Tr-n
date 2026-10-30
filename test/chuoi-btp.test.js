@@ -54,4 +54,22 @@ test('chuỗi bán thành phẩm: nồi lẩu bán → cốt + nước dùng c�
   const s1 = it(cot.id);
   assert.ok(s1.lines.length > 10);
   assert.ok(s1.steps.some((s) => s.uses.some((u) => /Gừng/.test(u.name))));
+
+  // Bán 2 phần lẩu Mala (định lượng: 1 ngăn + 10 g hành lá topping) → trừ 2 × (125 g cốt + 875 ml nước dùng heo), không trừ ngăn / topping của sổ
+  const main = db.prepare("SELECT id FROM stores WHERE kind = 'main' ORDER BY id LIMIT 1").get().id;
+  const hanh = Number(db.prepare("INSERT INTO ingredients (name, unit, purchase_unit, purchase_factor, price) VALUES ('Hành lá test', 'g', 'g', 1, 0)").run().lastInsertRowid);
+  for (const id of [cot.output_ingredient_id, heo.output_ingredient_id, hanh]) db.prepare('INSERT INTO stock_lots (store_id, ingredient_id, qty, received_at) VALUES (?, ?, 10000, 0)').run(main, id);
+  const lau = Number(db.prepare("INSERT INTO menu_items (name, price) VALUES ('Lẩu Mala Tứ Xuyên', 300000)").run().lastInsertRowid);
+  db.prepare('INSERT INTO menu_recipes (item_id, ingredient_id, qty) VALUES (?, ?, 1), (?, ?, 10)').run(lau, ngan, lau, hanh);
+  app.ctx.consumeSale(null, [{ id: 9001, menu_item_id: lau, qty: 2, name: 'Lẩu Mala Tứ Xuyên' }]);
+  const left = (id) => db.prepare('SELECT COALESCE(SUM(qty), 0) AS q FROM stock_lots WHERE ingredient_id = ?').get(id).q;
+  assert.equal(left(cot.output_ingredient_id), 10000 - 250);
+  assert.equal(left(heo.output_ingredient_id), 10000 - 1750);
+  assert.equal(left(hanh), 10000 - 20, 'topping theo định lượng món');
+  // Dự báo vẫn đếm theo số ngăn bán; cốt không đếm thêm phần tách ra
+  assert.equal(db.prepare("SELECT SUM(qty) AS q FROM sale_usage WHERE ingredient_id = ? AND ref = 'sale:9001'").get(ngan).q, 2);
+  assert.equal(db.prepare("SELECT via FROM sale_usage WHERE ingredient_id = ? AND ref = 'sale:9001'").get(cot.output_ingredient_id).via, ngan);
+  // Huỷ món → trả lại kho
+  app.ctx.restoreSale(null, { id: 9001, menu_item_id: lau, name: 'Lẩu Mala Tứ Xuyên' });
+  assert.equal(left(cot.output_ingredient_id), 10000);
 });
