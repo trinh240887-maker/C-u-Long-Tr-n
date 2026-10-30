@@ -916,3 +916,6 @@ button.zt-sel { max-width: none; overflow: visible; text-overflow: clip; white-s
 .pv .pv-prev { left: 10px; top: 50%; transform: translateY(-50%); }
 .pv .pv-next { right: 10px; top: 50%; transform: translateY(-50%); }
 .pv .pv-n { position: absolute; bottom: 18px; left: 0; right: 0; text-align: center; color: #fff; font-size: 15px; }
+
+.stock-cat { margin: 10px 0 2px; color: var(--accent, #9a3412); }
+.stock-list .stock-cat { grid-column: 1 / -1; }

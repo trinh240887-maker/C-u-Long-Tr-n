@@ -27,9 +27,12 @@ function Overview() {
   const [store, setStore] = useState('all');
   const [filter, setFilter] = useState('');
   const [q, setQ] = useState('');
+  const [cat, setCat] = useState('');
   if (!st.data) return html`<${Loading} state=${st} />`;
   const d = st.data;
+  const catName = (k) => (d.cats || []).find((c) => c.key === k)?.label || 'Khác';
   let items = d.items;
+  if (cat) items = items.filter((i) => i.cat === cat);
   if (store !== 'all') items = items.filter((i) => (i.stock[store] || 0) > 0 || String(i.home_store_id) === store || (store === String(d.stores.find((s) => s.kind === 'main')?.id)));
   if (filter === 'warn') items = items.filter((i) => i.status !== 'ok');
   if (filter === 'exp') items = items.filter((i) => i.expiring.length);
@@ -47,7 +50,9 @@ function Overview() {
       <button class=${`chip ${filter === 'warn' ? 'on' : ''}`} onClick=${() => setFilter('warn')}>Hết / sắp hết (${nWarn})</button>
       <button class=${`chip ${filter === 'exp' ? 'on' : ''}`} onClick=${() => setFilter('exp')}>Sắp hết hạn (${nExp})</button>
     </div>
-    ${items.length ? html`<div class="stock-list">${items.map((i) => html`<section class=${`card stock-row ${i.status}`}>
+    <div class="chips small-chips"><button class=${`chip ${!cat ? 'on' : ''}`} onClick=${() => setCat('')}>Mọi nhóm kho</button>
+      ${(d.cats || []).filter((c) => d.items.some((i) => i.cat === c.key)).map((c) => html`<button class=${`chip ${cat === c.key ? 'on' : ''}`} onClick=${() => setCat(c.key)}>${c.label} <small>${d.items.filter((i) => i.cat === c.key).length}</small></button>`)}</div>
+    ${items.length ? html`<div class="stock-list">${[...items].sort((a, b) => (d.cats || []).findIndex((c) => c.key === a.cat) - (d.cats || []).findIndex((c) => c.key === b.cat)).map((i, k, arr) => html`${k === 0 || arr[k - 1].cat !== i.cat ? html`<h4 class="stock-cat">📦 ${catName(i.cat)}</h4>` : null}<section class=${`card stock-row ${i.status}`}>
       <div class="row between"><b>${i.name}</b><span class=${`pill ${STATUS[i.status][1]}`}>${STATUS[i.status][0]}</span></div>
       <div class="row between small">
         <span>Còn <b>${qty(i.available, i.unit)}</b>${i.days_left !== null ? html` <span class="muted">· đủ ~${Math.floor(i.days_left * 10) / 10} ngày</span>` : null}</span>
@@ -419,6 +424,19 @@ function IngForm({ init, meta, onClose }) {
   <//>`;
 }
 
+// Danh sách nhóm kho: đổi tên, thêm, bớt (chủ quán 30/10)
+function CatEditor({ cats }) {
+  const [list, setList] = useState(null);
+  const cur = list || cats;
+  const set = (k, label) => setList(cur.map((c, j) => (j === k ? { ...c, label } : c)));
+  return html`<section class="card stack tight"><details><summary><b>📦 Nhóm kho (${cats.length})</b> <small class="muted">bò nhập khẩu, bò tươi, topping… · bấm để sửa</small></summary>
+    ${cur.map((c, k) => html`<div class="row tight" style="margin-top:4px"><input class="grow" value=${c.label} onInput=${(e) => set(k, e.target.value)} />
+      <button class="small" onClick=${() => confirm(`Bỏ nhóm "${c.label}"? Hàng trong nhóm sẽ để app tự xếp lại.`) && setList(cur.filter((_, j) => j !== k))}>✕</button></div>`)}
+    <div class="row tight" style="margin-top:6px"><button class="small" onClick=${() => setList([...cur, { key: '', label: 'Nhóm mới' }])}>+ Thêm nhóm</button>
+      ${list ? html`<button class="primary small" onClick=${async () => { if (await act(() => api('PUT', '/api/stock/cats', { cats: cur }), 'Đã lưu nhóm kho')) setList(null); }}>Lưu</button><button class="small" onClick=${() => setList(null)}>Huỷ</button>` : null}</div>
+  </details></section>`;
+}
+
 function Setup({ meta }) {
   const [edit, setEdit] = useState(null);
   const [sup, setSup] = useState({ name: '', phone: '' });
@@ -438,10 +456,15 @@ function Setup({ meta }) {
         <input id="sp-phone" class="auto" placeholder="SĐT / Zalo" value=${sup.phone} onInput=${(e) => setSup({ ...sup, phone: e.target.value })} />
         <button class="primary" disabled=${!sup.name.trim()} onClick=${async () => { if (await act(() => api('POST', '/api/stock/suppliers', sup), 'Đã thêm NCC')) setSup({ name: '', phone: '' }); }}>Thêm</button></div>
     </section>
+    <${CatEditor} cats=${meta.cats || []} />
     <section class="card">
       <div class="row between"><h3>Nguyên liệu (${meta.ingredients.length})</h3><button class="primary" onClick=${() => setEdit({})}>+ Thêm</button></div>
-      ${meta.ingredients.map((i) => html`<button class=${`tpl-row ${i.active ? '' : 'off'}`} onClick=${() => setEdit(i)}>
-        <b class="grow">${i.name}</b><span class="muted small">${FRESH[i.freshness]} · ${i.home_name || 'Kho chung'} · ${money(i.price)}/${i.purchase_unit}</span></button>`)}
+      <small class="muted">Nhóm kho chọn ở ô bên phải mỗi dòng. <i>(tự)</i> = app tự xếp theo tên / món dùng, chọn lại nếu sai.</small>
+      ${(meta.cats || []).map((c) => { const list = meta.ingredients.filter((i) => i.cat_eff === c.key); return list.length ? html`<h4 class="stock-cat">📦 ${c.label} <small class="muted">${list.length}</small></h4>
+        ${list.map((i) => html`<div class=${`row tight ${i.active ? '' : 'off'}`} style="align-items:center;border-top:1px solid var(--line);padding:4px 0">
+          <button class="link grow" style="text-align:left" onClick=${() => setEdit(i)}><b>${i.name}</b><br /><span class="muted small">${FRESH[i.freshness]} · ${money(i.price)}/${i.purchase_unit}${i.used_for?.length ? ` · 🍽 ${usedText(i.used_for)}` : ''}</span></button>
+          <select class="auto small" value=${i.cat_auto ? '' : i.cat_eff} onChange=${(e) => act(() => api('POST', '/api/stock/ingredients/cat', { id: i.id, cat: e.target.value || null }), 'Đã đổi nhóm')}>
+            <option value="">(tự) ${c.label}</option>${(meta.cats || []).map((x) => html`<option value=${x.key}>${x.label}</option>`)}</select></div>`)}` : null; })}
     </section>
     ${edit ? html`<${IngForm} init=${edit} meta=${meta} onClose=${() => setEdit(null)} />` : null}
   </div>`;

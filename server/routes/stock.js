@@ -88,6 +88,62 @@ export default function (r, ctx) {
   }
   const ingKindOf = (i) => (['finished', 'material', 'supply'].includes(i.kind) ? i.kind : autoKind(i.id, i.name));
   ctx.ingKind = ingKindOf;
+
+  // ---------- Nhóm kho theo LOẠI HÀNG (chủ quán 30/10) ----------
+  // Hàng dùng chung (bò cho cả steak lẫn lẩu) xếp theo loại hàng; ai dùng thì xem "Dùng cho". Danh sách nhóm sửa được (setting ing_cats)
+  const CATS_DEFAULT = [['bo_nk', 'Bò nhập khẩu'], ['bo_tuoi', 'Bò tươi'], ['thit', 'Thịt khác & hải sản'], ['steak', 'Nguyên liệu steak'], ['lau', 'Nguyên liệu lẩu'],
+    ['topping', 'Topping lẩu'], ['nuong', 'Nguyên liệu xiên nướng'], ['rau', 'Rau củ'], ['phache', 'Nguyên liệu pha chế'], ['douong', 'Đồ uống đóng chai'], ['kho', 'Gia vị & đồ khô chung'], ['dodung', 'Đồ dùng / vật tư']]
+    .map(([key, label]) => ({ key, label }));
+  if (!db.prepare('PRAGMA table_info(ingredients)').all().some((c) => c.name === 'cat')) db.exec('ALTER TABLE ingredients ADD COLUMN cat TEXT');
+  const cats = () => { try { const x = JSON.parse(ctx.setting('ing_cats') || 'null'); if (Array.isArray(x) && x.length) return x; } catch { /* mặc định */ } return CATS_DEFAULT; };
+  const BO_NK_RE = /(aukobe|wagyu|kobe|angus|ribeye|striploin|tomahawk|t-bone|tenderloin|(bò|bo)\s.*(mỹ|úc|nhật|nhập|canada|new zealand|nz))/i;
+  const BO_RE = /(^|\s)(bò|gầu|gù|nạm|thăn|đùi bò|bắp bò|lõi|nạc vai|diềm)(?=\s|$|[,.()/-])/i;
+  const THIT_RE = /(^|\s)(heo|lợn|gà|vịt|ngan|tôm|mực|cá|ngao|nghêu|sò|hàu|ốc|cua|ghẹ|sườn|ba rọi|chân giò|xương|mỡ|lòng|dồi|xúc xích|thịt)(?=\s|$|[,.()/-])/i;
+  const TOPPING_RE = /(viên|đậu hũ|đậu phụ|tàu hũ|tàu hủ|váng đậu|mì|miến|bún|phở|hủ tiếu|há cảo|sủi cảo|chả|phô mai|trứng|bánh|khoai môn|nấm kim|nấm)/i;
+  const DRINK_RE = /(bia|heineken|tiger|sài gòn|saigon|333|larue|budweiser|coca|pepsi|7 ?up|sprite|fanta|sting|redbull|red bull|nước suối|nước ngọt|soju|rượu|vang|trà xanh 0|c2|number one|aquafina|lavie|nước ép đóng|\slon\s|\slon$|chai \d+ ?ml)/i;
+  const PHACHE_RE = /(cà phê|cafe|coffee|trà|syrup|siro|sữa|kem béo|whipping|bột pha|đá viên|chanh dây|matcha|cacao|topping trà)/i;
+  const SUPPLY_RE = /(ly nhựa|ống hút|nắp ly|túi |túi$|que xiên|vật tư|hộp xốp|khăn|giấy|găng|màng bọc|bao tay|than |gas)/i;
+  const LAU_RE = /(ngăn nước lẩu|cốt lẩu|nước lẩu|nước dùng|chén nước chấm|nước chấm)/i;
+  const NUONG_RE = /(xiên|sốt ướp|bột rắc|bột chấm|dầu quét)/i;
+  const autoCat = (i) => {
+    const n = ` ${String(i.name || '').normalize('NFC')}`;
+    if (ingKindOf(i) === 'supply' || SUPPLY_RE.test(n)) return 'dodung';
+    if (BO_NK_RE.test(n)) return 'bo_nk';
+    if (LAU_RE.test(n)) return 'lau';
+    if (NUONG_RE.test(n)) return 'nuong';
+    if (BO_RE.test(n) && !/viên/i.test(n)) return 'bo_tuoi';
+    if (DRINK_RE.test(n) && !/vật tư/i.test(n)) return 'douong';
+    const st = groupByStation(i.id);
+    if (st === 'bar' || /siro|syrup|sirup/i.test(n)) return 'phache';
+    if (isVeg(i) || /bắp mỹ|bắp ngọt|bắp hoa/i.test(n)) return 'rau';
+    if (THIT_RE.test(n) && !/viên|chả/i.test(n)) return 'thit';
+    if (PHACHE_RE.test(n) && !st) return 'phache';
+    if (st === 'topping') return TOPPING_RE.test(n) ? 'topping' : 'lau';
+    if (st === 'bep') return 'steak';
+    if (TOPPING_RE.test(n)) return 'topping';
+    return 'kho';
+  };
+  const ingCatOf = (i) => (i.cat && cats().some((c) => c.key === i.cat) ? i.cat : autoCat(i));
+  ctx.ingCat = ingCatOf;
+  r.put('/api/stock/cats', 'manager', ({ me, body }) => {
+    const list = (Array.isArray(body.cats) ? body.cats : []).slice(0, 40).map((c, k) => ({ key: String(c.key || '').trim().slice(0, 20) || `nhom${Date.now().toString(36)}${k}`, label: v.text(c.label, { name: 'Tên nhóm', required: true, max: 40 }) }));
+    if (!list.length) fail(400, 'Cần ít nhất 1 nhóm');
+    if (new Set(list.map((c) => c.key)).size !== list.length) fail(400, 'Mã nhóm trùng');
+    ctx.setSetting('ing_cats', JSON.stringify(list));
+    ctx.audit(me, 'stock.cats', list.map((c) => c.label).join(', '));
+    ctx.broadcast('stock');
+    return { ok: true, cats: list };
+  });
+  // Đổi nhóm 1 hoặc nhiều nguyên liệu (cat = null → app tự xếp)
+  r.post('/api/stock/ingredients/cat', 'manager', ({ me, body }) => {
+    const ids = (Array.isArray(body.ids) ? body.ids : [body.id]).map(Number).filter((x) => Number.isInteger(x) && x > 0).slice(0, 500);
+    const cat = body.cat ? String(body.cat) : null;
+    if (cat && !cats().some((c) => c.key === cat)) fail(400, 'Nhóm không tồn tại');
+    const n = ids.reduce((k, id) => k + db.prepare('UPDATE ingredients SET cat = ? WHERE id = ?').run(cat, id).changes, 0);
+    ctx.audit(me, 'ingredient.cat', { ids, cat });
+    ctx.broadcast('stock');
+    return { ok: true, n };
+  });
   ctx.lossPct = (i) => (i.loss_pct != null ? i.loss_pct : ingKindOf(i) === 'finished' ? 0 : Number(ctx.setting('loss_pct_default') || 2));
   // Gộp 1 kho chung (chủ quán 28/10: bỏ chia khu, bỏ xin lĩnh): chuyển hàng các kho khu về Kho tổng, bật chế độ 1 kho
   if (!ctx.setting('kho_chung_v1') && ctx.setting('wh_live') !== '1') {
@@ -177,10 +233,10 @@ export default function (r, ctx) {
         home_store_id: i.home_store_id, home_name: i.home_name || 'Kho chung', supplier_id: i.eff_supplier_id, supplier_name: i.supplier_name || '',
         purchase_unit: i.purchase_unit, purchase_factor: i.purchase_factor, price: i.price, min_stock: i.min_stock,
         stock: per, total, available, expiring: exp, forecast_tomorrow: f.qty, avg_daily: f.avg, basis: f.basis,
-        days_left: f.avg > 0 ? r3(available / f.avg) : null, status, used_for: use.get(i.id) || [],
+        days_left: f.avg > 0 ? r3(available / f.avg) : null, status, used_for: use.get(i.id) || [], cat: ingCatOf(i),
       };
     });
-    return { today: t, tomorrow, stores: sts, items };
+    return { today: t, tomorrow, stores: sts, items, cats: cats() };
   }
 
   r.get('/api/stock/overview', 'staff', () => overview());
@@ -193,9 +249,9 @@ export default function (r, ctx) {
       // "Dùng cho" (chủ quán 30/10): nguyên liệu này nằm trong định lượng món nào → hiện lúc nhập hàng / tồn kho
       ingredients: (() => {
         const use = usedForMap();
-        return ingredients({ all: rank(me.role) >= rank('manager') }).map((i) => ({ ...i, kind_eff: ingKindOf(i), kind_auto: !i.kind, group_eff: ingGroupOf(i), group_auto: !GROUP_LABEL[i.count_group], used_for: use.get(i.id) || [] }));
+        return ingredients({ all: rank(me.role) >= rank('manager') }).map((i) => ({ ...i, kind_eff: ingKindOf(i), kind_auto: !i.kind, group_eff: ingGroupOf(i), group_auto: !GROUP_LABEL[i.count_group], used_for: use.get(i.id) || [], cat_eff: ingCatOf(i), cat_auto: !i.cat || !cats().some((c) => c.key === i.cat) }));
       })(),
-      groups: GROUP_LABEL, group_staff: groupStaff(), my_groups: myGroups(me),
+      groups: GROUP_LABEL, group_staff: groupStaff(), my_groups: myGroups(me), cats: cats(),
       staff_names: Object.fromEntries([...new Set(Object.values(groupStaff()).flat())].map((id) => [id, db.prepare('SELECT name FROM staff WHERE id = ?').get(id)?.name || ''])),
       is_holder: isHolder(me),
       holder_id: holderId() || null,
@@ -224,7 +280,7 @@ export default function (r, ctx) {
     const moves = db.prepare('SELECT * FROM stock_moves WHERE date BETWEEN ? AND ? ORDER BY at').all(from, to);
     const tol = Number(ctx.setting('count_tolerance_pct') || 3);
     const rows = new Map();
-    for (const g of ings) rows.set(g.id, { id: g.id, name: g.name, unit: g.unit, group: g.freshness === 'dry' ? 'thuong' : 'tuoi', nhap: 0, dcnhap: 0, ban: 0, xuat: 0, huy: 0, lech: 0, lech_tien: 0, nhap_tien: 0, recipe: hasRecipe(g.id), active: !!g.active, ing: g });
+    for (const g of ings) rows.set(g.id, { id: g.id, name: g.name, unit: g.unit, group: ingCatOf(g), nhap: 0, dcnhap: 0, ban: 0, xuat: 0, huy: 0, lech: 0, lech_tien: 0, nhap_tien: 0, recipe: hasRecipe(g.id), active: !!g.active, ing: g });
     for (const m of moves) {
       const r = rows.get(m.ingredient_id); const k = kindOf(m);
       if (!r || !k) continue;
@@ -250,8 +306,9 @@ export default function (r, ctx) {
     const sortRows = (a, b) => Number(b.over) - Number(a.over) || Math.abs(b.lech_tien) - Math.abs(a.lech_tien) || a.name.localeCompare(b.name);
     const group = (k) => out.filter((x) => x.group === k).sort(sortRows);
     const sum = (list) => ({ nhap_tien: list.reduce((n, x) => n + x.nhap_tien, 0), lech_tien: list.reduce((n, x) => n + x.lech_tien, 0), gia_tri_cuoi: list.reduce((n, x) => n + x.gia_tri_cuoi, 0), over: list.filter((x) => x.over).length });
-    const tuoi = group('tuoi'); const thuong = group('thuong');
-    return { from, to, tolerance: tol, groups: [{ key: 'tuoi', name: 'Đồ tươi (thịt, rau, topping lạnh…)', rows: tuoi, total: sum(tuoi) }, { key: 'thuong', name: 'Đồ bình thường (khô, đồ uống, gas, vật dụng…)', rows: thuong, total: sum(thuong) }] };
+    // Chia theo nhóm kho (loại hàng), nhóm không có phát sinh thì ẩn
+    const gs = cats().map((c) => ({ key: c.key, name: c.label, rows: group(c.key) })).filter((g) => g.rows.length).map((g) => ({ ...g, total: sum(g.rows) }));
+    return { from, to, tolerance: tol, groups: gs };
   }
   const nxtRange = (query) => {
     const to = query.get('to') || today();
@@ -268,7 +325,7 @@ export default function (r, ctx) {
   r.get('/api/stock/nxt.xlsx', 'manager', ({ me, query }) => {
     const x = nxt(...nxtRange(query));
     const head = ['Nguyên liệu', 'Đơn vị', 'Tồn đầu', 'Nhập', 'Huỷ/sửa phiếu nhập', 'Bán theo định lượng', 'Xuất dùng', 'Huỷ', 'Tồn sổ', 'Tồn thực tế', 'Lệch', 'Lệch %', 'Tiền lệch', 'Giá trị tồn'];
-    const sheets = x.groups.map((g) => ({ name: g.key === 'tuoi' ? 'Đồ tươi' : 'Đồ bình thường', rows: [head, ...g.rows.map((r) => [r.name, r.unit, r.dau, r.nhap, r.dcnhap, r.ban, r.xuat, r.huy, r.so, r.cuoi, r.lech, r.lech_pct ?? '', r.lech_tien, r.gia_tri_cuoi]), ['Tổng', '', '', '', '', '', '', '', '', '', '', '', g.total.lech_tien, g.total.gia_tri_cuoi]] }));
+    const sheets = x.groups.map((g) => ({ name: g.name.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31), rows: [head, ...g.rows.map((r) => [r.name, r.unit, r.dau, r.nhap, r.dcnhap, r.ban, r.xuat, r.huy, r.so, r.cuoi, r.lech, r.lech_pct ?? '', r.lech_tien, r.gia_tri_cuoi]), ['Tổng', '', '', '', '', '', '', '', '', '', '', '', g.total.lech_tien, g.total.gia_tri_cuoi]] }));
     ctx.audit(me, 'stock.nxt.xlsx', `${x.from}..${x.to}`);
     return { __binary: makeXlsx(sheets), type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename: `nhap-xuat-ton_${x.from}_${x.to}.xlsx` };
   });

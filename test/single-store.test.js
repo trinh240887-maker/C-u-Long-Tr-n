@@ -55,15 +55,15 @@ test('chạy 1 kho: nhập vào Kho tổng, bán trừ Kho tổng theo định l
   assert.equal((await o('POST', '/api/stock/count', { store_id: S['Kho Lẩu'], lines: [{ ingredient_id: bap, actual: 8700 }] })).status, 200);
   assert.equal(Math.round(at(main, bap)), 8700);
   assert.match(db.prepare("SELECT note FROM stock_moves WHERE type = 'waste' AND ingredient_id = ? ORDER BY id DESC").get(bap).note, /Lệch định lượng/);
-  // Báo cáo Nhập – Xuất – Tồn chung: bò ở Đồ tươi, gas ở Đồ bình thường
+  // Báo cáo Nhập – Xuất – Tồn chung, chia theo nhóm kho (loại hàng, chủ quán 30/10)
   const x = (await o('GET', '/api/stock/nxt')).data;
-  const row = (g, id) => x.groups.find((k) => k.key === g).rows.find((r) => r.id === id);
-  const b = row('tuoi', bap);
+  const row = (g, id) => x.groups.flatMap((k) => k.rows).find((r) => r.id === id);
+  const b = row(null, bap);
   assert.deepEqual([b.dau, b.nhap, b.ban, b.xuat, b.lech, b.so, b.cuoi], [0, 10000, 1000, 0, -300, 9000, 8700]);
   assert.equal(b.lech_pct, -30);
   assert.ok(b.over);
   assert.ok(b.lech_tien < 0);
-  const g = row('thuong', gas);
+  const g = row(null, gas);
   assert.deepEqual([g.nhap, g.xuat, g.cuoi], [24, 6, 18]);
   assert.equal((await o('GET', `/api/stock/nxt/${bap}`)).data.filter((m) => m.kind === 'ban').length, 1);
   const xl = await fetch(base + '/api/stock/nxt.xlsx', { headers: { cookie } });
