@@ -1,0 +1,61 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { openDb, DEFAULT_OWNER_PIN } from '../server/db.js';
+import { createApp } from '../server/app.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+test('việc bếp theo công đoạn: sơ chế gộp mọi mẻ (bỏ đồ mua sẵn), cân khay, nấu chờ khay, đóng gói; giao / nhận / xong + học phút; chỉ người làm thấy chi tiết', async (t) => {
+  const db = openDb(':memory:');
+  db.prepare("INSERT INTO ingredients (name, unit, purchase_unit, purchase_factor, price) VALUES ('Tỏi', 'g', 'g', 1, 50), ('Gừng tươi', 'g', 'g', 1, 40), ('Hành tây', 'g', 'g', 1, 20)").run();
+  const app = createApp({ db, publicDir: path.join(here, '..', 'public'), zaloTransport: { send: async () => {} } });
+  const server = http.createServer(app.handler);
+  await new Promise((r) => server.listen(0, r));
+  t.after(() => new Promise((r) => { app.close(); server.close(r); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let cookie;
+  const o = async (method, url, body) => { const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: method !== 'GET' ? JSON.stringify(body ?? {}) : undefined }); const c = res.headers.get('set-cookie'); if (c) cookie = c.split(';')[0]; return { status: res.status, data: await res.json().catch(() => null) }; };
+  await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
+  await o('POST', '/api/me/pin', { current_pin: DEFAULT_OWNER_PIN, new_pin: '582914' });
+  assert.equal(db.prepare("SELECT pre_done FROM ingredients WHERE name = 'Tỏi'").get().pre_done, 1, 'tỏi băm mua sẵn');
+  const preps = (await o('GET', '/api/preps')).data.preps;
+  const cot = preps.find((p) => p.name === 'Cốt Tứ Xuyên'), s1 = preps.find((p) => /^S1 — SỐT/.test(p.name));
+  await o('PUT', '/api/preps/plan', { prep_id: cot.id, batches: 1 });
+  await o('PUT', '/api/preps/plan', { prep_id: s1.id, batches: 2 });
+  let v = (await o('GET', '/api/preps/tasks')).data;
+  const titles = v.tasks.map((x) => x.title);
+  assert.ok(!titles.some((x) => /Băm Tỏi/.test(x)), 'không băm tỏi (mua sẵn)');
+  const gung = v.tasks.find((x) => x.layer === 'prep' && /Gừng/.test(x.title));
+  assert.ok(gung, titles.join(' | '));
+  assert.ok(v.tasks.some((x) => /^Băm Gừng/.test(x.title)) && v.tasks.some((x) => /^Đập dập Gừng/.test(x.title)), 'gừng: băm (cốt) và đập dập (S1) là 2 việc');
+  const dap = v.tasks.find((x) => /^Đập dập Gừng/.test(x.title));
+  assert.equal(dap.qty, 60, 'S1 × 2 mẻ = 60 g');
+  assert.ok(v.tasks.find((x) => x.layer === 'prep' && /Xay Hành tây/.test(x.title)), 'xay hành tây (ghi chú "Xay với nước…")');
+  const cook = v.tasks.find((x) => x.key.startsWith('cook:') && /S1/.test(x.title));
+  assert.ok(cook.waiting.some((w) => /Cân khay/.test(w)), 'nấu chờ cân khay');
+  assert.ok(v.tasks.find((x) => x.layer === 'pack'), 'có đóng gói');
+  assert.ok(!cook.steps.some((st) => /rót túi|ngâm.*đá|làm nguội/i.test(st.text)), 'bước đóng gói tách khỏi nấu');
+
+  // Nhân viên bếp: thấy việc sơ chế, chưa nhận thì không thấy chi tiết cân khay; nhận → thấy; xong → học phút
+  const bep = db.prepare("SELECT id FROM teams WHERE name = 'Bếp steak'").get()?.id ?? Number(db.prepare("INSERT INTO teams (name) VALUES ('Bếp steak')").run().lastInsertRowid);
+  const kid = (await o('POST', '/api/staff', { name: 'Khoa', team_id: bep, role: 'staff', pin: '5932' })).data.id;
+  const weighKey = v.tasks.find((x) => x.key.startsWith('weigh:') && /S1/.test(x.title)).key;
+  assert.equal((await o('POST', '/api/preps/tasks/assign', { key: gung.key, staff_id: kid })).status, 200);
+  cookie = null; await o('POST', '/api/login', { pin: '5932' });
+  v = (await o('GET', '/api/preps/tasks')).data;
+  assert.ok(v.tasks.find((x) => x.key === gung.key).mine);
+  assert.equal(v.tasks.find((x) => x.key === weighKey).lines, undefined, 'chưa nhận: không thấy khay');
+  assert.ok(!v.tasks.some((x) => x.layer === 'secret'));
+  assert.equal((await o('POST', '/api/preps/tasks/assign', { key: weighKey, staff_id: kid })).status, 403, 'nhân viên không giao việc');
+  v = (await o('POST', '/api/preps/tasks/claim', { key: weighKey })).data;
+  assert.ok(v.tasks.find((x) => x.key === weighKey).lines.length > 3);
+  assert.equal((await o('POST', '/api/preps/tasks/done', { key: gung.key, minutes: 20 })).status, 200);
+  const r = db.prepare("SELECT rate FROM prep_rates WHERE action = 'dap'").get() || db.prepare('SELECT * FROM prep_rates').get();
+  assert.ok(r, 'đã học phút');
+  v = (await o('POST', '/api/preps/tasks/done', { key: weighKey, minutes: 6 })).data;
+  assert.ok(v.tasks.find((x) => x.key === weighKey).done);
+  assert.ok(v.people.find((x) => x.staff_id === kid).n >= 2);
+});

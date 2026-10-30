@@ -34,6 +34,11 @@ export default function (r, ctx) {
 
   // 🔒 dòng bí mật (chủ quán 30/10): bếp chỉ thấy "Gói G<mã>", quản lý pha sẵn
   if (!db.prepare('PRAGMA table_info(prep_lines)').all().some((c) => c.name === 'secret')) db.exec('ALTER TABLE prep_lines ADD COLUMN secret INTEGER NOT NULL DEFAULT 0');
+  if (!db.prepare('PRAGMA table_info(ingredients)').all().some((c) => c.name === 'pre_done')) {
+    db.exec('ALTER TABLE ingredients ADD COLUMN pre_done INTEGER NOT NULL DEFAULT 0');
+    // Mua sẵn đã sơ chế — chủ quán 30/10: tỏi băm, hành băm mua sẵn bên ngoài
+    for (const g of db.prepare('SELECT id, name FROM ingredients').all()) if (['toi', 'toi bam', 'hanh bam', 'hanh tim', 'hanh tim bam'].includes(fold(g.name))) db.prepare('UPDATE ingredients SET pre_done = 1 WHERE id = ?').run(g.id);
+  }
   const seed = () => JSON.parse(fs.readFileSync(SEED, 'utf8'));
   // Khớp tên trong sổ ("Mã NL") với nguyên liệu trong kho: trùng tên bỏ dấu, hoặc tên này chứa trọn tên kia
   const matcher = () => {
@@ -97,7 +102,7 @@ export default function (r, ctx) {
   }
 
   const load = (p) => {
-    const lines = db.prepare('SELECT l.*, g.name AS ing_name, g.unit AS ing_unit FROM prep_lines l LEFT JOIN ingredients g ON g.id = l.ingredient_id WHERE l.prep_id = ? ORDER BY l.pos').all(p.id);
+    const lines = db.prepare('SELECT l.*, g.name AS ing_name, g.unit AS ing_unit, g.pre_done AS ing_pre_done FROM prep_lines l LEFT JOIN ingredients g ON g.id = l.ingredient_id WHERE l.prep_id = ? ORDER BY l.pos').all(p.id);
     const steps = JSON.parse(p.steps || '[]');
     return { ...p, steps, lines, cost: Math.round(lines.reduce((n, l) => n + (l.qty || 0) * (l.unit_price || 0), 0)),
       active_min: steps.reduce((n, s) => n + (Number(s.min) || 0), 0), wait_min: steps.reduce((n, s) => n + (Number(s.wait) || 0), 0),
@@ -616,5 +621,184 @@ export default function (r, ctx) {
     ctx.audit(me, 'preps.plan_set', { date, prep: p.id, batches, station, staff_id: staffId });
     ctx.broadcast('stock');
     return planView(date, me);
+  });
+
+  // ================= Bảng việc bếp theo công đoạn (chủ quán 30/10) =================
+  // Sơ chế chung (gộp mọi mẻ hôm nay, sáng cùng ngày) → cân khay theo mẻ (+ Gói bí mật quản lý bếp pha) → đứng bếp nấu → đóng gói / làm lạnh / dán nhãn.
+  // Mỗi việc 1 thẻ: số lượng, phút ước tính, người làm. Nguyên liệu "mua sẵn đã sơ chế" (tỏi băm, hành băm…) không thành việc sơ chế.
+  db.exec(`CREATE TABLE IF NOT EXISTS prep_tasks (date TEXT NOT NULL, key TEXT NOT NULL, staff_id INTEGER, started_at INTEGER, done_at INTEGER, done_by INTEGER, minutes INTEGER, PRIMARY KEY (date, key));
+    CREATE TABLE IF NOT EXISTS prep_rates (action TEXT PRIMARY KEY, rate REAL NOT NULL);`);
+  // Thao tác sơ chế: chữ nhận diện, nhãn, phút / kg ước tính ban đầu (học dần theo phút thật)
+  const ACTIONS = [
+    { k: 'luoc', words: ['luộc'], label: 'Luộc', rate: 20 }, { k: 'rang', words: ['rang'], label: 'Rang', rate: 15 },
+    { k: 'xay', words: ['xay'], label: 'Xay', rate: 12 }, { k: 'bam', words: ['băm'], label: 'Băm', rate: 20 },
+    { k: 'dap', words: ['đập dập', 'đập nứt', 'đập'], label: 'Đập dập', rate: 8 }, { k: 'cat', words: ['cắt', 'thái', 'bổ', 'hạt lựu', 'xắt'], label: 'Cắt / thái', rate: 15 },
+    { k: 'got', words: ['gọt', 'lột', 'bóc'], label: 'Gọt / bóc', rate: 25 },
+  ];
+  const rateOf = (a) => db.prepare('SELECT rate FROM prep_rates WHERE action = ?').get(a.k)?.rate ?? a.rate;
+  const actionOf = (l) => {
+    const name = ` ${soft(String(l.name).split('•').pop())} `;
+    const note = ` ${soft(l.note || '').split(' ').slice(0, 1).join(' ')} `; // ghi chú chỉ xét chữ đầu ("Xay với nước…")
+    if (/^\s*nước lọc\s*$/.test(name)) return null;
+    if (/^\s*nước /.test(name)) return ACTIONS.find((a) => a.words.some((w) => note.includes(` ${w} `))) || null; // "nước luộc ớt", "nước hành đã lọc" là thành phẩm, không phải việc
+    return ACTIONS.find((a) => a.words.some((w) => name.includes(` ${w} `))) || ACTIONS.find((a) => a.words.some((w) => note.includes(` ${w} `))) || null;
+  };
+  const PACK_STEP = /rót túi|chia túi|ngâm.{0,20}đá|dán nhãn|làm nguội|rót chai|rót hũ|cất tủ/i;
+  // Tên mua sẵn đã sơ chế (kể cả dòng sổ chưa gắn mã kho): mã kho đã bật + mặc định tỏi / hành tím
+  const preDone = () => new Set(['toi', 'toi bam', 'hanh tim', 'hanh tim bam', 'hanh bam', ...db.prepare('SELECT name FROM ingredients WHERE pre_done = 1').all().map((g) => fold(g.name))]);
+  const canLead = (me) => chef(me) || (canCook(me) && rank(me.role) >= rank('team_lead'));
+  const kgOf = (qty, unit) => { const f = conv(unit, 'kg'); return f == null ? null : qty * f; };
+
+  function buildTasks(date) {
+    const plan = db.prepare('SELECT * FROM prep_plan WHERE date = ? AND batches > 0 ORDER BY id').all(date);
+    const prepGroups = new Map();
+    const tasks = [];
+    const outOf = new Map(); // ingredient thành phẩm → plan item (để thẻ nấu chờ nền / cốt nấu trước)
+    const items = plan.map((pl) => {
+      const p = load(db.prepare('SELECT * FROM preps WHERE id = ?').get(pl.prep_id));
+      if (p.output_ingredient_id) outOf.set(p.output_ingredient_id, pl.id);
+      return { pl, p };
+    });
+    for (const { pl, p } of items) {
+      const lines = p.lines.filter((l) => l.qty > 0);
+      for (const l of lines) {
+        if (l.secret || l.sub_prep_id) continue;
+        const g = l.ingredient_id ? ingOf(l.ingredient_id) : null;
+        if (g?.pre_done || (!g && preDone().has(fold(String(l.code || l.name).split(/[,(]/)[0].split('•').pop())))) continue;
+        const a = actionOf(l);
+        if (!a) continue;
+        const base = g?.name || String(l.code || l.name).split(/[,(]/)[0].replace(/^[•\s]+/, '').trim();
+        const key = `prep:${a.k}:${g ? g.id : fold(base)}`;
+        const x = prepGroups.get(key) || { key, layer: 'prep', action: a, title: `${a.label} ${base}`, unit: l.unit, qty: 0, uses: [], plan_ids: new Set() };
+        const q = r3(l.qty * pl.batches);
+        x.qty = r3(x.qty + q); x.uses.push({ name: p.name, qty: q, unit: l.unit }); x.plan_ids.add(pl.id);
+        prepGroups.set(key, x);
+      }
+    }
+    for (const x of prepGroups.values()) {
+      const kg = kgOf(x.qty, x.unit);
+      tasks.push({ ...x, plan_ids: [...x.plan_ids], est: Math.max(3, Math.round((kg ?? 0.2) * rateOf(x.action))), kg, order: 1, action: x.action.k });
+    }
+    for (const { pl, p } of items) {
+      const lines = p.lines.filter((l) => l.qty > 0);
+      const secret = lines.filter((l) => l.secret);
+      const open = lines.filter((l) => !l.secret);
+      const code = `G${p.id}`;
+      const preIds = tasks.filter((t) => t.layer === 'prep' && t.plan_ids.includes(pl.id)).map((t) => t.key);
+      if (secret.length) tasks.push({ key: `secret:${pl.id}`, layer: 'secret', title: `Pha Gói ${code} × ${pl.batches} — ${p.name}`, plan_id: pl.id, code, est: Math.round(3 + 0.5 * secret.length * pl.batches), order: 0,
+        lines: secret.map((l) => ({ name: l.name, qty: r3(l.qty * pl.batches), unit: l.unit })) });
+      tasks.push({ key: `weigh:${pl.id}`, layer: 'weigh', title: `Cân khay: ${p.name} × ${pl.batches} mẻ`, plan_id: pl.id, est: Math.round(2 + 0.5 * open.length * pl.batches), order: 2, needs: preIds,
+        lines: [...(secret.length ? [{ name: `📦 Gói ${code} (quản lý bếp giao)`, qty: pl.batches, unit: 'gói', pack: true }] : []),
+          ...open.map((l) => { const g = l.ingredient_id ? ingOf(l.ingredient_id) : null; const a = !g?.pre_done && !l.sub_prep_id ? actionOf(l) : null; return { name: l.name, qty: r3(l.qty * pl.batches), unit: l.unit, from: l.sub_prep_id ? 'bán thành phẩm' : a ? `đã ${a.label.toLowerCase()} ở bước sơ chế` : g?.pre_done ? 'mua sẵn' : '' }; })] });
+      const cookSteps = p.steps.map((st, k) => ({ ...st, k })).filter((st) => !PACK_STEP.test(st.text));
+      const packSteps = p.steps.map((st, k) => ({ ...st, k })).filter((st) => PACK_STEP.test(st.text));
+      const subs = [...new Set(lines.filter((l) => l.sub_prep_id && outOf.has(l.ingredient_id)).map((l) => `cook:${outOf.get(l.ingredient_id)}`))];
+      tasks.push({ key: `cook:${pl.id}`, layer: 'cook', title: `Nấu ${p.name} × ${pl.batches} mẻ`, plan_id: pl.id, prep_id: p.id, est: Math.round(cookSteps.reduce((n, st) => n + (Number(st.min) || 0), 0) * pl.batches),
+        wait: p.wait_min, early: p.wait_min >= 120, order: p.wait_min >= 120 ? 0.5 : 3, needs: [`weigh:${pl.id}`, ...(secret.length ? [`secret:${pl.id}`] : []), ...subs], steps: cookSteps, station: pl.station });
+      if (packSteps.length) tasks.push({ key: `pack:${pl.id}`, layer: 'pack', title: `Đóng gói / làm lạnh: ${p.name}`, plan_id: pl.id, est: Math.max(3, Math.round(packSteps.reduce((n, st) => n + (Number(st.min) || 0), 0) * pl.batches)), order: 4, needs: [`cook:${pl.id}`], steps: packSteps, packs: p.packs });
+    }
+    return { tasks: tasks.sort((a, b) => a.order - b.order), items };
+  }
+
+  function tasksView(date, me) {
+    const { tasks, items } = buildTasks(date);
+    const st = new Map(db.prepare('SELECT t.*, s.name AS staff_name, d.name AS done_name FROM prep_tasks t LEFT JOIN staff s ON s.id = t.staff_id LEFT JOIN staff d ON d.id = t.done_by WHERE t.date = ?').all(date).map((x) => [x.key, x]));
+    const doneBy = new Map(db.prepare('SELECT prep_id, SUM(batches) AS n, SUM(minutes) AS m FROM prep_batches WHERE date = ? AND voided_at IS NULL GROUP BY prep_id').all(date).map((x) => [x.prep_id, x]));
+    const boss = chef(me), lead = canLead(me);
+    const isDone = (t) => { if (t.layer === 'cook') { const it = items.find((i) => i.pl.id === t.plan_id); return (doneBy.get(it.p.id)?.n || 0) >= it.pl.batches; } return !!st.get(t.key)?.done_at; };
+    const out = [];
+    for (const t of tasks) {
+      if (t.layer === 'secret' && !boss) continue;
+      const s0 = st.get(t.key) || {};
+      const done = isDone(t);
+      const waiting = (t.needs || []).filter((k) => { const d = tasks.find((x) => x.key === k); return d && !isDone(d); }).map((k) => tasks.find((x) => x.key === k).title);
+      const mine = s0.staff_id === me.id;
+      const seeAll = boss || mine; // chi tiết chỉ người làm việc đó (và chủ / quản lý bếp) — không ai nắm trọn công thức
+      const it = t.plan_id ? items.find((i) => i.pl.id === t.plan_id) : null;
+      const row = { key: t.key, layer: t.layer, title: t.title, est: t.est, early: !!t.early, wait: t.wait || 0, station: t.station || it?.pl.station || '', plan_id: t.plan_id || null, prep_id: t.prep_id || it?.p.id || null,
+        staff_id: s0.staff_id || null, staff_name: s0.staff_name || '', started_at: s0.started_at || null, done, done_at: s0.done_at || null, done_name: s0.done_name || '', minutes: t.layer === 'cook' ? (doneBy.get(it?.p.id)?.m ?? null) : s0.minutes ?? null,
+        waiting, mine, qty: t.qty ?? null, unit: t.unit || '', batches: it?.pl.batches || null, out_qty: it?.p.out_qty || null, out_unit: it?.p.out_unit || '', active_min: it?.p.active_min || 0 };
+      if (t.layer === 'prep') { row.uses = t.uses; row.kg = t.kg; } // việc sơ chế: ai cũng xem (chỉ là băm / xay bao nhiêu)
+      if (seeAll) {
+        if (t.lines) row.lines = t.lines;
+        if (t.layer === 'cook' || t.layer === 'pack') {
+          const secret = it.p.lines.filter((l) => l.secret && l.qty > 0);
+          row.steps = t.steps.map((x) => ({ k: x.k, text: !boss && secret.length ? maskText(x.text, secret, `G${it.p.id}`) : x.text, min: x.min, wait: x.wait }));
+          if (t.packs) row.packs = t.packs;
+          row.ticks = db.prepare('SELECT step, at FROM prep_plan_ticks WHERE plan_id = ?').all(t.plan_id);
+        }
+      }
+      out.push(row);
+    }
+    const people = new Map();
+    for (const t of out) if (t.staff_id) { const x = people.get(t.staff_id) || { staff_id: t.staff_id, name: t.staff_name, est: 0, done: 0, n: 0 }; x.est += t.est; x.n++; if (t.done) x.done += t.minutes ?? t.est; people.set(t.staff_id, x); }
+    const LAYER = { secret: '🔒 Gói bí mật (quản lý bếp)', prep: '🔪 Sơ chế chung', weigh: '⚖ Cân khay theo mẻ', cook: '🔥 Đứng bếp nấu', pack: '📦 Đóng gói / làm lạnh / dán nhãn' };
+    return { date, boss, lead, layers: LAYER, tasks: out, people: [...people.values()], total_est: out.reduce((n, t) => n + t.est, 0), unassigned: out.filter((t) => !t.staff_id && !t.done).length };
+  }
+  const taskOf = (date, key) => buildTasks(date).tasks.find((t) => t.key === key) || fail(404, 'Không tìm thấy việc');
+  r.get('/api/preps/tasks', 'staff', ({ me, query }) => {
+    if (!canCook(me)) fail(403, 'Chỉ bếp mới xem việc bếp');
+    const date = query.get('date') || ctx.today();
+    if (date >= ctx.today() && !planMade(date)) ensurePlan(date);
+    return tasksView(date, me);
+  });
+  r.post('/api/preps/tasks/assign', 'staff', ({ me, body }) => {
+    if (!canLead(me)) fail(403, 'Chỉ tổ trưởng bếp / quản lý bếp giao việc');
+    const date = body.date || ctx.today();
+    const t = taskOf(date, String(body.key));
+    if (t.layer === 'secret' && body.staff_id) { const s = db.prepare('SELECT * FROM staff WHERE id = ?').get(Number(body.staff_id)); if (!s || !chef(s)) fail(400, 'Gói bí mật chỉ giao cho chủ / quản lý bếp'); }
+    const sid = body.staff_id ? Number(body.staff_id) : null;
+    db.prepare('INSERT INTO prep_tasks (date, key, staff_id) VALUES (?, ?, ?) ON CONFLICT (date, key) DO UPDATE SET staff_id = excluded.staff_id').run(date, t.key, sid);
+    if (sid && sid !== me.id) ctx.notify?.([sid], { title: 'Việc bếp giao cho bạn', body: t.title, link: '/checklist' });
+    ctx.audit(me, 'preps.task_assign', { date, key: t.key, staff_id: sid });
+    ctx.broadcast('stock');
+    return tasksView(date, me);
+  });
+  r.post('/api/preps/tasks/claim', 'staff', ({ me, body }) => {
+    if (!canCook(me)) fail(403, 'Chỉ bếp');
+    const date = ctx.today();
+    const t = taskOf(date, String(body.key));
+    if (t.layer === 'secret' && !chef(me)) fail(403, 'Gói bí mật chỉ quản lý bếp pha');
+    const cur = db.prepare('SELECT staff_id FROM prep_tasks WHERE date = ? AND key = ?').get(date, t.key);
+    if (cur?.staff_id && cur.staff_id !== me.id) fail(409, 'Việc này đã có người nhận');
+    db.prepare('INSERT INTO prep_tasks (date, key, staff_id) VALUES (?, ?, ?) ON CONFLICT (date, key) DO UPDATE SET staff_id = excluded.staff_id').run(date, t.key, me.id);
+    ctx.audit(me, 'preps.task_claim', { key: t.key });
+    ctx.broadcast('stock');
+    return tasksView(date, me);
+  });
+  const mustOwn = (me, date, key) => { const cur = db.prepare('SELECT * FROM prep_tasks WHERE date = ? AND key = ?').get(date, key); if (!chef(me) && !canLead(me) && cur?.staff_id !== me.id) fail(403, 'Bấm "Nhận việc" trước'); if (!chef(me) && cur?.staff_id && cur.staff_id !== me.id) fail(403, 'Việc này giao cho người khác'); return cur; };
+  r.post('/api/preps/tasks/start', 'staff', ({ me, body }) => {
+    if (!canCook(me)) fail(403, 'Chỉ bếp');
+    const date = ctx.today();
+    const t = taskOf(date, String(body.key));
+    mustOwn(me, date, t.key);
+    db.prepare('INSERT INTO prep_tasks (date, key, staff_id, started_at) VALUES (?, ?, ?, ?) ON CONFLICT (date, key) DO UPDATE SET started_at = COALESCE(prep_tasks.started_at, excluded.started_at), staff_id = COALESCE(prep_tasks.staff_id, excluded.staff_id)').run(date, t.key, me.id, ctx.now());
+    if (t.plan_id && (t.layer === 'cook' || t.layer === 'weigh' || t.layer === 'pack')) db.prepare('INSERT OR IGNORE INTO prep_plan_views (plan_id, staff_id, at) VALUES (?, ?, ?)').run(t.plan_id, me.id, ctx.now());
+    ctx.audit(me, 'preps.task_start', { key: t.key });
+    return tasksView(date, me);
+  });
+  r.post('/api/preps/tasks/done', 'staff', ({ me, body }) => {
+    if (!canCook(me)) fail(403, 'Chỉ bếp');
+    const date = ctx.today();
+    const t = taskOf(date, String(body.key));
+    if (t.layer === 'cook') fail(400, 'Việc nấu: bấm Ghi mẻ để xong');
+    const cur = mustOwn(me, date, t.key);
+    if (body.undo) { db.prepare('UPDATE prep_tasks SET done_at = NULL, done_by = NULL, minutes = NULL WHERE date = ? AND key = ?').run(date, t.key); ctx.broadcast('stock'); return tasksView(date, me); }
+    const minutes = body.minutes != null && body.minutes !== '' ? v.int(body.minutes, { min: 0, max: 600, name: 'Số phút' }) : cur?.started_at ? Math.max(1, Math.round((ctx.now() - cur.started_at) / 60000)) : null;
+    db.prepare('INSERT INTO prep_tasks (date, key, staff_id, done_at, done_by, minutes) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (date, key) DO UPDATE SET done_at = excluded.done_at, done_by = excluded.done_by, minutes = excluded.minutes, staff_id = COALESCE(prep_tasks.staff_id, excluded.staff_id)').run(date, t.key, me.id, ctx.now(), me.id, minutes);
+    // Học phút / kg cho thao tác sơ chế (70% cũ + 30% lần này)
+    if (t.layer === 'prep' && minutes && t.kg >= 0.05) { const a = ACTIONS.find((x) => x.k === t.action); const nr = Math.round((0.7 * rateOf(a) + 0.3 * (minutes / t.kg)) * 10) / 10; db.prepare('INSERT OR REPLACE INTO prep_rates (action, rate) VALUES (?, ?)').run(a.k, Math.min(240, Math.max(1, nr))); }
+    ctx.audit(me, 'preps.task_done', { key: t.key, minutes });
+    ctx.broadcast('stock');
+    return tasksView(date, me);
+  });
+  r.patch('/api/preps/ingredients/:id', 'manager', ({ me, params, body }) => {
+    needChef(me);
+    const g = ingOf(Number(params.id));
+    if (!g) fail(404, 'Không tìm thấy nguyên liệu');
+    db.prepare('UPDATE ingredients SET pre_done = ? WHERE id = ?').run(body.pre_done ? 1 : 0, g.id);
+    ctx.audit(me, 'preps.pre_done', { id: g.id, name: g.name, pre_done: !!body.pre_done });
+    ctx.broadcast('stock');
+    return { ok: true };
   });
 }

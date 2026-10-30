@@ -517,7 +517,7 @@ function Preps({ me, meta }) {
         ${p.packs ? html`<small>📦 Chia túi: ${p.packs}</small>` : null}
         <table class="list small"><tbody>${p.lines.map((l) => html`<tr><td>${l.name}${l.note ? html`<br /><small class="muted">${l.note}</small>` : null}</td>
           <td class="r">${Number(l.qty).toLocaleString('vi-VN')} ${l.unit}${manager && l.qty > 0 ? html`<br /><button class=${`small ${l.secret ? 'primary' : ''}`} title="Bí mật: bếp chỉ thấy Gói" onClick=${() => act(() => api('PATCH', `/api/preps/lines/${l.id}`, { secret: !l.secret }), l.secret ? 'Đã bỏ bí mật' : 'Đã đánh dấu bí mật')}>${l.secret ? '🔒 bí mật' : '🔓'}</button>` : null}</td>
-          <td>${l.ingredient_id ? html`<small class="ok-text">✓ ${l.ing_name}</small>` : (l.unit_price || 0) > 0 ? (manager ? html`<select class="auto small" onChange=${(e) => e.target.value && act(() => api('PATCH', `/api/preps/lines/${l.id}`, e.target.value === 'new' ? { create: true } : { ingredient_id: Number(e.target.value) }), 'Đã gắn mã kho')}>
+          <td>${l.ingredient_id ? html`<small class="ok-text">✓ ${l.ing_name}</small>${manager ? html` <button class=${`small ${l.ing_pre_done ? 'primary' : ''}`} title="Mua sẵn đã sơ chế: không thành việc sơ chế" onClick=${() => act(() => api('PATCH', `/api/preps/ingredients/${l.ingredient_id}`, { pre_done: !l.ing_pre_done }), l.ing_pre_done ? 'Đã bỏ: bếp tự sơ chế' : 'Đã ghi: mua sẵn đã sơ chế')}>${l.ing_pre_done ? '✂ mua sẵn' : '✂'}</button>` : null}` : (l.unit_price || 0) > 0 ? (manager ? html`<select class="auto small" onChange=${(e) => e.target.value && act(() => api('PATCH', `/api/preps/lines/${l.id}`, e.target.value === 'new' ? { create: true } : { ingredient_id: Number(e.target.value) }), 'Đã gắn mã kho')}>
               <option value="">⚠ chọn mã kho…</option><option value="new">＋ Tạo mã kho "${l.code || l.name}"</option>${ings.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>` : html`<small class="warn-text">chưa khớp kho</small>`) : html`<small class="muted">—</small>`}</td></tr>`)}</tbody></table>
         <b class="small">Các bước</b>
         <ol class="small" style="padding-left:18px;margin:0">${(edit?.id === p.id ? edit.steps : p.steps).map((s, k) => html`<li style="margin-bottom:6px">${s.text}
@@ -914,5 +914,56 @@ export function Conversions({ meta }) {
       </div>`; })}
       ${!list.length ? html`<p class="muted">Không có nguyên liệu.</p>` : null}
     </section>
+  </div>`;
+}
+
+// Bảng việc bếp theo công đoạn (chủ quán 30/10): sơ chế chung → cân khay → nấu → đóng gói; mỗi thẻ 1 người làm
+const LAYER_ORDER = ['secret', 'early', 'prep', 'weigh', 'cook', 'pack'];
+export function KitchenTasks({ me }) {
+  const d0 = useData('/api/preps/tasks');
+  const staff = useData(atLeast(me, 'team_lead') ? '/api/staff?mine=1' : null);
+  const [view, setView] = useState(null);
+  const [open, setOpen] = useState({});
+  const [cook, setCook] = useState(null);
+  if (!d0.data) return html`<${Loading} state=${d0} />`;
+  const d = d0.data;
+  const mode = view || (d.lead ? 'all' : 'mine');
+  const staffList = (Array.isArray(staff.data) ? staff.data : staff.data?.staff || []).filter((s) => s.active !== 0 && (s.role === 'owner' || /bếp|lẩu|steak|nướng/i.test(s.team_name || '')));
+  const call = (path, body) => act(() => api('POST', `/api/preps/tasks/${path}`, body));
+  const list = d.tasks.filter((t) => mode === 'all' || t.mine || (!t.staff_id && !t.done));
+  const layerOf = (t) => (t.layer === 'cook' && t.early ? 'early' : t.layer);
+  const LBL = { ...d.layers, early: '⏰ Bắt đầu sớm (ninh lâu)' };
+  const tickStep = (t, k, on) => act(() => api('POST', `/api/preps/plan/${t.plan_id}/tick`, { step: k, done: on }));
+  const card = (t) => {
+    const isOpen = open[t.key] ?? (t.mine && !t.done);
+    return html`<div class="stack tight" style=${`border-top:1px solid #ddd;padding-top:6px${t.mine ? ';background:#fff7e6' : ''}`} key=${t.key}>
+      <div class="row between wrap" style="align-items:center">
+        <button class="link" style="text-align:left" onClick=${() => setOpen({ ...open, [t.key]: !isOpen })}><b>${t.done ? '✅ ' : ''}${t.title}</b>${t.layer === 'prep' && t.qty ? html` — <b>${qty(t.qty, t.unit)}</b>` : ''}<br />
+          <small class="muted">⏱ ~${mm(t.est)}${t.wait ? ` + chờ ${mm(t.wait)}` : ''}${t.station ? ` · ${t.station}` : ''}${t.staff_name ? ` · 👤 ${t.staff_name}` : ' · chưa giao'}${t.done ? ` · xong${t.minutes != null ? ` ${mm(t.minutes)}` : ''}` : t.started_at ? ' · đang làm' : ''}</small>
+          ${t.waiting?.length && !t.done ? html`<br /><small class="warn-text">⏳ Chờ: ${t.waiting.join(' · ')}</small>` : null}</button>
+        <div class="row tight">
+          ${!t.done && !t.staff_id ? html`<button class="small" onClick=${() => call('claim', { key: t.key })}>✋ Nhận</button>` : null}
+          ${!t.done && t.mine && !t.started_at && t.layer !== 'cook' ? html`<button class="small" onClick=${() => call('start', { key: t.key })}>▶ Bắt đầu</button>` : null}
+          ${!t.done && t.mine && t.layer === 'cook' && !t.started_at ? html`<button class="small" onClick=${() => call('start', { key: t.key })}>▶ Bắt đầu nấu</button>` : null}
+          ${!t.done && (t.mine || d.boss) && t.layer !== 'cook' ? html`<button class="primary small" onClick=${() => call('done', { key: t.key })}>✅ Xong</button>` : null}
+          ${!t.done && (t.mine || d.boss) && t.layer === 'cook' ? html`<button class="primary small" onClick=${() => setCook({ p: { id: t.prep_id, name: t.title.replace(/^Nấu /, '').replace(/ × .*$/, ''), out_qty: t.out_qty, out_unit: t.out_unit, active_min: t.active_min }, plan: { id: t.plan_id, batches: t.batches, done_batches: 0 } })}>Ghi mẻ</button>` : null}
+          ${t.done && (t.mine || d.lead) && t.layer !== 'cook' ? html`<button class="small" onClick=${() => call('done', { key: t.key, undo: true })}>↩</button>` : null}
+        </div></div>
+      ${d.lead && !t.done ? html`<select class="auto small" style="align-self:flex-start" value=${t.staff_id || ''} onChange=${(e) => call('assign', { key: t.key, staff_id: e.target.value ? Number(e.target.value) : null })}><option value="">— giao cho —</option>${staffList.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select>` : null}
+      ${isOpen ? html`
+        ${t.uses ? html`<small class="muted">Dùng cho: ${t.uses.map((u) => `${u.name.split(/[(—]/)[0].trim()} ${qty(u.qty, u.unit)}`).join(' · ')}</small>` : null}
+        ${t.lines ? html`<div class="stack tight">${t.lines.map((l) => html`<small style=${l.pack ? 'color:#b45309' : ''}>☐ <b>${Number(l.qty).toLocaleString('vi-VN')} ${l.unit}</b> ${l.name}${l.from ? html` <span class="muted">· ${l.from}</span>` : ''}</small>`)}</div>` : null}
+        ${t.packs ? html`<small>📦 ${t.packs}</small>` : null}
+        ${t.steps ? html`<div class="stack tight">${t.steps.map((st) => { const tk = (t.ticks || []).find((y) => y.step === st.k); return html`<label class="row tight" style="align-items:flex-start"><input type="checkbox" checked=${!!tk} onChange=${() => tickStep(t, st.k, !tk)} /><small class=${tk ? 'muted' : ''}>${st.text}${st.min ? ` · ⏱ ${st.min * (t.batches || 1)}′` : ''}${st.wait ? ` · ⏳ ${mm(st.wait)}` : ''}</small></label>`; })}</div>`
+          : (t.layer === 'cook' || t.layer === 'pack' || t.layer === 'weigh') && !t.mine && !d.boss ? html`<small class="muted">🔒 Chi tiết chỉ người nhận việc thấy.</small>` : t.layer === 'cook' && t.mine && !t.started_at ? html`<small class="muted">Bấm ▶ Bắt đầu nấu để xem các bước.</small>` : null}` : null}
+    </div>`;
+  };
+  return html`<div class="stack">
+    <div class="row wrap between" style="align-items:center"><span class="small">Tổng ⏱ ~<b>${mm(d.total_est)}</b> · ${d.tasks.length} việc${d.unassigned ? html` · <span class="warn-text">${d.unassigned} chưa giao</span>` : ''}</span>
+      <div class="chips"><button class=${`chip ${mode === 'mine' ? 'on' : ''}`} onClick=${() => setView('mine')}>👤 Việc của tôi</button><button class=${`chip ${mode === 'all' ? 'on' : ''}`} onClick=${() => setView('all')}>👥 Cả bếp</button></div></div>
+    ${d.people.length && mode === 'all' ? html`<small class="muted">${d.people.map((p) => `${p.name}: ${p.n} việc ~${mm(p.est)}`).join(' · ')}</small>` : null}
+    ${!list.length ? html`<div class="empty">${mode === 'mine' ? 'Chưa có việc nào giao cho bạn. Xem "Cả bếp" để nhận việc.' : 'Hôm nay chưa có việc nấu.'}</div>` : null}
+    ${LAYER_ORDER.map((L) => { const ls = list.filter((t) => layerOf(t) === L); return ls.length ? html`<section class="card stack tight"><div class="row between"><b>${LBL[L]}</b><small class="muted">${ls.filter((t) => t.done).length}/${ls.length} xong · ⏱ ~${mm(ls.reduce((n, t) => n + t.est, 0))}</small></div>${ls.map(card)}</section>` : null; })}
+    ${cook ? html`<${CookModal} p=${cook.p} plan=${cook.plan} onClose=${() => setCook(null)} />` : null}
   </div>`;
 }
