@@ -51,6 +51,14 @@ test('Nhập bán hàng Sapo: đọc file mặt hàng, ghép món, trừ kho the
   assert.equal(left(), 4500, 'không trừ 2 lần');
   assert.equal((await O('POST', '/api/sapo/undo', { date: '2026-10-26' })).status, 200);
   assert.equal(left(), 5000);
+  // Ngày đã có món bán trên app trừ kho → úp Sapo bị chặn (tránh trừ 2 lần), xác nhận mới trừ
+  db.prepare("INSERT INTO stock_moves (at, date, type, ingredient_id, from_store, qty, ref) VALUES (0, '2026-10-26', 'consume', ?, ?, 100, 'sale:999')").run(ing, store);
+  assert.equal((await O('POST', '/api/sapo/preview', { data })).data.dates[0].app_sales, 1);
+  const blk = await O('POST', '/api/sapo/import', { data, dates: ['2026-10-26'] });
+  assert.equal(blk.status, 409); assert.equal(blk.data.code, 'app_sales');
+  assert.equal(left(), 5000);
+  assert.equal((await O('POST', '/api/sapo/import', { data, dates: ['2026-10-26'], allow_app_days: ['2026-10-26'] })).status, 200);
+  assert.equal(left(), 4500);
   // File hoá đơn (không có cột món) → báo rõ
   const inv = makeXlsx([{ name: 'S', rows: [['Stt', 'Mã hóa đơn', 'Tổng tiền hàng']] }]).toString('base64');
   const bad = await O('POST', '/api/sapo/preview', { data: inv });

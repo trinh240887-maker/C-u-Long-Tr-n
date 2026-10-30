@@ -67,15 +67,18 @@ export default function (r, ctx) {
     return { id: hit.length === 1 ? hit[0].id : null, auto: true };
   }
 
+  // Số món bán trên app (gửi bếp) đã trừ kho trong ngày → úp Sapo ngày đó sẽ trừ 2 lần (chủ quán 30/10: chuyển dần sang trừ theo app)
+  const appSales = () => (date) => db.prepare("SELECT COUNT(DISTINCT ref) AS n FROM stock_moves WHERE type = 'consume' AND date = ? AND ref LIKE 'sale:%' AND ref NOT LIKE 'sale:sapo-%'").get(date).n;
   r.post('/api/sapo/preview', 'manager', ({ body }) => {
     const { days, skipped } = parse(body.data);
     const list = menu();
     const done = new Set(db.prepare("SELECT date FROM sapo_imports WHERE kind = 'items'").all().map((x) => x.date));
+    const appN = appSales();
     const items = new Map();
     for (const d of days) for (const it of d.items.values()) { const x = items.get(it.key) || { ...it, qty: 0, amount: 0 }; x.qty += it.qty; x.amount += it.amount; items.set(it.key, x); }
     return {
       skipped,
-      dates: days.map((d) => ({ date: d.date, lines: d.lines, qty: [...d.items.values()].reduce((a, x) => a + x.qty, 0), invoices: d.invoices.size, revenue: [...d.invoices.values()].reduce((a, x) => a + x, 0), imported: done.has(d.date) })),
+      dates: days.map((d) => ({ date: d.date, lines: d.lines, qty: [...d.items.values()].reduce((a, x) => a + x.qty, 0), invoices: d.invoices.size, revenue: [...d.invoices.values()].reduce((a, x) => a + x, 0), imported: done.has(d.date), app_sales: appN(d.date) })),
       items: [...items.values()].map((it) => { const g = guess(it, list); const m = list.find((x) => x.id === g.id); return { key: it.key, code: it.code, name: it.name, category: it.category, qty: it.qty, amount: it.amount, menu_item_id: g.id, auto: g.auto, has_recipe: !!m?.parts }; })
         .sort((a, b) => (a.menu_item_id == null ? 0 : 1) - (b.menu_item_id == null ? 0 : 1) || b.qty - a.qty),
       menu: list.map((m) => ({ id: m.id, name: m.name, has_recipe: !!m.parts })),
@@ -102,6 +105,8 @@ export default function (r, ctx) {
       for (const d of days) {
         if (!want.has(d.date)) continue;
         if (db.prepare("SELECT 1 FROM sapo_imports WHERE date = ? AND kind = 'items'").get(d.date)) continue; // đã nhập ngày này
+        const nApp = appSales()(d.date);
+        if (nApp && !(Array.isArray(body.allow_app_days) && body.allow_app_days.includes(d.date))) fail(409, `Ngày ${d.date.split('-').reverse().join('/')} app đã trừ kho ${nApp} món bán (gửi bếp). Úp Sapo nữa sẽ trừ 2 lần. Bỏ chọn ngày này, hoặc xác nhận nếu món bán trên app chỉ là thử.`, 'app_sales', { date: d.date, n: nApp });
         // rà soát 28/10: ghi lần nhập trước để mã dòng bán / bù gắn với lần nhập này (sale:sapo-<mã lần nhập>-…), nhập lại sau khi bỏ không lẫn dòng cũ
         const tag = `i${crypto.randomBytes(5).toString('hex')}`;
         db.prepare("INSERT INTO sapo_imports (date, kind, lines, qty, revenue, invoices, by_staff, at, tag) VALUES (?, 'items', ?, ?, ?, ?, ?, ?, ?)")

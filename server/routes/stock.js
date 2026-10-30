@@ -3,7 +3,7 @@ import { tx, rank } from '../db.js';
 import { addDays, isDate } from '../lib/time.js';
 import { makeXlsx } from '../lib/xlsx.js';
 import { forecastDay, areaNeed, purchaseNeed, toPurchaseUnits, r3 } from '../lib/forecast.js';
-import { stockQty, addLot, takeLots, setActual, recordMove, costOf } from '../lib/stock.js';
+import { stockQty, addLot, takeLots, setActual, recordMove, costOf, assertOpen } from '../lib/stock.js';
 
 const FRESHNESS = ['fresh', 'chilled', 'dry'];
 const FRESH_LABEL = { fresh: 'Đồ tươi', chilled: 'Đồ mát', dry: 'Đồ khô/đông' };
@@ -308,8 +308,27 @@ export default function (r, ctx) {
     const sum = (list) => ({ nhap_tien: list.reduce((n, x) => n + x.nhap_tien, 0), lech_tien: list.reduce((n, x) => n + x.lech_tien, 0), gia_tri_cuoi: list.reduce((n, x) => n + x.gia_tri_cuoi, 0), over: list.filter((x) => x.over).length });
     // Chia theo nhóm kho (loại hàng), nhóm không có phát sinh thì ẩn
     const gs = cats().map((c) => ({ key: c.key, name: c.label, rows: group(c.key) })).filter((g) => g.rows.length).map((g) => ({ ...g, total: sum(g.rows) }));
-    return { from, to, tolerance: tol, groups: gs };
+    // Lệch theo tiền (thiếu nhiều tiền nhất lên đầu) — chỗ cần kiểm tra trước (lộ trình NXT bước 3)
+    const top = out.filter((x) => x.lech_tien < 0).sort((a, b) => a.lech_tien - b.lech_tien).slice(0, 10).map((x) => ({ id: x.id, name: x.name, unit: x.unit, lech: x.lech, lech_pct: x.lech_pct, lech_tien: x.lech_tien, group: x.group }));
+    return { from, to, tolerance: tol, groups: gs, top, lech_thieu: out.filter((x) => x.lech_tien < 0).reduce((n, x) => n + x.lech_tien, 0), lech_thua: out.filter((x) => x.lech_tien > 0).reduce((n, x) => n + x.lech_tien, 0),
+      lock_until: ctx.setting('stock_lock_until') || null };
   }
+  // 🔒 Khoá sổ kho (chủ quán): mọi phát sinh / xoá phát sinh có ngày ≤ ngày khoá bị chặn; khoá thì lưu lại bảng NXT tháng đó
+  db.exec('CREATE TABLE IF NOT EXISTS stock_month_close (month TEXT PRIMARY KEY, until TEXT NOT NULL, data TEXT NOT NULL, at INTEGER NOT NULL, staff_id INTEGER)');
+  r.put('/api/stock/lock', 'owner', ({ me, body }) => {
+    const until = body.until ? String(body.until) : null;
+    if (until && (!isDate(until) || until >= today())) fail(400, 'Chỉ khoá được đến hôm qua trở về trước');
+    if (until) {
+      const month = until.slice(0, 7);
+      const snap = nxt(`${month}-01`, until);
+      db.prepare('INSERT OR REPLACE INTO stock_month_close (month, until, data, at, staff_id) VALUES (?, ?, ?, ?, ?)').run(month, until, JSON.stringify(snap), ctx.now(), me.id);
+    }
+    ctx.setSetting('stock_lock_until', until || '');
+    ctx.audit(me, until ? 'stock.lock' : 'stock.unlock', { until });
+    ctx.broadcast('stock');
+    return { ok: true, lock_until: until };
+  });
+  r.get('/api/stock/month-close', 'manager', () => db.prepare('SELECT month, until, at FROM stock_month_close ORDER BY month DESC').all());
   const nxtRange = (query) => {
     const to = query.get('to') || today();
     const from = query.get('from') || to;
@@ -653,6 +672,7 @@ export default function (r, ctx) {
   ctx.undoCount = (countId) => {
     const c = db.prepare('SELECT * FROM stock_counts WHERE id = ?').get(countId);
     if (!c) return;
+    assertOpen(db, c.date);
     tx(db, () => {
       for (const l of db.prepare('SELECT * FROM stock_count_lines WHERE count_id = ?').all(countId)) {
         setActual(db, { storeId: c.store_id, ingredientId: l.ingredient_id, actual: Math.max(0, stockQty(db, c.store_id, l.ingredient_id) + (l.expected - l.actual)), at: ctx.now() });

@@ -629,7 +629,7 @@ function CookedList({ me }) {
 // Nhập – Xuất – Tồn chung cả quán: Đồ tươi / Đồ bình thường; dòng lệch quá ngưỡng tô đỏ, xếp lên đầu
 const KIND_NXT = { nhap: 'Nhập', dcnhap: 'Huỷ / sửa phiếu nhập', ban: 'Bán (định lượng)', xuat: 'Xuất dùng', huy: 'Huỷ / hao hụt', lech: 'Lệch khi cân' };
 const qtyU = (q, unit) => (q == null ? '' : unit === 'g' && Math.abs(q) >= 1000 ? `${(q / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} kg` : unit === 'ml' && Math.abs(q) >= 1000 ? `${(q / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} l` : `${Number(q).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} ${unit}`);
-function Nxt() {
+function Nxt({ me }) {
   const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
   const [range, setRange] = useState({ from: today, to: today });
   const [open, setOpen] = useState(null);
@@ -642,6 +642,10 @@ function Nxt() {
       <label>đến <input type="date" value=${range.to} onInput=${(e) => setRange({ ...range, to: e.target.value })} /></label>
       <a class="btn small" href=${`/api/stock/nxt.xlsx?from=${range.from}&to=${range.to}`} download>⬇ Excel</a></div>
     <p class="small muted">Tồn đầu + Nhập ± Huỷ/sửa phiếu nhập − Bán theo định lượng − Xuất dùng − Huỷ ± Lệch = Tồn cuối. <b>Lệch</b> = cân thực tế − sổ (âm là thiếu). Đỏ = lệch quá ${d.data?.tolerance ?? 3}% so với lượng dùng.</p>
+    ${d.data ? html`<${LockBar} me=${me} d=${d.data} />` : null}
+    ${d.data?.top?.length ? html`<section class="card stack tight"><div class="row between wrap"><b>💸 Thiếu nhiều tiền nhất</b><small>Thiếu <b class="warn-text">${money(d.data.lech_thieu)}</b>${d.data.lech_thua ? ` · thừa ${money(d.data.lech_thua)}` : ''}</small></div>
+      <small class="muted">Kiểm tra mấy hàng này trước: cân lại, xem định lượng món, xem có nhập thiếu bill / huỷ không ghi.</small>
+      <table class="list small"><tbody>${d.data.top.map((r, k) => html`<tr style="cursor:pointer" onClick=${() => setOpen(r)}><td>${k + 1}. <b>${r.name}</b></td><td class="r">${qtyU(r.lech, r.unit)}${r.lech_pct != null ? ` (${r.lech_pct}%)` : ''}</td><td class="r"><b class="warn-text">${money(r.lech_tien)}</b></td></tr>`)}</tbody></table></section>` : null}
     ${!d.data ? html`<${Loading} state=${d} />` : d.data.groups.map((g) => html`<section class="card stack">
       <div class="row between wrap"><b>${g.name}</b><span class="small">Lệch: <b class=${g.total.lech_tien < 0 ? 'warn-text' : ''}>${money(g.total.lech_tien)}</b> · Tồn: ${money(g.total.gia_tri_cuoi)}${g.total.over ? html` · <span class="pill bad">${g.total.over} dòng lệch nhiều</span>` : null}</span></div>
       ${g.rows.length ? html`<div class="table-wrap"><table class="list small nxt"><thead><tr><th>Hàng</th><th class="r">Đầu</th><th class="r">Nhập</th><th class="r" title="Huỷ hoặc sửa phiếu nhập (trừ lại / cộng thêm)">Huỷ/sửa nhập</th><th class="r">Bán</th><th class="r">Xuất</th><th class="r">Huỷ</th><th class="r">Sổ</th><th class="r">Thực tế</th><th class="r">Lệch</th></tr></thead>
@@ -651,6 +655,21 @@ function Nxt() {
     </section>`)}
     ${open ? html`<${Modal} title=${open.name} onClose=${() => setOpen(null)}>${!det.data ? html`<${Loading} state=${det} />` : html`<table class="list small"><tbody>${det.data.map((m) => html`<tr><td>${dt(m.at)}</td><td>${KIND_NXT[m.kind] || 'Chuyển'}</td><td class="r"><b>${qtyU(m.qty, open.unit)}</b></td><td><small>${m.note}${m.staff_name ? ` · ${m.staff_name}` : ''}</small></td></tr>`)}</tbody></table>${!det.data.length ? html`<p class="muted">Không có phát sinh.</p>` : null}`}<//>` : null}
   </div>`;
+}
+
+// 🔒 Khoá sổ tháng (chủ quán): đã khoá thì không ai ghi / sửa phát sinh kho ngày cũ
+function LockBar({ me, d }) {
+  const owner = me.role === 'owner';
+  const today = me.today;
+  const lastMonthEnd = addDays(`${today.slice(0, 8)}01`, -1);
+  const dm = (x) => x.split('-').reverse().join('/');
+  if (!owner && !d.lock_until) return null;
+  return html`<section class="card row between wrap" style="align-items:center">
+    <span class="small">${d.lock_until ? html`🔒 Sổ kho đã khoá đến <b>${dm(d.lock_until)}</b>` : html`🔓 Sổ kho chưa khoá`}</span>
+    ${owner ? html`<div class="row tight">
+      ${d.lock_until !== lastMonthEnd ? html`<button class="small" onClick=${() => confirm(`Khoá sổ kho đến hết ${dm(lastMonthEnd)}?\nSau khi khoá: không ai nhập / huỷ / kiểm / úp Sapo cho ngày ≤ ${dm(lastMonthEnd)}. App lưu lại bảng Nhập – Xuất – Tồn tháng đó.`) && act(() => api('PUT', '/api/stock/lock', { until: lastMonthEnd }), 'Đã khoá sổ')}>🔒 Khoá hết tháng ${lastMonthEnd.slice(5, 7)}</button>` : null}
+      ${d.lock_until ? html`<button class="small" onClick=${() => confirm('Mở khoá sổ kho? (để sửa số tháng cũ, sửa xong nhớ khoá lại)') && act(() => api('PUT', '/api/stock/lock', { until: null }), 'Đã mở khoá')}>Mở khoá</button>` : null}</div>` : null}
+  </section>`;
 }
 
 function History({ me }) {
@@ -758,7 +777,10 @@ function SapoImport({ onClose }) {
   };
   const run = async () => {
     setBusy(true);
-    try { const r = await act(() => api('POST', '/api/sapo/import', { data: file, dates, map }), 'Đã trừ kho theo bán hàng Sapo'); if (r) { setDone(r); setPv(null); } } finally { setBusy(false); }
+    // Ngày đã có món bán trên app trừ kho → hỏi lại (tránh trừ 2 lần)
+    const allow = dates.filter((x) => pv.dates.find((d) => d.date === x)?.app_sales);
+    if (allow.length && !confirm(`Ngày ${allow.map(ddmm).join(', ')} app đã trừ kho theo món bán (gửi bếp). Úp Sapo nữa sẽ trừ 2 lần.\n\nChỉ bấm OK nếu món bán trên app những ngày đó chỉ là thử.`)) { setBusy(false); return; }
+    try { const r = await act(() => api('POST', '/api/sapo/import', { data: file, dates, map, allow_app_days: allow }), 'Đã trừ kho theo bán hàng Sapo'); if (r) { setDone(r); setPv(null); } } finally { setBusy(false); }
   };
   const idOf = (it) => (map[it.key] !== undefined ? map[it.key] : it.menu_item_id);
   const ddmm = (d) => `${d.slice(8)}/${d.slice(5, 7)}`;
@@ -776,7 +798,7 @@ function SapoImport({ onClose }) {
       <b>1. Chọn ngày trừ kho</b>
       <small class="muted">Mặc định chỉ chọn <b>ngày mới nhất</b>. Ngày cũ chỉ chọn nếu kho <b>chưa kiểm</b> sau ngày đó${pv.last_count ? ` (lần kiểm kho gần nhất ${dt(pv.last_count)})` : ''}, kẻo trừ 2 lần.</small>
       <div class="stack tight">${pv.dates.map((d) => html`<label class="check-row"><input type="checkbox" disabled=${d.imported} checked=${dates.includes(d.date)} onChange=${(e) => setDates(e.target.checked ? [...dates, d.date] : dates.filter((x) => x !== d.date))} />
-        <span><b>${ddmm(d.date)}</b> · ${d.invoices} hoá đơn · ${d.qty} món · ${money(d.revenue)}${d.imported ? html` <span class="pill ok">đã nhập</span>` : ''}</span></label>`)}</div>
+        <span><b>${ddmm(d.date)}</b> · ${d.invoices} hoá đơn · ${d.qty} món · ${money(d.revenue)}${d.imported ? html` <span class="pill ok">đã nhập</span>` : ''}${d.app_sales && !d.imported ? html` <span class="pill warn">app đã trừ ${d.app_sales} món</span>` : ''}</span></label>`)}</div>
       <b>2. Ghép món Sapo với Thực đơn</b> <small class="muted">${pv.items.length} món · ${unmatched.length ? html`<span class="warn-text">${unmatched.length} món chưa ghép</span>` : 'đã ghép hết'} · ghép 1 lần, lần sau tự nhận</small>
       <div class="sapo-list">${pv.items.map((it) => { const id = idOf(it); const m = pv.menu.find((x) => x.id === Number(id)); return html`<div class=${`sapo-row ${id == null || id === '' ? 'bad' : ''}`}>
         <span class="grow"><b>${it.name}</b> <small class="muted">${it.code || ''} · ×${it.qty}</small>${m && !m.has_recipe ? html`<br /><small class="warn-text">chưa có định lượng</small>` : null}</span>
@@ -819,7 +841,7 @@ export function StockView({ me, query }) {
       : tab === 'nl' && atLeast(me, 'manager') ? html`<${Setup} meta=${meta.data} />`
       : tab === 'quydoi' && atLeast(me, 'manager') ? html`<${Conversions} meta=${meta.data} />`
       : tab === 'ls' ? html`<${History} me=${me} />`
-      : tab === 'nxt' && atLeast(me, 'manager') ? html`<${Nxt} />`
+      : tab === 'nxt' && atLeast(me, 'manager') ? html`<${Nxt} me=${me} />`
       : html`<${Overview} />`}
   </div>`;
 }

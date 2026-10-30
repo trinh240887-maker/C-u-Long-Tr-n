@@ -41,8 +41,15 @@ export function setActual(db, { storeId, ingredientId, actual, at }) {
   return { before, diff };
 }
 
+// Sổ kho đã khoá (chủ quán khoá tháng): chặn ghi / xoá phát sinh có ngày ≤ ngày khoá
+export function assertOpen(db, date) {
+  const lock = db.prepare("SELECT value FROM settings WHERE key = 'stock_lock_until'").get()?.value;
+  if (lock && date && date <= lock) fail(409, `Sổ kho đã khoá đến ${lock.split('-').reverse().join('/')}. Muốn sửa thì chủ quán mở khoá ở Kho → Báo cáo → Nhập – Xuất – Tồn.`, 'stock_locked');
+}
+
 export function recordMove(db, { at, date, type, ingredientId, fromStore = null, toStore = null, qty, cost = 0, ref = '', staffId = null, note = '' }) {
   if (!(Math.abs(qty) > 1e-9)) return;
+  assertOpen(db, date);
   db.prepare(`INSERT INTO stock_moves (at, date, type, ingredient_id, from_store, to_store, qty, cost, ref, staff_id, note)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(at, date, type, ingredientId, fromStore, toStore, r3(qty), Math.round(cost), ref, staffId, note);
 }
