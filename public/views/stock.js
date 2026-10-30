@@ -2,6 +2,8 @@ import { useState, useEffect } from '../vendor/hooks.js';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays, can, SaveInput } from '../ui.js';
 
 const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['hh', '📉 Hao hụt', 'manager'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['quydoi', '⚖ Quy đổi', 'manager'], ['btp', '🍲 Bán thành phẩm'], ['ls', 'Lịch sử']];
+// 5 nhóm tab (chủ quán 30/10: 11 tab rối) — giữ mã tab cũ để link /kho?tab=… vẫn chạy
+const GROUPS = [['ton', 'Tồn kho', ['ton']], ['kiem', 'Kiểm kho', ['kiem', 'dodung']], ['nhap', 'Nhập hàng', ['dat', 'linh']], ['bc', 'Báo cáo', ['nxt', 'hh', 'ls']], ['tl', 'Thiết lập', ['nl', 'quydoi', 'btp']]];
 const STATUS = { out: ['Hết', 'bad'], low: ['Sắp hết', 'warn'], ok: ['Đủ', 'ok'] };
 const FRESH = { fresh: 'Đồ tươi', chilled: 'Đồ mát', dry: 'Đồ khô/đông' };
 const TR = { requested: ['Chờ kho tổng xuất', 'warn'], sent: ['Đã xuất, chờ khu nhận', 'warn'], received: ['Đã nhận', 'ok'], cancelled: ['Đã huỷ', 'muted'] };
@@ -28,9 +30,11 @@ function Overview() {
   const [filter, setFilter] = useState('');
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
+  const [open, setOpen] = useState(null);
   if (!st.data) return html`<${Loading} state=${st} />`;
   const d = st.data;
   const catName = (k) => (d.cats || []).find((c) => c.key === k)?.label || 'Khác';
+  const multi = d.stores.length > 1;
   let items = d.items;
   if (cat) items = items.filter((i) => i.cat === cat);
   if (store !== 'all') items = items.filter((i) => (i.stock[store] || 0) > 0 || String(i.home_store_id) === store || (store === String(d.stores.find((s) => s.kind === 'main')?.id)));
@@ -39,31 +43,41 @@ function Overview() {
   if (q) items = items.filter((i) => i.name.toLowerCase().includes(q.toLowerCase()));
   const nWarn = d.items.filter((i) => i.status !== 'ok').length;
   const nExp = d.items.filter((i) => i.expiring.length).length;
+  const order = (k) => { const n = (d.cats || []).findIndex((c) => c.key === k); return n < 0 ? 999 : n; };
+  const groups = [...new Set([...items].sort((a, b) => order(a.cat) - order(b.cat)).map((i) => i.cat))].map((c) => [c, items.filter((i) => i.cat === c).sort((a, b) => ({ out: 0, low: 1, ok: 2 }[a.status] - { out: 0, low: 1, ok: 2 }[b.status]) || a.name.localeCompare(b.name, 'vi'))]);
+  // Hạn gần nhất gộp 1 dòng: "31/10 · 15 kg" (cộng mọi lô cùng ngày)
+  const nearExp = (i) => { if (!i.expiring.length) return null; const day = [...i.expiring].sort((a, b) => (a.expires_on < b.expires_on ? -1 : 1))[0].expires_on; return { day, qty: i.expiring.filter((e) => e.expires_on === day).reduce((n, e) => n + e.qty, 0), expired: i.expiring.some((e) => e.expired), more: new Set(i.expiring.map((e) => e.expires_on)).size - 1 }; };
+  const ddmm = (x) => x.slice(8, 10) + '/' + x.slice(5, 7);
+  const DOT = { out: '#dc2626', low: '#f59e0b', ok: '#16a34a' };
   return html`<div class="stack">
-    <div class="row wrap">
-      <select id="ov-store" class="auto" value=${store} onChange=${(e) => setStore(e.target.value)}>
-        <option value="all">Tất cả kho</option>${d.stores.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select>
-      <input id="ov-q" type="search" class="auto" placeholder="Tìm nguyên liệu" value=${q} onInput=${(e) => setQ(e.target.value)} />
+    <div class="row wrap tight">
+      <input id="ov-q" type="search" style="flex:1 1 100%" placeholder="🔍 Tìm nguyên liệu" value=${q} onInput=${(e) => setQ(e.target.value)} />
+      <select class="grow" value=${cat} onChange=${(e) => setCat(e.target.value)}><option value="">Mọi nhóm kho (${d.items.length})</option>
+        ${(d.cats || []).filter((c) => d.items.some((i) => i.cat === c.key)).map((c) => html`<option value=${c.key}>${c.label} (${d.items.filter((i) => i.cat === c.key).length})</option>`)}</select>
+      ${multi ? html`<select id="ov-store" class="auto" value=${store} onChange=${(e) => setStore(e.target.value)}><option value="all">Tất cả kho</option>${d.stores.map((s) => html`<option value=${s.id}>${s.name}</option>`)}</select>` : null}
     </div>
     <div class="chips">
-      <button class=${`chip ${filter === '' ? 'on' : ''}`} onClick=${() => setFilter('')}>Tất cả (${d.items.length})</button>
-      <button class=${`chip ${filter === 'warn' ? 'on' : ''}`} onClick=${() => setFilter('warn')}>Hết / sắp hết (${nWarn})</button>
-      <button class=${`chip ${filter === 'exp' ? 'on' : ''}`} onClick=${() => setFilter('exp')}>Sắp hết hạn (${nExp})</button>
+      <button class=${`chip ${filter === 'warn' ? 'on' : ''}`} onClick=${() => setFilter(filter === 'warn' ? '' : 'warn')}>🔴 Hết / sắp hết (${nWarn})</button>
+      <button class=${`chip ${filter === 'exp' ? 'on' : ''}`} onClick=${() => setFilter(filter === 'exp' ? '' : 'exp')}>⏰ Sắp hết hạn (${nExp})</button>
     </div>
-    <div class="chips small-chips"><button class=${`chip ${!cat ? 'on' : ''}`} onClick=${() => setCat('')}>Mọi nhóm kho</button>
-      ${(d.cats || []).filter((c) => d.items.some((i) => i.cat === c.key)).map((c) => html`<button class=${`chip ${cat === c.key ? 'on' : ''}`} onClick=${() => setCat(c.key)}>${c.label} <small>${d.items.filter((i) => i.cat === c.key).length}</small></button>`)}</div>
-    ${items.length ? html`<div class="stock-list">${[...items].sort((a, b) => (d.cats || []).findIndex((c) => c.key === a.cat) - (d.cats || []).findIndex((c) => c.key === b.cat)).map((i, k, arr) => html`${k === 0 || arr[k - 1].cat !== i.cat ? html`<h4 class="stock-cat">📦 ${catName(i.cat)}</h4>` : null}<section class=${`card stock-row ${i.status}`}>
-      <div class="row between"><b>${i.name}</b><span class=${`pill ${STATUS[i.status][1]}`}>${STATUS[i.status][0]}</span></div>
-      <div class="row between small">
-        <span>Còn <b>${qty(i.available, i.unit)}</b>${i.days_left !== null ? html` <span class="muted">· đủ ~${Math.floor(i.days_left * 10) / 10} ngày</span>` : null}</span>
-        <span class="muted">Mai cần ~${qty(i.forecast_tomorrow, i.unit)}</span>
-      </div>
-      <div class="muted small">${d.stores.filter((s) => i.stock[s.id]).map((s) => `${s.name.replace('Kho ', '')}: ${qty(i.stock[s.id], i.unit)}`).join(' · ') || 'Không còn trong kho nào'}</div>
-      <div class="muted small">${FRESH[i.freshness]} · ${i.home_name} · ${i.supplier_name || 'chưa có NCC'}${i.min_stock ? ` · tối thiểu ${qty(i.min_stock, i.unit)}` : ''}</div>
-      ${i.used_for?.length ? html`<div class="small">🍽 Dùng cho: ${usedText(i.used_for)}</div>` : null}
-      ${i.expiring.map((e) => html`<div class=${`small ${e.expired ? 'bad-text' : 'warn-text'}`}>${e.expired ? 'Đã hết hạn' : 'Sắp hết hạn'} ${dayLabel(e.expires_on)}: ${qty(e.qty, i.unit)} ở ${d.stores.find((s) => s.id === e.store_id)?.name || ''}</div>`)}
-    </section>`)}</div>` : html`<div class="empty">${d.items.length ? 'Không có nguyên liệu nào khớp.' : 'Chưa có nguyên liệu. Quản lý thêm ở tab "Nguyên liệu & NCC".'}</div>`}
-    <p class="muted small">"Mai cần" tính từ lượng dùng thực tế các ngày trước (ưu tiên các ngày cùng thứ trong 4 tuần gần nhất). Càng kiểm kho đều, gợi ý càng chính xác.</p>
+    ${items.length ? groups.map(([c, list]) => html`<section class="card" style="padding:8px 10px">
+      <div class="row between"><b>${catName(c)}</b><small class="muted">${list.length} hàng${list.some((i) => i.status !== 'ok') ? html` · <span class="warn-text">${list.filter((i) => i.status !== 'ok').length} cần nhập</span>` : ''}</small></div>
+      <table class="list small" style="width:100%"><tbody>${list.map((i) => { const e = nearExp(i); return html`<tr style="cursor:pointer" onClick=${() => setOpen(i)}>
+        <td style="width:14px"><span style=${`display:inline-block;width:10px;height:10px;border-radius:50%;background:${DOT[i.status]}`}></span></td>
+        <td>${i.name}</td>
+        <td class="r" style="white-space:nowrap"><b>${qty(i.available, i.unit)}</b></td>
+        <td class="r" style="white-space:nowrap;width:5.5em">${e ? html`<span class=${e.expired ? 'bad-text' : 'warn-text'}>⏰ ${ddmm(e.day)}</span>` : ''}</td></tr>`; })}</tbody></table>
+    </section>`) : html`<div class="empty">${d.items.length ? 'Không có nguyên liệu nào khớp.' : 'Chưa có nguyên liệu. Quản lý thêm ở Thiết lập → Nguyên liệu & NCC.'}</div>`}
+    <p class="muted small">🔴 hết · 🟡 sắp hết · 🟢 đủ. Bấm 1 dòng để xem chi tiết (hạn từng lô, dùng cho món nào, NCC).</p>
+    ${open ? html`<${Modal} title=${open.name} onClose=${() => setOpen(null)}><div class="stack tight">
+      <div class="row between"><span>Còn <b>${qty(open.available, open.unit)}</b>${open.days_left !== null ? html` <span class="muted">· đủ ~${Math.floor(open.days_left * 10) / 10} ngày</span>` : null}</span><span class=${`pill ${STATUS[open.status][1]}`}>${STATUS[open.status][0]}</span></div>
+      <small>Mai cần ~${qty(open.forecast_tomorrow, open.unit)}${open.min_stock ? ` · tối thiểu ${qty(open.min_stock, open.unit)}` : ''}</small>
+      ${multi ? html`<small class="muted">${d.stores.filter((s) => open.stock[s.id]).map((s) => `${s.name}: ${qty(open.stock[s.id], open.unit)}`).join(' · ') || 'Không còn trong kho nào'}</small>` : null}
+      <small class="muted">${catName(open.cat)} · ${FRESH[open.freshness]} · NCC: ${open.supplier_name || 'chưa có'}</small>
+      ${open.used_for?.length ? html`<small>🍽 Dùng cho: ${usedText(open.used_for)}</small>` : null}
+      ${open.expiring.length ? html`<b class="small">Hạn dùng từng lô</b>${open.expiring.map((e) => html`<small class=${e.expired ? 'bad-text' : 'warn-text'}>${e.expired ? 'Đã hết hạn' : 'Hết hạn'} ${dayLabel(e.expires_on)}: ${qty(e.qty, open.unit)}${multi ? ` ở ${d.stores.find((s) => s.id === e.store_id)?.name || ''}` : ''}</small>`)}` : null}
+      <a class="btn small" style="align-self:flex-start" href=${`/kho?tab=nxt`}>Xem Nhập – Xuất – Tồn →</a>
+    </div><//>` : null}
   </div>`;
 }
 
@@ -780,13 +794,21 @@ export function StockView({ me, query }) {
   const tab = query.get('tab') || 'ton';
   const meta = useData('/api/stock/meta');
   const [sapo, setSapo] = useState(false);
+  const [menu, setMenu] = useState(false);
   const TAB_ACT = { ton: 'kho.xem', nxt: 'kho.nxt', kiem: 'kho.kiem', linh: 'kho.linh', dat: 'kho.dathang', nl: 'kho.nguyenlieu', quydoi: 'kho.nguyenlieu', ls: 'kho.xem' };
   const tabs = TABS.filter(([k]) => !(meta.data?.single && k === 'linh')).filter(([k, , role]) => (TAB_ACT[k] && me.acts?.[TAB_ACT[k]] === true) || ((!role || atLeast(me, role)) && (!TAB_ACT[k] || can(me, TAB_ACT[k]))));
+  const ok = new Set(tabs.map(([k]) => k));
+  const groups = GROUPS.map(([g, l, ks]) => [g, l, ks.filter((k) => ok.has(k))]).filter(([, , ks]) => ks.length);
+  const curG = groups.find(([, , ks]) => ks.includes(tab)) || groups[0];
+  const more = atLeast(me, 'manager') || (me.role === 'owner' && !me.wh_live);
   return html`<div class="stack">
-    <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/kho?tab=${k}`)}>${l}</button>`)}</div>
-    ${atLeast(me, 'manager') ? html`<button onClick=${() => setSapo(true)}>📊 Nhập bán hàng từ Sapo (trừ kho)</button>` : null}
+    <div class="row tight" style="align-items:center"><div class="chips grow">${groups.map(([g, l, ks]) => html`<button class=${`chip ${curG?.[0] === g ? 'on' : ''}`} onClick=${() => navigate(`/kho?tab=${ks[0]}`)}>${l}</button>`)}</div>
+      ${more ? html`<button class="small icon" style="align-self:flex-start" aria-label="Thêm" onClick=${() => setMenu(!menu)}>⋯</button>` : null}</div>
+    ${curG && curG[2].length > 1 ? html`<div class="chips small-chips">${curG[2].map((k) => html`<button class=${`chip ${tab === k ? 'on' : ''}`} onClick=${() => navigate(`/kho?tab=${k}`)}>${TABS.find((t) => t[0] === k)[1]}</button>`)}</div>` : null}
+    ${menu ? html`<section class="card stack tight">
+      ${atLeast(me, 'manager') ? html`<button onClick=${() => { setMenu(false); setSapo(true); }}>📊 Nhập bán hàng từ Sapo (trừ kho)</button>` : null}
+      ${me.role === 'owner' && !me.wh_live ? html`<button class="link small" onClick=${() => navigate('/kho-tx')}>🚀 Kho mới theo chứng từ (Kho & Tài sản) →</button>` : null}</section>` : null}
     ${sapo ? html`<${SapoImport} onClose=${() => setSapo(false)} />` : null}
-    ${me.role === 'owner' && !me.wh_live ? html`<button class="link small" onClick=${() => navigate('/kho-tx')}>🚀 Kho mới theo chứng từ (Kho & Tài sản): xem / bắt đầu khi sẵn sàng →</button>` : null}
     ${!meta.data ? html`<${Loading} state=${meta} />`
       : tab === 'kiem' ? html`<${Count} meta=${meta.data} me=${me} />`
       : tab === 'hh' ? html`<${LossReport} me=${me} />`
