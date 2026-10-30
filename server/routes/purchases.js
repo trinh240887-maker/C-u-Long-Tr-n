@@ -431,7 +431,7 @@ export default function (r, ctx) {
     if (b.status === 'waiting') { if (!isCashier(me) && !canPerm(ctx, me, 'mh.apbill')) fail(403, 'Thu ngân / trưởng ca trở lên mới sửa bill chờ nhận hàng'); }
     else if (b.status === 'returned') { if (b.received_by !== me.id && rank(me.role) < rank('shift_lead')) fail(403, 'Người nhận hàng sửa lại'); }
     else if (b.status === 'received') { if (!isCashier(me)) fail(403, 'Thu ngân / trưởng ca trở lên mới sửa bill đang chờ duyệt'); }
-    else if (b.status === 'approved') { const supOnly = (body.supplier_id !== undefined || body.supplier_name !== undefined) && body.lines === undefined && body.total === undefined; if (rank(me.role) < rank('manager') && !(supOnly && isCashier(me))) fail(403, 'Bill đã duyệt: quản lý / chủ quán mới sửa được (thu ngân chỉ đổi tên NCC)'); } // chủ quán 26/10: gắn dòng "hàng khác" vào kho
+    else if (b.status === 'approved') { if (rank(me.role) < rank('manager')) fail(403, 'Bill đã duyệt: quản lý / chủ quán mới sửa được'); } // chủ quán 26/10: gắn dòng "hàng khác" vào kho
     else fail(400, 'Bill này không sửa được');
     const lines = body.lines ? readLines(body.lines) : null;
     let created = [];
@@ -439,7 +439,8 @@ export default function (r, ctx) {
     // Đổi NCC (chủ quán 30/10: thu ngân sửa khi máy đọc / người nhập ghi sai tên NCC)
     let newSup = null;
     if (body.supplier_id !== undefined || body.supplier_name !== undefined) {
-      if (!isCashier(me)) fail(403, 'Thu ngân / trưởng ca trở lên mới đổi NCC');
+      // Chủ quán 30/10: thu ngân đổi NCC lúc kiểm bill chờ duyệt; bill trạng thái khác chỉ quản lý / chủ
+      if (rank(me.role) < rank('manager') && !(isCashier(me) && b.status === 'received')) fail(403, 'Thu ngân đổi NCC ở bill chờ duyệt; bill khác quản lý / chủ quán đổi');
       if (body.supplier_id) { newSup = supplierRow(v.int(body.supplier_id, { min: 1, name: 'NCC' })); if (!newSup) fail(404, 'Không tìm thấy NCC'); }
       else {
         const nm = v.text(body.supplier_name, { name: 'Tên NCC', required: true, max: 300 });

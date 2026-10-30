@@ -261,7 +261,7 @@ function BillCard({ b, canApprove, me }) {
       <button onClick=${() => setReason('')}>Trả lại</button></div>` : null}
     ${b.status === 'returned' && (b.received_by === me.id || canApprove) ? html`<button class="small" onClick=${() => setEdit(true)}>✏️ Sửa từng dòng</button>` : null}
     ${b.status === 'approved' && (['manager', 'owner'].includes(me.role) || me.acts?.['mh.sua'] === true) && canAct(me, 'mh.sua') ? html`<button class="small" onClick=${() => setEdit(true)}>✏️ Sửa bill${b.lines.some((l) => !l.ingredient_id) ? ' / gắn hàng vào kho' : ''}</button>` : null}
-    ${['received', 'approved', 'returned', 'waiting'].includes(b.status) && canApprove ? html`<button class="small" onClick=${() => setSupFix(true)}>🏪 Sai tên NCC? Đổi NCC</button>` : null}
+    ${(b.status === 'received' && canApprove) || (['approved', 'returned', 'waiting'].includes(b.status) && ['manager', 'owner'].includes(me.role)) ? html`<button class="small" onClick=${() => setSupFix(true)}>🏪 Sai tên NCC? Đổi NCC</button>` : null}
     ${supFix ? html`<${SupFix} b=${b} onClose=${() => setSupFix(false)} />` : null}
     ${edit ? html`<${EditBill} b=${b} onClose=${() => setEdit(false)} />` : null}
     ${b.status === 'received' && b.received_by === me.id && me.role !== 'owner' ? html`<small class="muted">Chờ người khác duyệt (người nhận không tự duyệt).</small>` : null}

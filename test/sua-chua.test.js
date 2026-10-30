@@ -51,8 +51,13 @@ test('bill mua: dòng sửa chữa / đồ dùng / tài sản không nhập kho;
   assert.equal(db.prepare('SELECT supplier_id, supplier_name FROM purchase_bills WHERE id = ?').get(bid).supplier_id, good);
   assert.equal(db.prepare('SELECT active FROM suppliers WHERE id = ?').get(oldSup).active, 0, 'NCC tên sai tự ẩn');
   assert.equal(db.prepare('SELECT supplier_id FROM supplier_aliases').get().supplier_id, good);
-  // Bill đã duyệt: thu ngân vẫn đổi được NCC
+  // Bill đã duyệt: thu ngân không đổi NCC (chỉ ở chờ duyệt); chủ / quản lý vẫn đổi được
   assert.equal((await o('POST', `/api/purchases/${bid}/approve`)).status, 200);
+  const tn = db.prepare("SELECT id FROM teams WHERE name = 'Thu ngân'").get()?.id ?? Number(db.prepare("INSERT INTO teams (name) VALUES ('Thu ngân')").run().lastInsertRowid);
+  await o('POST', '/api/staff', { name: 'TN', team_id: tn, role: 'staff', pin: '4821' });
+  cookie = null; await o('POST', '/api/login', { pin: '4821' });
+  assert.equal((await o('PATCH', `/api/purchases/${bid}`, { supplier_name: 'Ngũ Kiệt' })).status, 403);
+  cookie = null; await o('POST', '/api/login', { pin: '582914' });
   assert.equal((await o('PATCH', `/api/purchases/${bid}`, { supplier_name: 'Ngũ Kiệt' })).status, 200);
   assert.equal(db.prepare('SELECT supplier_name FROM purchase_bills WHERE id = ?').get(bid).supplier_name, 'Ngũ Kiệt');
 });
