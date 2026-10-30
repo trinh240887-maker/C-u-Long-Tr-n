@@ -32,6 +32,23 @@ function PhotoPicker({ photos, setPhotos, first = '📷 Chụp bill NCC (bắt b
   </div>`;
 }
 
+// Ô gõ tìm hàng có sẵn trong kho (chủ quán 30/10: danh sách dài không tìm được "bắp cải trắng"); gợi ý tên gần giống tên máy đọc
+const foldv = (x) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const bigrams = (x) => { const t = foldv(x).replace(/ /g, ''); const m = new Set(); for (let k = 0; k < t.length - 1; k++) m.add(t.slice(k, k + 2)); return m; };
+const simil = (a, b) => { const A = bigrams(a), B = bigrams(b); if (!A.size || !B.size) return 0; let n = 0; for (const x of A) if (B.has(x)) n++; return (2 * n) / (A.size + B.size); };
+export function IngPicker({ ingredients, guess = '', onPick, label = '…hoặc là hàng có sẵn trong kho' }) {
+  const [q, setQ] = useState('');
+  const list = (ingredients || []).filter((g) => g.active !== 0 && g.active !== false);
+  const words = foldv(q).split(' ').filter(Boolean);
+  const hits = words.length ? list.filter((g) => { const f = foldv(g.name); return words.every((w) => f.includes(w)); }).slice(0, 8)
+    : guess ? list.map((g) => ({ g, s: simil(guess, g.name) })).filter((x) => x.s >= 0.3).sort((a, b) => b.s - a.s).slice(0, 5).map((x) => x.g) : [];
+  return html`<div class="stack tight">
+    <input type="search" placeholder=${`🔍 ${label}: gõ tên (vd bắp cải)`} value=${q} onInput=${(e) => setQ(e.target.value)} />
+    ${hits.length ? html`<div class="row wrap tight">${!words.length ? html`<small class="muted">Gần giống:</small>` : null}${hits.map((g) => html`<button class="small" onClick=${() => { setQ(''); onPick(g); }}>${g.name}</button>`)}</div>`
+      : words.length ? html`<small class="muted">Không có hàng nào tên "${q}" trong kho → bấm "Tạo mã mới" (sửa tên cho đúng trước).</small>` : null}
+  </div>`;
+}
+
 // Loại dòng bill (chủ quán 30/10): đồ sửa quán / đồ dùng / tài sản không nhập kho
 export const LINE_KIND = [['', '🥩 Nhập kho'], ['repair', '🔧 Sửa chữa'], ['tool', '🍽 Đồ dùng'], ['asset', '🏷 Tài sản'], ['other', '📦 Chi khác']];
 function KindPick({ l, onKind, repairs, onRepair }) {
@@ -77,13 +94,11 @@ function Lines({ lines, setLines, ingredients }) {
         ? html`<small class="ok-text">✅ Lưu bill sẽ tạo mã mới trong kho: <b>${l.name}</b> (${l.unit || 'cái'}) · <button class="link small" onClick=${() => setLines(lines.map((x, j) => (j === i ? { ...x, create_new: false } : x)))}>bỏ</button></small>`
         : html`<div class="stack tight">
           <button class="primary small" onClick=${() => setLines(lines.map((x, j) => (j === i ? { ...x, create_new: true, warn: '' } : x)))}>✅ OK, tạo mã mới "${l.name}" trong kho</button>
-          <select onChange=${(e) => { const g = ingredients.find((x) => x.id === Number(e.target.value)); if (g) setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, warn: '' } : x))); }}>
-            <option value="">…hoặc là hàng có sẵn trong kho (tên khác)</option>${ingredients.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>
+          <${IngPicker} ingredients=${ingredients} guess=${l.name} onPick=${(g) => setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, warn: '' } : x)))} />
           <small class="muted">Đồ sửa quán, đồ dùng, tài sản: đổi loại ở ô trên (không cần mã kho).</small></div>`) : null}
     </div>`)}
     <div class="row wrap">
-      <select onChange=${(e) => { const g = ingredients.find((x) => x.id === Number(e.target.value)); e.target.value = ''; if (g && !lines.some((l) => l.ingredient_id === g.id)) setLines([...lines, { ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, qty: '', price: g.price || '' }]); }}>
-        <option value="">+ Thêm hàng có trong kho…</option>${ingredients.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>
+      <div style="flex-basis:100%"><${IngPicker} ingredients=${ingredients} label="+ Thêm hàng có trong kho" onPick=${(g) => { if (!lines.some((l) => l.ingredient_id === g.id)) setLines([...lines, { ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, qty: '', price: g.price || '' }]); }} /></div>
       <button class="small" onClick=${() => setLines([...lines, { name: '', unit: '', qty: '', price: '' }])}>+ Hàng khác (ga, đá, đồ dùng…)</button>
     </div>
   </div>`;
@@ -270,8 +285,9 @@ function EditBill({ b, onClose }) {
     <div class="stack">
       <small class="muted">Sửa tên hàng, số lượng, đơn giá cho đúng ảnh bill (số lẻ dùng dấu phẩy, vd 28,1). Kho tự trừ hàng cũ, cộng hàng đúng.</small>
       ${lines.map((l, i) => html`<div class="row wrap tight edit-line">${l.ingredient_id ? html`<div class="grow stack tight"><b>${l.name}</b>
-          <select class="small" value="" onChange=${(e) => { const g = (ings.data?.ingredients || []).find((x) => x.id === Number(e.target.value)); if (g) setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit } : x))); }}>
-            <option value="">✏️ Sai tên? Đổi thành hàng khác…</option>${(ings.data?.ingredients || []).filter((g) => g.active !== 0 && g.id !== l.ingredient_id).map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select></div>` : html`<b class="grow">${l.name}</b>`}
+          ${l.fix ? html`<${IngPicker} ingredients=${(ings.data?.ingredients || []).filter((g) => g.id !== l.ingredient_id)} label="Đổi thành hàng" onPick=${(g) => setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit, fix: false } : x)))} />`
+            : html`<button class="link small" style="align-self:flex-start" onClick=${() => set(i, 'fix', true)}>✏️ Sai tên? Đổi thành hàng khác</button>`}</div>`
+          : html`<input class="grow" value=${l.name} title="Sửa tên cho đúng (máy đọc sai)" onInput=${(e) => set(i, 'name', e.target.value)} />`}
         <label class="row tight small"><input class="num-in" inputmode="decimal" value=${l.qty} onInput=${(e) => set(i, 'qty', e.target.value)} /> ${l.unit}</label>
         <label class="row tight small">× <input class="num-in wide" inputmode="numeric" value=${l.price} onInput=${(e) => set(i, 'price', e.target.value)} />đ</label>
         <small class="muted">= ${money(Math.round((Number(String(l.qty).replace(',', '.')) || 0) * (num(l.price) || 0)))}</small>
@@ -280,8 +296,7 @@ function EditBill({ b, onClose }) {
           ? html`<small class="ok-text" style="flex-basis:100%">✅ Lưu sẽ tạo mã mới trong kho: <b>${l.name}</b> (${l.unit || 'cái'}), cộng ${l.qty} vào kho · <button class="link small" onClick=${() => set(i, 'create_new', false)}>bỏ</button></small>`
           : html`<div class="stack tight" style="flex-basis:100%"><small class="warn-text">⚠ Chưa có trong kho</small>
             <button class="small primary" onClick=${() => set(i, 'create_new', true)}>✅ OK, tạo mã mới "${l.name}" trong kho</button>
-            <select onChange=${(e) => { const g = (ings.data?.ingredients || []).find((x) => x.id === Number(e.target.value)); if (g) setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit } : x))); }}>
-              <option value="">…hoặc là hàng có sẵn trong kho</option>${(ings.data?.ingredients || []).filter((g) => g.active !== 0).map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select></div>`) : null}</div>`)}
+            <${IngPicker} ingredients=${ings.data?.ingredients || []} guess=${l.name} onPick=${(g) => setLines(lines.map((x, j) => (j === i ? { ...x, ingredient_id: g.id, name: g.name, unit: g.purchase_unit || g.unit } : x)))} /></div>`) : null}</div>`)}
       <div class="row between"><span>Cộng các dòng</span><b class="num">${money(sum)}</b></div>
       <${Field} label="Tổng tiền trên bill"><input inputmode="numeric" value=${total} onInput=${(e) => setTotal(e.target.value)} /><//>
       ${sum !== num(total) ? html`<small class="warn-text">Cộng các dòng khác tổng bill ${money(Math.abs(sum - num(total)))}</small>` : html`<small class="ok-text">✓ Khớp tổng bill</small>`}
