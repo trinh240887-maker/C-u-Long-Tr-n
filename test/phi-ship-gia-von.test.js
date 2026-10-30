@@ -38,4 +38,14 @@ test('duyệt bill: phí ship chia vào giá vốn theo giá trị, chiết kh�
   assert.equal(db.prepare('SELECT price FROM ingredients WHERE id = ?').get(tui).price, 101000);
   assert.equal(db.prepare('SELECT price FROM ingredients WHERE id = ?').get(xa).price, 101000);
   assert.equal(db.prepare('SELECT lines_total FROM purchase_bills WHERE id = ?').get(b2.id).lines_total, 1515000, 'chiết khấu trừ vào cộng dòng');
+  // Dòng chưa quy đổi (bill ghi 2 thùng × 600.000) + ship 40.000 → duyệt rồi mới quy đổi 1 thùng = 12 gói → giá vốn (1.200.000 + 40.000) / 24
+  const mi = ing('Mì trứng', 50000);
+  const b3 = await bill([{ ingredient_id: mi, qty: 2, unit: 'thùng', price: 600000, unconv: true }, { name: 'Tiền xe', qty: 1, price: 40000 }], 1240000);
+  assert.equal((await o('POST', `/api/purchases/${b3.id}/approve`)).status, 200);
+  assert.equal(db.prepare('SELECT price FROM ingredients WHERE id = ?').get(mi).price, 50000, 'chưa quy đổi: giữ giá cũ');
+  const ln = db.prepare('SELECT id, extra_cost FROM purchase_bill_lines WHERE bill_id = ? AND ingredient_id = ?').get(b3.id, mi);
+  assert.equal(ln.extra_cost, 40000);
+  const cv = await o('POST', `/api/purchases/lines/${ln.id}/convert`, { factor: 12 });
+  assert.equal(cv.status, 200, JSON.stringify(cv.data));
+  assert.equal(db.prepare('SELECT price FROM ingredients WHERE id = ?').get(mi).price, Math.round(1240000 / 24));
 });

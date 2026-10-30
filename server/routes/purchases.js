@@ -629,7 +629,9 @@ export default function (r, ctx) {
       else if (d < 0) takeLots(db, { storeId: store, ingredientId: l.ingredient_id, qty: -d, allowShort: true });
       if (d) recordMove(db, { at, date, type: 'receive', ingredientId: l.ingredient_id, toStore: store, qty: d, cost: 0, ref: `fix-bill:${b.id}`, staffId: me.id, note: `Quy đổi bill #${b.id}: 1 ${l.bill_unit} = ${f} ${l.purchase_unit || l.use_unit}` });
       db.prepare('UPDATE purchase_bill_lines SET qty = ?, price = ?, unit = ?, bill_unit = NULL WHERE id = ?').run(qty, price, l.purchase_unit || l.use_unit, l.id);
-      if (price > 0 && !waiting && !newer) db.prepare('UPDATE ingredients SET price = ? WHERE id = ?').run(price, l.ingredient_id);
+      // Giá vốn = (tiền hàng + phần ship / chiết khấu đã chia lúc duyệt) / số lượng sau quy đổi (chủ quán 30/10: quy đổi sau vẫn đúng giá vốn)
+      const landed = qty > 0 && l.extra_cost ? Math.round((l.amount + l.extra_cost) / qty) : price;
+      if (landed > 0 && !waiting && !newer) db.prepare('UPDATE ingredients SET price = ? WHERE id = ?').run(landed, l.ingredient_id);
       const keep = v.bool(body.keep) ? 1 : 0, note = v.text(body.note || '', { name: 'Ghi chú', max: 120 });
       db.prepare('INSERT INTO unit_aliases (ingredient_id, bill_unit, factor, keep, note) VALUES (?, ?, ?, ?, ?) ON CONFLICT (ingredient_id, bill_unit) DO UPDATE SET factor = excluded.factor, keep = excluded.keep, note = excluded.note').run(l.ingredient_id, l.bill_unit, f * pf, keep, note);
       // Bỏ cờ "chưa quy đổi" theo mẫu (không so nguyên chuỗi: số lượng có thể đã sửa), dựng lại cho dòng còn chưa quy đổi (rà soát 28/10)
