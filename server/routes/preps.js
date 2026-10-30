@@ -104,7 +104,10 @@ export default function (r, ctx) {
     preps: db.prepare('SELECT * FROM preps WHERE active = 1 ORDER BY id').all().map(load),
   }));
   // Chỉ tên món (để tổ trưởng thêm việc nấu), không có công thức
-  r.get('/api/preps/names', 'team_lead', () => db.prepare("SELECT id, book, name, kind FROM preps WHERE active = 1 ORDER BY id").all());
+  r.get('/api/preps/names', 'team_lead', ({ me }) => {
+    if (!canCook(me)) fail(403, 'Chỉ tổ trưởng bếp hoặc quản lý');
+    return db.prepare("SELECT id, book, name, kind FROM preps WHERE active = 1 ORDER BY id").all();
+  });
   r.post('/api/preps/import', 'manager', ({ me }) => importSeed(me));
   // Sửa phút đứng bếp / phút chờ từng bước (bếp trưởng chỉnh theo thực tế) → nạp lại sổ không ghi đè
   r.patch('/api/preps/:id/steps', 'manager', ({ me, params, body }) => {
@@ -191,8 +194,9 @@ export default function (r, ctx) {
   const mainStore = () => db.prepare("SELECT * FROM stores WHERE kind = 'main' AND active = 1 ORDER BY id LIMIT 1").get();
   const storeFor = (ing) => (ctx.setting('single_store') === '1' ? mainStore()?.id : ing.home_store_id || mainStore()?.id);
   const totalStock = (ingId) => r3(db.prepare('SELECT COALESCE(SUM(qty), 0) AS q FROM stock_lots WHERE ingredient_id = ?').get(ingId).q);
+  // Chỉ nhân sự bếp (Bếp steak, Lẩu, Nướng…) + quản lý / chủ (chủ quán 30/10: tổ trưởng, trưởng ca bộ phận khác không xem công thức)
   const canCook = (me) => {
-    if (rank(me.role) >= rank('team_lead')) return true;
+    if (rank(me.role) >= rank('manager')) return true;
     const t = me.team_id ? db.prepare('SELECT name FROM teams WHERE id = ?').get(me.team_id) : null;
     return !!t && /bếp|bep|lẩu|lau|nướng|steak/i.test(t.name);
   };
@@ -577,6 +581,7 @@ export default function (r, ctx) {
     return buildPlan(date).map((x) => ({ prep_id: x.p.id, name: x.p.name, out_name: x.out.name, unit: x.out.unit, per: x.per, cover: x.cover, forecast: x.forecast, extra: r3(x.extra), stock: x.stock, need: x.need, batches: x.batches, basis: x.basis }));
   });
   r.post('/api/preps/plan/regen', 'team_lead', ({ me, body }) => {
+    if (!canCook(me)) fail(403, 'Chỉ tổ trưởng bếp hoặc quản lý');
     const date = body.date || ctx.today();
     ensurePlan(date, { regen: true });
     ctx.audit(me, 'preps.plan_regen', { date });
@@ -585,6 +590,7 @@ export default function (r, ctx) {
   });
   // Thêm / sửa 1 dòng kế hoạch (số mẻ, điểm làm, người làm). batches = 0 → bỏ khỏi kế hoạch
   r.put('/api/preps/plan', 'team_lead', ({ me, body }) => {
+    if (!canCook(me)) fail(403, 'Chỉ tổ trưởng bếp hoặc quản lý');
     const date = body.date || ctx.today();
     const p = db.prepare('SELECT * FROM preps WHERE id = ? AND active = 1').get(Number(body.prep_id));
     if (!p) fail(404, 'Không tìm thấy bán thành phẩm');

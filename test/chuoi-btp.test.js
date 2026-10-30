@@ -83,6 +83,9 @@ test('chuỗi bán thành phẩm: nồi lẩu bán → cốt + nước dùng c�
   await o('PUT', '/api/preps/plan', { prep_id: s1p.id, batches: 2 });
   const bossView = (await o('GET', '/api/preps/plan')).data;
   assert.equal(bossView.packs.find((k) => k.code === `G${s1p.id}`).lines.length, 2, 'quản lý thấy trong gói');
+  await o('POST', '/api/staff', { name: 'TTPV', team_id: team('Phục vụ'), role: 'team_lead', pin: '7364' });
+  await o('POST', '/api/staff', { name: 'TCa', team_id: team('Thu ngân'), role: 'shift_lead', pin: '8475' });
+  for (const pin of ['7364', '8475']) { cookie = null; await o('POST', '/api/login', { pin }); assert.equal((await o('GET', '/api/preps/plan')).status, 403, `tổ trưởng / trưởng ca bộ phận khác (${pin})`); assert.equal((await o('GET', '/api/preps/names')).status, 403); }
   cookie = null; await o('POST', '/api/login', { pin: '4821' });
   assert.equal((await o('GET', '/api/preps')).status, 403);
   assert.equal((await o('GET', '/api/preps/plan')).status, 403);
