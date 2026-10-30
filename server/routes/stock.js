@@ -348,6 +348,19 @@ export default function (r, ctx) {
     return { id };
   });
 
+  // Nguyên liệu không cần quy đổi (chủ quán 30/10: gạo theo bao, nước mắm theo chai… dùng nguyên đơn vị) + ghi chú lý do
+  if (!db.prepare('PRAGMA table_info(ingredients)').all().some((c) => c.name === 'conv_ok')) {
+    db.exec("ALTER TABLE ingredients ADD COLUMN conv_ok INTEGER NOT NULL DEFAULT 0; ALTER TABLE ingredients ADD COLUMN conv_note TEXT NOT NULL DEFAULT ''");
+  }
+  r.post('/api/stock/ingredients/:id/conv-ok', 'manager', ({ me, params, body }) => {
+    const cur = ingById(params.id);
+    if (!cur) fail(404, 'Không tìm thấy nguyên liệu');
+    const ok = v.bool(body.ok) ? 1 : 0;
+    db.prepare('UPDATE ingredients SET conv_ok = ?, conv_note = ? WHERE id = ?').run(ok, ok ? v.text(body.note || '', { name: 'Ghi chú', max: 120 }) : '', cur.id);
+    ctx.audit(me, 'ingredient.conv_ok', { id: cur.id, ok, note: body.note || '' });
+    ctx.broadcast('stock');
+    return { ok: true };
+  });
   r.patch('/api/stock/ingredients/:id', 'manager', ({ me, params, body }) => {
     const cur = ingById(params.id);
     if (!cur) fail(404, 'Không tìm thấy nguyên liệu');

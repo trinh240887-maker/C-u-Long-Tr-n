@@ -33,4 +33,11 @@ test('quy đổi: "Không cần quy đổi" lưu ghi chú + nhớ; các dòng kh
   assert.equal(db.prepare('SELECT bill_unit FROM purchase_bill_lines WHERE id = ?').get(l2).bill_unit, null);
   const al = (await o('GET', '/api/stock/unit-aliases')).data.find((x) => x.ingredient_id === ing);
   assert.deepEqual([al.bill_unit, al.factor, al.keep, al.note], ['cây', 1, 1, '1 cây = 1 bịch 1kg']);
+  // Nguyên liệu tính theo bao / chai: ghi "không cần quy đổi" + ghi chú, bỏ được
+  const gao = Number(db.prepare("INSERT INTO ingredients (name, unit, purchase_unit, purchase_factor, price) VALUES ('Gạo xốp 25kg', 'bao', 'bao', 1, 500000)").run().lastInsertRowid);
+  assert.equal((await o('POST', `/api/stock/ingredients/${gao}/conv-ok`, { ok: true, note: 'Dùng nguyên bao' })).status, 200);
+  const g = (await o('GET', '/api/stock/meta')).data.ingredients.find((x) => x.id === gao);
+  assert.deepEqual([g.conv_ok, g.conv_note], [1, 'Dùng nguyên bao']);
+  await o('POST', `/api/stock/ingredients/${gao}/conv-ok`, { ok: false });
+  assert.equal(db.prepare('SELECT conv_ok FROM ingredients WHERE id = ?').get(gao).conv_ok, 0);
 });

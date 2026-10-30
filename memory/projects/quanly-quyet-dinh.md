@@ -263,3 +263,5 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 257 | 29/10 | Quy đổi: nút "1 cây = 1 kg" đổi thành "✓ Không cần quy đổi" + ô ghi chú lý do (vd "1 cây = 1 bịch 1kg"); lưu vào `unit_aliases` (keep, note), hiện ở Kho → Quy đổi ("cây: không quy đổi · 📝 …"). Quy đổi / không quy đổi 1 dòng → mọi dòng chưa quy đổi khác cùng hàng + cùng đơn vị bill cũng tự xử lý. |
 | 258 | 30/10 | Lịch rảnh & xếp ca (cả tuần): nút "✅ Duyệt Phục vụ" bị hiểu là đã duyệt → đổi thành "👉 Bấm duyệt …" + nhãn trạng thái "⏳ Chưa duyệt · ca đang là nháp theo lịch rảnh" / "✅ Đã duyệt HH:MM dd/mm" (nút thành "🔁 Duyệt lại / gửi lại"). |
 | 259 | 30/10 | Xem ảnh lớn + lướt trái/phải mọi nơi (ảnh việc ca, bill, chi, kho…): bấm ảnh → khung xem, vuốt / mũi tên qua ảnh cùng nhóm, đếm "2 / 4", vuốt xuống hoặc ✕ để đóng. |
+| 260 | 30/10 | Công nợ: chủ huỷ được phiếu đã duyệt nhập nhầm ngay tại thẻ phiếu (nút 🗑 Huỷ phiếu này, phiếu chưa trả đồng nào). |
+| 261 | 30/10 | Kho → Quy đổi từng nguyên liệu: nút "✓ Không cần quy đổi" + ghi chú (cột ingredients.conv_ok, conv_note) → hết báo "⚠ Cần quy đổi", hiện "✓ Không cần quy đổi · 📝 …", có nút Bỏ. |

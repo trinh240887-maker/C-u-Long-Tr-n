@@ -646,7 +646,7 @@ export function Conversions({ meta }) {
   const uses = (id) => (ru.data || []).filter((x) => x.ingredient_id === id);
   // Lý do cần quy đổi (null = không cần)
   const need = (g) => {
-    if (!same(g)) return null;
+    if (g.conv_ok || !same(g)) return null; // chủ quán đã ghi "không cần quy đổi"
     const frac = !/^(kg|g|gr|gram|lạng|lit|lít|l|ml|cl)$/i.test((g.unit || '').trim()) && uses(g.id).find((x) => x.qty % 1 !== 0);
     if (frac) return `món "${frac.item}" trừ ${String(frac.qty).replace('.', ',')} ${g.unit}/phần`;
     if (PACK_UNITS.test((g.unit || '').trim())) return `đang tính theo ${g.unit}: bán lẻ thì nhập 1 ${g.unit} = bao nhiêu`;
@@ -669,7 +669,10 @@ export function Conversions({ meta }) {
     <section class="card stack">
       ${list.map((g) => { const dirty = !!draft[g.id]; const f = Number(String(val(g, 'purchase_factor')).replace(',', '.')) || 1; return html`<div class="stack tight" style="border-bottom:1px solid var(--line, #eee);padding-bottom:10px">
         <div class="row between"><b>${g.name}</b>${g.why && !dirty ? html`<span class="pill warn">⚠ Cần quy đổi</span>` : same(g) && !dirty ? html`<span class="pill muted">cùng đơn vị</span>` : html`<small class="ok-text">1 ${val(g, 'purchase_unit') || '?'} = ${f.toLocaleString('vi-VN')} ${val(g, 'unit')}</small>`}</div>
-        ${g.why && !dirty ? html`<small class="warn-text">${g.why}</small>` : null}
+        ${g.why && !dirty ? html`<div class="row between wrap"><small class="warn-text">${g.why}</small>
+          <button class="small" onClick=${() => { const n = prompt(`${g.name}: không cần quy đổi, dùng luôn đơn vị "${g.unit}".\nGhi chú để lần sau hiểu (tuỳ chọn):`, `Dùng nguyên ${g.unit}, không bán lẻ`); if (n !== null) act(() => api('POST', `/api/stock/ingredients/${g.id}/conv-ok`, { ok: true, note: n }), `Đã ghi: ${g.name} không cần quy đổi`); }}>✓ Không cần quy đổi</button></div>` : null}
+        ${g.conv_ok ? html`<div class="row between wrap"><small class="ok-text">✓ Không cần quy đổi${g.conv_note ? ` · 📝 ${g.conv_note}` : ''}</small>
+          <button class="link small" onClick=${() => act(() => api('POST', `/api/stock/ingredients/${g.id}/conv-ok`, { ok: false }), 'Đã bỏ ghi chú')}>Bỏ</button></div>` : null}
         <div class="row wrap tight" style="align-items:center">
           <span class="small">1</span>
           <input id=${`qd-pu-${g.id}`} style="width:6em" placeholder="gói" aria-label="Đơn vị mua" value=${val(g, 'purchase_unit')} onInput=${(e) => set(g, 'purchase_unit', e.target.value)} />
