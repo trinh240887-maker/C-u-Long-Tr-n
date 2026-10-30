@@ -291,3 +291,49 @@ const root = document.getElementById('root');
 root.textContent = '';
 render(html`<${App} /><${Toaster} />`, root);
 try { sessionStorage.removeItem('clt_retry'); } catch { /* bỏ qua */ }
+
+// Xem ảnh lớn + lướt trái / phải (chủ quán 29/10: việc nhiều ảnh xem cho nhanh).
+// Bấm ảnh nằm trong link mở ảnh (vd ảnh việc ca, ảnh bill) → mở khung xem; các ảnh cùng nhóm (cùng khung cha) lướt qua lại được
+(function photoViewer() {
+  const isPhoto = (a) => a && a.tagName === 'A' && !!a.querySelector('img') && /^\/api\//.test(a.getAttribute('href') || '') && !/\.xlsx/.test(a.getAttribute('href') || '');
+  let box = null, list = [], idx = 0;
+  const show = () => {
+    box.querySelector('img').src = list[idx];
+    box.querySelector('.pv-n').textContent = list.length > 1 ? `${idx + 1} / ${list.length}` : '';
+    box.querySelector('.pv-prev').style.visibility = idx > 0 ? 'visible' : 'hidden';
+    box.querySelector('.pv-next').style.visibility = idx < list.length - 1 ? 'visible' : 'hidden';
+  };
+  const go = (d) => { const n = idx + d; if (n >= 0 && n < list.length) { idx = n; show(); } };
+  const close = () => { if (box) { box.remove(); box = null; } };
+  const open = (urls, i) => {
+    close(); list = urls; idx = i;
+    box = document.createElement('div');
+    box.className = 'pv';
+    box.innerHTML = '<img alt="Ảnh" /><button class="pv-x" aria-label="Đóng">✕</button><button class="pv-prev" aria-label="Ảnh trước">‹</button><button class="pv-next" aria-label="Ảnh sau">›</button><div class="pv-n"></div>';
+    box.querySelector('.pv-x').onclick = close;
+    box.querySelector('.pv-prev').onclick = (e) => { e.stopPropagation(); go(-1); };
+    box.querySelector('.pv-next').onclick = (e) => { e.stopPropagation(); go(1); };
+    box.onclick = (e) => { if (e.target === box) close(); };
+    let x0 = null, y0 = null;
+    box.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+    box.addEventListener('touchend', (e) => {
+      if (x0 == null) return;
+      const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
+      else if (dy > 90 && Math.abs(dy) > Math.abs(dx)) close(); // vuốt xuống để đóng
+      x0 = null;
+    });
+    document.body.appendChild(box);
+    show();
+  };
+  document.addEventListener('keydown', (e) => { if (!box) return; if (e.key === 'Escape') close(); if (e.key === 'ArrowLeft') go(-1); if (e.key === 'ArrowRight') go(1); });
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('a');
+    if (!isPhoto(a) || e.metaKey || e.ctrlKey) return;
+    e.preventDefault();
+    // Nhóm ảnh: các link ảnh trong cùng khung cha gần nhất có từ 2 ảnh trở lên (tối đa 3 tầng)
+    let p = a.parentElement, group = [a];
+    for (let k = 0; k < 3 && p; k++, p = p.parentElement) { const g = [...p.querySelectorAll('a')].filter(isPhoto); if (g.length > 1) { group = g; break; } }
+    open(group.map((x) => x.href), Math.max(0, group.indexOf(a)));
+  });
+})();

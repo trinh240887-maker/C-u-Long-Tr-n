@@ -138,7 +138,7 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = ''
     if (kind === 'part') { const k = new Map(list.map((p) => [p.id, firstStart(p, d.days, shifts, hours)])); return [...list].sort((a, b) => k.get(a.id) - k.get(b.id) || a.name.localeCompare(b.name, 'vi')); }
     return list;
   };
-  const groups = [...d.teams.map((t) => ({ id: t.id, name: t.name })), { id: null, name: 'Chưa có bộ phận' }]
+  const groups = [...d.teams.map((t) => ({ id: t.id, name: t.name, published_at: t.published_at })), { id: null, name: 'Chưa có bộ phận' }]
     .map((g) => ({ ...g, people: order(people.filter((p) => teamOf(p) === g.id)) })).filter((g) => g.people.length);
   // Lịch cố định: chèn dòng tiêu đề khu (📍 Khu A · 5 người)
   const zoneHead = (g, i) => {
@@ -155,7 +155,9 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = ''
     ${groups.map((g) => html`<section class="card wk-card">
       <div class="wk-head">${g.name.toUpperCase()} <small>${g.people.length} người</small>
         ${canManage && g.id ? html`<button class="small wk-ok" onClick=${() => confirm(`Duyệt lịch ${g.name} tuần này?\nNgày chưa có ca mà có lịch rảnh sẽ được xếp ca theo lịch rảnh, báo từng người và bot gửi bảng lịch vào nhóm Zalo của ${g.name}.`)
-          && publishTeam(d.week_start, g)}>✅ Duyệt ${g.name}</button>` : null}</div>
+          && publishTeam(d.week_start, g)}>${g.published_at ? '🔁 Duyệt lại / gửi lại' : `👉 Bấm duyệt ${g.name}`}</button>` : null}
+        ${g.id ? (g.published_at ? html`<span class="pill ok">✅ Đã duyệt ${new Date(g.published_at + 7 * 3600e3).toISOString().slice(11, 16)} ${new Date(g.published_at + 7 * 3600e3).toISOString().slice(8, 10)}/${new Date(g.published_at + 7 * 3600e3).toISOString().slice(5, 7)}</span>`
+          : html`<span class="pill warn">⏳ Chưa duyệt · ca đang là nháp theo lịch rảnh</span>`) : null}</div>
       <div class="wk-wrap"><table class="wk">
         <thead><tr><th class="wk-name">Tên</th>${d.days.map((x) => html`<th>${dayLabel(x).split(' ')[0]}<br /><small>${x.slice(8)}/${x.slice(5, 7)}</small><br /><b class="wk-n">${g.people.filter((p) => shiftOf(p.id, x).length).length}</b></th>`)}</tr></thead>
         <tbody>${g.people.map((p, i) => { return html`${zoneHead(g, i)}<tr><td class=${`wk-name ${canManage ? 'tap' : ''}`} onClick=${() => canManage && setFix(p)}><b>${p.name}</b>${canManage ? html` <small class="muted">✎</small>` : null}${staffTags(p, !!kind)}

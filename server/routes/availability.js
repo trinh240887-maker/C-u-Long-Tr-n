@@ -206,7 +206,9 @@ export default function (r, ctx) {
       }
     }
     return {
-      week_start: ws, days, slots, teams, deadline: deadline(ws),
+      week_start: ws, days, slots, deadline: deadline(ws),
+      // Đã duyệt lịch bộ phận chưa (chủ quán 29/10: nút "✅ Duyệt" trông như đã duyệt → hiện rõ trạng thái)
+      teams: teams.map((t) => ({ ...t, published_at: Number(ctx.setting(`published:${ws}`) || 0) || Number(ctx.setting(`published:${ws}:t${t.id}`) || 0) || null })),
       people: people.filter((p) => !exempt(p)).map((p) => ({ ...p, submitted_at: subs.get(p.id)?.submitted_at || null, note: subs.get(p.id)?.note === FIXED_NOTE ? '' : subs.get(p.id)?.note || '', fixed: subs.get(p.id)?.note === FIXED_NOTE })),
       cells, busy: [...busy], hours,
     };
