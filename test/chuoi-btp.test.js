@@ -72,4 +72,15 @@ test('chuỗi bán thành phẩm: nồi lẩu bán → cốt + nước dùng c�
   // Huỷ món → trả lại kho
   app.ctx.restoreSale(null, { id: 9001, menu_item_id: lau, name: 'Lẩu Mala Tứ Xuyên' });
   assert.equal(left(cot.output_ingredient_id), 10000);
+
+  // Giữ công thức: phục vụ không xem được sổ / việc nấu; bếp xem việc nấu, không xem cả sổ
+  const team = (n) => db.prepare('SELECT id FROM teams WHERE name = ?').get(n)?.id ?? Number(db.prepare('INSERT INTO teams (name) VALUES (?)').run(n).lastInsertRowid);
+  await o('POST', '/api/staff', { name: 'PV', team_id: team('Phục vụ'), role: 'staff', pin: '4821' });
+  await o('POST', '/api/staff', { name: 'Bep', team_id: team('Bếp steak'), role: 'staff', pin: '5932' });
+  cookie = null; await o('POST', '/api/login', { pin: '4821' });
+  assert.equal((await o('GET', '/api/preps')).status, 403);
+  assert.equal((await o('GET', '/api/preps/plan')).status, 403);
+  cookie = null; await o('POST', '/api/login', { pin: '5932' });
+  assert.equal((await o('GET', '/api/preps')).status, 403);
+  assert.equal((await o('GET', '/api/preps/plan')).status, 200);
 });

@@ -1,7 +1,7 @@
 import { useState, useEffect } from '../vendor/hooks.js';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays, can, SaveInput } from '../ui.js';
 
-const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['hh', '📉 Hao hụt', 'manager'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['quydoi', '⚖ Quy đổi', 'manager'], ['btp', '🍲 Bán thành phẩm'], ['ls', 'Lịch sử']];
+const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['hh', '📉 Hao hụt', 'manager'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['quydoi', '⚖ Quy đổi', 'manager'], ['btp', '🍲 Bán thành phẩm', 'manager'], ['ls', 'Lịch sử']];
 // 5 nhóm tab (chủ quán 30/10: 11 tab rối) — giữ mã tab cũ để link /kho?tab=… vẫn chạy
 const GROUPS = [['ton', 'Tồn kho', ['ton']], ['kiem', 'Kiểm kho', ['kiem', 'dodung']], ['nhap', 'Nhập hàng', ['dat', 'linh']], ['bc', 'Báo cáo', ['nxt', 'hh', 'ls']], ['tl', 'Thiết lập', ['nl', 'quydoi', 'btp']]];
 const STATUS = { out: ['Hết', 'bad'], low: ['Sắp hết', 'warn'], ok: ['Đủ', 'ok'] };
@@ -568,13 +568,16 @@ export function CookPlan({ me, compact = false, only = null }) {
   const lead = atLeast(me, 'team_lead');
   const staff = useData(lead ? '/api/staff?mine=1' : null);
   const [open, setOpen] = useState(null);
+  const [shut, setShut] = useState({}); // trong Checklist: mở sẵn, bấm tên để thu gọn
   const [add, setAdd] = useState(null);
   const [cook, setCook] = useState(null);
-  const pr = useData(add ? '/api/preps' : null);
+  const isOpen = (x) => (compact ? !shut[x.id] : open === x.id);
+  const toggle = (x) => (compact ? setShut({ ...shut, [x.id]: !shut[x.id] }) : setOpen(open === x.id ? null : x.id));
+  const pr = useData(add ? '/api/preps/names' : null);
   if (!pl.data) return html`<${Loading} state=${pl} />`;
   const d0 = pl.data;
   const d = only ? { ...d0, items: d0.items.filter((x) => only.includes(x.station)) } : d0;
-  const preps = pr.data?.preps || [];
+  const preps = pr.data || [];
   const tick = (x, k, done) => act(() => api('POST', `/api/preps/plan/${x.id}/tick`, { step: k, done }));
   const mine = (x) => x.staff_id === me.id;
   const staffList = Array.isArray(staff.data) ? staff.data : staff.data?.staff || [];
@@ -589,11 +592,12 @@ export function CookPlan({ me, compact = false, only = null }) {
     ${byStation.map(([s, list]) => { const st = d.stations.find((x) => x.station === s) || {}; return html`<section class="card stack tight">
       <div class="row between wrap"><b>🔥 ${s}</b><small>${st.done || 0}/${list.length} xong · ⏱ ${mm(st.plan_min || 0)}${st.done_min ? ` · thật ${mm(st.done_min)}` : ''}${st.wait_max ? ` · chờ dài nhất ${mm(st.wait_max)}` : ''}</small></div>
       ${list.map((x) => { const done = x.done_batches >= x.batches; return html`<div class="stack tight" style=${`border-top:1px solid #ddd;padding-top:6px${mine(x) ? ';background:#fff7e6' : ''}`} key=${x.id}>
-        <div class="row between wrap" style="align-items:center"><button class="link" style="text-align:left" onClick=${() => setOpen(open === x.id ? null : x.id)}><b>${done ? '✅ ' : ''}${x.name}</b> × ${x.batches} mẻ${mine(x) ? html` <span class="pill warn">của bạn</span>` : ''}${x.ticks.some((y) => y.step < 100) ? html` <small class="muted">· ${x.ticks.filter((y) => y.step < 100).length}/${x.steps.length} bước</small>` : ''}<br />
+        <div class="row between wrap" style="align-items:center"><button class="link" style="text-align:left" onClick=${() => toggle(x)}><b>${done ? '✅ ' : ''}${isOpen(x) ? '▾' : '▸'} ${x.name}</b> × ${x.batches} mẻ${mine(x) ? html` <span class="pill warn">của bạn</span>` : ''}${x.ticks.some((y) => y.step < 100) ? html` <small class="muted">· ${x.ticks.filter((y) => y.step < 100).length}/${x.steps.length} bước</small>` : ''}<br />
           <small class="muted">${x.out_qty ? `ra ${qty(x.out_qty * x.batches, x.out_unit)} · ` : ''}⏱ ${mm(x.plan_min)}${x.wait_min ? ` + chờ ${mm(x.wait_min)}` : ''}${x.need != null && !x.manual ? ` · cần ${qty(x.need, x.out_unit_stock)} (${x.forecast ? `bán ${qty(x.forecast, x.out_unit_stock)}` : ''}${x.extra ? `${x.forecast ? ' + ' : ''}làm nền ${qty(x.extra, x.out_unit_stock)}` : ''} − tồn ${qty(x.stock, x.out_unit_stock)})` : x.manual ? ' · sửa tay' : ''}${x.staff_name ? ` · 👤 ${x.staff_name}` : ''}</small>
           ${x.done_batches ? html`<br /><small class="ok-text">Đã nấu ${x.done_batches}/${x.batches} mẻ · ${qty(x.done_qty, x.out_unit_stock)}${x.done_min != null ? ` · ${mm(x.done_min)} thật` : ''}</small>` : null}</button>
           ${!done ? html`<button class="primary small" onClick=${() => setCook({ p: { ...x, id: x.prep_id }, plan: x })}>Ghi mẻ</button>` : null}</div>
-        ${open === x.id ? html`
+        ${!isOpen(x) ? html`<button class="small" style="align-self:flex-start" onClick=${() => toggle(x)}>📋 Xem nguyên liệu & các bước</button>` : null}
+        ${isOpen(x) ? html`
           ${x.packs ? html`<small>📦 ${x.packs}</small>` : null}
           ${x.lines?.length ? html`<b class="small">🧺 Nguyên liệu cần lấy (${x.batches} mẻ)</b>
           <div class="stack tight">${x.lines.map((l) => { const t = x.ticks.find((y) => y.step === 100 + l.pos); return html`<label class="row tight" style="align-items:flex-start"><input type="checkbox" checked=${!!t} disabled=${d.date !== me.today} onChange=${() => tick(x, 100 + l.pos, !t)} /><small class=${t ? 'muted' : ''}><b>${Number(l.qty).toLocaleString('vi-VN')} ${l.unit}</b> ${l.name}${l.note ? html` <span class="muted">· ${l.note}</span>` : ''}</small></label>`; })}</div>` : null}

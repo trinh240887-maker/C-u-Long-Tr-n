@@ -95,10 +95,13 @@ export default function (r, ctx) {
       active_min: steps.reduce((n, s) => n + (Number(s.min) || 0), 0), wait_min: steps.reduce((n, s) => n + (Number(s.wait) || 0), 0),
       unmatched: lines.filter((l) => !l.ingredient_id && (l.unit_price || 0) > 0).length };
   };
-  r.get('/api/preps', 'staff', () => ({
+  // Sổ công thức đầy đủ: chỉ quản lý trở lên (chủ quán 30/10: sợ lộ công thức). Bếp xem việc được giao qua /api/preps/plan
+  r.get('/api/preps', 'manager', () => ({
     version: ctx.setting('preps_version') || null, seed_version: (() => { try { return seed().version; } catch { return null; } })(),
     preps: db.prepare('SELECT * FROM preps WHERE active = 1 ORDER BY id').all().map(load),
   }));
+  // Chỉ tên món (để tổ trưởng thêm việc nấu), không có công thức
+  r.get('/api/preps/names', 'team_lead', () => db.prepare("SELECT id, book, name, kind FROM preps WHERE active = 1 ORDER BY id").all());
   r.post('/api/preps/import', 'manager', ({ me }) => importSeed(me));
   // Sửa phút đứng bếp / phút chờ từng bước (bếp trưởng chỉnh theo thực tế) → nạp lại sổ không ghi đè
   r.patch('/api/preps/:id/steps', 'manager', ({ me, params, body }) => {
@@ -273,7 +276,8 @@ export default function (r, ctx) {
     ctx.broadcast('stock');
     return res;
   });
-  r.get('/api/preps/batches', 'staff', ({ query }) => {
+  r.get('/api/preps/batches', 'staff', ({ me, query }) => {
+    if (!canCook(me)) fail(403, 'Chỉ bếp mới xem mẻ nấu');
     const date = query.get('date') || ctx.today();
     return db.prepare(`SELECT b.*, p.name, p.book, s.name AS staff_name FROM prep_batches b JOIN preps p ON p.id = b.prep_id LEFT JOIN staff s ON s.id = b.staff_id WHERE b.date = ? ORDER BY b.at DESC`).all(date);
   });
@@ -380,6 +384,7 @@ export default function (r, ctx) {
   if (!ctx.setting('preps_chain_v1')) { try { linkChain(); } catch (e) { console.error('Nối chuỗi bán thành phẩm lỗi:', e.message); } ctx.setSetting('preps_chain_v1', '1'); }
 
   const PLAN_DAYS = 3;
+  const PLAN_VER = '2'; // tăng khi đổi cách tính kế hoạch → kế hoạch hôm nay tự lập lại 1 lần
   const usageOf = (ingId, before) => {
     const from = addDays(before, -35);
     const rows = db.prepare(`SELECT date, SUM(q) AS q FROM (
@@ -445,10 +450,11 @@ export default function (r, ctx) {
           ON CONFLICT (date, prep_id) DO NOTHING`).run(date, x.p.id, x.batches, stationOf(x.p), x.forecast, x.stock, x.need, x.basis, x.share > 1 ? r3(x.extra / x.share) : x.extra);
       }
       // Đánh dấu đã lập (kể cả không cần nấu gì) để không lập lại mỗi lần mở
-      ctx.setSetting(`prep_plan_made:${date}`, '1');
+      ctx.setSetting(`prep_plan_made:${date}`, PLAN_VER);
     });
   }
   const planMade = (date) => !!ctx.setting(`prep_plan_made:${date}`);
+  const planOld = (date) => { const v = ctx.setting(`prep_plan_made:${date}`); return !!v && v !== PLAN_VER; };
   // Gắn nguyên liệu (số cân × số mẻ) vào từng bước có nhắc tên (chủ quán 30/10: "xay bao nhiêu hành với nước?")
   const STOP = new Set(['bam', 'nhuyen', 'tho', 'dap', 'xay', 'hat', 'tinh', 'cat', 'tuoi', 'loai', 'phan', 'giu', 'lai', 'chia', 'lan']);
   // Khoá tên: bỏ chữ "băm, xay, hạt…"; tên nhiều chữ cần ≥ 2 chữ liền; "Ciba • Ớt khô" lấy phần sau dấu •
@@ -506,9 +512,11 @@ export default function (r, ctx) {
     ctx.broadcast('stock');
     return { ok: true };
   });
-  r.get('/api/preps/plan', 'staff', ({ query }) => {
+  r.get('/api/preps/plan', 'staff', ({ me, query }) => {
+    if (!canCook(me)) fail(403, 'Chỉ bếp mới xem việc nấu');
     const date = query.get('date') || ctx.today();
     if (date >= ctx.today() && !planMade(date)) ensurePlan(date);
+    else if (date >= ctx.today() && planOld(date)) ensurePlan(date, { regen: true }); // cách tính mới (nối chuỗi lẩu / steak) → lập lại 1 lần, giữ dòng sửa tay
     return planView(date);
   });
   // Xem trước cần bao nhiêu (mọi bán thành phẩm đã gắn mã thành phẩm), kể cả món không cần nấu
