@@ -27,7 +27,9 @@ test('nấu mẻ: trừ nguyên liệu sống theo sổ × số mẻ, cộng th�
   db.prepare('INSERT INTO stock_lots (store_id, ingredient_id, qty, received_at) VALUES (?, ?, ?, ?)').run(main, dau, 10000, Date.now());
   const stockOf = (id) => db.prepare('SELECT COALESCE(SUM(qty), 0) AS q FROM stock_lots WHERE ingredient_id = ?').get(id).q;
 
-  // Chưa gắn mã thành phẩm → báo
+  // App tự tạo mã thành phẩm khi nối chuỗi; bỏ gắn để thử báo lỗi
+  assert.ok(tx.output_ingredient_id, 'tự có mã thành phẩm');
+  db.prepare('UPDATE preps SET output_ingredient_id = NULL WHERE id = ?').run(tx.id);
   let r = await o('POST', `/api/preps/${tx.id}/cook`, { batches: 1 });
   assert.equal(r.status, 409); assert.equal(r.data.code, 'no_output');
   r = await o('PATCH', `/api/preps/${tx.id}/output`, { create: true, name: 'Cốt lẩu Tứ Xuyên' });

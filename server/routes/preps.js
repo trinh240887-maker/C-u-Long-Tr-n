@@ -12,6 +12,8 @@ import { stockQty, addLot, takeLots, recordMove, costOf } from '../lib/stock.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SEED = path.join(here, '..', 'data', 'so-cong-thuc.json');
+// Giữ dấu khi so chữ trong bước (tỏi ≠ tới)
+const soft = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const fold = (x) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
 
 export default function (r, ctx) {
@@ -75,6 +77,7 @@ export default function (r, ctx) {
       }
     });
     ctx.setSetting('preps_version', d.version);
+    try { ctx.linkPrepChain?.(); } catch (e) { console.error('Nối chuỗi bán thành phẩm lỗi:', e.message); }
     ctx.audit(me, 'preps.import', { added, updated, version: d.version });
     return { added, updated, version: d.version };
   }
@@ -150,6 +153,7 @@ export default function (r, ctx) {
   // Món bán vẫn trừ mã thành phẩm như cũ (định lượng món). Huỷ mẻ ghi nhầm: trong ngày, quản lý.
   const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
   if (!cols('preps').includes('station')) db.exec("ALTER TABLE preps ADD COLUMN station TEXT NOT NULL DEFAULT ''");
+  if (!cols('prep_lines').includes('sub_prep_id')) db.exec('ALTER TABLE prep_lines ADD COLUMN sub_prep_id INTEGER');
   db.exec(`CREATE TABLE IF NOT EXISTS prep_batches (
       id INTEGER PRIMARY KEY, prep_id INTEGER NOT NULL REFERENCES preps(id) ON DELETE CASCADE, date TEXT NOT NULL, at INTEGER NOT NULL, staff_id INTEGER,
       batches REAL NOT NULL DEFAULT 1, out_qty REAL NOT NULL DEFAULT 0, out_unit TEXT NOT NULL DEFAULT 'g', minutes INTEGER, cost INTEGER NOT NULL DEFAULT 0,
@@ -159,6 +163,7 @@ export default function (r, ctx) {
       id INTEGER PRIMARY KEY, date TEXT NOT NULL, prep_id INTEGER NOT NULL REFERENCES preps(id) ON DELETE CASCADE, batches REAL NOT NULL DEFAULT 0,
       station TEXT NOT NULL DEFAULT '', staff_id INTEGER, forecast REAL, stock REAL, need REAL, basis TEXT NOT NULL DEFAULT '', manual INTEGER NOT NULL DEFAULT 0, UNIQUE (date, prep_id));
     CREATE TABLE IF NOT EXISTS prep_plan_ticks (plan_id INTEGER NOT NULL REFERENCES prep_plan(id) ON DELETE CASCADE, step INTEGER NOT NULL, staff_id INTEGER, at INTEGER NOT NULL, PRIMARY KEY (plan_id, step));`);
+  if (!cols('prep_plan').includes('extra')) db.exec('ALTER TABLE prep_plan ADD COLUMN extra REAL');
 
   const STATION_OF_BOOK = { 'Lẩu': 'Lẩu', 'Nước chấm': 'Lẩu', 'Sốt steak': 'Steak', 'Xiên nướng': 'Nướng' };
   const stationOf = (p) => p.station || STATION_OF_BOOK[p.book] || 'Bếp';
@@ -309,6 +314,54 @@ export default function (r, ctx) {
   };
   if (!ctx.setting('preps_output_auto_v1')) { try { autoOutputs(); } catch (e) { console.error(e.message); } ctx.setSetting('preps_output_auto_v1', '1'); }
 
+  // Nối chuỗi (chủ quán 30/10: "sao không thấy các loại lẩu, steak"):
+  //  · mọi món nấu theo mẻ có mã thành phẩm (chưa có thì tạo); sốt steak pha mỗi ngày → chung mã "Sốt steak bình quân" (món steak đang trừ mã này)
+  //  · "Pha 1 nồi — X" → mã "Ngăn nước lẩu … X" (món lẩu đang trừ) → dự báo số nồi bán kéo ra cốt + nước dùng cần nấu
+  //  · dòng nguyên liệu là bán thành phẩm khác (Cốt Tứ Xuyên, Nước dùng bò MS-K, CỐT GIA VỊ…) → gắn mã thành phẩm của món đó
+  const clean = (n) => fold(n).replace(/^nen \d+ /, '').replace(/\b(nong|chi xuong)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const nice = (n) => String(n).replace(/\([^)]*\)/g, ' ').replace(/^NỀN\s*\d+\s*[—–-]\s*/i, '').replace(/[㐀-鿿]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  function linkChain() {
+    const ings = () => db.prepare('SELECT id, name, unit FROM ingredients WHERE active = 1').all().map((g) => ({ ...g, f: fold(g.name) }));
+    let made = 0, linked = 0;
+    tx(db, () => {
+      const preps = db.prepare('SELECT * FROM preps WHERE active = 1').all();
+      for (const p of preps.filter((x) => x.kind === 'batch' && !x.output_ingredient_id)) {
+        let id = null;
+        if (p.book === 'Sốt steak' && /sốt pha/i.test(p.name)) id = ings().find((g) => g.f.startsWith('sot steak binh quan'))?.id || null;
+        if (!id) {
+          const name = nice(p.name);
+          id = db.prepare('SELECT id FROM ingredients WHERE lower(name) = lower(?)').get(name)?.id;
+          if (!id) {
+            const c = load(p).cost, unit = ['g', 'ml'].includes(p.out_unit) ? p.out_unit : 'g';
+            id = Number(db.prepare("INSERT INTO ingredients (name, unit, purchase_unit, purchase_factor, price, freshness) VALUES (?, ?, ?, 1, ?, 'chilled')").run(name, unit, unit, p.out_qty ? Math.round((c / p.out_qty) * 100) / 100 : 0).lastInsertRowid);
+            made++;
+          }
+        }
+        db.prepare('UPDATE preps SET output_ingredient_id = ? WHERE id = ?').run(id, p.id);
+        p.output_ingredient_id = id;
+      }
+      const ngan = ings().filter((g) => g.f.startsWith('ngan nuoc lau'));
+      for (const p of preps.filter((x) => x.kind === 'serving' && !x.output_ingredient_id && /^Pha 1 nồi/i.test(x.name))) {
+        const key = fold(p.name.split(/[—–-]/).pop());
+        const hit = ngan.filter((g) => key && g.f.includes(key));
+        if (hit.length === 1) { db.prepare('UPDATE preps SET output_ingredient_id = ? WHERE id = ?').run(hit[0].id, p.id); p.output_ingredient_id = hit[0].id; }
+      }
+      const cl = preps.map((q) => ({ q, c: clean(q.name) }));
+      for (const l of db.prepare('SELECT l.*, p.sheet FROM prep_lines l JOIN preps p ON p.id = l.prep_id').all()) {
+        const lc = clean(l.name);
+        let t = cl.find(({ q, c }) => q.id !== l.prep_id && c.length >= 5 && (lc === c || lc.startsWith(c + ' ')))?.q;
+        const ms = /\bMS-[A-Z]\b/.exec(l.name); // nước dùng gọi theo mã: "Nước dùng heo MS-H" = "Nước hầm xương heo MS-H"
+        if (!t && ms) t = preps.find((q) => q.id !== l.prep_id && q.kind === 'batch' && q.name.includes(ms[0]));
+        if (!t && /cốt gia vị/i.test(l.name)) t = preps.find((q) => q.sheet === l.sheet && q.id !== l.prep_id && /cốt gia vị/i.test(q.name));
+        if (!t || !t.output_ingredient_id) continue;
+        if (l.ingredient_id !== t.output_ingredient_id || l.sub_prep_id !== t.id) { db.prepare('UPDATE prep_lines SET ingredient_id = ?, sub_prep_id = ? WHERE id = ?').run(t.output_ingredient_id, t.id, l.id); linked++; }
+      }
+    });
+    return { made, linked };
+  }
+  ctx.linkPrepChain = linkChain;
+  if (!ctx.setting('preps_chain_v1')) { try { linkChain(); } catch (e) { console.error('Nối chuỗi bán thành phẩm lỗi:', e.message); } ctx.setSetting('preps_chain_v1', '1'); }
+
   const PLAN_DAYS = 3;
   const usageOf = (ingId, before) => {
     const from = addDays(before, -35);
@@ -319,31 +372,49 @@ export default function (r, ctx) {
     return new Map(rows.map((x) => [x.date, x.q]));
   };
   function buildPlan(date) {
-    const preps = db.prepare("SELECT * FROM preps WHERE active = 1 AND kind = 'batch' AND output_ingredient_id IS NOT NULL").all();
+    // Món nấu theo mẻ + món pha 1 phần (nồi lẩu) có mã thành phẩm; pha 1 phần chỉ để kéo nhu cầu xuống cốt / nước dùng, không hiện trong kế hoạch
+    const preps = db.prepare("SELECT * FROM preps WHERE active = 1 AND output_ingredient_id IS NOT NULL").all();
     const rows = new Map();
+    const fcOf = new Map();
     for (const p of preps) {
       const out = ingOf(p.output_ingredient_id);
       if (!out) continue;
-      const per = outPerBatch(p, out);
+      const serving = p.kind !== 'batch';
+      const per = serving ? 1 : outPerBatch(p, out);
       const cover = Math.max(1, Math.min(PLAN_DAYS, p.shelf_days || PLAN_DAYS));
-      let usage; try { usage = usageOf(out.id, date); } catch { usage = new Map(); }
-      let fc = 0, basis = 'none';
-      for (let k = 0; k < cover; k++) { const f = forecastDay(usage, addDays(date, k)); fc += f.qty; if (f.basis !== 'none') basis = f.basis; }
-      rows.set(p.id, { p, out, per, cover, forecast: r3(fc), stock: totalStock(out.id), basis, extra: 0 });
+      const key = `${out.id}:${cover}`;
+      if (!fcOf.has(key)) {
+        let usage; try { usage = usageOf(out.id, date); } catch { usage = new Map(); }
+        let fc = 0, basis = 'none';
+        for (let k = 0; k < cover; k++) { const f = forecastDay(usage, addDays(date, k)); fc += f.qty; if (f.basis !== 'none') basis = f.basis; }
+        fcOf.set(key, { fc: r3(fc), basis });
+      }
+      const f = fcOf.get(key);
+      rows.set(p.id, { p, out, per, cover, serving, forecast: f.fc, stock: totalStock(out.id), basis: f.basis, extra: 0, share: 1,
+        lines: db.prepare('SELECT * FROM prep_lines WHERE prep_id = ? AND ingredient_id IS NOT NULL AND qty > 0').all(p.id) });
     }
-    // Nền dùng cho mẻ khác trong kế hoạch (vd nước dùng cho cốt) cộng thêm vào cần — tính 2 lượt
-    const calc = (x) => (x.per ? Math.max(0, Math.ceil(r3((x.forecast + x.extra - x.stock) / x.per) - 1e-9)) : 0);
-    for (let pass = 0; pass < 2; pass++) {
+    // Nhiều món đổ chung 1 mã (vd 5 sốt steak → "Sốt steak bình quân"): chia đều phần cần
+    const byOut = new Map();
+    for (const x of rows.values()) if (!x.serving) byOut.set(x.out.id, [...(byOut.get(x.out.id) || []), x]);
+    for (const list of byOut.values()) for (const x of list) x.share = list.length;
+    const need = (x) => Math.max(0, (x.forecast + x.extra - x.stock) / x.share);
+    const calc = (x) => (x.per ? Math.max(0, Math.ceil(r3(need(x) / x.per) - 1e-9)) : 0);
+    // Kéo nhu cầu xuống món nền: nồi lẩu → cốt + nước dùng; sốt pha → cốt gia vị; cốt → nước dùng… (4 lượt đủ 3 tầng)
+    for (let pass = 0; pass < 4; pass++) {
       for (const x of rows.values()) x.extra = 0;
       for (const x of rows.values()) {
-        const n = calc(x);
+        const n = x.serving ? Math.ceil(need(x) - 1e-9) : calc(x);
         if (!n) continue;
-        for (const l of db.prepare('SELECT * FROM prep_lines WHERE prep_id = ? AND ingredient_id IS NOT NULL').all(x.p.id)) {
-          for (const y of rows.values()) if (y.out.id === l.ingredient_id && y !== x) { const f = conv(l.unit, y.out.unit); if (f) y.extra += l.qty * n * f; }
+        for (const l of x.lines) {
+          for (const y of rows.values()) {
+            if (y === x || y.serving || y.out.id !== l.ingredient_id) continue;
+            const f = conv(l.unit, y.out.unit);
+            if (f) y.extra += l.qty * n * f; // cả nhóm chung mã cùng cộng, need() chia đều sau
+          }
         }
       }
     }
-    return [...rows.values()].map((x) => ({ ...x, need: r3(Math.max(0, x.forecast + x.extra - x.stock)), batches: calc(x) }));
+    return [...rows.values()].filter((x) => !x.serving).map((x) => ({ ...x, forecast: r3(x.forecast / x.share), stock: r3(x.stock / x.share), extra: r3(x.extra), need: r3(need(x)), batches: calc(x) }));
   }
   function ensurePlan(date, { regen = false } = {}) {
     const has = db.prepare('SELECT 1 FROM prep_plan WHERE date = ? LIMIT 1').get(date);
@@ -353,14 +424,35 @@ export default function (r, ctx) {
       if (regen) db.prepare('DELETE FROM prep_plan WHERE date = ? AND manual = 0').run(date);
       for (const x of plan) {
         if (!x.batches) continue;
-        db.prepare(`INSERT INTO prep_plan (date, prep_id, batches, station, forecast, stock, need, basis) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (date, prep_id) DO NOTHING`).run(date, x.p.id, x.batches, stationOf(x.p), x.forecast, x.stock, x.need, x.basis);
+        db.prepare(`INSERT INTO prep_plan (date, prep_id, batches, station, forecast, stock, need, basis, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT (date, prep_id) DO NOTHING`).run(date, x.p.id, x.batches, stationOf(x.p), x.forecast, x.stock, x.need, x.basis, x.share > 1 ? r3(x.extra / x.share) : x.extra);
       }
       // Đánh dấu đã lập (kể cả không cần nấu gì) để không lập lại mỗi lần mở
       ctx.setSetting(`prep_plan_made:${date}`, '1');
     });
   }
   const planMade = (date) => !!ctx.setting(`prep_plan_made:${date}`);
+  // Gắn nguyên liệu (số cân × số mẻ) vào từng bước có nhắc tên (chủ quán 30/10: "xay bao nhiêu hành với nước?")
+  const STOP = new Set(['bam', 'nhuyen', 'tho', 'dap', 'xay', 'hat', 'tinh', 'cat', 'tuoi', 'loai', 'phan', 'giu', 'lai', 'chia', 'lan']);
+  // Khoá tên: bỏ chữ "băm, xay, hạt…"; tên nhiều chữ cần ≥ 2 chữ liền; "Ciba • Ớt khô" lấy phần sau dấu •
+  const keysOf = (name) => {
+    const base = String(name).split(/[,(:—]/)[0].split('•').pop();
+    const w = soft(base).split(' ').filter((x) => x && !STOP.has(fold(x)));
+    const out = [];
+    for (let n = Math.min(w.length, 4); n >= (w.length >= 2 ? 2 : 1); n--) { const k = w.slice(0, n).join(' '); if (k.length >= 2) out.push(k); }
+    return out;
+  };
+  const withUses = (steps, lines, batches) => {
+    const ls = lines.filter((l) => l.qty > 0).map((l) => ({ l, keys: keysOf(l.name) }));
+    const cnt = new Map();
+    for (const x of ls) for (const k of x.keys) cnt.set(k, (cnt.get(k) || 0) + 1);
+    for (const x of ls) x.keys = x.keys.filter((k, idx) => idx === 0 || cnt.get(k) === 1); // khoá ngắn chỉ dùng khi không trùng dòng khác (hoa tiêu xanh / đỏ)
+    return steps.map((st) => {
+      const f = ` ${soft(st.text)} `;
+      const uses = ls.filter(({ keys }) => keys.some((k) => f.includes(` ${k} `))).map(({ l }) => ({ name: l.name, qty: r3(l.qty * batches), unit: l.unit }));
+      return { ...st, uses };
+    });
+  };
   function planView(date) {
     const rows = db.prepare(`SELECT pl.*, s.name AS staff_name FROM prep_plan pl LEFT JOIN staff s ON s.id = pl.staff_id WHERE pl.date = ? ORDER BY pl.station, pl.id`).all(date);
     const done = db.prepare('SELECT prep_id, SUM(batches) AS n, SUM(minutes) AS m, COUNT(minutes) AS cm, SUM(out_qty) AS q FROM prep_batches WHERE date = ? AND voided_at IS NULL GROUP BY prep_id').all(date);
@@ -369,7 +461,8 @@ export default function (r, ctx) {
       const p = load(db.prepare('SELECT * FROM preps WHERE id = ?').get(pl.prep_id));
       const dn = doneBy.get(pl.prep_id);
       const out = ingOf(p.output_ingredient_id);
-      return { ...pl, name: p.name, book: p.book, steps: p.steps, active_min: p.active_min, wait_min: p.wait_min, shelf_text: p.shelf_text, packs: p.packs,
+      return { ...pl, name: p.name, book: p.book, steps: withUses(p.steps, p.lines, pl.batches),
+        lines: p.lines.filter((l) => l.qty > 0).map((l) => ({ pos: l.pos, name: l.name, qty: r3(l.qty * pl.batches), unit: l.unit, note: l.note })), active_min: p.active_min, wait_min: p.wait_min, shelf_text: p.shelf_text, packs: p.packs,
         out_qty: p.out_qty, out_unit: p.out_unit, out_name: out?.name || '', out_unit_stock: out?.unit || '',
         ticks: db.prepare('SELECT t.step, t.at, s.name AS by FROM prep_plan_ticks t LEFT JOIN staff s ON s.id = t.staff_id WHERE t.plan_id = ? ORDER BY t.step').all(pl.id),
         plan_min: Math.round(p.active_min * pl.batches), done_batches: dn?.n || 0, done_min: dn?.cm ? dn.m : null, done_qty: dn?.q || 0 };
@@ -390,7 +483,7 @@ export default function (r, ctx) {
     if (!pl) fail(404, 'Không tìm thấy việc nấu');
     if (!canCook(me)) fail(403, 'Chỉ nhân viên bếp hoặc tổ trưởng trở lên');
     if (pl.date !== ctx.today()) fail(409, 'Chỉ tick việc của hôm nay');
-    const step = v.int(body.step, { min: 0, max: 60, name: 'Bước' });
+    const step = v.int(body.step, { min: 0, max: 400, name: 'Bước' }); // 0–99 bước làm, 100+ = đã lấy nguyên liệu dòng (pos)
     if (body.done === false) db.prepare('DELETE FROM prep_plan_ticks WHERE plan_id = ? AND step = ?').run(pl.id, step);
     else db.prepare('INSERT OR REPLACE INTO prep_plan_ticks (plan_id, step, staff_id, at) VALUES (?, ?, ?, ?)').run(pl.id, step, me.id, ctx.now());
     ctx.broadcast('stock');
