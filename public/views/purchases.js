@@ -277,8 +277,8 @@ function OpenBill({ b, check = null, me = null, twins = [] }) {
   const canVoid = me && me.role === 'owner' && b.remaining === b.total; // bill đã duyệt: chỉ chủ huỷ
   return html`<div class="card tight stack" style="padding:8px">
     <div class="row between wrap">${check || html`<b>Phiếu #${b.id}</b>`}<small>${b.date.split('-').reverse().join('/')} · tổng ${money(b.total)} · <b class="danger-text">còn ${money(b.remaining)}</b></small></div>
-    ${twins.length ? html`<div class="row between wrap"><span class="pill warn">⚠ Có thể trùng phiếu ${twins.map((x) => `#${x.id}`).join(', ')}</span>
-      ${canVoid ? html`<button class="small danger" onClick=${() => { const r0 = prompt(`Huỷ phiếu #${b.id} (${money(b.total)})? Kho trừ lại hàng của phiếu này, công nợ bỏ phiếu này.\nLý do:`, `Chụp trùng phiếu #${twins[0].id}`); if (r0) act(() => api('POST', `/api/purchases/${b.id}/void`, { reason: r0 }), `Đã huỷ phiếu #${b.id}`); }}>🗑 Huỷ phiếu này</button>` : null}</div>` : null}
+    ${twins.length || canVoid ? html`<div class="row between wrap">${twins.length ? html`<span class="pill warn">⚠ Có thể trùng phiếu ${twins.map((x) => `#${x.id}`).join(', ')}</span>` : html`<span></span>`}
+      ${canVoid ? html`<button class="small danger" onClick=${() => { const r0 = prompt(`Huỷ phiếu #${b.id} (${money(b.total)})? Kho trừ lại hàng của phiếu này, công nợ bỏ phiếu này.\nLý do:`, twins.length ? `Chụp trùng phiếu #${twins[0].id}` : 'Nhập nhầm'); if (r0) act(() => api('POST', `/api/purchases/${b.id}/void`, { reason: r0 }), `Đã huỷ phiếu #${b.id}`); }}>🗑 Huỷ phiếu này</button>` : null}</div>` : null}
     ${b.photos?.length ? html`<${Photos} ids=${b.photos} />` : html`<small class="muted">(không có ảnh bill)</small>`}
     ${b.lines?.length ? html`<details><summary class="small">${b.lines.length} món</summary><table class="list small"><tbody>${b.lines.map((l) => html`<tr><td>${l.name}</td><td class="r">${l.qty} ${l.unit}</td><td class="r">${money(l.amount)}</td></tr>`)}</tbody></table>
       ${b.goods_photos?.length ? html`<small class="muted">Ảnh hàng nhận:</small><${Photos} ids=${b.goods_photos} />` : null}</details>` : null}
