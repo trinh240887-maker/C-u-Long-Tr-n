@@ -1,7 +1,7 @@
 import { useState, useEffect } from '../vendor/hooks.js';
 import { html, api, act, useData, Modal, Field, Loading, Confirm, navigate, dt, dayLabel, money, atLeast, toast, addDays, can, SaveInput } from '../ui.js';
 
-const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['hh', '📉 Hao hụt', 'manager'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['quydoi', '⚖ Quy đổi', 'manager'], ['ls', 'Lịch sử']];
+const TABS = [['ton', 'Tồn kho'], ['nxt', 'Nhập – Xuất – Tồn', 'manager'], ['kiem', 'Kiểm kho'], ['hh', '📉 Hao hụt', 'manager'], ['linh', '📤 Xuất dùng'], ['dodung', '🍽 Đồ dùng'], ['dat', 'Đặt hàng'], ['nl', 'Nguyên liệu & NCC', 'manager'], ['quydoi', '⚖ Quy đổi', 'manager'], ['btp', '🍲 Bán thành phẩm'], ['ls', 'Lịch sử']];
 const STATUS = { out: ['Hết', 'bad'], low: ['Sắp hết', 'warn'], ok: ['Đủ', 'ok'] };
 const FRESH = { fresh: 'Đồ tươi', chilled: 'Đồ mát', dry: 'Đồ khô/đông' };
 const TR = { requested: ['Chờ kho tổng xuất', 'warn'], sent: ['Đã xuất, chờ khu nhận', 'warn'], received: ['Đã nhận', 'ok'], cancelled: ['Đã huỷ', 'muted'] };
@@ -470,6 +470,49 @@ function Setup({ meta }) {
   </div>`;
 }
 
+// ---------- 🍲 Bán thành phẩm (chủ quán 30/10): cốt lẩu, nước dùng, nước chấm, sốt steak, sốt xiên ----------
+const mm = (n) => (n >= 60 ? `${Math.floor(n / 60)} giờ${n % 60 ? ` ${n % 60} phút` : ''}` : `${n} phút`);
+function Preps({ me, meta }) {
+  const st = useData('/api/preps');
+  const [book, setBook] = useState('');
+  const [open, setOpen] = useState(null);
+  const [edit, setEdit] = useState(null);
+  const [kind, setKind] = useState('batch');
+  if (!st.data) return html`<${Loading} state=${st} />`;
+  const d = st.data;
+  const manager = atLeast(me, 'manager');
+  if (!d.preps.length) return html`<div class="empty stack">Chưa nạp sổ công thức.${manager ? html`<button class="primary" onClick=${() => act(() => api('POST', '/api/preps/import'), 'Đã nạp 4 sổ')}>Nạp 4 sổ công thức</button>` : null}</div>`;
+  const books = [...new Set(d.preps.map((p) => p.book))];
+  const list = d.preps.filter((p) => (!book || p.book === book) && p.kind === kind);
+  const ings = (meta?.ingredients || []).filter((g) => g.active !== 0);
+  return html`<div class="stack">
+    <p class="small muted">Từ 4 sổ công thức (bản ${d.version || '?'}). Mỗi món: nguyên liệu theo mẻ, thành phẩm, hạn dùng, cỡ túi, các bước có <b>phút đứng bếp</b> và <b>phút chờ</b> (ninh, ngâm đá… không cần người đứng).${manager && d.seed_version && d.seed_version !== d.version ? html` <button class="small" onClick=${() => act(() => api('POST', '/api/preps/import'), 'Đã nạp bản mới')}>Nạp bản ${d.seed_version}</button>` : null}</p>
+    ${manager && d.preps.some((p) => p.unmatched) ? html`<section class="card warn-card stack tight"><small>⚠ ${d.preps.reduce((n, p) => n + p.unmatched, 0)} dòng nguyên liệu trong sổ chưa có mã kho (thường là gia vị khô: hoa tiêu, thảo quả…). Cần có mã kho thì nấu mới trừ kho được.</small>
+      <button class="small" style="align-self:flex-start" onClick=${() => confirm('Tạo mã kho cho mọi nguyên liệu trong sổ chưa có trong kho? (đơn vị g / ml, giá theo sổ — dòng giá ước tính nhớ sửa sau)') && act(async () => { const r = await api('POST', '/api/preps/create-missing'); toast(`Đã tạo ${r.made} mã kho`); return r; })}>＋ Tạo mã kho cho nguyên liệu chưa có</button></section>` : null}
+    <div class="chips"><button class=${`chip ${kind === 'batch' ? 'on' : ''}`} onClick=${() => setKind('batch')}>🍲 Nấu theo mẻ</button><button class=${`chip ${kind === 'serving' ? 'on' : ''}`} onClick=${() => setKind('serving')}>🥣 Pha 1 phần / xiên</button></div>
+    <div class="chips small-chips"><button class=${`chip ${!book ? 'on' : ''}`} onClick=${() => setBook('')}>Tất cả</button>${books.map((b) => html`<button class=${`chip ${book === b ? 'on' : ''}`} onClick=${() => setBook(b)}>${b} <small>${d.preps.filter((p) => p.book === b && p.kind === kind).length}</small></button>`)}</div>
+    ${list.map((p) => html`<section class="card stack tight" key=${p.id}>
+      <button class="link" style="text-align:left" onClick=${() => setOpen(open === p.id ? null : p.id)}>
+        <div class="row between wrap"><b>${p.name}</b><small class="muted">${p.book}</small></div>
+        <small>${p.out_qty ? `Mẻ ra ${Number(p.out_qty).toLocaleString('vi-VN')} ${p.out_unit}` : p.batch_col || ''}${p.active_min || p.wait_min ? ` · ⏱ đứng bếp ${mm(p.active_min)}${p.wait_min ? ` + chờ ${mm(p.wait_min)}` : ''}` : ''}${p.shelf_text ? ` · ${p.shelf_text}` : ''}${p.cost ? ` · cost mẻ ${money(p.cost)}` : ''}</small>
+        ${p.unmatched ? html`<br /><small class="warn-text">⚠ ${p.unmatched} nguyên liệu chưa khớp mã kho</small>` : null}
+      </button>
+      ${open === p.id ? html`
+        ${p.packs ? html`<small>📦 Chia túi: ${p.packs}</small>` : null}
+        <table class="list small"><tbody>${p.lines.map((l) => html`<tr><td>${l.name}${l.note ? html`<br /><small class="muted">${l.note}</small>` : null}</td>
+          <td class="r">${Number(l.qty).toLocaleString('vi-VN')} ${l.unit}</td>
+          <td>${l.ingredient_id ? html`<small class="ok-text">✓ ${l.ing_name}</small>` : (l.unit_price || 0) > 0 ? (manager ? html`<select class="auto small" onChange=${(e) => e.target.value && act(() => api('PATCH', `/api/preps/lines/${l.id}`, e.target.value === 'new' ? { create: true } : { ingredient_id: Number(e.target.value) }), 'Đã gắn mã kho')}>
+              <option value="">⚠ chọn mã kho…</option><option value="new">＋ Tạo mã kho "${l.code || l.name}"</option>${ings.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>` : html`<small class="warn-text">chưa khớp kho</small>`) : html`<small class="muted">—</small>`}</td></tr>`)}</tbody></table>
+        <b class="small">Các bước</b>
+        <ol class="small" style="padding-left:18px;margin:0">${(edit?.id === p.id ? edit.steps : p.steps).map((s, k) => html`<li style="margin-bottom:6px">${s.text}
+          ${edit?.id === p.id ? html`<div class="row tight" style="align-items:center;margin-top:2px">đứng bếp <input inputmode="numeric" style="width:4.5em" value=${s.min} onInput=${(e) => setEdit({ ...edit, steps: edit.steps.map((x, j) => (j === k ? { ...x, min: e.target.value } : x)) })} /> phút · chờ <input inputmode="numeric" style="width:4.5em" value=${s.wait} onInput=${(e) => setEdit({ ...edit, steps: edit.steps.map((x, j) => (j === k ? { ...x, wait: e.target.value } : x)) })} /> phút</div>`
+            : s.min || s.wait ? html` <small class="muted">· ${s.min ? `⏱ ${s.min}′` : ''}${s.wait ? ` ⏳ chờ ${mm(s.wait)}` : ''}</small>` : null}</li>`)}</ol>
+        ${manager ? (edit?.id === p.id ? html`<div class="row tight"><button class="primary small" onClick=${async () => { if (await act(() => api('PATCH', `/api/preps/${p.id}/steps`, { steps: edit.steps.map((s) => ({ ...s, min: Number(s.min) || 0, wait: Number(s.wait) || 0 })) }), 'Đã lưu thời gian')) setEdit(null); }}>Lưu thời gian</button><button class="small" onClick=${() => setEdit(null)}>Huỷ</button></div>`
+          : html`<button class="small" style="align-self:flex-start" onClick=${() => setEdit({ id: p.id, steps: p.steps.map((s) => ({ ...s })) })}>✎ Sửa phút từng bước</button>`) : null}` : null}
+    </section>`)}
+  </div>`;
+}
+
 // ---------- Lịch sử ----------
 // Nhập – Xuất – Tồn chung cả quán: Đồ tươi / Đồ bình thường; dòng lệch quá ngưỡng tô đỏ, xếp lên đầu
 const KIND_NXT = { nhap: 'Nhập', dcnhap: 'Huỷ / sửa phiếu nhập', ban: 'Bán (định lượng)', xuat: 'Xuất dùng', huy: 'Huỷ / hao hụt', lech: 'Lệch khi cân' };
@@ -652,6 +695,7 @@ export function StockView({ me, query }) {
       : tab === 'linh' ? html`<${Transfers} me=${me} meta=${meta.data} />`
       : tab === 'dodung' ? html`<${Utensils} me=${me} />`
       : tab === 'dat' ? html`<${Orders} me=${me} meta=${meta.data} />`
+      : tab === 'btp' ? html`<${Preps} me=${me} meta=${meta.data} />`
       : tab === 'nl' && atLeast(me, 'manager') ? html`<${Setup} meta=${meta.data} />`
       : tab === 'quydoi' && atLeast(me, 'manager') ? html`<${Conversions} meta=${meta.data} />`
       : tab === 'ls' ? html`<${History} me=${me} />`
