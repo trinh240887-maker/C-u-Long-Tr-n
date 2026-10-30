@@ -477,7 +477,8 @@ function Preps({ me, meta }) {
   const [book, setBook] = useState('');
   const [open, setOpen] = useState(null);
   const [edit, setEdit] = useState(null);
-  const [kind, setKind] = useState('batch');
+  const [kind, setKind] = useState('plan');
+  const [cook, setCook] = useState(null);
   if (!st.data) return html`<${Loading} state=${st} />`;
   const d = st.data;
   const manager = atLeast(me, 'manager');
@@ -489,7 +490,8 @@ function Preps({ me, meta }) {
     <p class="small muted">Từ 4 sổ công thức (bản ${d.version || '?'}). Mỗi món: nguyên liệu theo mẻ, thành phẩm, hạn dùng, cỡ túi, các bước có <b>phút đứng bếp</b> và <b>phút chờ</b> (ninh, ngâm đá… không cần người đứng).${manager && d.seed_version && d.seed_version !== d.version ? html` <button class="small" onClick=${() => act(() => api('POST', '/api/preps/import'), 'Đã nạp bản mới')}>Nạp bản ${d.seed_version}</button>` : null}</p>
     ${manager && d.preps.some((p) => p.unmatched) ? html`<section class="card warn-card stack tight"><small>⚠ ${d.preps.reduce((n, p) => n + p.unmatched, 0)} dòng nguyên liệu trong sổ chưa có mã kho (thường là gia vị khô: hoa tiêu, thảo quả…). Cần có mã kho thì nấu mới trừ kho được.</small>
       <button class="small" style="align-self:flex-start" onClick=${() => confirm('Tạo mã kho cho mọi nguyên liệu trong sổ chưa có trong kho? (đơn vị g / ml, giá theo sổ — dòng giá ước tính nhớ sửa sau)') && act(async () => { const r = await api('POST', '/api/preps/create-missing'); toast(`Đã tạo ${r.made} mã kho`); return r; })}>＋ Tạo mã kho cho nguyên liệu chưa có</button></section>` : null}
-    <div class="chips"><button class=${`chip ${kind === 'batch' ? 'on' : ''}`} onClick=${() => setKind('batch')}>🍲 Nấu theo mẻ</button><button class=${`chip ${kind === 'serving' ? 'on' : ''}`} onClick=${() => setKind('serving')}>🥣 Pha 1 phần / xiên</button></div>
+    <div class="chips"><button class=${`chip ${kind === 'plan' ? 'on' : ''}`} onClick=${() => setKind('plan')}>📋 Kế hoạch nấu hôm nay</button><button class=${`chip ${kind === 'batch' ? 'on' : ''}`} onClick=${() => setKind('batch')}>🍲 Nấu theo mẻ</button><button class=${`chip ${kind === 'serving' ? 'on' : ''}`} onClick=${() => setKind('serving')}>🥣 Pha 1 phần / xiên</button><button class=${`chip ${kind === 'done' ? 'on' : ''}`} onClick=${() => setKind('done')}>🧾 Mẻ đã nấu</button></div>
+    ${kind === 'plan' ? html`<${CookPlan} me=${me} preps=${d.preps} onCook=${setCook} />` : kind === 'done' ? html`<${CookedList} me=${me} />` : html`
     <div class="chips small-chips"><button class=${`chip ${!book ? 'on' : ''}`} onClick=${() => setBook('')}>Tất cả</button>${books.map((b) => html`<button class=${`chip ${book === b ? 'on' : ''}`} onClick=${() => setBook(b)}>${b} <small>${d.preps.filter((p) => p.book === b && p.kind === kind).length}</small></button>`)}</div>
     ${list.map((p) => html`<section class="card stack tight" key=${p.id}>
       <button class="link" style="text-align:left" onClick=${() => setOpen(open === p.id ? null : p.id)}>
@@ -509,7 +511,96 @@ function Preps({ me, meta }) {
             : s.min || s.wait ? html` <small class="muted">· ${s.min ? `⏱ ${s.min}′` : ''}${s.wait ? ` ⏳ chờ ${mm(s.wait)}` : ''}</small>` : null}</li>`)}</ol>
         ${manager ? (edit?.id === p.id ? html`<div class="row tight"><button class="primary small" onClick=${async () => { if (await act(() => api('PATCH', `/api/preps/${p.id}/steps`, { steps: edit.steps.map((s) => ({ ...s, min: Number(s.min) || 0, wait: Number(s.wait) || 0 })) }), 'Đã lưu thời gian')) setEdit(null); }}>Lưu thời gian</button><button class="small" onClick=${() => setEdit(null)}>Huỷ</button></div>`
           : html`<button class="small" style="align-self:flex-start" onClick=${() => setEdit({ id: p.id, steps: p.steps.map((s) => ({ ...s })) })}>✎ Sửa phút từng bước</button>`) : null}` : null}
-    </section>`)}
+      ${p.kind === 'batch' ? html`<div class="row wrap tight" style="align-items:center">
+        ${manager ? html`<small>Thành phẩm vào kho:</small><select class="auto small" value=${p.output_ingredient_id || ''} onChange=${(e) => e.target.value && act(() => api('PATCH', `/api/preps/${p.id}/output`, e.target.value === 'new' ? { create: true, name: prompt('Tên mã kho thành phẩm', p.name.replace(/\s*\(.*?\)\s*/g, ' ').trim()) || undefined } : { ingredient_id: Number(e.target.value) }), 'Đã gắn mã thành phẩm')}>
+          <option value="">⚠ chưa gắn…</option><option value="new">＋ Tạo mã mới</option>${ings.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>`
+          : p.output_ingredient_id ? null : html`<small class="warn-text">Chưa gắn mã thành phẩm</small>`}
+        ${p.output_ingredient_id ? html`<button class="primary small" onClick=${() => setCook({ p })}>✅ Ghi mẻ đã nấu</button>` : null}</div>` : null}
+    </section>`)}`}
+    ${cook ? html`<${CookModal} p=${cook.p} plan=${cook.plan} onClose=${() => setCook(null)} />` : null}
+  </div>`;
+}
+
+// Ghi 1 lần nấu: số mẻ, cân thật, số phút → trừ nguyên liệu sống, cộng thành phẩm vào kho (3b, chủ quán duyệt 30/10)
+function CookModal({ p, plan, onClose }) {
+  const left = plan ? Math.max(1, plan.batches - plan.done_batches) : 1;
+  const [f, setF] = useState({ batches: String(left), out_qty: '', minutes: '', note: '' });
+  const [res, setRes] = useState(null);
+  const expect = p.out_qty ? p.out_qty * (Number(f.batches) || 0) : null;
+  const save = async () => {
+    const r = await act(() => api('POST', `/api/preps/${p.id}/cook`, { batches: Number(f.batches) || 1, out_qty: f.out_qty === '' ? null : Number(f.out_qty), minutes: f.minutes === '' ? null : Number(f.minutes), note: f.note, plan_id: plan?.id }));
+    if (r) setRes(r);
+  };
+  return html`<${Modal} title=${`Ghi mẻ: ${p.name}`} onClose=${onClose}>${res ? html`<div class="stack">
+      <p>✅ Đã cộng <b>${qty(res.out_qty, res.unit)}</b> vào kho${res.expires_on ? html` · hạn dùng <b>${res.expires_on.split('-').reverse().join('/')}</b>` : null} · cost ${money(res.cost)}.</p>
+      ${res.expected && Math.abs(res.out_qty - res.expected) / res.expected > 0.05 ? html`<p class="warn-text small">Ra ${Math.round((res.out_qty / res.expected) * 100)}% so với sổ (${qty(res.expected, res.unit)}).</p>` : null}
+      ${res.short.length ? html`<p class="warn-text small">⚠ Kho trên sổ không đủ: ${res.short.map((x) => `${x.ingredient} thiếu ${qty(x.need, x.unit)}`).join(', ')}. Kiểm kho / nhập bù.</p>` : null}
+      ${res.skipped.length ? html`<p class="muted small">Chưa trừ (chưa có mã kho): ${res.skipped.join(', ')}</p>` : null}
+      <button class="primary" onClick=${onClose}>Xong</button></div>`
+    : html`<div class="stack">
+      <${Field} label="Số mẻ"><input inputmode="decimal" value=${f.batches} onInput=${(e) => setF({ ...f, batches: e.target.value })} /><//>
+      <${Field} label=${`Cân thực tế (${p.out_unit})`}><input inputmode="decimal" placeholder=${expect ? `theo sổ ${expect.toLocaleString('vi-VN')}` : 'bắt buộc'} value=${f.out_qty} onInput=${(e) => setF({ ...f, out_qty: e.target.value })} /><//>
+      <${Field} label="Số phút đứng bếp thật"><input inputmode="numeric" placeholder=${p.active_min ? `sổ ước ${p.active_min * (Number(f.batches) || 1)} phút` : ''} value=${f.minutes} onInput=${(e) => setF({ ...f, minutes: e.target.value })} /><//>
+      <${Field} label="Ghi chú"><input value=${f.note} onInput=${(e) => setF({ ...f, note: e.target.value })} /><//>
+      <small class="muted">App trừ nguyên liệu sống theo sổ × số mẻ, cộng thành phẩm theo số cân thật (để trống = theo sổ), hạn dùng theo sổ.</small>
+      <div class="row end"><button onClick=${onClose}>Thôi</button><button class="primary" onClick=${save}>Lưu mẻ</button></div></div>`}<//>`;
+}
+
+const STATIONS = ['Lẩu', 'Steak', 'Nướng', 'Bar', 'Bếp'];
+// Kế hoạch nấu hôm nay = checklist bếp: dự báo 3 ngày − tồn sáng nay → số mẻ; chia theo điểm làm, tổng phút (3c)
+function CookPlan({ me, preps, onCook }) {
+  const pl = useData('/api/preps/plan');
+  const lead = atLeast(me, 'team_lead');
+  const staff = useData(lead ? '/api/staff?mine=1' : null);
+  const [open, setOpen] = useState(null);
+  const [ticks, setTicks] = useState({});
+  const [add, setAdd] = useState(null);
+  if (!pl.data) return html`<${Loading} state=${pl} />`;
+  const d = pl.data;
+  const staffList = Array.isArray(staff.data) ? staff.data : staff.data?.staff || [];
+  const setRow = (prep_id, patch) => act(() => api('PUT', '/api/preps/plan', { prep_id, ...patch }));
+  const byStation = STATIONS.concat(d.items.map((x) => x.station).filter((x) => !STATIONS.includes(x))).map((s) => [s, d.items.filter((x) => (x.station || 'Bếp') === s)]).filter(([, l]) => l.length);
+  return html`<div class="stack">
+    <p class="small muted">App tự lập mỗi sáng: <b>dự báo dùng ${d.days} ngày</b> (theo món đã bán, không quá hạn dùng) − <b>tồn kho lúc lập</b> → số mẻ làm tròn lên. Bếp làm xong bấm <b>Ghi mẻ</b> (cân thật + phút thật) → kho tự trừ nguyên liệu, cộng thành phẩm.</p>
+    ${d.no_output ? html`<small class="warn-text">⚠ ${d.no_output} món nấu theo mẻ chưa gắn mã thành phẩm nên chưa vào kế hoạch (gắn ở mục 🍲 Nấu theo mẻ).</small>` : null}
+    <section class="card row wrap between"><span>Tổng hôm nay: <b>${d.items.length}</b> việc · ⏱ kế hoạch <b>${mm(d.total_plan_min)}</b> · thật <b>${mm(d.total_done_min)}</b></span>
+      ${lead ? html`<div class="row tight"><button class="small" onClick=${() => setAdd({ prep_id: '', batches: '1' })}>＋ Thêm việc</button><button class="small" onClick=${() => confirm('Lập lại theo số bán + tồn hiện tại? (dòng đã sửa tay giữ nguyên)') && act(() => api('POST', '/api/preps/plan/regen'), 'Đã lập lại')}>↻ Lập lại</button></div>` : null}</section>
+    ${!d.items.length ? html`<div class="empty">Hôm nay chưa cần nấu mẻ nào (tồn đủ cho ${d.days} ngày, hoặc chưa có số bán của thành phẩm).</div>` : null}
+    ${byStation.map(([s, list]) => { const st = d.stations.find((x) => x.station === s) || {}; return html`<section class="card stack tight">
+      <div class="row between wrap"><b>🔥 ${s}</b><small>${st.done || 0}/${list.length} xong · ⏱ ${mm(st.plan_min || 0)}${st.done_min ? ` · thật ${mm(st.done_min)}` : ''}${st.wait_max ? ` · chờ dài nhất ${mm(st.wait_max)}` : ''}</small></div>
+      ${list.map((x) => { const done = x.done_batches >= x.batches; return html`<div class="stack tight" style="border-top:1px solid #ddd;padding-top:6px" key=${x.id}>
+        <div class="row between wrap" style="align-items:center"><button class="link" style="text-align:left" onClick=${() => setOpen(open === x.id ? null : x.id)}><b>${done ? '✅ ' : ''}${x.name}</b> × ${x.batches} mẻ<br />
+          <small class="muted">${x.out_qty ? `ra ${qty(x.out_qty * x.batches, x.out_unit)} · ` : ''}⏱ ${mm(x.plan_min)}${x.wait_min ? ` + chờ ${mm(x.wait_min)}` : ''}${x.need != null && !x.manual ? ` · cần ${qty(x.need, x.out_unit_stock)} (dự báo ${qty(x.forecast, x.out_unit_stock)} − tồn ${qty(x.stock, x.out_unit_stock)})` : x.manual ? ' · sửa tay' : ''}${x.staff_name ? ` · 👤 ${x.staff_name}` : ''}</small>
+          ${x.done_batches ? html`<br /><small class="ok-text">Đã nấu ${x.done_batches}/${x.batches} mẻ · ${qty(x.done_qty, x.out_unit_stock)}${x.done_min != null ? ` · ${mm(x.done_min)} thật` : ''}</small>` : null}</button>
+          ${!done ? html`<button class="primary small" onClick=${() => onCook({ p: preps.find((p) => p.id === x.prep_id) || x, plan: x })}>Ghi mẻ</button>` : null}</div>
+        ${open === x.id ? html`
+          ${x.packs ? html`<small>📦 ${x.packs}</small>` : null}
+          <div class="stack tight">${x.steps.map((st2, k) => { const key = `${x.id}:${k}`; return html`<label class="row tight" style="align-items:flex-start"><input type="checkbox" checked=${!!ticks[key]} onChange=${() => setTicks({ ...ticks, [key]: !ticks[key] })} /><small class=${ticks[key] ? 'muted' : ''}>${k + 1}. ${st2.text}${st2.min ? ` · ⏱ ${st2.min * x.batches}′` : ''}${st2.wait ? ` · ⏳ ${mm(st2.wait)}` : ''}</small></label>`; })}</div>
+          ${lead ? html`<div class="row wrap tight" style="align-items:center">
+            <label class="small">Số mẻ <input inputmode="decimal" style="width:4em" value=${x.batches} onChange=${(e) => setRow(x.prep_id, { batches: Number(e.target.value) || 0 })} /></label>
+            <select class="auto small" value=${x.station} onChange=${(e) => setRow(x.prep_id, { batches: x.batches, station: e.target.value })}>${STATIONS.map((o) => html`<option>${o}</option>`)}</select>
+            ${staffList.length ? html`<select class="auto small" value=${x.staff_id || ''} onChange=${(e) => setRow(x.prep_id, { batches: x.batches, staff_id: e.target.value ? Number(e.target.value) : null })}><option value="">— người làm —</option>${staffList.filter((s2) => s2.active !== 0).map((s2) => html`<option value=${s2.id}>${s2.name}</option>`)}</select>` : null}
+            <button class="small danger" onClick=${() => confirm('Bỏ việc này khỏi kế hoạch hôm nay?') && setRow(x.prep_id, { batches: 0 })}>Bỏ</button></div>` : null}` : null}
+      </div>`; })}
+    </section>`; })}
+    ${d.extra.length ? html`<section class="card stack tight"><b>Nấu thêm ngoài kế hoạch</b>${d.extra.map((x) => html`<small>${x.name} × ${x.n} mẻ${x.m ? ` · ${mm(x.m)}` : ''}</small>`)}</section>` : null}
+    ${add ? html`<${Modal} title="＋ Thêm việc nấu hôm nay" onClose=${() => setAdd(null)}><div class="stack">
+      <select value=${add.prep_id} onChange=${(e) => setAdd({ ...add, prep_id: e.target.value })}><option value="">— chọn bán thành phẩm —</option>${preps.filter((p) => p.kind === 'batch').map((p) => html`<option value=${p.id}>${p.book} · ${p.name}</option>`)}</select>
+      <${Field} label="Số mẻ"><input inputmode="decimal" value=${add.batches} onInput=${(e) => setAdd({ ...add, batches: e.target.value })} /><//>
+      <div class="row end"><button class="primary" disabled=${!add.prep_id} onClick=${async () => { if (await setRow(Number(add.prep_id), { batches: Number(add.batches) || 1 })) setAdd(null); }}>Thêm</button></div></div><//>` : null}
+  </div>`;
+}
+
+function CookedList({ me }) {
+  const today = me.today;
+  const [date, setDate] = useState(today);
+  const l = useData(`/api/preps/batches?date=${date}`);
+  return html`<div class="stack">
+    <input type="date" class="auto" value=${date} onInput=${(e) => e.target.value && setDate(e.target.value)} />
+    ${!l.data ? html`<${Loading} state=${l} />` : !l.data.length ? html`<div class="empty">Chưa ghi mẻ nào ngày này.</div>` : html`<section class="card stack tight">
+      ${l.data.map((b) => html`<div class="row between wrap" style="align-items:center"><span class=${b.voided_at ? 'muted' : ''} style=${b.voided_at ? 'text-decoration:line-through' : ''}><b>${b.name}</b> × ${b.batches} mẻ · ${qty(b.out_qty, b.out_unit)}${b.minutes != null ? ` · ${mm(b.minutes)}` : ''} · ${money(b.cost)}<br /><small class="muted">${dt(b.at)} · ${b.staff_name || ''}${b.note ? ` · ${b.note}` : ''}</small></span>
+        ${!b.voided_at && date === today && atLeast(me, 'manager') ? html`<button class="small danger" onClick=${() => confirm('Huỷ mẻ ghi nhầm? Nguyên liệu trả lại kho, thành phẩm bị trừ.') && act(() => api('POST', `/api/preps/batches/${b.id}/void`), 'Đã huỷ mẻ')}>Huỷ</button>` : null}</div>`)}
+    </section>`}
   </div>`;
 }
 
