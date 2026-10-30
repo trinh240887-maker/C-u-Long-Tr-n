@@ -71,6 +71,11 @@ test('nấu mẻ: trừ nguyên liệu sống theo sổ × số mẻ, cộng th�
   // Lập lại không đè dòng sửa tay
   const p3 = (await o('POST', '/api/preps/plan/regen')).data;
   assert.equal(p3.items.find((x) => x.prep_id === tx.id).batches, 2);
+  // Tick bước (lưu lại, ai tick)
+  assert.equal((await o('POST', `/api/preps/plan/${it.id}/tick`, { step: 0 })).status, 200);
+  assert.equal((await o('GET', '/api/preps/plan')).data.items.find((x) => x.id === it.id).ticks.length, 1);
+  await o('POST', `/api/preps/plan/${it.id}/tick`, { step: 0, done: false });
+  assert.equal((await o('GET', '/api/preps/plan')).data.items.find((x) => x.id === it.id).ticks.length, 0);
   // Nấu theo kế hoạch → ghi phút thật
   r = await o('POST', `/api/preps/${tx.id}/cook`, { batches: 1, minutes: 65, plan_id: it.id });
   assert.equal(r.status, 200);

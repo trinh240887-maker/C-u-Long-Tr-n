@@ -1,6 +1,7 @@
 import { useState } from '../vendor/hooks.js';
 import { html, api, act, toast, useData, Loading, Modal, hm, dayLabel, addDays, PHASE_LABEL, atLeast, Link, navigate } from '../ui.js';
 import { Checklists } from './settings.js';
+import { CookPlan } from './stock.js';
 
 // Nén ảnh trên điện thoại trước khi gửi: cạnh dài tối đa 1280px, JPEG
 // Bật "Giao việc từng người" cho checklist này: bộ phận của checklist + Tiếp thực (nếu có) làm chung → mở Bảng khu để phân việc
@@ -178,6 +179,7 @@ export function ChecklistView({ me }) {
     </div>
     ${sections.length ? html`<div class="chips scroll-x sec-tabs">${sections.map((x) => html`<button class=${`chip big ${x === curSec ? 'on' : ''}`} onClick=${() => setSec(x)}>${x}${left(x) ? html` <b class="dotn">${left(x)}</b>` : ''}</button>`)}</div>` : null}
     <div class="tabs">${[['open', 'Mở ca'], ...(closeOk ? [['close', 'Đóng ca']] : [])].map(([k, l]) => html`<button class=${phase === k ? 'on' : ''} onClick=${() => setPhase(k)}>${l}${left(curSec, k) ? ` (${left(curSec, k)})` : ''}</button>`)}</div>
+    ${phase === 'open' && date === me.today && (/bếp|lẩu|steak|nướng/i.test(curSec) || (!sections.length && /bếp|lẩu|steak|nướng/i.test((me.teams || []).find((t) => t.id === me.team_id)?.name || ''))) ? html`<section class="card stack"><div class="row between wrap"><h3>🍲 Việc nấu hôm nay</h3><${Link} href="/kho?tab=btp" class="btn-link small">Sổ công thức →<//></div><${CookPlan} me=${me} compact=${true} only=${/lẩu/i.test(curSec) ? ['Lẩu'] : /steak/i.test(curSec) ? ['Steak', 'Nướng'] : /nướng/i.test(curSec) ? ['Nướng'] : null} /></section>` : null}
     ${phase === 'open' && /phục vụ/i.test(curSec) && st.data.opening?.total && !jobCards.some((r) => r.opening_tpl) ? html`<${OpeningCard} o=${st.data.opening} />` : null}
     ${jobCards.map((r) => html`<section class="card job-card">
       <div class="row between"><div><h3>${r.title}</h3><small class="muted">${r.team_name} · 👥 Giao việc từng người · ${r.items} việc</small></div>

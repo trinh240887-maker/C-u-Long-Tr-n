@@ -157,7 +157,8 @@ export default function (r, ctx) {
     CREATE INDEX IF NOT EXISTS prep_batches_by_date ON prep_batches(date);
     CREATE TABLE IF NOT EXISTS prep_plan (
       id INTEGER PRIMARY KEY, date TEXT NOT NULL, prep_id INTEGER NOT NULL REFERENCES preps(id) ON DELETE CASCADE, batches REAL NOT NULL DEFAULT 0,
-      station TEXT NOT NULL DEFAULT '', staff_id INTEGER, forecast REAL, stock REAL, need REAL, basis TEXT NOT NULL DEFAULT '', manual INTEGER NOT NULL DEFAULT 0, UNIQUE (date, prep_id));`);
+      station TEXT NOT NULL DEFAULT '', staff_id INTEGER, forecast REAL, stock REAL, need REAL, basis TEXT NOT NULL DEFAULT '', manual INTEGER NOT NULL DEFAULT 0, UNIQUE (date, prep_id));
+    CREATE TABLE IF NOT EXISTS prep_plan_ticks (plan_id INTEGER NOT NULL REFERENCES prep_plan(id) ON DELETE CASCADE, step INTEGER NOT NULL, staff_id INTEGER, at INTEGER NOT NULL, PRIMARY KEY (plan_id, step));`);
 
   const STATION_OF_BOOK = { 'Lẩu': 'Lẩu', 'Nước chấm': 'Lẩu', 'Sốt steak': 'Steak', 'Xiên nướng': 'Nướng' };
   const stationOf = (p) => p.station || STATION_OF_BOOK[p.book] || 'Bếp';
@@ -370,6 +371,7 @@ export default function (r, ctx) {
       const out = ingOf(p.output_ingredient_id);
       return { ...pl, name: p.name, book: p.book, steps: p.steps, active_min: p.active_min, wait_min: p.wait_min, shelf_text: p.shelf_text, packs: p.packs,
         out_qty: p.out_qty, out_unit: p.out_unit, out_name: out?.name || '', out_unit_stock: out?.unit || '',
+        ticks: db.prepare('SELECT t.step, t.at, s.name AS by FROM prep_plan_ticks t LEFT JOIN staff s ON s.id = t.staff_id WHERE t.plan_id = ? ORDER BY t.step').all(pl.id),
         plan_min: Math.round(p.active_min * pl.batches), done_batches: dn?.n || 0, done_min: dn?.cm ? dn.m : null, done_qty: dn?.q || 0 };
     });
     const stations = {};
@@ -382,6 +384,18 @@ export default function (r, ctx) {
     return { date, days: PLAN_DAYS, items, stations: Object.values(stations), extra, no_output: noOutput,
       total_plan_min: items.reduce((n, x) => n + x.plan_min, 0), total_done_min: items.reduce((n, x) => n + (x.done_min || 0), 0) + extra.reduce((n, x) => n + (x.m || 0), 0) };
   }
+  // Tick từng bước của 1 việc nấu (checklist bếp, lưu lại + ai tick)
+  r.post('/api/preps/plan/:id/tick', 'staff', ({ me, params, body }) => {
+    const pl = db.prepare('SELECT * FROM prep_plan WHERE id = ?').get(params.id);
+    if (!pl) fail(404, 'Không tìm thấy việc nấu');
+    if (!canCook(me)) fail(403, 'Chỉ nhân viên bếp hoặc tổ trưởng trở lên');
+    if (pl.date !== ctx.today()) fail(409, 'Chỉ tick việc của hôm nay');
+    const step = v.int(body.step, { min: 0, max: 60, name: 'Bước' });
+    if (body.done === false) db.prepare('DELETE FROM prep_plan_ticks WHERE plan_id = ? AND step = ?').run(pl.id, step);
+    else db.prepare('INSERT OR REPLACE INTO prep_plan_ticks (plan_id, step, staff_id, at) VALUES (?, ?, ?, ?)').run(pl.id, step, me.id, ctx.now());
+    ctx.broadcast('stock');
+    return { ok: true };
+  });
   r.get('/api/preps/plan', 'staff', ({ query }) => {
     const date = query.get('date') || ctx.today();
     if (date >= ctx.today() && !planMade(date)) ensurePlan(date);
@@ -412,7 +426,7 @@ export default function (r, ctx) {
     if (!batches) db.prepare('DELETE FROM prep_plan WHERE date = ? AND prep_id = ?').run(date, p.id);
     else db.prepare(`INSERT INTO prep_plan (date, prep_id, batches, station, staff_id, manual) VALUES (?, ?, ?, ?, ?, 1)
       ON CONFLICT (date, prep_id) DO UPDATE SET batches = excluded.batches, station = excluded.station, staff_id = excluded.staff_id, manual = 1`).run(date, p.id, batches, station, staffId);
-    if (staffId && staffId !== cur?.staff_id) ctx.notify?.([staffId], { title: 'Việc bếp hôm nay', body: `Nấu ${p.name} × ${batches} mẻ`, link: '/kho' });
+    if (staffId && staffId !== cur?.staff_id) ctx.notify?.([staffId], { title: 'Việc bếp hôm nay', body: `Nấu ${p.name} × ${batches} mẻ`, link: '/checklist' });
     ctx.audit(me, 'preps.plan_set', { date, prep: p.id, batches, station, staff_id: staffId });
     ctx.broadcast('stock');
     return planView(date);
