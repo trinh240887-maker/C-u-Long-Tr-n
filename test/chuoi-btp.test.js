@@ -77,10 +77,32 @@ test('chuỗi bán thành phẩm: nồi lẩu bán → cốt + nước dùng c�
   const team = (n) => db.prepare('SELECT id FROM teams WHERE name = ?').get(n)?.id ?? Number(db.prepare('INSERT INTO teams (name) VALUES (?)').run(n).lastInsertRowid);
   await o('POST', '/api/staff', { name: 'PV', team_id: team('Phục vụ'), role: 'staff', pin: '4821' });
   await o('POST', '/api/staff', { name: 'Bep', team_id: team('Bếp steak'), role: 'staff', pin: '5932' });
+  // Đánh dấu bí mật dòng hoa tiêu + gừng của sốt S1, đưa S1 vào kế hoạch
+  const s1p = by(/^S1 — SỐT/);
+  for (const l of s1p.lines.filter((x) => /Hoa tiêu|Gừng/.test(x.name))) assert.equal((await o('PATCH', `/api/preps/lines/${l.id}`, { secret: true })).status, 200);
+  await o('PUT', '/api/preps/plan', { prep_id: s1p.id, batches: 2 });
+  const bossView = (await o('GET', '/api/preps/plan')).data;
+  assert.equal(bossView.packs.find((k) => k.code === `G${s1p.id}`).lines.length, 2, 'quản lý thấy trong gói');
   cookie = null; await o('POST', '/api/login', { pin: '4821' });
   assert.equal((await o('GET', '/api/preps')).status, 403);
   assert.equal((await o('GET', '/api/preps/plan')).status, 403);
   cookie = null; await o('POST', '/api/login', { pin: '5932' });
   assert.equal((await o('GET', '/api/preps')).status, 403);
-  assert.equal((await o('GET', '/api/preps/plan')).status, 200);
+  const kv = (await o('GET', '/api/preps/plan')).data;
+  assert.equal(kv.status, undefined);
+  let item = kv.items.find((x) => x.prep_id === s1p.id);
+  assert.ok(item.locked); assert.equal(item.lines.length, 0); assert.ok(item.steps.every((x) => !x.text), 'chưa bấm bắt đầu: không thấy bước');
+  assert.equal(kv.packs.find((k) => k.code === `G${s1p.id}`).lines.length, 0, 'bếp không thấy trong gói');
+  const st = (await o('POST', `/api/preps/plan/${item.id}/start`)).data;
+  item = st.items.find((x) => x.prep_id === s1p.id);
+  assert.ok(!item.locked);
+  assert.ok(item.lines.some((l) => l.pack && /Gói G/.test(l.name)));
+  assert.ok(!item.lines.some((l) => /Hoa tiêu|Gừng/.test(l.name)), 'dòng bí mật bị gộp');
+  const step2 = item.steps[1].text;
+  assert.ok(/Gói G/.test(step2) && !/hoa tiêu|gừng/i.test(step2), step2);
+  assert.ok(item.lines.some((l) => /Hành tây/.test(l.name)), 'dòng thường vẫn thấy');
+  assert.equal((await o('POST', `/api/preps/plan/${item.id}/tick`, { step: 300 })).status, 403, 'bếp không đánh dấu gói');
+  // Quản lý thấy ai đã mở
+  cookie = null; await o('POST', '/api/login', { pin: '582914' });
+  assert.equal((await o('GET', '/api/preps/plan')).data.items.find((x) => x.prep_id === s1p.id).views[0].name, 'Bep');
 });

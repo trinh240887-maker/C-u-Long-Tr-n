@@ -27,6 +27,8 @@ export default function (r, ctx) {
       id INTEGER PRIMARY KEY, prep_id INTEGER NOT NULL REFERENCES preps(id) ON DELETE CASCADE, pos INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL, unit TEXT NOT NULL DEFAULT 'g',
       qty REAL NOT NULL DEFAULT 0, unit_price REAL, note TEXT NOT NULL DEFAULT '', code TEXT NOT NULL DEFAULT '', kl REAL, ingredient_id INTEGER);`);
 
+  // 🔒 dòng bí mật (chủ quán 30/10): bếp chỉ thấy "Gói G<mã>", quản lý pha sẵn
+  if (!db.prepare('PRAGMA table_info(prep_lines)').all().some((c) => c.name === 'secret')) db.exec('ALTER TABLE prep_lines ADD COLUMN secret INTEGER NOT NULL DEFAULT 0');
   const seed = () => JSON.parse(fs.readFileSync(SEED, 'utf8'));
   // Khớp tên trong sổ ("Mã NL") với nguyên liệu trong kho: trùng tên bỏ dấu, hoặc tên này chứa trọn tên kia
   const matcher = () => {
@@ -50,6 +52,7 @@ export default function (r, ctx) {
     const d = seed();
     const match = matcher();
     // Mã kho đã gắn tay trước đó (theo Mã NL / tên) → giữ khi nạp lại
+    const keptSecret = new Set(db.prepare('SELECT p.code AS pc, l.code, l.name FROM prep_lines l JOIN preps p ON p.id = l.prep_id WHERE l.secret = 1').all().map((l) => `${l.pc}|${l.code}|${l.name}`));
     const kept = new Map(db.prepare("SELECT code, name, ingredient_id FROM prep_lines WHERE ingredient_id IS NOT NULL").all().flatMap((l) => [[`c:${l.code}`, l.ingredient_id], [`n:${l.name}`, l.ingredient_id]]));
     let added = 0, updated = 0;
     tx(db, () => {
@@ -71,8 +74,8 @@ export default function (r, ctx) {
         p.lines.forEach((l, k) => {
           const keep = (l.code && kept.get(`c:${l.code}`)) || kept.get(`n:${l.name}`);
           const g = keep ? { id: keep } : l.code ? match(l.code) || match(l.name) : match(l.name);
-          db.prepare('INSERT INTO prep_lines (prep_id, pos, name, unit, qty, unit_price, note, code, kl, ingredient_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-            .run(id, k, l.name, l.unit, l.qty, l.unit_price, l.note, l.code, l.kl, g?.id ?? null);
+          db.prepare('INSERT INTO prep_lines (prep_id, pos, name, unit, qty, unit_price, note, code, kl, ingredient_id, secret) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(id, k, l.name, l.unit, l.qty, l.unit_price, l.note, l.code, l.kl, g?.id ?? null, keptSecret.has(`${p.code}|${l.code}|${l.name}`) ? 1 : 0);
         });
       }
     });
@@ -96,7 +99,7 @@ export default function (r, ctx) {
       unmatched: lines.filter((l) => !l.ingredient_id && (l.unit_price || 0) > 0).length };
   };
   // Sổ công thức đầy đủ: chỉ quản lý trở lên (chủ quán 30/10: sợ lộ công thức). Bếp xem việc được giao qua /api/preps/plan
-  r.get('/api/preps', 'manager', () => ({
+  r.get('/api/preps', 'manager', ({ me }) => (me.role !== 'owner' && ctx.audit(me, 'preps.view_book', {}), {
     version: ctx.setting('preps_version') || null, seed_version: (() => { try { return seed().version; } catch { return null; } })(),
     preps: db.prepare('SELECT * FROM preps WHERE active = 1 ORDER BY id').all().map(load),
   }));
@@ -136,6 +139,12 @@ export default function (r, ctx) {
   r.patch('/api/preps/lines/:id', 'manager', ({ me, params, body }) => {
     const l = db.prepare('SELECT * FROM prep_lines WHERE id = ?').get(params.id);
     if (!l) fail(404, 'Không tìm thấy dòng');
+    if (body.secret !== undefined) {
+      db.prepare('UPDATE prep_lines SET secret = ? WHERE id = ?').run(body.secret ? 1 : 0, l.id);
+      ctx.audit(me, 'preps.secret', { line: l.id, name: l.name, secret: !!body.secret });
+      ctx.broadcast('stock');
+      return { ok: true };
+    }
     let ingId = body.ingredient_id ? v.int(body.ingredient_id, { min: 1, name: 'Nguyên liệu' }) : null;
     if (body.create) {
       const name = v.text(l.code || l.name, { name: 'Tên', required: true, max: 80 });
@@ -167,6 +176,7 @@ export default function (r, ctx) {
       station TEXT NOT NULL DEFAULT '', staff_id INTEGER, forecast REAL, stock REAL, need REAL, basis TEXT NOT NULL DEFAULT '', manual INTEGER NOT NULL DEFAULT 0, UNIQUE (date, prep_id));
     CREATE TABLE IF NOT EXISTS prep_plan_ticks (plan_id INTEGER NOT NULL REFERENCES prep_plan(id) ON DELETE CASCADE, step INTEGER NOT NULL, staff_id INTEGER, at INTEGER NOT NULL, PRIMARY KEY (plan_id, step));`);
   if (!cols('prep_plan').includes('extra')) db.exec('ALTER TABLE prep_plan ADD COLUMN extra REAL');
+  db.exec('CREATE TABLE IF NOT EXISTS prep_plan_views (plan_id INTEGER NOT NULL REFERENCES prep_plan(id) ON DELETE CASCADE, staff_id INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (plan_id, staff_id))');
 
   const STATION_OF_BOOK = { 'Lẩu': 'Lẩu', 'Nước chấm': 'Lẩu', 'Sốt steak': 'Steak', 'Xiên nướng': 'Nướng' };
   const stationOf = (p) => p.station || STATION_OF_BOOK[p.book] || 'Bếp';
@@ -476,18 +486,48 @@ export default function (r, ctx) {
       return { ...st, uses };
     });
   };
-  function planView(date) {
+  // Che dòng bí mật trong chữ của bước: "luộc 275 g ớt khô" → "luộc Gói G12"
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const maskText = (text, secretLines, code) => {
+    let t = text;
+    for (const l of secretLines) for (const k of keysOf(l.name)) {
+      const re = new RegExp(`(?:(?<![\\p{L}\\d])\\d+(?:[.,]\\d+)?\\s*(?:g|gr|ml|kg|lá|quả|trái)?\\s+)?${k.split(' ').map(esc).join('\\s+')}`, 'giu');
+      t = t.replace(re, `Gói ${code}`);
+    }
+    return t.replace(/(Gói G\d+)(\s*(?:,|và|\+)\s*\1)+/g, '$1');
+  };
+  function planView(date, me) {
+    const boss = !!me && rank(me.role) >= rank('manager');
     const rows = db.prepare(`SELECT pl.*, s.name AS staff_name FROM prep_plan pl LEFT JOIN staff s ON s.id = pl.staff_id WHERE pl.date = ? ORDER BY pl.station, pl.id`).all(date);
     const done = db.prepare('SELECT prep_id, SUM(batches) AS n, SUM(minutes) AS m, COUNT(minutes) AS cm, SUM(out_qty) AS q FROM prep_batches WHERE date = ? AND voided_at IS NULL GROUP BY prep_id').all(date);
     const doneBy = new Map(done.map((x) => [x.prep_id, x]));
+    const packs = [];
     const items = rows.map((pl) => {
       const p = load(db.prepare('SELECT * FROM preps WHERE id = ?').get(pl.prep_id));
       const dn = doneBy.get(pl.prep_id);
       const out = ingOf(p.output_ingredient_id);
-      return { ...pl, name: p.name, book: p.book, steps: withUses(p.steps, p.lines, pl.batches),
-        lines: p.lines.filter((l) => l.qty > 0).map((l) => ({ pos: l.pos, name: l.name, qty: r3(l.qty * pl.batches), unit: l.unit, note: l.note })), active_min: p.active_min, wait_min: p.wait_min, shelf_text: p.shelf_text, packs: p.packs,
-        out_qty: p.out_qty, out_unit: p.out_unit, out_name: out?.name || '', out_unit_stock: out?.unit || '',
-        ticks: db.prepare('SELECT t.step, t.at, s.name AS by FROM prep_plan_ticks t LEFT JOIN staff s ON s.id = t.staff_id WHERE t.plan_id = ? ORDER BY t.step').all(pl.id),
+      const ticks = db.prepare('SELECT t.step, t.at, s.name AS by FROM prep_plan_ticks t LEFT JOIN staff s ON s.id = t.staff_id WHERE t.plan_id = ? ORDER BY t.step').all(pl.id);
+      const views = db.prepare('SELECT v.at, s.name FROM prep_plan_views v LEFT JOIN staff s ON s.id = v.staff_id WHERE v.plan_id = ? ORDER BY v.at').all(pl.id);
+      const lines = p.lines.filter((l) => l.qty > 0);
+      const secret = lines.filter((l) => l.secret);
+      const code = `G${p.id}`;
+      const scale = (l) => ({ pos: l.pos, name: l.name, qty: r3(l.qty * pl.batches), unit: l.unit, note: l.note, secret: !!l.secret });
+      if (secret.length) packs.push({ plan_id: pl.id, code, name: p.name, batches: pl.batches, lines: boss ? secret.map(scale) : [], total: r3(secret.reduce((n, l) => n + (['g', 'ml'].includes(l.unit) ? l.qty : 0), 0) * pl.batches), done: ticks.find((t) => t.step === 300) || null });
+      const isDone = (dn?.n || 0) >= pl.batches;
+      const seen = !!me && views.length && db.prepare('SELECT 1 FROM prep_plan_views WHERE plan_id = ? AND staff_id = ?').get(pl.id, me.id);
+      const locked = !boss && (!seen || isDone);
+      let showLines, showSteps;
+      if (boss) { showLines = lines.map(scale); showSteps = withUses(p.steps, lines, pl.batches); }
+      else if (locked) { showLines = []; showSteps = p.steps.map((s) => ({ text: '', min: s.min, wait: s.wait, uses: [] })); }
+      else {
+        const open = lines.filter((l) => !l.secret);
+        showLines = [...(secret.length ? [{ pos: 290, name: `📦 Gói ${code} — gia vị pha sẵn (quản lý giao)`, qty: packs[packs.length - 1].total, unit: 'g', note: `${pl.batches} gói`, pack: true }] : []), ...open.map(scale)];
+        showSteps = withUses(p.steps, lines, pl.batches).map((s) => ({ ...s, text: secret.length ? maskText(s.text, secret, code) : s.text,
+          uses: [...(s.uses.some((u) => secret.some((l) => l.name === u.name)) ? [{ name: `Gói ${code}`, qty: pl.batches, unit: 'gói' }] : []), ...s.uses.filter((u) => !secret.some((l) => l.name === u.name))] }));
+      }
+      return { ...pl, name: p.name, book: p.book, steps: showSteps, lines: showLines, locked, pack_code: secret.length ? code : null, views: boss ? views : [],
+        active_min: p.active_min, wait_min: p.wait_min, shelf_text: p.shelf_text, packs: p.packs,
+        out_qty: p.out_qty, out_unit: p.out_unit, out_name: out?.name || '', out_unit_stock: out?.unit || '', ticks,
         plan_min: Math.round(p.active_min * pl.batches), done_batches: dn?.n || 0, done_min: dn?.cm ? dn.m : null, done_qty: dn?.q || 0 };
     });
     const stations = {};
@@ -497,16 +537,28 @@ export default function (r, ctx) {
     }
     const extra = db.prepare(`SELECT b.prep_id, p.name, SUM(b.batches) AS n, SUM(b.minutes) AS m FROM prep_batches b JOIN preps p ON p.id = b.prep_id WHERE b.date = ? AND b.voided_at IS NULL AND b.prep_id NOT IN (SELECT prep_id FROM prep_plan WHERE date = ?) GROUP BY b.prep_id`).all(date, date);
     const noOutput = db.prepare("SELECT COUNT(*) AS n FROM preps WHERE active = 1 AND kind = 'batch' AND output_ingredient_id IS NULL").get().n;
-    return { date, days: PLAN_DAYS, items, stations: Object.values(stations), extra, no_output: noOutput,
+    return { date, days: PLAN_DAYS, boss, items, packs, stations: Object.values(stations), extra, no_output: noOutput,
       total_plan_min: items.reduce((n, x) => n + x.plan_min, 0), total_done_min: items.reduce((n, x) => n + (x.done_min || 0), 0) + extra.reduce((n, x) => n + (x.m || 0), 0) };
   }
+  // ▶ Bắt đầu nấu: mở nguyên liệu + bước cho người bấm (ghi nhật ký ai xem lúc nào); ghi mẻ xong tự ẩn lại
+  r.post('/api/preps/plan/:id/start', 'staff', ({ me, params }) => {
+    const pl = db.prepare('SELECT * FROM prep_plan WHERE id = ?').get(params.id);
+    if (!pl) fail(404, 'Không tìm thấy việc nấu');
+    if (!canCook(me)) fail(403, 'Chỉ nhân viên bếp');
+    if (pl.date !== ctx.today()) fail(409, 'Chỉ mở việc của hôm nay');
+    if (pl.staff_id && pl.staff_id !== me.id && rank(me.role) < rank('team_lead')) fail(403, 'Việc này đã giao cho người khác');
+    db.prepare('INSERT OR IGNORE INTO prep_plan_views (plan_id, staff_id, at) VALUES (?, ?, ?)').run(pl.id, me.id, ctx.now());
+    ctx.audit(me, 'preps.start', { plan: pl.id, prep: pl.prep_id });
+    return planView(pl.date, me);
+  });
   // Tick từng bước của 1 việc nấu (checklist bếp, lưu lại + ai tick)
   r.post('/api/preps/plan/:id/tick', 'staff', ({ me, params, body }) => {
     const pl = db.prepare('SELECT * FROM prep_plan WHERE id = ?').get(params.id);
     if (!pl) fail(404, 'Không tìm thấy việc nấu');
     if (!canCook(me)) fail(403, 'Chỉ nhân viên bếp hoặc tổ trưởng trở lên');
     if (pl.date !== ctx.today()) fail(409, 'Chỉ tick việc của hôm nay');
-    const step = v.int(body.step, { min: 0, max: 400, name: 'Bước' }); // 0–99 bước làm, 100+ = đã lấy nguyên liệu dòng (pos)
+    const step = v.int(body.step, { min: 0, max: 400, name: 'Bước' }); // 0–99 bước làm, 100+ = đã lấy nguyên liệu dòng (pos), 300 = gói bí mật đã pha (quản lý)
+    if (step === 300 && rank(me.role) < rank('manager')) fail(403, 'Chỉ quản lý đánh dấu đã pha gói');
     if (body.done === false) db.prepare('DELETE FROM prep_plan_ticks WHERE plan_id = ? AND step = ?').run(pl.id, step);
     else db.prepare('INSERT OR REPLACE INTO prep_plan_ticks (plan_id, step, staff_id, at) VALUES (?, ?, ?, ?)').run(pl.id, step, me.id, ctx.now());
     ctx.broadcast('stock');
@@ -517,7 +569,7 @@ export default function (r, ctx) {
     const date = query.get('date') || ctx.today();
     if (date >= ctx.today() && !planMade(date)) ensurePlan(date);
     else if (date >= ctx.today() && planOld(date)) ensurePlan(date, { regen: true }); // cách tính mới (nối chuỗi lẩu / steak) → lập lại 1 lần, giữ dòng sửa tay
-    return planView(date);
+    return planView(date, me);
   });
   // Xem trước cần bao nhiêu (mọi bán thành phẩm đã gắn mã thành phẩm), kể cả món không cần nấu
   r.get('/api/preps/plan/preview', 'manager', ({ query }) => {
@@ -529,7 +581,7 @@ export default function (r, ctx) {
     ensurePlan(date, { regen: true });
     ctx.audit(me, 'preps.plan_regen', { date });
     ctx.broadcast('stock');
-    return planView(date);
+    return planView(date, me);
   });
   // Thêm / sửa 1 dòng kế hoạch (số mẻ, điểm làm, người làm). batches = 0 → bỏ khỏi kế hoạch
   r.put('/api/preps/plan', 'team_lead', ({ me, body }) => {
@@ -547,6 +599,6 @@ export default function (r, ctx) {
     if (staffId && staffId !== cur?.staff_id) ctx.notify?.([staffId], { title: 'Việc bếp hôm nay', body: `Nấu ${p.name} × ${batches} mẻ`, link: '/checklist' });
     ctx.audit(me, 'preps.plan_set', { date, prep: p.id, batches, station, staff_id: staffId });
     ctx.broadcast('stock');
-    return planView(date);
+    return planView(date, me);
   });
 }
