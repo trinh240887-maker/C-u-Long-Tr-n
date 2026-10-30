@@ -498,9 +498,9 @@ export default function (r, ctx) {
   });
 
   // ---------- Checklist trong ngày ----------
-  // Nhân viên chỉ thấy checklist của tổ mình và của loại ca mình làm hôm đó; trưởng ca trở lên thấy hết
+  // Chủ quán 30/10: khu nào thấy khu đó — nhân viên, tổ trưởng, trưởng ca chỉ thấy checklist bộ phận mình (+ bộ phận được xếp ca hôm nay); quản lý / chủ thấy hết
   function myScope(me, date) {
-    if (rank(me.role) >= rank('shift_lead')) return null;
+    if (rank(me.role) >= rank('manager')) return null;
     const teams = new Set(me.team_id ? [me.team_id] : []);
     const shifts = new Set();
     const positions = new Set(me.position_id ? [me.position_id] : []);
@@ -716,7 +716,7 @@ export default function (r, ctx) {
       JOIN checklist_runs r ON r.id = p.run_id JOIN checklist_templates t ON t.id = r.template_id WHERE p.id = ?`).get(params.id);
     if (!p) fail(404, 'Không tìm thấy ảnh');
     if (p.deleted_at) fail(410, `Ảnh đã tự xoá sau ${KEEP_DAYS} ngày`);
-    if (p.staff_id !== me.id && rank(me.role) < rank('team_lead') && !inScope(myScope(me, p.date), p)) fail(403, 'Không xem được ảnh này');
+    if (p.staff_id !== me.id && !canReview(me, p.team_id) && !inScope(myScope(me, p.date), p)) fail(403, 'Không xem được ảnh này');
     let buf;
     try { buf = fs.readFileSync(path.join(photoDir, p.file)); } catch { fail(410, 'Ảnh không còn'); }
     const ext = path.extname(p.file);
@@ -784,7 +784,8 @@ export default function (r, ctx) {
   };
 
   // ---------- Duyệt ảnh: Đạt / Làm lại ----------
-  const canReview = (me, teamId) => rank(me.role) >= rank('shift_lead') || (me.role === 'team_lead' && teamId && teamId === me.team_id);
+  // Duyệt ảnh: quản lý / chủ mọi bộ phận; tổ trưởng, trưởng ca chỉ bộ phận mình (chủ quán 30/10: khu nào thấy khu đó)
+  const canReview = (me, teamId) => rank(me.role) >= rank('manager') || (['team_lead', 'shift_lead'].includes(me.role) && teamId && teamId === me.team_id) || (me.role === 'shift_lead' && !teamId);
 
   r.get('/api/checklists/review', 'team_lead', ({ me, query }) => {
     const date = query.get('date') || ctx.today();
@@ -801,10 +802,10 @@ export default function (r, ctx) {
     const items = rows.map((x) => ({ ...x, photos: photos.all(x.run_id, x.item_id) }));
     // Bảng điểm 7 ngày gần nhất (tính theo người làm)
     const from = addDays(date, -6);
-    const score = db.prepare(`SELECT s.id, s.name, SUM(CASE WHEN e.review_status = 'ok' THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN e.review_status = 'redo' THEN 1 ELSE 0 END) AS redo,
+    const score = db.prepare(`SELECT s.id, s.name, s.team_id, SUM(CASE WHEN e.review_status = 'ok' THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN e.review_status = 'redo' THEN 1 ELSE 0 END) AS redo,
         SUM(CASE WHEN e.review_status IS NULL THEN 1 ELSE 0 END) AS pending, COUNT(*) AS total
       FROM checklist_entries e JOIN checklist_runs r ON r.id = e.run_id JOIN checklist_items i ON i.id = e.item_id JOIN staff s ON s.id = e.done_by
-      WHERE r.date BETWEEN ? AND ? AND i.photo_required = 1 GROUP BY s.id ORDER BY redo DESC, s.name`).all(from, date);
+      WHERE r.date BETWEEN ? AND ? AND i.photo_required = 1 GROUP BY s.id ORDER BY redo DESC, s.name`).all(from, date).filter((x) => rank(me.role) >= rank('manager') || x.team_id === me.team_id);
     return { date, items, score: { from, to: date, people: score } };
   });
 
