@@ -265,3 +265,4 @@ Mỗi dòng là một điều chủ quán đã chốt (hoặc Claude đề xuấ
 | 259 | 30/10 | Xem ảnh lớn + lướt trái/phải mọi nơi (ảnh việc ca, bill, chi, kho…): bấm ảnh → khung xem, vuốt / mũi tên qua ảnh cùng nhóm, đếm "2 / 4", vuốt xuống hoặc ✕ để đóng. |
 | 260 | 30/10 | Công nợ: chủ huỷ được phiếu đã duyệt nhập nhầm ngay tại thẻ phiếu (nút 🗑 Huỷ phiếu này, phiếu chưa trả đồng nào). |
 | 261 | 30/10 | Kho → Quy đổi từng nguyên liệu: nút "✓ Không cần quy đổi" + ghi chú (cột ingredients.conv_ok, conv_note) → hết báo "⚠ Cần quy đổi", hiện "✓ Không cần quy đổi · 📝 …", có nút Bỏ. |
+| 262 | 30/10 | Quy đổi đã nhớ (vd 1 thùng = 24 chai): lúc nhập bill (đọc bill) dòng hàng hiện ô "1 thùng = [24] chai" sửa được; lần này khác (22) → số lượng / đơn giá tính lại, lưu bill thì app nhớ số mới (gửi `conversions`). Muốn 2 loại thùng khác nhau cố định thì tách 2 mã hàng. |

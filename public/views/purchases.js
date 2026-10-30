@@ -43,7 +43,15 @@ function Lines({ lines, setLines, ingredients }) {
         <button class="small icon" aria-label="Xoá dòng" onClick=${() => setLines(lines.filter((_, j) => j !== i))}>✕</button>
       </div>
       ${l.unconv ? html`<small class="muted">Bill ghi ${l.bill_qty} ${l.bill_unit}: nhập đúng như bill, chủ quán quy đổi sau</small>`
-        : l.ingredient_id && l.bill_unit && l.factor && l.factor !== 1 ? html`<small class="muted">Bill ghi ${l.bill_qty} ${l.bill_unit} → app tự quy đổi ${l.qty} ${l.unit}</small>` : null}
+        : l.ingredient_id && l.bill_unit && l.factor && (l.factor !== 1 || l.factor_changed || l.factor_txt != null) && l.bill_qty != null ? (() => {
+          // Quy đổi đã nhớ (vd 1 thùng = 24 chai): sửa được nếu lần này khác (thùng 22 chai) → app nhớ số mới (chủ quán 30/10)
+          const g = ingredients.find((x) => x.id === l.ingredient_id) || {};
+          const pf = Number(g.purchase_factor) || 1;
+          const setF = (val) => { const fx = qtyNum(val); setLines(lines.map((x, j) => (j !== i ? x : { ...x, factor_txt: val, ...(fx > 0 ? { factor: fx, factor_changed: true, qty: String(Math.round((x.bill_qty * fx / pf) * 1000) / 1000), price: String(Math.round((x.bill_price * pf) / fx)) } : {}) }))); };
+          return html`<div class="row wrap tight" style="align-items:center"><small class="muted">Bill ghi ${l.bill_qty} ${l.bill_unit} · 1 ${l.bill_unit} =</small>
+            <input inputmode="decimal" style="width:4.5em" value=${l.factor_txt ?? String(l.factor)} onInput=${(e) => setF(e.target.value)} /><small class="muted">${g.unit || l.unit}</small>
+            <small class=${l.factor_changed ? 'warn-text' : 'muted'}>${l.factor_changed ? '· lần này khác, app sẽ nhớ số mới' : '· đã nhớ, lần này khác thì sửa'}</small></div>`;
+        })() : null}
       <small class="muted">= ${money(Math.round(qtyNum(l.qty) * num(l.price)))}${l.ordered != null ? ` · đặt ${l.ordered}` : ''}${l.ai ? ' · 📖 máy đọc' : ''}</small>
       ${l.warn ? html`<small class="warn-text">⚠ ${l.warn}</small>` : null}
       ${num(l.price) >= 5_000_000 || Math.round(qtyNum(l.qty) * num(l.price)) >= 50_000_000 ? html`<small class="danger-text">⚠ Số tiền dòng này quá lớn (${money(Math.round(qtyNum(l.qty) * num(l.price)))}): máy đọc có thể thừa số 0, sửa SL / đơn giá</small>` : null}
@@ -131,6 +139,7 @@ function Receive({ me, meta, advances, onDone, arriving = [] }) {
       advance_id: f.advance_id ? Number(f.advance_id) : undefined, paid_method: f.advance_id ? undefined : f.paid_method,
       total: f.total === '' ? undefined : num(f.total), photos, goods_photos: goods,
       lines: lines.map((l) => ({ ingredient_id: l.ingredient_id, name: l.name, unit: l.unit, qty: qtyNum(l.qty), price: num(l.price), create_new: !l.ingredient_id && !!l.create_new, unconv: !!l.unconv })),
+      conversions: lines.filter((l) => l.factor_changed && l.ingredient_id && l.bill_unit && l.factor > 0).map((l) => ({ ingredient_id: l.ingredient_id, bill_unit: l.bill_unit, factor: l.factor })),
     }), pre ? 'Đã lưu bill chờ nhận hàng. Bếp nhận hàng xong kho mới cộng' : 'Đã nhập kho. Thu ngân sẽ duyệt công nợ');
     const dupWarn = (r?.flags || []).filter((x) => /2 dòng khác giá/.test(x));
     if (dupWarn.length) toast(`⚠ ${dupWarn.join('\n')}`, true);

@@ -326,7 +326,7 @@ export default function (r, ctx) {
       for (const c of Array.isArray(body.conversions) ? body.conversions.slice(0, 60) : []) {
         const f = Number(c?.factor);
         const unitName = String(c?.bill_unit || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 20);
-        if (c?.ingredient_id && unitName && f > 0 && f <= 100000 && db.prepare('SELECT 1 FROM ingredients WHERE id = ?').get(Number(c.ingredient_id))) db.prepare('INSERT INTO unit_aliases (ingredient_id, bill_unit, factor) VALUES (?, ?, ?) ON CONFLICT (ingredient_id, bill_unit) DO UPDATE SET factor = excluded.factor').run(Number(c.ingredient_id), unitName, f);
+        if (c?.ingredient_id && unitName && f > 0 && f <= 100000 && db.prepare('SELECT 1 FROM ingredients WHERE id = ?').get(Number(c.ingredient_id))) db.prepare("INSERT INTO unit_aliases (ingredient_id, bill_unit, factor) VALUES (?, ?, ?) ON CONFLICT (ingredient_id, bill_unit) DO UPDATE SET factor = excluded.factor, keep = 0, note = CASE WHEN unit_aliases.factor != excluded.factor THEN '' ELSE unit_aliases.note END").run(Number(c.ingredient_id), unitName, f);
       }
       return id;
     });
