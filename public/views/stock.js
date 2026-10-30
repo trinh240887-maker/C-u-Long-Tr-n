@@ -445,7 +445,7 @@ function Setup({ meta }) {
 
 // ---------- Lịch sử ----------
 // Nhập – Xuất – Tồn chung cả quán: Đồ tươi / Đồ bình thường; dòng lệch quá ngưỡng tô đỏ, xếp lên đầu
-const KIND_NXT = { nhap: 'Nhập', ban: 'Bán (định lượng)', xuat: 'Xuất dùng', huy: 'Huỷ / hao hụt', lech: 'Lệch khi cân' };
+const KIND_NXT = { nhap: 'Nhập', dcnhap: 'Huỷ / sửa phiếu nhập', ban: 'Bán (định lượng)', xuat: 'Xuất dùng', huy: 'Huỷ / hao hụt', lech: 'Lệch khi cân' };
 const qtyU = (q, unit) => (q == null ? '' : unit === 'g' && Math.abs(q) >= 1000 ? `${(q / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} kg` : unit === 'ml' && Math.abs(q) >= 1000 ? `${(q / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} l` : `${Number(q).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} ${unit}`);
 function Nxt() {
   const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
@@ -459,12 +459,12 @@ function Nxt() {
     <div class="row wrap"><label>Từ <input type="date" value=${range.from} onInput=${(e) => setRange({ ...range, from: e.target.value })} /></label>
       <label>đến <input type="date" value=${range.to} onInput=${(e) => setRange({ ...range, to: e.target.value })} /></label>
       <a class="btn small" href=${`/api/stock/nxt.xlsx?from=${range.from}&to=${range.to}`} download>⬇ Excel</a></div>
-    <p class="small muted">Tồn đầu + Nhập − Bán theo định lượng − Xuất dùng − Huỷ ± Lệch = Tồn cuối. <b>Lệch</b> = cân thực tế − sổ (âm là thiếu). Đỏ = lệch quá ${d.data?.tolerance ?? 3}% so với lượng dùng.</p>
+    <p class="small muted">Tồn đầu + Nhập ± Huỷ/sửa phiếu nhập − Bán theo định lượng − Xuất dùng − Huỷ ± Lệch = Tồn cuối. <b>Lệch</b> = cân thực tế − sổ (âm là thiếu). Đỏ = lệch quá ${d.data?.tolerance ?? 3}% so với lượng dùng.</p>
     ${!d.data ? html`<${Loading} state=${d} />` : d.data.groups.map((g) => html`<section class="card stack">
       <div class="row between wrap"><b>${g.name}</b><span class="small">Lệch: <b class=${g.total.lech_tien < 0 ? 'warn-text' : ''}>${money(g.total.lech_tien)}</b> · Tồn: ${money(g.total.gia_tri_cuoi)}${g.total.over ? html` · <span class="pill bad">${g.total.over} dòng lệch nhiều</span>` : null}</span></div>
-      ${g.rows.length ? html`<div class="table-wrap"><table class="list small nxt"><thead><tr><th>Hàng</th><th class="r">Đầu</th><th class="r">Nhập</th><th class="r">Bán</th><th class="r">Xuất</th><th class="r">Huỷ</th><th class="r">Sổ</th><th class="r">Thực tế</th><th class="r">Lệch</th></tr></thead>
+      ${g.rows.length ? html`<div class="table-wrap"><table class="list small nxt"><thead><tr><th>Hàng</th><th class="r">Đầu</th><th class="r">Nhập</th><th class="r" title="Huỷ hoặc sửa phiếu nhập (trừ lại / cộng thêm)">Huỷ/sửa nhập</th><th class="r">Bán</th><th class="r">Xuất</th><th class="r">Huỷ</th><th class="r">Sổ</th><th class="r">Thực tế</th><th class="r">Lệch</th></tr></thead>
         <tbody>${g.rows.map((r) => html`<tr class=${r.over ? 'bad-row' : ''} onClick=${() => setOpen(r)}><td><b>${r.name}</b>${r.recipe ? '' : html` <small class="muted">· trừ khi xuất</small>`}</td>
-          <td class="r">${qtyU(r.dau, r.unit)}</td><td class="r">${r.nhap ? qtyU(r.nhap, r.unit) : ''}</td><td class="r">${r.ban ? qtyU(r.ban, r.unit) : ''}</td><td class="r">${r.xuat ? qtyU(r.xuat, r.unit) : ''}</td><td class="r">${r.huy ? qtyU(r.huy, r.unit) : ''}</td>
+          <td class="r">${qtyU(r.dau, r.unit)}</td><td class="r">${r.nhap ? qtyU(r.nhap, r.unit) : ''}</td><td class="r">${r.dcnhap ? html`<span class="warn-text">${qtyU(r.dcnhap, r.unit)}</span>` : ''}</td><td class="r">${r.ban ? qtyU(r.ban, r.unit) : ''}</td><td class="r">${r.xuat ? qtyU(r.xuat, r.unit) : ''}</td><td class="r">${r.huy ? qtyU(r.huy, r.unit) : ''}</td>
           <td class="r">${qtyU(r.so, r.unit)}</td><td class="r"><b>${qtyU(r.cuoi, r.unit)}</b></td><td class="r">${r.lech ? html`<b class=${r.lech < 0 ? 'warn-text' : ''}>${qtyU(r.lech, r.unit)}${r.lech_pct != null ? ` (${r.lech_pct}%)` : ''}</b><br /><small>${money(r.lech_tien)}</small>` : ''}</td></tr>`)}</tbody></table></div>` : html`<p class="muted small">Không có phát sinh.</p>`}
     </section>`)}
     ${open ? html`<${Modal} title=${open.name} onClose=${() => setOpen(null)}>${!det.data ? html`<${Loading} state=${det} />` : html`<table class="list small"><tbody>${det.data.map((m) => html`<tr><td>${dt(m.at)}</td><td>${KIND_NXT[m.kind] || 'Chuyển'}</td><td class="r"><b>${qtyU(m.qty, open.unit)}</b></td><td><small>${m.note}${m.staff_name ? ` · ${m.staff_name}` : ''}</small></td></tr>`)}</tbody></table>${!det.data.length ? html`<p class="muted">Không có phát sinh.</p>` : null}`}<//>` : null}

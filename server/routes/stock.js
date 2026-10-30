@@ -197,7 +197,8 @@ export default function (r, ctx) {
   // Tồn đầu + Nhập − Bán theo định lượng − Xuất dùng (hàng không định lượng) − Huỷ ± Lệch kiểm = Tồn cuối.
   // Tồn sổ = tồn cuối nếu không cân kiểm; Lệch = cân thực tế − sổ (âm = thiếu). Số theo đơn vị dùng (g, ml, cái…).
   const kindOf = (m) => {
-    if (m.type === 'receive') return 'nhap';
+    // Huỷ / sửa phiếu nhập (trừ lại hoặc cộng thêm hàng) → cột riêng, cột Nhập chỉ còn hàng nhập thật (chủ quán 30/10)
+    if (m.type === 'receive') return /^(void-bill|fix-bill):/.test(m.ref || '') ? 'dcnhap' : 'nhap';
     if (m.type === 'consume') return /^sale:/.test(m.ref) ? 'ban' : 'xuat';
     // rà soát 28/10: bù "kiểm kho trước khi úp Sapo" (recount:) và huỷ bù đó (cancel:recount:) bù vào cột Lệch (kiểm đã ghi thiếu cả phần bán) → không thổi phồng Nhập / Huỷ
     if (m.type === 'adjust') return /^cancel:/.test(m.ref) ? 'ban' : /^(count|recount):/.test(m.ref) ? 'lech' : 'nhap';
@@ -212,12 +213,13 @@ export default function (r, ctx) {
     const moves = db.prepare('SELECT * FROM stock_moves WHERE date BETWEEN ? AND ? ORDER BY at').all(from, to);
     const tol = Number(ctx.setting('count_tolerance_pct') || 3);
     const rows = new Map();
-    for (const g of ings) rows.set(g.id, { id: g.id, name: g.name, unit: g.unit, group: g.freshness === 'dry' ? 'thuong' : 'tuoi', nhap: 0, ban: 0, xuat: 0, huy: 0, lech: 0, lech_tien: 0, nhap_tien: 0, recipe: hasRecipe(g.id), active: !!g.active, ing: g });
+    for (const g of ings) rows.set(g.id, { id: g.id, name: g.name, unit: g.unit, group: g.freshness === 'dry' ? 'thuong' : 'tuoi', nhap: 0, dcnhap: 0, ban: 0, xuat: 0, huy: 0, lech: 0, lech_tien: 0, nhap_tien: 0, recipe: hasRecipe(g.id), active: !!g.active, ing: g });
     for (const m of moves) {
       const r = rows.get(m.ingredient_id); const k = kindOf(m);
       if (!r || !k) continue;
       const q = m.qty * sign(m);
       if (k === 'nhap') { r.nhap += q; r.nhap_tien += m.type === 'receive' ? m.cost : 0; }
+      else if (k === 'dcnhap') { r.dcnhap += q; r.nhap_tien += m.cost || 0; }
       else if (k === 'ban') r.ban -= q;
       else if (k === 'xuat') r.xuat -= q;
       else if (k === 'huy') r.huy -= q;
@@ -226,13 +228,13 @@ export default function (r, ctx) {
     const out = [];
     for (const r of rows.values()) {
       const cuoi = r3((nowQty.get(r.id) || 0) - (after.get(r.id) || 0));
-      const dau = r3(cuoi - r.nhap + r.ban + r.xuat + r.huy - r.lech);
-      if (!r.active && !dau && !cuoi && !r.nhap && !r.ban && !r.xuat) continue;
-      if (!dau && !cuoi && !r.nhap && !r.ban && !r.xuat && !r.huy && !r.lech) continue;
+      const dau = r3(cuoi - r.nhap - r.dcnhap + r.ban + r.xuat + r.huy - r.lech);
+      if (!r.active && !dau && !cuoi && !r.nhap && !r.dcnhap && !r.ban && !r.xuat) continue;
+      if (!dau && !cuoi && !r.nhap && !r.dcnhap && !r.ban && !r.xuat && !r.huy && !r.lech) continue;
       const dung = r.ban + r.xuat;
       const pct = dung > 0 ? Math.round((r.lech / dung) * 1000) / 10 : null;
       const { ing, ...rest } = r;
-      out.push({ ...rest, dau, cuoi, so: r3(cuoi - r.lech), nhap: r3(r.nhap), ban: r3(r.ban), xuat: r3(r.xuat), huy: r3(r.huy), lech: r3(r.lech), lech_pct: pct, over: pct != null && Math.abs(pct) > tol, gia_tri_cuoi: costOf(ing, Math.max(0, cuoi)) });
+      out.push({ ...rest, dau, cuoi, so: r3(cuoi - r.lech), nhap: r3(r.nhap), dcnhap: r3(r.dcnhap), ban: r3(r.ban), xuat: r3(r.xuat), huy: r3(r.huy), lech: r3(r.lech), lech_pct: pct, over: pct != null && Math.abs(pct) > tol, gia_tri_cuoi: costOf(ing, Math.max(0, cuoi)) });
     }
     const sortRows = (a, b) => Number(b.over) - Number(a.over) || Math.abs(b.lech_tien) - Math.abs(a.lech_tien) || a.name.localeCompare(b.name);
     const group = (k) => out.filter((x) => x.group === k).sort(sortRows);
@@ -254,8 +256,8 @@ export default function (r, ctx) {
   });
   r.get('/api/stock/nxt.xlsx', 'manager', ({ me, query }) => {
     const x = nxt(...nxtRange(query));
-    const head = ['Nguyên liệu', 'Đơn vị', 'Tồn đầu', 'Nhập', 'Bán theo định lượng', 'Xuất dùng', 'Huỷ', 'Tồn sổ', 'Tồn thực tế', 'Lệch', 'Lệch %', 'Tiền lệch', 'Giá trị tồn'];
-    const sheets = x.groups.map((g) => ({ name: g.key === 'tuoi' ? 'Đồ tươi' : 'Đồ bình thường', rows: [head, ...g.rows.map((r) => [r.name, r.unit, r.dau, r.nhap, r.ban, r.xuat, r.huy, r.so, r.cuoi, r.lech, r.lech_pct ?? '', r.lech_tien, r.gia_tri_cuoi]), ['Tổng', '', '', '', '', '', '', '', '', '', '', g.total.lech_tien, g.total.gia_tri_cuoi]] }));
+    const head = ['Nguyên liệu', 'Đơn vị', 'Tồn đầu', 'Nhập', 'Huỷ/sửa phiếu nhập', 'Bán theo định lượng', 'Xuất dùng', 'Huỷ', 'Tồn sổ', 'Tồn thực tế', 'Lệch', 'Lệch %', 'Tiền lệch', 'Giá trị tồn'];
+    const sheets = x.groups.map((g) => ({ name: g.key === 'tuoi' ? 'Đồ tươi' : 'Đồ bình thường', rows: [head, ...g.rows.map((r) => [r.name, r.unit, r.dau, r.nhap, r.dcnhap, r.ban, r.xuat, r.huy, r.so, r.cuoi, r.lech, r.lech_pct ?? '', r.lech_tien, r.gia_tri_cuoi]), ['Tổng', '', '', '', '', '', '', '', '', '', '', '', g.total.lech_tien, g.total.gia_tri_cuoi]] }));
     ctx.audit(me, 'stock.nxt.xlsx', `${x.from}..${x.to}`);
     return { __binary: makeXlsx(sheets), type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename: `nhap-xuat-ton_${x.from}_${x.to}.xlsx` };
   });
