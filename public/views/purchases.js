@@ -1,7 +1,7 @@
 import { useState } from '../vendor/hooks.js';
 import { html, api, act, useData, Loading, money, hm, dayLabel, addDays, Modal, Field, navigate, toast, can as canAct } from '../ui.js';
 import { compressImage } from './checklists.js';
-import { Conversions } from './stock.js';
+import { Conversions, usedText } from './stock.js';
 
 // Mua hàng: khu nhận hàng chụp bill NCC (ký nhận) → thu ngân duyệt → công nợ NCC → trả NCC / tạm ứng đi chợ
 const STATUS = { waiting: ['⏳ Chờ nhận hàng', 'warn'], received: ['Chờ thu ngân duyệt', 'warn'], approved: ['Đã duyệt', 'ok'], returned: ['Bị trả lại, cần sửa', 'bad'], void: ['Đã huỷ', 'muted'] };
@@ -36,7 +36,7 @@ function Lines({ lines, setLines, ingredients }) {
   const set = (i, k, val) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: val } : l)));
   return html`<div class="stack">
     ${lines.map((l, i) => html`<div class=${`pline ${l.warn ? "pline-warn" : ""}`}>
-      ${l.ingredient_id ? html`<b>${l.name}</b>` : html`<input placeholder="Tên hàng (vd Cải thìa)" value=${l.name} onInput=${(e) => set(i, 'name', e.target.value)} />`}
+      ${l.ingredient_id ? html`<b>${l.name}</b>${(() => { const u = ingredients.find((x) => x.id === l.ingredient_id)?.used_for || []; return u.length ? html`<small class="muted"> · 🍽 ${usedText(u)}</small>` : null; })()}` : html`<input placeholder="Tên hàng (vd Cải thìa)" value=${l.name} onInput=${(e) => set(i, 'name', e.target.value)} />`}
       <div class="row">
         <label>SL <input inputmode="decimal" style="width:5em" value=${l.qty} onInput=${(e) => set(i, 'qty', e.target.value)} /> ${l.unit || ''}</label>
         <label>Đơn giá <input inputmode="numeric" style="width:7em" value=${l.price} onInput=${(e) => set(i, 'price', e.target.value)} /></label>

@@ -147,6 +147,12 @@ export default function (r, ctx) {
   }
 
   // ---------- Tổng quan tồn kho ----------
+  const usedForMap = () => {
+    const use = new Map();
+    for (const x of db.prepare('SELECT DISTINCT r.ingredient_id, m.name FROM menu_recipes r JOIN menu_items m ON m.id = r.item_id WHERE m.active = 1 ORDER BY m.name').all()) use.set(x.ingredient_id, [...(use.get(x.ingredient_id) || []), x.name]);
+    return use;
+  };
+  ctx.usedForMap = usedForMap;
   function overview() {
     const t = today();
     const tomorrow = addDays(t, 1);
@@ -155,6 +161,7 @@ export default function (r, ctx) {
     const stock = stockMap();
     const usage = usageMaps();
     const lots = db.prepare('SELECT store_id, ingredient_id, qty, expires_on FROM stock_lots WHERE expires_on IS NOT NULL AND expires_on <= ? ORDER BY expires_on').all(warnTo);
+    const use = usedForMap();
     const items = ingredients().map((i) => {
       const per = Object.fromEntries(sts.map((s) => [s.id, stock.get(`${s.id}:${i.id}`) || 0]));
       const total = r3(Object.values(per).reduce((a, b) => a + b, 0));
@@ -170,7 +177,7 @@ export default function (r, ctx) {
         home_store_id: i.home_store_id, home_name: i.home_name || 'Kho chung', supplier_id: i.eff_supplier_id, supplier_name: i.supplier_name || '',
         purchase_unit: i.purchase_unit, purchase_factor: i.purchase_factor, price: i.price, min_stock: i.min_stock,
         stock: per, total, available, expiring: exp, forecast_tomorrow: f.qty, avg_daily: f.avg, basis: f.basis,
-        days_left: f.avg > 0 ? r3(available / f.avg) : null, status,
+        days_left: f.avg > 0 ? r3(available / f.avg) : null, status, used_for: use.get(i.id) || [],
       };
     });
     return { today: t, tomorrow, stores: sts, items };
@@ -183,7 +190,11 @@ export default function (r, ctx) {
     return {
       stores: sts.map((s) => ({ ...s, can_count: !!canStore(me, s) || (single() && s.kind === 'main' && myGroups(me).length > 0), is_lead: !!isLeadOf(me, s) })),
       suppliers: db.prepare('SELECT * FROM suppliers ORDER BY active DESC, name').all(),
-      ingredients: ingredients({ all: rank(me.role) >= rank('manager') }).map((i) => ({ ...i, kind_eff: ingKindOf(i), kind_auto: !i.kind, group_eff: ingGroupOf(i), group_auto: !GROUP_LABEL[i.count_group] })),
+      // "Dùng cho" (chủ quán 30/10): nguyên liệu này nằm trong định lượng món nào → hiện lúc nhập hàng / tồn kho
+      ingredients: (() => {
+        const use = usedForMap();
+        return ingredients({ all: rank(me.role) >= rank('manager') }).map((i) => ({ ...i, kind_eff: ingKindOf(i), kind_auto: !i.kind, group_eff: ingGroupOf(i), group_auto: !GROUP_LABEL[i.count_group], used_for: use.get(i.id) || [] }));
+      })(),
       groups: GROUP_LABEL, group_staff: groupStaff(), my_groups: myGroups(me),
       staff_names: Object.fromEntries([...new Set(Object.values(groupStaff()).flat())].map((id) => [id, db.prepare('SELECT name FROM staff WHERE id = ?').get(id)?.name || ''])),
       is_holder: isHolder(me),

@@ -19,6 +19,9 @@ export function qty(n, unit) {
 const numIn = (v) => (v === '' || v === null || v === undefined ? '' : String(v));
 
 // ---------- Tồn kho ----------
+// "Dùng cho" món nào (tối đa 4 tên + còn lại)
+export const usedText = (list) => (list.length > 4 ? `${list.slice(0, 4).join(', ')} +${list.length - 4} món` : list.join(', '));
+
 function Overview() {
   const st = useData('/api/stock/overview');
   const [store, setStore] = useState('all');
@@ -52,6 +55,7 @@ function Overview() {
       </div>
       <div class="muted small">${d.stores.filter((s) => i.stock[s.id]).map((s) => `${s.name.replace('Kho ', '')}: ${qty(i.stock[s.id], i.unit)}`).join(' · ') || 'Không còn trong kho nào'}</div>
       <div class="muted small">${FRESH[i.freshness]} · ${i.home_name} · ${i.supplier_name || 'chưa có NCC'}${i.min_stock ? ` · tối thiểu ${qty(i.min_stock, i.unit)}` : ''}</div>
+      ${i.used_for?.length ? html`<div class="small">🍽 Dùng cho: ${usedText(i.used_for)}</div>` : null}
       ${i.expiring.map((e) => html`<div class=${`small ${e.expired ? 'bad-text' : 'warn-text'}`}>${e.expired ? 'Đã hết hạn' : 'Sắp hết hạn'} ${dayLabel(e.expires_on)}: ${qty(e.qty, i.unit)} ở ${d.stores.find((s) => s.id === e.store_id)?.name || ''}</div>`)}
     </section>`)}</div>` : html`<div class="empty">${d.items.length ? 'Không có nguyên liệu nào khớp.' : 'Chưa có nguyên liệu. Quản lý thêm ở tab "Nguyên liệu & NCC".'}</div>`}
     <p class="muted small">"Mai cần" tính từ lượng dùng thực tế các ngày trước (ưu tiên các ngày cùng thứ trong 4 tuần gần nhất). Càng kiểm kho đều, gợi ý càng chính xác.</p>

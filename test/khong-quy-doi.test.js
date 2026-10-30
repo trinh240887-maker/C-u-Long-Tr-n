@@ -39,5 +39,10 @@ test('quy đổi: "Không cần quy đổi" lưu ghi chú + nhớ; các dòng kh
   const g = (await o('GET', '/api/stock/meta')).data.ingredients.find((x) => x.id === gao);
   assert.deepEqual([g.conv_ok, g.conv_note], [1, 'Dùng nguyên bao']);
   await o('POST', `/api/stock/ingredients/${gao}/conv-ok`, { ok: false });
+  // "Dùng cho": nguyên liệu nằm trong định lượng món nào
+  const item = db.prepare('SELECT id, name FROM menu_items WHERE active = 1 LIMIT 1').get();
+  db.prepare('INSERT INTO menu_recipes (item_id, ingredient_id, qty) VALUES (?, ?, 0.1)').run(item.id, gao);
+  assert.deepEqual((await o('GET', '/api/stock/meta')).data.ingredients.find((x) => x.id === gao).used_for, [item.name]);
+  assert.deepEqual((await o('GET', '/api/stock/overview')).data.items.find((x) => x.id === gao)?.used_for, [item.name]);
   assert.equal(db.prepare('SELECT conv_ok FROM ingredients WHERE id = ?').get(gao).conv_ok, 0);
 });
