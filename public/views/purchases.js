@@ -50,7 +50,7 @@ export function IngPicker({ ingredients, guess = '', onPick, label = '…hoặc 
 }
 
 // Loại dòng bill (chủ quán 30/10): đồ sửa quán / đồ dùng / tài sản không nhập kho
-export const LINE_KIND = [['', '🥩 Nhập kho'], ['repair', '🔧 Sửa chữa'], ['tool', '🍽 Đồ dùng'], ['asset', '🏷 Tài sản'], ['other', '📦 Chi khác']];
+export const LINE_KIND = [['', '🥩 Nhập kho'], ['ship', '🚚 Phí ship / bốc vác'], ['discount', '➖ Chiết khấu / giảm giá'], ['repair', '🔧 Sửa chữa'], ['tool', '🍽 Đồ dùng'], ['asset', '🏷 Tài sản'], ['other', '📦 Chi khác']];
 function KindPick({ l, onKind, repairs, onRepair }) {
   return html`<div class="row wrap tight" style="align-items:center">
     <select class="auto small" value=${l.kind || ''} onChange=${(e) => onKind(e.target.value)}>${LINE_KIND.map(([k, t]) => html`<option value=${k}>${t}</option>`)}</select>
@@ -58,7 +58,7 @@ function KindPick({ l, onKind, repairs, onRepair }) {
         if (e.target.value === 'new') { const title = prompt('Sửa cái gì? (vd Quạt khu B, Bồn rửa bếp)'); if (!title) return; const r = await act(() => api('POST', '/api/repairs', { title })); if (r) onRepair(r.id, r); return; }
         onRepair(e.target.value ? Number(e.target.value) : null); }}>
       <option value="">— sửa việc gì? —</option>${(repairs || []).map((x) => html`<option value=${x.id}>${x.title}${x.area ? ` · ${x.area}` : ''}</option>`)}<option value="new">＋ Việc sửa mới…</option></select>` : null}
-    ${l.kind === 'tool' ? html`<small class="muted">→ cộng vào Kho · Đồ dùng</small>` : l.kind === 'asset' ? html`<small class="muted">→ ghi vào danh sách Tài sản</small>` : l.kind ? html`<small class="muted">không nhập kho</small>` : null}</div>`;
+    ${l.kind === 'ship' ? html`<small class="muted">→ khi duyệt, chia vào giá vốn hàng trong bill</small>` : l.kind === 'discount' ? html`<small class="muted">→ khi duyệt, trừ vào giá vốn hàng trong bill</small>` : l.kind === 'tool' ? html`<small class="muted">→ cộng vào Kho · Đồ dùng</small>` : l.kind === 'asset' ? html`<small class="muted">→ ghi vào danh sách Tài sản</small>` : l.kind ? html`<small class="muted">không nhập kho</small>` : null}</div>`;
 }
 function Lines({ lines, setLines, ingredients }) {
   const set = (i, k, val) => setLines(lines.map((l, j) => (j === i ? { ...l, [k]: val } : l)));
@@ -246,7 +246,8 @@ function BillCard({ b, canApprove, me }) {
     <${Photos} ids=${b.photos} />
     ${b.goods_photos?.length ? html`<small class="muted">Ảnh hàng nhận:</small><${Photos} ids=${b.goods_photos} />` : null}
     <details><summary class="small">${b.lines.length} dòng hàng · cộng ${money(b.lines_total)}</summary>
-      <table class="list small"><tbody>${b.lines.map((l) => html`<tr><td>${l.name}</td><td class="r">${l.qty} ${l.unit}</td><td class="r">${money(l.price)}</td><td class="r">${money(l.amount)}</td></tr>`)}</tbody></table></details>
+      <table class="list small"><tbody>${b.lines.map((l) => html`<tr><td>${l.kind === 'ship' || (!l.kind && /ship|vận chuyển|cước|bốc vác/i.test(l.name)) ? '🚚 ' : l.kind === 'discount' ? '➖ ' : ''}${l.name}${l.extra_cost ? html`<br /><small class="muted">giá vốn ${money(Math.round((l.amount + l.extra_cost) / (l.qty || 1)))}/${l.unit} (${l.extra_cost > 0 ? '+' : ''}${money(Math.round(l.extra_cost / (l.qty || 1)))} ship/CK)</small>` : ''}</td><td class="r">${l.qty} ${l.unit}</td><td class="r">${money(l.price)}</td><td class="r">${money(l.amount)}</td></tr>`)}</tbody></table></details>
+    ${b.status !== 'approved' && b.lines.some((l) => l.kind === 'ship' || l.kind === 'discount' || (!l.kind && /ship|vận chuyển|cước|bốc vác/i.test(l.name))) ? html`<small class="muted">🚚 Phí ship / chiết khấu sẽ được chia vào giá vốn các món nhập kho (theo giá trị) khi duyệt.</small>` : null}
     ${b.status === 'returned' ? html`<p class="small danger-text">Trả lại: ${b.return_reason} (${b.returned_by_name})</p>` : null}
     ${b.paid_now ? html`<small class="muted">Trả tại chỗ ${money(b.paid_now)} (${b.paid_method === 'cash' ? 'tiền mặt' : b.paid_method === 'advance' ? 'tạm ứng' : 'CK'})</small>` : null}
     ${(b.payments || []).length ? html`<div class="stack tight"><small class="muted">Đã trả cho phiếu này:</small>

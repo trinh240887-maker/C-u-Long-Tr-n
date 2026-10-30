@@ -60,6 +60,7 @@ export default function (r, ctx) {
   // Loại dòng bill (chủ quán 30/10: đồ mua để sửa quán không nhập kho): '' = nhập kho · repair = sửa chữa / bảo trì · tool = đồ dùng / công cụ · asset = tài sản · other = chi phí khác
   try { db.exec("ALTER TABLE purchase_bill_lines ADD COLUMN kind TEXT NOT NULL DEFAULT ''"); } catch { /* đã có */ }
   try { db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN repair_id INTEGER'); } catch { /* đã có */ }
+  try { db.exec('ALTER TABLE purchase_bill_lines ADD COLUMN extra_cost INTEGER NOT NULL DEFAULT 0'); } catch { /* đã có */ }
   // Tên NCC máy đọc sai mà thu ngân đã sửa → lần sau đọc ra tên đó thì tự nhận đúng NCC (chủ quán 30/10)
   db.exec('CREATE TABLE IF NOT EXISTS supplier_aliases (name TEXT PRIMARY KEY, supplier_id INTEGER NOT NULL)');
   const supFold = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -99,11 +100,14 @@ export default function (r, ctx) {
     db.prepare('INSERT INTO purchase_bill_photos (bill_id, file, created_by, created_at, kind) VALUES (?, ?, ?, ?, ?)').run(billId, file, me.id, ctx.now(), kind);
   }
 
-  const LINE_KINDS = ['', 'repair', 'tool', 'asset', 'other'];
+  const LINE_KINDS = ['', 'repair', 'tool', 'asset', 'other', 'ship', 'discount'];
   // Đoán loại dòng không có mã kho theo tên (đồ điện nước, ốc vít… = sửa chữa)
   const HW_RE = /(vít|ốc|ke\b|bulong|bu lông|tắc kê|đinh|ổ cắm|ổ điện|công tắc|cầu dao|aptomat|cb\b|dây điện|dây cáp|bóng đèn|đèn led|máng đèn|ống nước|co nối|tê nối|van|vòi|keo|silicon|băng keo|sơn|xi măng|gạch|nẹp|ron|bản lề|khoá|ổ khoá|tay nắm|pake|ba ?lát|chấn lưu|tụ điện|cầu chì|domino|ống luồn|lục giác|mỏ lết|kìm)/i;
   const TOOL_RE = /(nồi|chảo|xoong|dao|thớt|muỗng|thìa|đũa|ly|cốc|chén|bát|dĩa|đĩa|khay|rổ|thau|xô|kẹp gắp|vá|muôi|giá đỡ|hộp nhựa|thùng rác)/i;
-  const guessKind = (name) => (HW_RE.test(name || '') ? 'repair' : TOOL_RE.test(name || '') ? 'tool' : '');
+  // Phí ship / vận chuyển / bốc vác → chia vào giá vốn hàng trong bill; chiết khấu / giảm giá → trừ vào giá vốn (chủ quán 30/10, VAS 02)
+  const SHIP_RE = /(ph[ií] ship|\bship\b|vận chuyển|van chuyen|cước|cuoc xe|bốc vác|bốc xếp|phí giao|tiền xe|xe ôm|grab)/i;
+  const DISC_RE = /(chiết khấu|chiet khau|giảm giá|giam gia|khuyến mãi|\bck\b)/i;
+  const guessKind = (name) => (SHIP_RE.test(name || '') ? 'ship' : DISC_RE.test(name || '') ? 'discount' : HW_RE.test(name || '') ? 'repair' : TOOL_RE.test(name || '') ? 'tool' : '');
   function readLines(list) {
     if (!Array.isArray(list)) return [];
     return list.filter((l) => l && (l.name || l.ingredient_id)).slice(0, 60).map((l) => {
@@ -115,7 +119,7 @@ export default function (r, ctx) {
       if (!Number.isFinite(qty) || qty < 0 || qty > 1e6) fail(400, `Số lượng ${name} không hợp lệ`);
       const price = money(l.price, `Đơn giá ${name}`);
       const repairId = kind === 'repair' && l.repair_id ? Number(l.repair_id) || null : null;
-      return { ingredient_id: ing?.id ?? null, name, qty, unit: ing ? ing.purchase_unit || ing.unit : v.text(l.unit, { name: 'Đơn vị', max: 40 }), price, amount: Math.round(qty * price), kind, repair_id: repairId, raw: kind ? { ...l, create_new: false } : l };
+      return { ingredient_id: ing?.id ?? null, name, qty, unit: ing ? ing.purchase_unit || ing.unit : v.text(l.unit, { name: 'Đơn vị', max: 40 }), price, amount: kind === 'discount' ? -Math.round(qty * price) : Math.round(qty * price), kind, repair_id: repairId, raw: kind ? { ...l, create_new: false } : l };
     });
   }
 
@@ -707,6 +711,7 @@ export default function (r, ctx) {
       db.prepare(`UPDATE purchase_bills SET status = ?, received_by = ?, received_at = ?, received_date = ?, lines_total = ?, flags = ?, approved_by = ?, approved_at = ? WHERE id = ?`)
         .run(status, me.id, at, ctx.today(), lines.reduce((n, l) => n + l.amount, 0), JSON.stringify(flags), status === 'received' ? null : b.pre_by || me.id, status === 'received' ? null : at, b.id);
       for (const ph of goods) savePhoto(b.id, ph, me, 'goods');
+      if (status === 'approved') landCost(me, b.id);
     });
     if (status === 'received') ctx.notify([...new Set([...cashiers(), ...(b.pre_by ? [b.pre_by] : [])])].filter((x) => x !== me.id), { title: `${short.length ? 'Nhận thiếu hàng' : 'Nhận hàng cần xem lại'}: ${b.supplier_name}`, body: `${me.name} nhận:\n${[...short, ...serious].join('\n')}\nBill chờ duyệt${short.length ? ' (sửa tổng tiền nếu NCC trừ lại)' : ''}.`, link: '/mua-hang?tab=duyet', urgent: true });
     else if (b.pre_by && b.pre_by !== me.id) ctx.notify([b.pre_by], { title: `Đã nhận đủ hàng: ${b.supplier_name} ${vnd(b.total)}`, body: `${me.name} đã kiểm & nhận. Bill tự duyệt, cộng công nợ.`, link: '/mua-hang?tab=lichsu' });
@@ -730,12 +735,50 @@ export default function (r, ctx) {
   };
 
   // ---------- Thu ngân duyệt ----------
+  // Giá vốn nhập = giá mua + phí ship / bốc vác − chiết khấu, chia theo giá trị từng dòng nhập kho (chủ quán 30/10). Chạy khi bill được duyệt.
+  // Dòng ship lỡ gắn mã kho (vd tạo mã "phí ship") → bỏ khỏi kho, bỏ gắn.
+  const isShip = (l) => l.kind === 'ship' || (!l.kind && SHIP_RE.test(l.name || ''));
+  const isDisc = (l) => l.kind === 'discount' || (!l.kind && l.amount < 0);
+  function landCost(me, billId) {
+    const b = db.prepare('SELECT * FROM purchase_bills WHERE id = ?').get(billId);
+    const ls = db.prepare('SELECT l.*, g.purchase_factor FROM purchase_bill_lines l LEFT JOIN ingredients g ON g.id = l.ingredient_id WHERE l.bill_id = ?').all(billId);
+    const ship = ls.filter(isShip), disc = ls.filter((l) => !isShip(l) && isDisc(l));
+    if (!ship.length && !disc.length) return null;
+    const at = ctx.now(), date = ctx.today();
+    for (const l of ship) {
+      if (l.ingredient_id) {
+        const store = ctx.effectiveStore ? ctx.effectiveStore(b.store_id) : b.store_id;
+        const q = Math.round(l.qty * (l.purchase_factor || 1) * 1000) / 1000;
+        if (q > 0) { takeLots(db, { storeId: store, ingredientId: l.ingredient_id, qty: q, allowShort: true }); recordMove(db, { at, date, type: 'receive', ingredientId: l.ingredient_id, toStore: store, qty: -q, cost: 0, ref: `fix-bill:${b.id}`, staffId: me?.id ?? null, note: 'Phí ship không phải hàng: bỏ khỏi kho' }); }
+      }
+      db.prepare("UPDATE purchase_bill_lines SET kind = 'ship', ingredient_id = NULL WHERE id = ?").run(l.id);
+    }
+    for (const l of disc) if (!l.kind) db.prepare("UPDATE purchase_bill_lines SET kind = 'discount' WHERE id = ?").run(l.id);
+    const extra = ship.reduce((n, l) => n + Math.abs(l.amount), 0) - disc.reduce((n, l) => n + Math.abs(l.amount), 0);
+    const goods = ls.filter((l) => l.ingredient_id && !l.kind && !isShip(l) && l.amount > 0);
+    const base = goods.reduce((n, l) => n + l.amount, 0);
+    if (!goods.length || !base) return { extra, goods: 0 };
+    let left = extra;
+    goods.forEach((l, k) => {
+      const share = k === goods.length - 1 ? left : Math.round((extra * l.amount) / base);
+      left -= share;
+      db.prepare('UPDATE purchase_bill_lines SET extra_cost = ? WHERE id = ?').run(share, l.id);
+      // Giá nhập mới = (tiền hàng + phần ship) / số lượng — chỉ khi bill này là lần nhập mới nhất và dòng đã quy đổi
+      if (l.qty > 0 && !l.bill_unit && !newerReceive(l.ingredient_id, b)) db.prepare('UPDATE ingredients SET price = ? WHERE id = ?').run(Math.round((l.amount + share) / l.qty), l.ingredient_id);
+    });
+    ctx.audit(me, 'purchase.land_cost', { id: billId, extra, lines: goods.length });
+    return { extra, goods: goods.length };
+  }
+
   r.post('/api/purchases/:id/approve', 'staff', ({ me, params }) => {
     if (!isCashier(me)) fail(403, 'Chỉ thu ngân / trưởng ca trở lên duyệt hoá đơn mua');
     const b = load(params.id);
     if (b.status !== 'received') fail(400, 'Bill này không chờ duyệt');
     if (b.received_by === me.id && me.role !== 'owner') fail(403, 'Người nhận hàng không tự duyệt bill của mình; nhờ người khác duyệt');
-    db.prepare("UPDATE purchase_bills SET status = 'approved', approved_by = ?, approved_at = ? WHERE id = ?").run(me.id, ctx.now(), b.id);
+    tx(db, () => {
+      db.prepare("UPDATE purchase_bills SET status = 'approved', approved_by = ?, approved_at = ? WHERE id = ?").run(me.id, ctx.now(), b.id);
+      landCost(me, b.id);
+    });
     ctx.audit(me, 'purchase.approve', { id: b.id, total: b.total });
     ctx.broadcast('purchases');
     return load(b.id);
