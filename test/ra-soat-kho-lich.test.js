@@ -81,7 +81,7 @@ test('Kiểm kho: rau củ nhận đúng tên; "nhập" tính từ lần kiểm 
 test('Xếp ca theo bộ phận: không xếp / báo hộ người bộ phận khác; duyệt bộ phận = tuần đã duyệt với người bộ phận đó', async (t) => {
   const { db, app, O, login } = await boot(t);
   const teams = (await O('GET', '/api/teams')).data;
-  const bep = teams.find((x) => x.name === 'Bếp steak').id, pv = teams.find((x) => x.name === 'Phục vụ').id;
+  const bep = teams.find((x) => x.name === 'Bếp steak').id, pv = teams.find((x) => x.name === 'Bar').id;
   db.prepare('UPDATE teams SET min_staff = 2 WHERE id = ?').run(pv);
   const mkS = async (name, role, team, pin) => (await O('POST', '/api/staff', { name, role, team_id: team, pin })).data.id;
   await mkS('Quản lý bếp', 'manager', bep, '736511');

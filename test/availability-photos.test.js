@@ -40,7 +40,7 @@ test('lịch rảnh: nhân viên báo buổi rảnh tuần sau, quản lý thấ
   const { db, mk, setNow } = await setup(t, at('2026-10-20', '10:00')); // Thứ Ba
   const o = mk();
   await o('POST', '/api/login', { pin: DEFAULT_OWNER_PIN });
-  const pv = (await o('GET', '/api/teams')).data.find((x) => x.name === 'Phục vụ');
+  const pv = (await o('GET', '/api/teams')).data.find((x) => x.name === 'Bar');
   const lan = (await o('POST', '/api/staff', { name: 'Lan', team_id: pv.id, pin: '4821' })).data.id;
   await o('POST', '/api/staff', { name: 'Minh', team_id: pv.id, pin: '5932' });
   const L = mk();

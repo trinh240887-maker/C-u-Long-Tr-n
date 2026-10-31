@@ -138,8 +138,8 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = ''
     if (kind === 'part') { const k = new Map(list.map((p) => [p.id, firstStart(p, d.days, shifts, hours)])); return [...list].sort((a, b) => k.get(a.id) - k.get(b.id) || a.name.localeCompare(b.name, 'vi')); }
     return list;
   };
-  const groups = [...d.teams.map((t) => ({ id: t.id, name: t.name, published_at: t.published_at })), { id: null, name: 'Chưa có bộ phận' }]
-    .map((g) => ({ ...g, people: order(people.filter((p) => teamOf(p) === g.id)) })).filter((g) => g.people.length);
+  const groups = [...d.teams.map((t) => ({ id: t.id, name: t.name, published_at: t.published_at, published_full: t.published_full, published_part: t.published_part, part_shift: t.part_shift })), { id: null, name: 'Chưa có bộ phận' }]
+    .map((g) => ({ ...g, published_at: kind && g.part_shift ? g[`published_${kind}`] : g.published_at, people: order(people.filter((p) => teamOf(p) === g.id)) })).filter((g) => g.people.length);
   // Lịch cố định: chèn dòng tiêu đề khu (📍 Khu A · 5 người)
   const zoneHead = (g, i) => {
     if (kind !== 'full') return null;
@@ -154,8 +154,8 @@ function WeekTable({ d, shifts, staff, team, canManage, onAdd, onTake, kind = ''
     <p class="small muted"><span class="lg has">6–14</span> đã xếp (bấm để sửa / bỏ) · <span class="lg free">16–23</span> rảnh (bấm để xếp) · ô trống: bận / chưa báo</p>
     ${groups.map((g) => html`<section class="card wk-card">
       <div class="wk-head">${g.name.toUpperCase()} <small>${g.people.length} người</small>
-        ${canManage && g.id ? html`<button class="small wk-ok" onClick=${() => confirm(`Duyệt lịch ${g.name} tuần này?\nNgày chưa có ca mà có lịch rảnh sẽ được xếp ca theo lịch rảnh, báo từng người và bot gửi bảng lịch vào nhóm Zalo của ${g.name}.`)
-          && publishTeam(d.week_start, g)}>${g.published_at ? '🔁 Duyệt lại / gửi lại' : `👉 Bấm duyệt ${g.name}`}</button>` : null}
+        ${(() => { const sep = kind && g.part_shift; const pub = g.published_at; const lbl = sep ? `${g.name} ${kind === 'part' ? 'PART-TIME' : 'FULL-TIME'}` : g.name; return canManage && g.id ? html`<button class="small wk-ok" onClick=${() => confirm(`Duyệt lịch ${lbl} tuần này?\n${kind === 'part' && sep ? `Part-time chỉ ca ${g.part_shift.replace('-', '–')}. ` : ''}Ngày chưa có ca mà có lịch rảnh sẽ được xếp ca theo lịch rảnh, báo từng người đi làm và bot gửi bảng lịch vào nhóm Zalo.`)
+          && publishTeam(d.week_start, g, sep ? kind : null)}>${pub ? '🔁 Duyệt lại / gửi lại' : `👉 Bấm duyệt ${lbl}`}</button>` : null; })()}
         ${g.id ? (g.published_at ? html`<span class="pill ok">✅ Đã duyệt ${new Date(g.published_at + 7 * 3600e3).toISOString().slice(11, 16)} ${new Date(g.published_at + 7 * 3600e3).toISOString().slice(8, 10)}/${new Date(g.published_at + 7 * 3600e3).toISOString().slice(5, 7)}</span>`
           : html`<span class="pill warn">⏳ Chưa duyệt · ca đang là nháp theo lịch rảnh</span>`) : null}</div>
       <div class="wk-wrap"><table class="wk">
@@ -298,8 +298,8 @@ function SplitTables({ zone, date, people, shifts, hours }) {
 }
 
 // Duyệt lịch 1 bộ phận: máy chủ xếp ca theo lịch rảnh + báo từng người → máy này vẽ ảnh bảng → bot gửi ảnh vào nhóm Zalo
-async function publishTeam(week, g) {
-  const r = await act(() => api('POST', '/api/schedule/publish-team', { week, team_id: g.id, image: true }));
+async function publishTeam(week, g, kind = null) {
+  const r = await act(() => api('POST', '/api/schedule/publish-team', { week, team_id: g.id, image: true, ...(kind ? { kind } : {}) }));
   if (!r) return;
   let data = '';
   try { data = drawScheduleImage(r.table); } catch { /* máy không vẽ được → gửi chữ */ }
@@ -445,7 +445,7 @@ function Overview({ me, week, onWeek }) {
       return html`<div class="chips"><button class=${`chip ${!kind ? 'on' : ''}`} onClick=${() => setKind('')}>Tất cả (${all.length})</button>
         <button class=${`chip ${kind === 'full' ? 'on' : ''}`} onClick=${() => setKind('full')}>🔒 Ca full cố định (${nf})</button>
         <button class=${`chip ${kind === 'part' ? 'on' : ''}`} onClick=${() => setKind('part')}>⏱ Part-time (${all.length - nf})</button></div>
-        ${canManage ? html`<p class="small muted">Bấm <b>tên</b> để chọn khu và Full ca / Ca gãy. <b>Đã chọn khu</b> thì vào lịch 🔒, chưa chọn khu thì ở ⏱ Part-time.</p>` : null}`; })()}
+        ${canManage ? html`<p class="small muted">Bấm <b>tên</b> để chọn khu và Full ca / Ca gãy. <b>Đã chọn khu</b> thì vào lịch 🔒 full-time (bot không ghi lịch), chưa chọn khu thì ở ⏱ Part-time (bot ghi lịch rảnh, phục vụ chỉ ca 18–23). Chọn 🔒 hoặc ⏱ để <b>duyệt riêng từng bảng</b>.</p>` : null}`; })()}
     <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} kind=${kind} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />
     <details class="card"><summary><b>Chưa báo lịch rảnh (${missing.length})</b> <small class="muted">hạn ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} ${d.deadline.time}</small></summary>
       <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}

@@ -88,7 +88,9 @@ export default function (r, ctx) {
     const all = Number(ctx.setting(`published:${start}`) || 0);
     if (all || !staffId) return all;
     const t = staffTeam(staffId);
-    return t ? Number(ctx.setting(`published:${start}:t${t}`) || 0) : 0;
+    if (!t) return 0;
+    const k = ctx.pvKind?.(staffId); // phục vụ: duyệt riêng bảng full-time / part-time (chủ quán 31/10)
+    return Number(ctx.setting(`published:${start}:t${t}`) || 0) || (k ? Number(ctx.setting(`published:${start}:t${t}:${k}`) || 0) : 0);
   };
   ctx.weekPublishedAt = weekPublishedAt;
   function viewFilter(me) {
@@ -386,7 +388,9 @@ export default function (r, ctx) {
     const team = db.prepare('SELECT id, name FROM teams WHERE id = ?').get(v.int(body.team_id, { min: 1, name: 'Bộ phận' }));
     if (!team) fail(404, 'Không tìm thấy bộ phận');
     if (teamScope(me) && teamScope(me) !== team.id) fail(403, 'Bạn chỉ duyệt lịch bộ phận mình');
-    const people = db.prepare("SELECT s.id, s.name, s.role, s.work_type, p.name AS position_name FROM staff s LEFT JOIN positions p ON p.id = s.position_id WHERE s.active = 1 AND s.role != 'owner' AND s.team_id = ? ORDER BY s.name").all(team.id);
+    const kind = ['full', 'part'].includes(body.kind) ? body.kind : null; // duyệt riêng 1 bảng của phục vụ
+    const people = db.prepare("SELECT s.id, s.name, s.role, s.work_type, s.home_zone_id, p.name AS position_name FROM staff s LEFT JOIN positions p ON p.id = s.position_id WHERE s.active = 1 AND s.role != 'owner' AND s.team_id = ? ORDER BY s.name").all(team.id)
+      .filter((p) => !kind || (kind === 'full') === !!p.home_zone_id);
     let made = 0;
     for (const p of people) made += availToShifts(p.id, start, me, { force: true }).made;
     const end = addDays(start, 6);
@@ -398,7 +402,7 @@ export default function (r, ctx) {
     const short = (segs) => describeGroup(segs).replace(/:00/g, '').replace(/\b0(\d)/g, '$1').replace(/–0\b/g, '–24') + zoneTxt(segs);
     const ROLE_TAG = { team_lead: 'Tổ trưởng', shift_lead: 'Trưởng ca', manager: 'Quản lý' };
     const WORK_TAG = { full: 'Full ca', gay: 'Ca gãy', part: 'Part-time' };
-    const table = { title: `LỊCH ${team.name.toUpperCase()}`, week: `${start.slice(8)}/${start.slice(5, 7)} – ${end.slice(8)}/${end.slice(5, 7)}`, days: days7.map((d) => ({ dow: WEEKDAY[isoWeekday(d)], date: `${d.slice(8)}/${d.slice(5, 7)}` })), rows: [] };
+    const table = { title: `LỊCH ${team.name.toUpperCase()}${kind === 'part' ? ' – PART-TIME' : kind === 'full' ? ' – FULL-TIME' : ''}`, week: `${start.slice(8)}/${start.slice(5, 7)} – ${end.slice(8)}/${end.slice(5, 7)}`, days: days7.map((d) => ({ dow: WEEKDAY[isoWeekday(d)], date: `${d.slice(8)}/${d.slice(5, 7)}` })), rows: [] };
     let sent = 0;
     for (const p of people) {
       const rows = db.prepare(`SELECT a.* FROM assignments a WHERE a.staff_id = ? AND a.date BETWEEN ? AND ?
@@ -423,8 +427,8 @@ export default function (r, ctx) {
       ctx.notify(p.id, { title: `Lịch làm tuần ${start.slice(8)}/${start.slice(5, 7)} đã duyệt`, body: [...byDay].map(([date, segs]) => `• ${WEEKDAY[isoWeekday(date)]} ${date.slice(8)}/${date.slice(5, 7)}: ${describeGroup(segs)}${zoneTxt(segs) ? ` · 📍 Khu${zoneTxt(segs).slice(2)}` : ''}`).join('\n'), link: '/lich' });
       sent++;
     }
-    ctx.setSetting(`published:${start}:t${team.id}`, ctx.now());
-    const text = `📅 LỊCH ${team.name.toUpperCase()} tuần ${start.slice(8)}/${start.slice(5, 7)}–${end.slice(8)}/${end.slice(5, 7)} (đã duyệt)\n${lines.length ? lines.join('\n') : '(chưa có ai có ca)'}\nAi cần đổi ca báo quản lý. Xem chi tiết: mở app → Lịch ca.`;
+    ctx.setSetting(kind ? `published:${start}:t${team.id}:${kind}` : `published:${start}:t${team.id}`, ctx.now());
+    const text = `📅 LỊCH ${team.name.toUpperCase()}${kind === 'part' ? ' PART-TIME' : kind === 'full' ? ' FULL-TIME' : ''} tuần ${start.slice(8)}/${start.slice(5, 7)}–${end.slice(8)}/${end.slice(5, 7)} (đã duyệt)\n${lines.length ? lines.join('\n') : '(chưa có ai có ca)'}\nAi cần đổi ca báo quản lý. Xem chi tiết: mở app → Lịch ca.`;
     let groups = 0, group_error = '';
     // body.image = true: máy quản lý sẽ vẽ ảnh bảng rồi gọi /team-image để bot gửi ảnh (lỗi thì gửi chữ ở đó)
     if (!body.image && ctx.zaloBot?.ready() && ctx.staffGroups) {
@@ -434,7 +438,7 @@ export default function (r, ctx) {
     }
     const owners = db.prepare("SELECT id FROM staff WHERE active = 1 AND role = 'owner'").all().map((x) => x.id).filter((id) => id !== me.id);
     if (owners.length) ctx.notify(owners, { title: `${me.name} đã duyệt lịch ${team.name} tuần ${start.slice(8)}/${start.slice(5, 7)}`, body: `${sent} người có ca.`, link: `/ranh?tab=all&week=${start}` });
-    ctx.audit(me, 'schedule.publish_team', { week: start, team: team.id, made, sent, groups });
+    ctx.audit(me, 'schedule.publish_team', { week: start, team: team.id, kind, made, sent, groups });
     ctx.broadcast('schedule');
     // Gộp theo khu (A, B, C… rồi chưa khu), trong khu: trưởng ca / tổ trưởng lên đầu; ai không có ca xuống cuối
     table.rows.sort((a, b) => (b.cells.some(Boolean) ? 1 : 0) - (a.cells.some(Boolean) ? 1 : 0) || a.zone_sort - b.zone_sort || a.lead - b.lead || a.name.localeCompare(b.name, 'vi'));

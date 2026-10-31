@@ -197,6 +197,7 @@ test('bot: người mới báo lịch → hướng dẫn đăng ký, giữ lịc
   const { ctx } = app;
   ctx.saveStaffGroups([{ id: 'g', name: 'Chung', teams: [] }]);
   const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get().id;
+  const bar = db.prepare("SELECT id FROM teams WHERE name = 'Bar'").get().id; // part-time phục vụ chỉ ca tối → thử ghi lịch sáng ở bộ phận khác
   const msg = (mid, text, from) => ({ id: mid, date: now, chat: { id: 'g', type: 'GROUP', name: 'Chung' }, from, text });
   const hau = { id: 'uHau', name: 'Hậu' };
 
@@ -209,7 +210,7 @@ test('bot: người mới báo lịch → hướng dẫn đăng ký, giữ lịc
   const rq = (await o('GET', '/api/staff-requests')).data;
   assert.equal(rq.length, 1);
   assert.equal(rq[0].team_id, pv);
-  const st = (await o('POST', '/api/staff', { name: rq[0].name, phone: rq[0].phone, team_id: pv, role: 'staff', pin: '582913' })).data;
+  const st = (await o('POST', '/api/staff', { name: rq[0].name, phone: rq[0].phone, team_id: bar, role: 'staff', pin: '582913' })).data;
   assert.equal((await o('POST', `/api/staff-requests/${rq[0].id}/done`, { staff_id: st.id })).status, 200);
   assert.match(sent.at(-1).text, /Đã thêm Trần Trung Hậu vào danh sách.*\n.*Đã điền lịch bạn báo trước: cả tuần 26\/10–01\/11: 08:00–12:00, 14:00–23:00/);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM availability WHERE staff_id = ?').get(st.id).n, 14);
@@ -239,18 +240,18 @@ test('bot: người mới báo lịch → hướng dẫn đăng ký, giữ lịc
   assert.doesNotMatch(sent.at(-1).text, /\d{6}/);
 
   // Duyệt lịch từng bộ phận: tạo ca theo lịch rảnh + bot gửi bảng lịch vào nhóm có bộ phận đó
-  ctx.saveStaffGroups([{ id: 'g', name: 'Chung', teams: [pv] }]);
-  const pub = (await o('POST', '/api/schedule/publish-team', { week: '2026-10-26', team_id: pv })).data;
+  ctx.saveStaffGroups([{ id: 'g', name: 'Chung', teams: [bar] }]);
+  const pub = (await o('POST', '/api/schedule/publish-team', { week: '2026-10-26', team_id: bar })).data;
   assert.equal(pub.groups, 1);
-  assert.match(sent.at(-1).text, /LỊCH PHỤC VỤ tuần 26\/10–01\/11 \(đã duyệt\)\n• Trần Trung Hậu: T3–CN 8–12 \+ 14–23/);
+  assert.match(sent.at(-1).text, /LỊCH BAR tuần 26\/10–01\/11 \(đã duyệt\)\n• Trần Trung Hậu: T3–CN 8–12 \+ 14–23/);
   assert.equal(db.prepare('SELECT COUNT(DISTINCT date) AS n FROM assignments WHERE staff_id = ?').get(st.id).n, 6);
   // Gửi ảnh: duyệt với image=true thì không gửi chữ; ảnh lưu ở link công khai khó đoán, bot gửi ảnh
   const n0 = sent.length;
-  const pub2 = (await o('POST', '/api/schedule/publish-team', { week: '2026-10-26', team_id: pv, image: true })).data;
+  const pub2 = (await o('POST', '/api/schedule/publish-team', { week: '2026-10-26', team_id: bar, image: true })).data;
   assert.equal(sent.length, n0);
   assert.deepEqual(pub2.table.rows[0].cells.slice(0, 2), ['', '8–12 + 14–23']);
   const png = `data:image/png;base64,${Buffer.alloc(1200, 5).toString('base64')}`;
-  const img = (await o('POST', '/api/schedule/team-image', { team_id: pv, data: png, text: pub2.text })).data;
+  const img = (await o('POST', '/api/schedule/team-image', { team_id: bar, data: png, text: pub2.text })).data;
   assert.equal(img.photo, true);
   assert.match(sent.at(-1).url, /\/api\/pub\/lich\?f=[0-9a-f]{32}\.png$/);
   const pubRes = await fetch(base + new URL(sent.at(-1).url).pathname + new URL(sent.at(-1).url).search);

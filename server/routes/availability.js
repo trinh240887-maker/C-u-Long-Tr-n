@@ -44,6 +44,16 @@ export default function (r, ctx) {
     const { start, end } = ctx.availRange(t);
     return end > start && end <= 1440 ? t : null;
   };
+  // Phục vụ chia 2 bảng (chủ quán 31/10): FULL-TIME = đã có khu cố định (lịch cố định, bot KHÔNG ghi lịch);
+  // PART-TIME = chưa có khu cố định (báo lịch rảnh / bot ghi, quản lý duyệt riêng, chỉ ca tối 18–23)
+  const PVTT = /phục vụ|phuc vu/i; // chỉ bộ phận Phục vụ (không áp Tiếp thực)
+  const staffRow = (id) => db.prepare('SELECT s.id, s.home_zone_id, s.work_type, t.name AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.id = ?').get(id);
+  ctx.pvKind = (id) => { const x = staffRow(id); if (!x || !PVTT.test(x.team_name || '')) return null; return x.home_zone_id ? 'full' : 'part'; };
+  const partWindow = () => { const m = /^(\d\d:\d\d)-(\d\d:\d\d)$/.exec(ctx.setting('pv_part_shift') || '18:00-23:00'); return m ? { start: toMin(m[1]), end: toMin(m[2]) } : { start: 1080, end: 1380 }; };
+  // Cắt giờ rảnh của part-time về khung ca tối (rảnh 14–23 → 18–23; rảnh 8–12 → bỏ)
+  const clipPart = (slots) => { const w = partWindow(); const hm = (x) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`;
+    return [...new Set(slots.map((x) => { const r = ctx.availRange(rangeText(x) || x); if (!r) return null; const a = Math.max(r.start, w.start), b = Math.min(r.end, w.end); return b - a >= 60 ? `${hm(a)}-${hm(b)}` : null; }).filter(Boolean))]; };
+  ctx.clipPartSlots = clipPart;
   // Khúc ca (phút trong ngày, có thể > 1440) chạm buổi nào
   ctx.slotsOfSegment = (startMin, endMin) => ctx.availSlots()
     .filter((s) => startMin < toMin(s.end) && endMin > toMin(s.start)).map((s) => s.key);
@@ -128,9 +138,11 @@ export default function (r, ctx) {
     tx(db, () => {
       db.prepare('DELETE FROM availability WHERE staff_id = ? AND date BETWEEN ? AND ?').run(me.id, ws, addDays(ws, 6));
       const add = db.prepare('INSERT OR IGNORE INTO availability (staff_id, date, slot) VALUES (?, ?, ?)');
+      const part = ctx.pvKind(me.id) === 'part';
       for (const [date, slots] of Object.entries(picks)) {
         if (!days.has(date) || !Array.isArray(slots)) continue;
-        for (const x of slots) { const t = readPick(x); if (t) add.run(me.id, date, t); }
+        const ok = slots.map(readPick).filter(Boolean);
+        for (const t of part ? clipPart(ok) : ok) add.run(me.id, date, t); // part-time phục vụ: chỉ ca tối 18–23
       }
       db.prepare(`INSERT INTO availability_weeks (staff_id, week_start, submitted_at, note) VALUES (?, ?, ?, ?)
         ON CONFLICT (staff_id, week_start) DO UPDATE SET submitted_at = excluded.submitted_at, note = excluded.note`).run(me.id, ws, ctx.now(), note);
@@ -208,7 +220,8 @@ export default function (r, ctx) {
     return {
       week_start: ws, days, slots, deadline: deadline(ws),
       // Đã duyệt lịch bộ phận chưa (chủ quán 29/10: nút "✅ Duyệt" trông như đã duyệt → hiện rõ trạng thái)
-      teams: teams.map((t) => ({ ...t, published_at: Number(ctx.setting(`published:${ws}`) || 0) || Number(ctx.setting(`published:${ws}:t${t.id}`) || 0) || null })),
+      teams: teams.map((t) => { const all = Number(ctx.setting(`published:${ws}`) || 0) || Number(ctx.setting(`published:${ws}:t${t.id}`) || 0);
+        return { ...t, published_at: all || null, published_full: all || Number(ctx.setting(`published:${ws}:t${t.id}:full`) || 0) || null, published_part: all || Number(ctx.setting(`published:${ws}:t${t.id}:part`) || 0) || null, part_shift: PVTT.test(t.name) ? (ctx.setting('pv_part_shift') || '18:00-23:00') : null }; }),
       people: people.filter((p) => !exempt(p)).map((p) => ({ ...p, submitted_at: subs.get(p.id)?.submitted_at || null, note: subs.get(p.id)?.note === FIXED_NOTE ? '' : subs.get(p.id)?.note || '', fixed: subs.get(p.id)?.note === FIXED_NOTE })),
       cells, busy: [...busy], hours,
     };
@@ -311,6 +324,9 @@ export default function (r, ctx) {
   };
   function applyBot(staffId, picks, off, offParts = {}, { chat = '' } = {}) {
     const today = ctx.today(), from = weekStart(today);
+    const kind = ctx.pvKind(staffId);
+    if (kind === 'full') { picks = {}; offParts = {}; } // full-time: bot không ghi lịch, chỉ nhận báo nghỉ (thành đơn xin nghỉ)
+    if (kind === 'part') { const np = {}; const dropped = []; for (const [d, xs] of Object.entries(picks)) { const c = clipPart(xs); if (c.length) np[d] = c; else dropped.push(d); } picks = np; off = [...new Set([...off, ...dropped])]; }
     // Nghỉ 1 khúc: lịch rảnh ngày đó = lịch đang có trừ khúc nghỉ
     picks = { ...picks };
     for (const [d, cuts] of Object.entries(offParts)) {
@@ -468,6 +484,9 @@ export default function (r, ctx) {
     const lines = [];
     let locked = false;
     for (const person of p.people) {
+      const kd = ctx.pvKind(person.id);
+      if (kd === 'full' && !p.off.length) { lines.push(`• ${person.name}: bạn là FULL-TIME (lịch cố định) nên bot không ghi lịch rảnh. Muốn nghỉ ngày nào thì nhắn: @bot ${person.name} nghỉ T5`); continue; }
+      if (kd === 'part' && Object.keys(p.picks).length) lines.push(`• ${person.name} (part-time): chỉ ghi ca tối ${(ctx.setting('pv_part_shift') || '18:00-23:00').replace(/:00/g, 'h').replace('-', '–')}`);
       const r = applyBot(person.id, p.picks, p.off, p.offParts || {}, { chat: u.chat.id });
       if (!r.dates.length) { lines.push(`• ${person.name}: ngày đã qua, không ghi`); continue; }
       if (r.changed.length) locked = true;
