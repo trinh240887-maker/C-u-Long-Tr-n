@@ -522,7 +522,7 @@ function ConvTab({ meta }) {
         </div>`; })}`}
     </section>
     <h3>Quy đổi từng nguyên liệu</h3>
-    <${Conversions} meta=${meta} />
+    <${Conversions} meta=${meta} base="/api/purchases/conv" />
   </div>`;
 }
 
@@ -542,7 +542,7 @@ export function PurchasesView({ me, query }) {
   // Công nợ NCC / Tạm ứng: theo Phân quyền (chủ quán tick từng người)
   const can = (k) => (Array.isArray(me.pages) ? me.pages.includes(`/mua-hang#${k}`) : k === 'congno' ? isCashier : true);
   const arriving = L.arriving || [];
-  const tabs = [...(canAct(me, 'mh.nhap') ? [['nhan', '📥 Nhập kho']] : []), ...(arriving.length || isCashier ? [['cho', `⏳ Chờ nhận hàng (${arriving.length})`]] : []), ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ...(L.limited ? [] : [['lichsu', 'Bill đã nhận']]), ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : []), ...(['manager', 'owner'].includes(me.role) ? [['quydoi', '⚖ Quy đổi']] : []), ...((me.real_role || me.role) === 'owner' ? [['sosanh', '💰 So sánh giá']] : []), ...(isCashier || atLeastRole(me, 'shift_lead') ? [['suachua', '🔧 Sửa chữa & chi phí']] : [])];
+  const tabs = [...(canAct(me, 'mh.nhap') ? [['nhan', '📥 Nhập kho']] : []), ...(arriving.length || isCashier ? [['cho', `⏳ Chờ nhận hàng (${arriving.length})`]] : []), ...(isCashier ? [['duyet', `Chờ duyệt (${L.pending})`]] : []), ...(L.limited ? [] : [['lichsu', 'Bill đã nhận']]), ...(can('congno') ? [['congno', 'Công nợ NCC']] : []), ...(can('tamung') ? [['tamung', 'Tạm ứng']] : []), ...(['manager', 'owner'].includes(me.role) || isCashier ? [['quydoi', '⚖ Quy đổi']] : []), ...((me.real_role || me.role) === 'owner' ? [['sosanh', '💰 So sánh giá']] : []), ...(isCashier || atLeastRole(me, 'shift_lead') ? [['suachua', '🔧 Sửa chữa & chi phí']] : [])];
   return html`<div class="stack">
     <div class="tabs scroll">${tabs.map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => navigate(`/mua-hang?tab=${k}`)}>${l}</button>`)}</div>
     ${mineReturned.length && tab !== 'lichsu' ? html`<section class="card warn-card small">${mineReturned.length} bill bạn nhận bị thu ngân trả lại. <button class="small" onClick=${() => navigate('/mua-hang?tab=lichsu')}>Xem & sửa</button></section>` : null}
@@ -551,7 +551,7 @@ export function PurchasesView({ me, query }) {
     ${tab === 'lichsu' ? (L.bills.length ? L.bills.map((b) => html`<${BillCard} key=${b.id} b=${b} canApprove=${isCashier} me=${me} />`) : html`<div class="empty">Chưa có bill trong 30 ngày.</div>`) : null}
     ${tab === 'congno' && can('congno') ? html`<${Debts} me=${me} />` : null}
     ${tab === 'cho' ? (arriving.length ? arriving.map((b) => html`<${ArriveCard} key=${b.id} b=${b} me=${me} />`) : html`<div class="empty">Không có bill nào chờ nhận hàng.</div>`) : null}
-    ${tab === 'quydoi' && ['manager', 'owner'].includes(me.role) ? html`<${ConvTab} meta=${meta} />` : null}
+    ${tab === 'quydoi' && (['manager', 'owner'].includes(me.role) || isCashier) ? html`<${ConvTab} meta=${meta} />` : null}
     ${tab === 'sosanh' && (me.real_role || me.role) === 'owner' ? html`<${CompareTab} />` : null}
     ${tab === 'suachua' ? html`<${RepairsTab} me=${me} />` : null}
     ${tab === 'tamung' && can('tamung') ? html`<${Advances} me=${me} isCashier=${isCashier} advances=${advances} />` : null}

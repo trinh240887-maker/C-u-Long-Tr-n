@@ -48,4 +48,22 @@ test('duyệt bill: phí ship chia vào giá vốn theo giá trị, chiết kh�
   const cv = await o('POST', `/api/purchases/lines/${ln.id}/convert`, { factor: 12 });
   assert.equal(cv.status, 200, JSON.stringify(cv.data));
   assert.equal(db.prepare('SELECT price FROM ingredients WHERE id = ?').get(mi).price, Math.round(1240000 / 24));
+
+  // Thu ngân quy đổi được (chủ quán 31/10): dòng bill chưa quy đổi + sửa đơn vị / hệ số nguyên liệu; phục vụ thì không
+  const team = (n) => db.prepare('SELECT id FROM teams WHERE name = ?').get(n)?.id ?? Number(db.prepare('INSERT INTO teams (name) VALUES (?)').run(n).lastInsertRowid);
+  await o('POST', '/api/staff', { name: 'TN', team_id: team('Thu ngân'), role: 'staff', pin: '4821' });
+  await o('POST', '/api/staff', { name: 'PV', team_id: team('Phục vụ'), role: 'staff', pin: '5932' });
+  const b4 = await bill([{ ingredient_id: mi, qty: 1, unit: 'thùng', price: 600000, unconv: true }], 600000);
+  const ln4 = db.prepare('SELECT id FROM purchase_bill_lines WHERE bill_id = ?').get(b4.id).id;
+  cookie = null; await o('POST', '/api/login', { pin: '5932' });
+  assert.equal((await o('GET', '/api/purchases/unconverted')).status, 403);
+  assert.equal((await o('POST', `/api/purchases/lines/${ln4}/convert`, { factor: 12 })).status, 403);
+  cookie = null; await o('POST', '/api/login', { pin: '4821' });
+  assert.ok((await o('GET', '/api/purchases/unconverted')).data.some((x) => x.id === ln4));
+  assert.equal((await o('POST', `/api/purchases/lines/${ln4}/convert`, { factor: 12 })).status, 200);
+  const pc = await o('PATCH', `/api/purchases/conv/ingredients/${mi}`, { unit: 'gói', purchase_unit: 'thùng', purchase_factor: '12', name: 'Đổi tên lén' });
+  assert.equal(pc.status, 200, JSON.stringify(pc.data));
+  const g = db.prepare('SELECT name, purchase_unit, purchase_factor FROM ingredients WHERE id = ?').get(mi);
+  assert.equal(g.purchase_factor, 12); assert.equal(g.purchase_unit, 'thùng'); assert.equal(g.name, 'Mì trứng', 'thu ngân không đổi được tên');
+  assert.equal((await o('POST', `/api/purchases/conv/ingredients/${mi}/conv-ok`, { ok: true, note: 'tính theo gói' })).status, 200);
 });

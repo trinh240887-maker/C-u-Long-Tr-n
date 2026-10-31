@@ -604,9 +604,14 @@ export default function (r, ctx) {
   });
 
   // ⚖ Quy đổi ở Mua hàng (chủ quán 28/10): các dòng bill nhập đúng như bill, chưa quy đổi
-  r.get('/api/purchases/unconverted', 'manager', () => db.prepare(`SELECT l.id, l.bill_id, l.ingredient_id, l.name, l.qty, l.price, l.amount, l.bill_unit, g.purchase_unit, g.unit AS use_unit, g.purchase_factor, b.date, b.supplier_name
+  // Thu ngân quy đổi nguyên liệu từ màn Mua hàng (không cần quyền mục Kho) — chỉ đơn vị / hệ số quy đổi
+  r.patch('/api/purchases/conv/ingredients/:id', 'staff', ({ me, params, body }) => { convOk(me); return ctx.ingConvSet(me, Number(params.id), body); });
+  r.post('/api/purchases/conv/ingredients/:id/conv-ok', 'staff', ({ me, params, body }) => { convOk(me); return ctx.ingConvOk(me, Number(params.id), body); });
+  r.get('/api/purchases/unconverted', 'staff', ({ me }) => (convOk(me), 0) || db.prepare(`SELECT l.id, l.bill_id, l.ingredient_id, l.name, l.qty, l.price, l.amount, l.bill_unit, g.purchase_unit, g.unit AS use_unit, g.purchase_factor, b.date, b.supplier_name
     FROM purchase_bill_lines l JOIN purchase_bills b ON b.id = l.bill_id JOIN ingredients g ON g.id = l.ingredient_id WHERE l.bill_unit IS NOT NULL AND b.status != 'void' ORDER BY b.id DESC LIMIT 200`).all());
   // Nhập "1 mẹt = 2,5 kg" → app tự sửa số kho + dòng bill và nhớ cho lần đọc bill sau
+  // Quy đổi: quản lý / chủ + thu ngân (chủ quán 31/10)
+  const convOk = (me) => { if (!isCashier(me) && rank(me.role) < rank('manager')) fail(403, 'Chỉ thu ngân, quản lý, chủ quán quy đổi'); };
   function convertLine(me, lineId, body) {
     const l = db.prepare('SELECT l.*, g.purchase_factor, g.purchase_unit, g.unit AS use_unit, g.shelf_days FROM purchase_bill_lines l JOIN ingredients g ON g.id = l.ingredient_id WHERE l.id = ?').get(Number(lineId));
     if (!l || !l.bill_unit) fail(404, 'Dòng này đã quy đổi rồi');
@@ -642,7 +647,8 @@ export default function (r, ctx) {
     return { ok: true, qty, price, ingredient_id: l.ingredient_id, bill_unit: l.bill_unit };
   }
   // Quy đổi 1 dòng → các dòng chưa quy đổi khác cùng hàng + cùng đơn vị trên bill (bill chưa huỷ) cũng quy đổi luôn (chủ quán 29/10)
-  r.post('/api/purchases/lines/:id/convert', 'manager', ({ me, params, body }) => {
+  r.post('/api/purchases/lines/:id/convert', 'staff', ({ me, params, body }) => {
+    convOk(me);
     const out = convertLine(me, params.id, body);
     let more = 0;
     for (const x of db.prepare("SELECT l.id FROM purchase_bill_lines l JOIN purchase_bills b ON b.id = l.bill_id WHERE l.ingredient_id = ? AND l.bill_unit = ? AND b.status != 'void'").all(out.ingredient_id, out.bill_unit)) {
@@ -653,10 +659,11 @@ export default function (r, ctx) {
   });
 
   // Đơn vị trên bill đã học (vd bill ghi "thùng" = 150 vắt) → hiện ở Kho → ⚖ Quy đổi
-  r.get('/api/stock/unit-aliases', 'manager', () => db.prepare('SELECT ingredient_id, bill_unit, factor, keep, note FROM unit_aliases ORDER BY ingredient_id').all());
+  r.get('/api/stock/unit-aliases', 'staff', ({ me }) => (convOk(me), 0) || db.prepare('SELECT ingredient_id, bill_unit, factor, keep, note FROM unit_aliases ORDER BY ingredient_id').all());
   // Món ăn dùng nguyên liệu nào, bao nhiêu / phần → Quy đổi đánh dấu "cần quy đổi" (vd trừ 0,2 gói / phần)
-  r.get('/api/stock/recipe-use', 'manager', () => db.prepare('SELECT r.ingredient_id, r.qty, m.name AS item FROM menu_recipes r JOIN menu_items m ON m.id = r.item_id WHERE m.active = 1 ORDER BY m.name').all());
-  r.delete('/api/stock/unit-aliases', 'manager', ({ me, query }) => {
+  r.get('/api/stock/recipe-use', 'staff', ({ me }) => (convOk(me), 0) || db.prepare('SELECT r.ingredient_id, r.qty, m.name AS item FROM menu_recipes r JOIN menu_items m ON m.id = r.item_id WHERE m.active = 1 ORDER BY m.name').all());
+  r.delete('/api/stock/unit-aliases', 'staff', ({ me, query }) => {
+    convOk(me);
     db.prepare('DELETE FROM unit_aliases WHERE ingredient_id = ? AND bill_unit = ?').run(Number(query.get('ingredient_id')), String(query.get('bill_unit') || ''));
     ctx.audit(me, 'unit_alias.delete', { ingredient_id: query.get('ingredient_id'), bill_unit: query.get('bill_unit') });
     return { ok: true };

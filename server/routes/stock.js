@@ -441,7 +441,16 @@ export default function (r, ctx) {
   if (!db.prepare('PRAGMA table_info(ingredients)').all().some((c) => c.name === 'conv_ok')) {
     db.exec("ALTER TABLE ingredients ADD COLUMN conv_ok INTEGER NOT NULL DEFAULT 0; ALTER TABLE ingredients ADD COLUMN conv_note TEXT NOT NULL DEFAULT ''");
   }
-  r.post('/api/stock/ingredients/:id/conv-ok', 'manager', ({ me, params, body }) => {
+  ctx.ingConvOk = (me, id, body) => { const cur = ingById(id); if (!cur) fail(404, 'Không tìm thấy nguyên liệu'); const ok = v.bool(body.ok) ? 1 : 0;
+    db.prepare('UPDATE ingredients SET conv_ok = ?, conv_note = ? WHERE id = ?').run(ok, ok ? v.text(body.note || '', { name: 'Ghi chú', max: 120 }) : '', cur.id);
+    ctx.audit(me, 'ingredient.conv_ok', { id: cur.id, ok, note: body.note || '' }); ctx.broadcast('stock'); return { ok: true }; };
+  ctx.ingConvSet = (me, id, body0) => { const cur = ingById(id); if (!cur) fail(404, 'Không tìm thấy nguyên liệu');
+    const body = { ...cur, unit: body0.unit ?? cur.unit, purchase_unit: body0.purchase_unit ?? cur.purchase_unit, purchase_factor: body0.purchase_factor ?? cur.purchase_factor };
+    const f = ingFields(body, cur);
+    db.prepare(`UPDATE ingredients SET ${ING_COLS.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...ING_COLS.map((k) => f[k]), cur.id);
+    ctx.audit(me, 'ingredient.conv', { id: cur.id, unit: f.unit, purchase_unit: f.purchase_unit, purchase_factor: f.purchase_factor }); ctx.broadcast('stock'); return { ok: true }; };
+  r.post('/api/stock/ingredients/:id/conv-ok', 'staff', ({ me, params, body }) => {
+    if (rank(me.role) < rank('manager') && !(rank(me.role) >= rank('shift_lead') || db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id || -1))) fail(403, 'Chỉ thu ngân, quản lý, chủ quán');
     const cur = ingById(params.id);
     if (!cur) fail(404, 'Không tìm thấy nguyên liệu');
     const ok = v.bool(body.ok) ? 1 : 0;
@@ -450,9 +459,16 @@ export default function (r, ctx) {
     ctx.broadcast('stock');
     return { ok: true };
   });
-  r.patch('/api/stock/ingredients/:id', 'manager', ({ me, params, body }) => {
+  // Thu ngân (chủ quán 31/10): chỉ sửa quy đổi (đơn vị dùng, đơn vị mua, 1 đơn vị mua = bao nhiêu); thông tin khác quản lý / chủ
+  const cashierOf = (me) => rank(me.role) >= rank('shift_lead') || !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id || -1);
+  r.patch('/api/stock/ingredients/:id', 'staff', ({ me, params, body: body0 }) => {
     const cur = ingById(params.id);
     if (!cur) fail(404, 'Không tìm thấy nguyên liệu');
+    let body = body0;
+    if (rank(me.role) < rank('manager')) {
+      if (!cashierOf(me)) fail(403, 'Chỉ quản lý / chủ quán sửa nguyên liệu');
+      body = { ...cur, unit: body0.unit ?? cur.unit, purchase_unit: body0.purchase_unit ?? cur.purchase_unit, purchase_factor: body0.purchase_factor ?? cur.purchase_factor };
+    }
     const f = ingFields(body, cur);
     db.prepare(`UPDATE ingredients SET ${ING_COLS.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...ING_COLS.map((k) => f[k]), cur.id);
     ctx.audit(me, 'ingredient.update', { id: cur.id, name: f.name });

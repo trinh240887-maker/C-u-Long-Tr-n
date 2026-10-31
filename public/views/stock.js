@@ -865,7 +865,7 @@ export function StockView({ me, query }) {
 // ⚖ Quy đổi (chủ quán 26/10): 1 bảng mọi nguyên liệu — mua theo gì (trên bill) → dùng / bán theo gì (định lượng, kiểm kho)
 const PACK_UNITS = /^(gói|goi|thùng|thung|bao|hộp|hop|chai|lốc|loc|két|ket|túi|tui|can|hũ|hu|bịch|bich|xô|xo|khay|bó|bo|vỉ|vi|cuộn|cuon|bình|binh|keg|block|lô|lo)$/i;
 // ⚖ Quy đổi (chủ quán 26/10): mua theo gì → dùng theo gì; app chỉ ra món cần quy đổi
-export function Conversions({ meta }) {
+export function Conversions({ meta, base = '/api/stock' }) {
   const al = useData('/api/stock/unit-aliases');
   const ru = useData('/api/stock/recipe-use');
   const [q, setQ] = useState('');
@@ -889,7 +889,7 @@ export function Conversions({ meta }) {
   const set = (g, k, x) => setDraft({ ...draft, [g.id]: { ...draft[g.id], [k]: x } });
   const save = async (g) => {
     const body = { unit: String(val(g, 'unit')).trim(), purchase_unit: String(val(g, 'purchase_unit')).trim(), purchase_factor: String(val(g, 'purchase_factor')).replace(',', '.') };
-    if (await act(() => api('PATCH', `/api/stock/ingredients/${g.id}`, body), `Đã lưu ${g.name}`)) { const n = { ...draft }; delete n[g.id]; setDraft(n); }
+    if (await act(() => api('PATCH', `${base}/ingredients/${g.id}`, body), `Đã lưu ${g.name}`)) { const n = { ...draft }; delete n[g.id]; setDraft(n); }
   };
   const aliases = (id) => (al.data || []).filter((a) => a.ingredient_id === id);
   return html`<div class="stack">
@@ -899,9 +899,9 @@ export function Conversions({ meta }) {
       ${list.map((g) => { const dirty = !!draft[g.id]; const f = Number(String(val(g, 'purchase_factor')).replace(',', '.')) || 1; return html`<div class="stack tight" style="border-bottom:1px solid var(--line, #eee);padding-bottom:10px">
         <div class="row between"><b>${g.name}</b>${g.why && !dirty ? html`<span class="pill warn">⚠ Cần quy đổi</span>` : same(g) && !dirty ? html`<span class="pill muted">cùng đơn vị</span>` : html`<small class="ok-text">1 ${val(g, 'purchase_unit') || '?'} = ${f.toLocaleString('vi-VN')} ${val(g, 'unit')}</small>`}</div>
         ${g.why && !dirty ? html`<div class="row between wrap"><small class="warn-text">${g.why}</small>
-          <button class="small" onClick=${() => { const n = prompt(`${g.name}: không cần quy đổi, dùng luôn đơn vị "${g.unit}".\nGhi chú để lần sau hiểu (tuỳ chọn):`, `Dùng nguyên ${g.unit}, không bán lẻ`); if (n !== null) act(() => api('POST', `/api/stock/ingredients/${g.id}/conv-ok`, { ok: true, note: n }), `Đã ghi: ${g.name} không cần quy đổi`); }}>✓ Không cần quy đổi</button></div>` : null}
+          <button class="small" onClick=${() => { const n = prompt(`${g.name}: không cần quy đổi, dùng luôn đơn vị "${g.unit}".\nGhi chú để lần sau hiểu (tuỳ chọn):`, `Dùng nguyên ${g.unit}, không bán lẻ`); if (n !== null) act(() => api('POST', `${base}/ingredients/${g.id}/conv-ok`, { ok: true, note: n }), `Đã ghi: ${g.name} không cần quy đổi`); }}>✓ Không cần quy đổi</button></div>` : null}
         ${g.conv_ok ? html`<div class="row between wrap"><small class="ok-text">✓ Không cần quy đổi${g.conv_note ? ` · 📝 ${g.conv_note}` : ''}</small>
-          <button class="link small" onClick=${() => act(() => api('POST', `/api/stock/ingredients/${g.id}/conv-ok`, { ok: false }), 'Đã bỏ ghi chú')}>Bỏ</button></div>` : null}
+          <button class="link small" onClick=${() => act(() => api('POST', `${base}/ingredients/${g.id}/conv-ok`, { ok: false }), 'Đã bỏ ghi chú')}>Bỏ</button></div>` : null}
         <div class="row wrap tight" style="align-items:center">
           <span class="small">1</span>
           <input id=${`qd-pu-${g.id}`} style="width:6em" placeholder="gói" aria-label="Đơn vị mua" value=${val(g, 'purchase_unit')} onInput=${(e) => set(g, 'purchase_unit', e.target.value)} />
