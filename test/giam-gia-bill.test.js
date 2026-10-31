@@ -40,4 +40,23 @@ test('giảm giá bill: chỉ quản lý / chủ, % hoặc tiền, bắt buộc 
   assert.equal(s.total, before - 20000);
   s = (await o('POST', `/api/pos/sessions/${sid}/discount`, { clear: true })).data;
   assert.equal(s.total, before);
+
+  // Giảm giá nhân viên: thu ngân chọn người mua, đồ ăn 30%, nước (quầy Bar) 50%; phục vụ không áp được
+  const tn = teams.find((x) => x.name === 'Thu ngân').id;
+  await o('POST', '/api/staff', { name: 'Thu ngân A', team_id: tn, pin: '6043' });
+  const st = Object.fromEntries(menu.stations.map((x) => [x.id, x.name]));
+  const drink = menu.items.find((i) => !i.options?.length && /bar|pha chế/i.test(st[i.station_id] || '') && i.price > 0);
+  assert.ok(drink, 'có món quầy Bar');
+  await o('POST', `/api/pos/sessions/${sid}/items`, { menu_item_id: drink.id, qty: 1 });
+  const hau = db.prepare("SELECT id FROM staff WHERE name = 'Hậu'").get().id;
+  const H = mk(); await H('POST', '/api/login', { pin: '4821' });
+  assert.equal((await H('POST', `/api/pos/sessions/${sid}/discount`, { staff_id: hau })).status, 403, 'phục vụ không áp');
+  const T = mk(); await T('POST', '/api/login', { pin: '6043' });
+  assert.ok((await T('GET', '/api/staff/names')).data.some((x) => x.id === hau));
+  assert.equal((await T('POST', `/api/pos/sessions/${sid}/discount`, { type: 'percent', value: 90, reason: 'x' })).status, 403, 'thu ngân không tự nhập %');
+  s = (await T('POST', `/api/pos/sessions/${sid}/discount`, { staff_id: hau })).data;
+  const nv = s.bill_promos.find((p) => p.promo_id === 'staff');
+  assert.ok(nv && /Hậu/.test(nv.name), JSON.stringify(s.bill_promos));
+  assert.equal(nv.amount, Math.round(it.price * 2 * 0.3) + Math.round(drink.price * 0.5));
+  assert.equal((await T('POST', `/api/pos/sessions/${sid}/discount`, { clear: true })).status, 200, 'thu ngân bỏ giảm NV');
 });

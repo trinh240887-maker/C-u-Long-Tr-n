@@ -65,6 +65,10 @@ export default function (r, ctx) {
 
   // Giảm giá riêng từng bill (chủ quán 31/10): chỉ quản lý / chủ; % hoặc số tiền, bắt buộc lý do; tính sau khuyến mãi
   if (!db.prepare('PRAGMA table_info(table_sessions)').all().some((c) => c.name === 'manual_disc')) db.exec("ALTER TABLE table_sessions ADD COLUMN manual_disc TEXT NOT NULL DEFAULT ''");
+  // "Nước" khi giảm giá nhân viên: món ở quầy Bar / Pha chế, hoặc nhóm đồ uống (không tính nước lẩu)
+  const DRINK_CAT = /uống|nước ngọt|nước ép|nước khác|nước suối|giải khát|bia|rượu|trà|cà phê|cafe|coffee|sinh tố|soda|bar/i;
+  const isDrink = (i) => stationNames(i.menu_item_id).some((n) => /bar|pha chế/i.test(n)) || (i.category_id && DRINK_CAT.test(db.prepare('SELECT name FROM menu_categories WHERE id = ?').get(i.category_id)?.name || ''));
+  const isCashierPos = (me) => rank(me.real_role || me.role) >= rank('shift_lead') || !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id || -1);
   function session(id) {
     const s = db.prepare('SELECT s.*, o.name AS opened_by_name FROM table_sessions s LEFT JOIN staff o ON o.id = s.opened_by WHERE s.id = ?').get(id);
     if (!s) fail(404, 'Không tìm thấy bàn');
@@ -79,9 +83,21 @@ export default function (r, ctx) {
     } else if (s.manual_disc) {
       try {
         const m = JSON.parse(s.manual_disc);
+        if (m.type === 'staff') {
+          // Giảm giá nhân viên: món nước (quầy Bar / nhóm đồ uống) giảm % nước, còn lại giảm % đồ ăn — tính trên tiền món sau khuyến mãi
+          const fo = Number(ctx.setting('staff_disc_food') || 30), dr = Number(ctx.setting('staff_disc_drink') || 50);
+          let amt = 0;
+          for (const i of rows.filter((x) => x.status !== 'cancelled')) {
+            const net = i.total - (pr.lines.get(i.id) || []).reduce((n, x) => n + x.amount, 0);
+            amt += Math.round((net * (isDrink(i) ? dr : fo)) / 100);
+          }
+          amt = Math.min(pr.total, amt);
+          if (amt > 0) pr = { ...pr, bill: [...(pr.bill || []), { promo_id: 'staff', name: `Giảm NV: ${m.staff_name} (đồ ăn ${fo}%, nước ${dr}%)`, amount: amt }], discount: pr.discount + amt, total: pr.total - amt };
+          throw 0;
+        }
         const amt = Math.min(pr.total, m.type === 'percent' ? Math.round((pr.total * m.value) / 100) : Math.round(m.value));
         if (amt > 0) pr = { ...pr, bill: [...(pr.bill || []), { promo_id: 'manual', name: `Giảm ${m.type === 'percent' ? `${m.value}%` : 'tay'} (${m.by_name}): ${m.reason}`, amount: amt }], discount: pr.discount + amt, total: pr.total - amt };
-      } catch { /* bỏ qua dữ liệu hỏng */ }
+      } catch (e) { if (e !== 0) console.error("manual_disc", e.message); }
     }
     const items = rows.map((i) => {
       const promos = pr.lines.get(i.id) || [];
@@ -525,8 +541,19 @@ export default function (r, ctx) {
 
   // Tách bàn: chuyển một số món (có thể một phần số lượng) sang bàn khác để tính riêng; không in phiếu
   r.post('/api/pos/sessions/:id/discount', 'staff', ({ me, params, body }) => {
-    if (rank(me.real_role || me.role) < rank('manager')) fail(403, 'Chỉ quản lý / chủ quán giảm giá bill');
     const s0 = openSession(Number(params.id));
+    const boss = rank(me.real_role || me.role) >= rank('manager');
+    if (body.staff_id) {
+      // Thu ngân áp giảm giá nhân viên (chủ quán 31/10): % cố định theo cài đặt, chỉ chọn người mua
+      if (!boss && !isCashierPos(me)) fail(403, 'Chỉ thu ngân / quản lý áp giảm giá nhân viên');
+      const st = db.prepare('SELECT id, name FROM staff WHERE id = ? AND active = 1').get(Number(body.staff_id));
+      if (!st) fail(404, 'Không tìm thấy nhân viên');
+      db.prepare('UPDATE table_sessions SET manual_disc = ? WHERE id = ?').run(JSON.stringify({ type: 'staff', staff_id: st.id, staff_name: st.name, by: me.id, by_name: me.name, at: ctx.now() }), s0.id);
+      ctx.audit(me, 'pos.discount_staff', { session: s0.id, staff: st.id, name: st.name });
+      ctx.broadcast('pos');
+      return session(s0.id);
+    }
+    if (!boss && !(body.clear && isCashierPos(me) && JSON.parse(s0.manual_disc || '{}').type === 'staff')) fail(403, 'Chỉ quản lý / chủ quán giảm giá bill');
     if (body.clear) {
       db.prepare("UPDATE table_sessions SET manual_disc = '' WHERE id = ?").run(s0.id);
       ctx.audit(me, 'pos.discount_clear', { session: s0.id });

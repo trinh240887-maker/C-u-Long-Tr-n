@@ -206,6 +206,8 @@ export default function (r, ctx) {
     }));
   }
 
+  // Chỉ tên nhân viên đang làm (thu ngân chọn người mua khi giảm giá nhân viên)
+  r.get('/api/staff/names', 'staff', () => db.prepare("SELECT id, name FROM staff WHERE active = 1 AND role != 'owner' ORDER BY name").all());
   r.get('/api/staff', 'staff', ({ me, query }) => listStaff(me, { includeInactive: query.get('all') === '1' && rank(me.role) >= rank('manager'), mine: query.get('mine') === '1' }));
 
   // Máy chấm công: "Cho đổi máy" (nhận máy mới bạn ấy vừa thử chấm) hoặc "Gỡ máy" (lần chấm sau gắn máy mới)

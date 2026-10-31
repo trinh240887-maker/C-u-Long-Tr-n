@@ -272,7 +272,7 @@ export function OrderView({ me, query }) {
       </li>`)}</ul>`) : html`<p class="muted">Chưa gửi món nào.</p>`}
       ${!closed && sent.some((i) => i.status !== 'cancelled') && !atLeast(me, 'shift_lead') ? html`<small class="muted">Khách muốn huỷ món đã gửi bếp: bấm <b>Xin huỷ</b>, ghi lý do → trưởng ca / quản lý duyệt.</small>` : null}
       <${Totals} s=${s} />
-      ${!closed && ['manager', 'owner'].includes(me.real_role || me.role) ? html`<${BillDiscount} s=${s} />` : null}
+      ${!closed ? html`<${BillDiscount} s=${s} me=${me} />` : null}
     </section>` : null}
 
     ${!closed ? html`<div class="cart-bar">
@@ -336,14 +336,27 @@ function NoteInput({ item }) {
 }
 
 // ✂ Giảm giá bill (chủ quán 31/10): chỉ quản lý / chủ; % hoặc số tiền + lý do; tính sau khuyến mãi
-function BillDiscount({ s }) {
+function BillDiscount({ s, me }) {
   const [f, setF] = useState(null);
+  const [nv, setNv] = useState(null);
+  const boss = ['manager', 'owner'].includes(me.real_role || me.role);
+  const cashier = boss || atLeast(me, 'shift_lead') || /thu ngân/i.test(me.team?.name || '');
+  const staffList = useData(nv ? '/api/staff/names' : null);
+  const isNv = (s.bill_promos || []).find((p) => p.promo_id === 'staff');
   const cur = (s.bill_promos || []).find((p) => p.promo_id === 'manual');
+  if (!boss && !cashier) return null;
+  if (!boss) return html`<div class="row wrap tight">
+    <button class="small" onClick=${() => setNv('')}>👤 ${isNv ? 'Đổi nhân viên' : 'Giảm giá nhân viên'}</button>
+    ${isNv ? html`<button class="small" onClick=${() => confirm('Bỏ giảm giá nhân viên?') && act(() => api('POST', `/api/pos/sessions/${s.id}/discount`, { clear: true }), 'Đã bỏ')}>Bỏ</button>` : null}
+    ${nv != null ? html`<${NvPick} s=${s} list=${staffList} q=${nv} setQ=${setNv} />` : null}</div>`;
   const base = (s.total ?? s.subtotal) + (cur?.amount || 0);
   const val = f ? Number(String(f.value).replace(/[.\s]/g, '').replace(',', '.')) || 0 : 0;
   const amt = f ? Math.min(base, f.type === 'percent' ? Math.round((base * val) / 100) : val) : 0;
   return html`<div class="row wrap tight">
     <button class="small" onClick=${() => setF({ type: 'percent', value: '', reason: '' })}>✂ ${cur ? 'Sửa giảm giá' : 'Giảm giá bill'}</button>
+    <button class="small" onClick=${() => setNv('')}>👤 Giảm giá nhân viên</button>
+    ${isNv ? html`<button class="small" onClick=${() => confirm('Bỏ giảm giá nhân viên?') && act(() => api('POST', `/api/pos/sessions/${s.id}/discount`, { clear: true }), 'Đã bỏ')}>Bỏ giảm NV</button>` : null}
+    ${nv != null ? html`<${NvPick} s=${s} list=${staffList} q=${nv} setQ=${setNv} />` : null}
     ${cur ? html`<button class="small" onClick=${() => confirm('Bỏ giảm giá bill này?') && act(() => api('POST', `/api/pos/sessions/${s.id}/discount`, { clear: true }), 'Đã bỏ giảm giá')}>Bỏ giảm giá</button>` : null}
     ${f ? html`<${Modal} title=${`✂ Giảm giá bill ${s.header || ''}`} onClose=${() => setF(null)}><div class="stack">
       <div class="chips"><button class=${`chip ${f.type === 'percent' ? 'on' : ''}`} onClick=${() => setF({ ...f, type: 'percent' })}>Giảm %</button><button class=${`chip ${f.type === 'amount' ? 'on' : ''}`} onClick=${() => setF({ ...f, type: 'amount' })}>Giảm số tiền</button></div>
@@ -354,4 +367,16 @@ function BillDiscount({ s }) {
       <button class="primary" disabled=${!(amt > 0) || !f.reason.trim()} onClick=${async () => { if (await act(() => api('POST', `/api/pos/sessions/${s.id}/discount`, { type: f.type, value: val, reason: f.reason }), 'Đã giảm giá bill')) setF(null); }}>Áp dụng</button>
     </div><//>` : null}
   </div>`;
+}
+
+// Chọn nhân viên mua (giảm giá nhân viên: đồ ăn 30%, nước 50% — cố định, thu ngân không tự nhập %)
+function NvPick({ s, list, q, setQ }) {
+  const f = (x) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase();
+  const all = Array.isArray(list.data) ? list.data : [];
+  const hits = all.filter((x) => !q || f(x.name).includes(f(q))).slice(0, 12);
+  return html`<${Modal} title="👤 Giảm giá nhân viên" onClose=${() => setQ(null)}><div class="stack">
+    <small class="muted">Đồ ăn giảm 30%, nước giảm 50%. Bill ghi "Giảm NV: tên".</small>
+    <input type="search" placeholder="🔍 Tên nhân viên mua" value=${q} onInput=${(e) => setQ(e.target.value)} />
+    ${!list.data ? html`<${Loading} state=${list} />` : html`<div class="chips">${hits.map((x) => html`<button class="chip big" onClick=${async () => { if (await act(() => api('POST', `/api/pos/sessions/${s.id}/discount`, { staff_id: x.id }), `Đã giảm giá NV ${x.name}`)) setQ(null); }}>${x.name}</button>`)}</div>`}
+  </div><//>`;
 }
