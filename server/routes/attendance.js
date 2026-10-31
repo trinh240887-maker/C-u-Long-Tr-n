@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { tx, rank, ROLE_LABEL } from '../db.js';
-import { addDays, isDate, fmtHM } from '../lib/time.js';
+import { addDays, isDate, fmtHM, weekStart, isoWeekday } from '../lib/time.js';
 import { readTimesheet, billReaderKey } from '../lib/bill-reader.js';
 import { rangeOf } from '../lib/schedule.js';
 import { computeTimesheet } from '../lib/payroll.js';
@@ -614,16 +614,96 @@ export default function (r, ctx) {
     const active = new Set(staff.filter((s) => s.active).map((s) => s.id));
     const teamNames = new Map(db.prepare('SELECT id, name FROM teams').all().map((x) => [x.id, x.name]));
     const teamName = (sid) => teamNames.get(staff.find((x) => x.id === sid)?.team_id) || '';
+    const partIds = new Set(db.prepare('SELECT id, pay_type, work_type FROM staff').all().filter((x) => isPart(x)).map((x) => x.id));
     return {
       month, from, to, period_start_day: sd,
       night_bonus_pct: num('night_bonus_pct', 0),
       month_standard_days: stdDays, old_standard_days: num('month_standard_days', 26), month_days: monthDays, paid_off_days: paidOff, ot_daily_hours: otH, ot_rate: otRate,
       rows: rows
         .map((row) => ({ ...row, team_name: teamName(row.staff_id), role_label: [ROLE_LABEL[staff.find((x) => x.id === row.staff_id)?.role] || '', staff.find((x) => x.id === row.staff_id)?.position_name || ''].filter(Boolean).join(' · '), late_count: statBy.get(row.staff_id)?.late_count || 0, late_minutes: statBy.get(row.staff_id)?.late_minutes || 0,
-          auto_closed: statBy.get(row.staff_id)?.auto_closed || 0, absent: absentBy.get(row.staff_id) || 0 }))
-        .filter((row) => active.has(row.staff_id) || row.minutes > 0),
-      total_pay: rows.reduce((s, x) => s + x.pay, 0),
+          auto_closed: statBy.get(row.staff_id)?.auto_closed || 0, absent: absentBy.get(row.staff_id) || 0,
+          // Part-time đã trả theo tuần trong kỳ (chủ quán 31/10) → bảng tháng trừ ra, khỏi trả 2 lần
+          paid_weekly: (() => { try { return db.prepare('SELECT COALESCE(SUM(amount), 0) AS t FROM payroll_week_paid WHERE staff_id = ? AND week_start BETWEEN ? AND ?').get(row.staff_id, addDays(from, -6), to).t; } catch { return 0; } })() }))
+        .filter((row) => active.has(row.staff_id) || row.minutes > 0)
+        .filter((row) => !partIds.has(row.staff_id)), // chủ quán 31/10: part-time tính ở Lương tuần, bảng tháng chỉ full-time
+      part_count: partIds.size,
+      total_pay: rows.filter((x) => !partIds.has(x.staff_id)).reduce((s, x) => s + x.pay, 0),
       can_see_pay: rank(me.role) >= rank('manager'),
     };
   });
+
+  // ================= Lương part-time theo tuần (chủ quán 31/10) =================
+  // Part-time = phục vụ chưa có khu cố định, hoặc loại ca "Part-time", lương theo giờ. Tuần T2–CN; giờ thật theo chấm công × lương giờ.
+  // Ngày trả: chủ quán chọn (setting part_pay_day: 'sun' = tối CN cuối tuần, 'mon' = T2 tuần sau). Trả xong bấm "Đã trả" → ghi phiếu chi lương.
+  db.exec('CREATE TABLE IF NOT EXISTS payroll_week_paid (week_start TEXT NOT NULL, staff_id INTEGER NOT NULL, amount INTEGER NOT NULL, minutes INTEGER NOT NULL DEFAULT 0, method TEXT NOT NULL, by_id INTEGER, at INTEGER NOT NULL, expense_id INTEGER, PRIMARY KEY (week_start, staff_id))');
+  const isPart = (x) => x.pay_type === 'hour' && (x.work_type === 'part' || ctx.pvKind?.(x.id) === 'part');
+  const canPayWeek = (me) => rank(me.real_role || me.role) >= rank('shift_lead') || !!db.prepare("SELECT 1 FROM teams WHERE id = ? AND name = 'Thu ngân'").get(me.team_id || -1);
+  function weekPay(ws) {
+    const we = addDays(ws, 6);
+    ctx.autoCloseAttendance?.();
+    const staff = db.prepare('SELECT s.id, s.name, s.pay_type, s.pay_rate, s.team_id, s.work_type, s.active, s.role, t.name AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id ORDER BY s.name').all()
+      .map((x) => { const h = ctx.payForMonth?.(x.id, ws.slice(0, 7)); return { ...x, ...(h ? { pay_type: h.pay_type, pay_rate: h.pay_rate } : {}), rule: false }; })
+      .filter(isPart);
+    const ids = new Set(staff.map((x) => x.id));
+    const recs = ctx.payRecords(db.prepare('SELECT at.* FROM attendance at WHERE at.date BETWEEN ? AND ?').all(ws, we).filter((r) => ids.has(r.staff_id)));
+    const rows = new Map(computeTimesheet(recs, staff, ctx.clock(), { nightBonusPct: num('night_bonus_pct', 0), monthStandardDays: num('month_standard_days', 26), otRoundMinutes: num('ot_round_minutes', 30) }).map((x) => [x.staff_id, x]));
+    const paid = new Map(db.prepare('SELECT p.*, s.name AS by_name FROM payroll_week_paid p LEFT JOIN staff s ON s.id = p.by_id WHERE p.week_start = ?').all(ws).map((x) => [x.staff_id, x]));
+    const people = staff.map((x) => { const r = rows.get(x.id) || {}; return { staff_id: x.id, name: x.name, team_name: x.team_name || '', rate: x.pay_rate, minutes: Math.round(r.minutes || 0), shifts: r.shifts || 0, open: r.open_records || 0, pay: Math.round(r.pay || 0), paid: paid.get(x.id) || null }; })
+      .filter((x) => x.minutes > 0 || x.paid || staff.find((y) => y.id === x.staff_id)?.active);
+    const day = ctx.setting('part_pay_day') || 'sun';
+    return { week_start: ws, week_end: we, pay_day: day, pay_date: day === 'mon' ? addDays(ws, 7) : we, people,
+      total: people.reduce((n, x) => n + x.pay, 0), unpaid: people.filter((x) => x.pay > 0 && !x.paid).reduce((n, x) => n + x.pay, 0) };
+  }
+  ctx.partWeekPay = weekPay;
+  r.get('/api/payroll/week', 'staff', ({ me, query }) => {
+    const ws = weekStart(query.get('week') && isDate(query.get('week')) ? query.get('week') : addDays(ctx.today(), (ctx.setting('part_pay_day') || 'sun') === 'mon' ? -7 : 0));
+    const d = weekPay(ws);
+    if (canPayWeek(me)) return d;
+    // Nhân viên: chỉ phiếu lương tuần của mình
+    return { ...d, people: d.people.filter((x) => x.staff_id === me.id), total: undefined, unpaid: undefined, mine: true };
+  });
+  r.post('/api/payroll/week/pay', 'staff', ({ me, body }) => {
+    if (!canPayWeek(me)) fail(403, 'Chỉ thu ngân / trưởng ca / quản lý trả lương tuần');
+    if (!isDate(body.week)) fail(400, 'Tuần không hợp lệ');
+    const ws = weekStart(body.week);
+    const sid = v.int(body.staff_id, { min: 1, name: 'Nhân viên' });
+    if (body.undo) {
+      const old = db.prepare('SELECT * FROM payroll_week_paid WHERE week_start = ? AND staff_id = ?').get(ws, sid);
+      if (old) tx(db, () => { if (old.expense_id) db.prepare("UPDATE expenses SET status = 'void' WHERE id = ?").run(old.expense_id); db.prepare('DELETE FROM payroll_week_paid WHERE week_start = ? AND staff_id = ?').run(ws, sid); });
+      ctx.audit(me, 'payroll.week_unpay', { week: ws, staff: sid });
+      return weekPay(ws);
+    }
+    const row = weekPay(ws).people.find((x) => x.staff_id === sid);
+    if (!row) fail(404, 'Không phải part-time trong tuần này');
+    if (row.paid) fail(409, 'Đã trả rồi');
+    const method = v.oneOf(body.method, ['cash', 'transfer'], { name: 'Cách trả' });
+    const amount = body.amount == null || body.amount === '' ? row.pay : v.int(Number(String(body.amount).replace(/\D/g, '')), { min: 0, max: 100_000_000, name: 'Số tiền' });
+    tx(db, () => {
+      let eid = null;
+      try {
+        if (amount > 0) eid = Number(db.prepare("INSERT INTO expenses (date, amount, source, category, note, photo, status, created_by, created_at, approved_by, approved_at) VALUES (?, ?, ?, 'Lương / thưởng / tạm ứng', ?, '', 'done', ?, ?, ?, ?)")
+          .run(ctx.today(), amount, method === 'cash' ? 'drawer' : 'bank', `Lương part-time tuần ${ws.slice(8)}/${ws.slice(5, 7)}: ${row.name} (${Math.round(row.minutes / 6) / 10} giờ)`, me.id, ctx.now(), me.id, ctx.now()).lastInsertRowid);
+      } catch { /* chưa có bảng phiếu chi */ }
+      db.prepare('INSERT INTO payroll_week_paid (week_start, staff_id, amount, minutes, method, by_id, at, expense_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(ws, sid, amount, row.minutes, method, me.id, ctx.now(), eid);
+    });
+    ctx.notify([sid], { title: `Đã nhận lương tuần ${ws.slice(8)}/${ws.slice(5, 7)}: ${amount.toLocaleString('vi-VN')}đ`, body: `${Math.round(row.minutes / 6) / 10} giờ · ${method === 'cash' ? 'tiền mặt' : 'chuyển khoản'}`, link: '/cham-cong?tab=luong-tuan' });
+    ctx.audit(me, 'payroll.week_pay', { week: ws, staff: sid, amount, method });
+    return weekPay(ws);
+  });
+  // Nhắc trả lương part-time vào ngày chủ quán chọn (tối CN 20:00 hoặc T2 10:00)
+  ctx.partPayTick = () => {
+    const c = ctx.clock(), n = ctx.now(), date = c.dateOf(n);
+    const day = ctx.setting('part_pay_day') || 'sun';
+    const dow = isoWeekday(date);
+    if ((day === 'sun' && (dow !== 7 || c.minuteOf(n) < 20 * 60)) || (day === 'mon' && (dow !== 1 || c.minuteOf(n) < 10 * 60))) return;
+    const key = `part_pay_remind:${date}`;
+    if (ctx.setting(key)) return;
+    ctx.setSetting(key, '1');
+    const ws = day === 'mon' ? addDays(weekStart(date), -7) : weekStart(date);
+    const d = weekPay(ws);
+    const due = d.people.filter((x) => x.pay > 0 && !x.paid);
+    if (!due.length) return;
+    const to = db.prepare("SELECT id FROM staff WHERE active = 1 AND (role IN ('owner','manager','shift_lead') OR team_id IN (SELECT id FROM teams WHERE name = 'Thu ngân'))").all().map((x) => x.id);
+    ctx.notify(to, { title: `Trả lương part-time tuần ${ws.slice(8)}/${ws.slice(5, 7)}: ${due.length} người, ${d.unpaid.toLocaleString('vi-VN')}đ`, body: due.map((x) => `• ${x.name}: ${Math.round(x.minutes / 6) / 10} giờ = ${x.pay.toLocaleString('vi-VN')}đ`).join('\n'), link: '/cham-cong?tab=luong-tuan', urgent: true });
+  };
 }

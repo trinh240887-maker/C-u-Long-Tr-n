@@ -55,7 +55,7 @@ hourly();
 const timers = [
   setInterval(backup, 3600_000),
   setInterval(() => safe('zaloBotPoll'), 3_000), // bot đọc tin liên tục (mỗi lần chờ tới 25 giây, không chạy chồng)
-  setInterval(runAll(['printTick', 'bookingGuardTick', 'waitTick', 'purchaseReportTick', 'availBotTick', 'stockCountRemindTick', 'utensilCountTick', 'jobsTick', 'openingTick', 'lossAlertTick', 'arriveRemindTick', 'jobsLeftTick']), 60_000),
+  setInterval(runAll(['printTick', 'bookingGuardTick', 'waitTick', 'purchaseReportTick', 'availBotTick', 'stockCountRemindTick', 'utensilCountTick', 'jobsTick', 'openingTick', 'lossAlertTick', 'arriveRemindTick', 'jobsLeftTick', 'partPayTick']), 60_000),
   setInterval(runAll(['autoCloseAttendance', 'syncPay', 'payTick', 'reviewTick', 'laborWeeklyTick', 'bookingTick']), 5 * 60_000),
   setInterval(hourly, 3600_000),
 ];

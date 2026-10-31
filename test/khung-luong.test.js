@@ -53,6 +53,7 @@ test('khung lương bộ phận × chức vụ: chỉ chủ sửa; NV theo khung
   at('2026-10-28', '10:00', '15:00');
   assert.equal((await o('PATCH', `/api/staff/${ngocAnh}`, { role: 'team_lead', role_from: '2026-11-02' })).status, 400); // không chọn ngày tương lai
   assert.equal((await o('PATCH', `/api/staff/${ngocAnh}`, { role: 'team_lead', role_from: '2026-10-28' })).status, 200);
+  { const z = db.prepare('SELECT id FROM zones ORDER BY id LIMIT 1').get()?.id ?? Number(db.prepare("INSERT INTO zones (name) VALUES ('Khu A')").run().lastInsertRowid); db.prepare("UPDATE staff SET home_zone_id = ? WHERE home_zone_id IS NULL AND team_id IN (SELECT id FROM teams WHERE name = 'Phục vụ')").run(z); } // phục vụ có khu = full-time → vào bảng lương tháng (part-time ở Lương tuần)
   const ts = (await o('GET', '/api/timesheet?month=2026-10')).data;
   const row = ts.rows.find((x) => x.staff_id === ngocAnh);
   assert.equal(row.pay, 5 * 20000 + 5 * 26000);

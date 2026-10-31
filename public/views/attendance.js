@@ -213,6 +213,7 @@ function Timesheet({ me }) {
   const st = useData(`/api/timesheet${month ? `?month=${month}` : ''}`);
   const shiftMonth = (n) => { const [y, m] = (month || st.data?.month || me.today.slice(0, 7)).split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); setMonth(d.toISOString().slice(0, 7)); };
   return html`<div class="stack">
+    ${st.data?.part_count ? html`<p class="small muted">⏱ ${st.data.part_count} nhân viên part-time tính lương ở mục <a href="/cham-cong?tab=luong-tuan">💵 Lương tuần part-time</a>, không nằm trong bảng tháng.</p>` : null}
     <div class="row between wrap">
       <div class="row">
         <button class="icon" aria-label="Tháng trước" onClick=${() => shiftMonth(-1)}>‹</button>
@@ -242,7 +243,7 @@ function Timesheet({ me }) {
         <td class="r num">${r.ot_minutes ? html`<b>${hours(r.ot_minutes)}</b>${r.ot_manual ? html` <small class="warn-text">ghi tay</small>` : null}${r.ot_pay ? html`<br /><small class="muted">+${money(r.ot_pay)}</small>` : null}` : '—'}
           ${r.ot_note ? html`<br /><small class="muted">📝 ${r.ot_note}</small>` : null}
           <br /><button class="link small" onClick=${() => setAdj({ staff_id: r.staff_id, name: r.name, ot_hours: r.ot_manual ? String(r.ot_minutes / 60).replace('.', ',') : '', note: r.ot_note || '', auto: r.ot_manual ? null : r.ot_minutes })}>✏️ Ghi vượt giờ</button></td>
-        <td class="r num"><b>${money(r.pay)}</b>${r.ot_pay ? html`<br /><small class="muted">${money(r.base_pay)} + ${money(r.ot_pay)}</small>` : null}</td>
+        <td class="r num"><b>${money(r.pay)}</b>${r.ot_pay ? html`<br /><small class="muted">${money(r.base_pay)} + ${money(r.ot_pay)}</small>` : null}${r.paid_weekly ? html`<br /><small class="ok-text">đã trả tuần ${money(r.paid_weekly)}</small><br /><small>còn ${money(Math.max(0, r.pay - r.paid_weekly))}</small>` : null}</td>
       </tr>`)])}</tbody></table></div>
       ${adj ? html`<${Modal} title=${`Vượt giờ kỳ ${st.data.from.slice(8)}/${st.data.from.slice(5, 7)}: ${adj.name}`} onClose=${() => setAdj(null)}>
         <div class="stack">
@@ -314,8 +315,43 @@ export function AttendanceView({ me, query }) {
     <div class="tabs">
       <button class=${tab === 'ngay' ? 'on' : ''} onClick=${() => navigate('/cham-cong')}>Theo ngày</button>
       <button class=${tab === 'tuan' ? 'on' : ''} onClick=${() => navigate('/cham-cong?tab=tuan')}>Bảng tuần</button>
+      <button class=${tab === 'luong-tuan' ? 'on' : ''} onClick=${() => navigate('/cham-cong?tab=luong-tuan')}>💵 Lương tuần part-time</button>
       ${atLeast(me, 'manager') ? html`<button class=${tab === 'bang-cong' ? 'on' : ''} onClick=${() => navigate('/cham-cong?tab=bang-cong')}>Bảng công & lương</button>` : null}
     </div>
-    ${tab === 'bang-cong' && atLeast(me, 'manager') ? html`<${Timesheet} me=${me} />` : tab === 'tuan' ? html`<${WeekBoard} me=${me} />` : html`<${Records} me=${me} />`}
+    ${tab === 'luong-tuan' ? html`<${PartWeekPay} me=${me} />` : tab === 'bang-cong' && atLeast(me, 'manager') ? html`<${Timesheet} me=${me} />` : tab === 'tuan' ? html`<${WeekBoard} me=${me} />` : html`<${Records} me=${me} />`}
+  </div>`;
+}
+
+// 💵 Lương part-time theo tuần (chủ quán 31/10): giờ chấm công × lương giờ, trả tối CN hoặc T2 tuần sau (chủ quán chọn)
+function PartWeekPay({ me }) {
+  const [week, setWeek] = useState('');
+  const d0 = useData(`/api/payroll/week${week ? `?week=${week}` : ''}`);
+  const [pay, setPay] = useState(null);
+  if (!d0.data) return html`<${Loading} state=${d0} />`;
+  const d = d0.data;
+  const dm = (x) => `${x.slice(8)}/${x.slice(5, 7)}`;
+  const hrs = (m) => `${Math.round(m / 6) / 10} giờ`;
+  const owner = (me.real_role || me.role) === 'owner';
+  const add7 = (x, n) => { const t = new Date(`${x}T00:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+  return html`<div class="stack">
+    <div class="row between wrap"><div class="row"><button class="icon" aria-label="Tuần trước" onClick=${() => setWeek(add7(d.week_start, -7))}>‹</button>
+      <b>Tuần ${dm(d.week_start)} – ${dm(d.week_end)}</b><button class="icon" aria-label="Tuần sau" onClick=${() => setWeek(add7(d.week_start, 7))}>›</button></div>
+      <small class="muted">Trả: ${d.pay_day === 'mon' ? 'T2' : 'tối CN'} ${dm(d.pay_date)}</small></div>
+    ${owner ? html`<div class="row wrap tight" style="align-items:center"><small>Ngày trả lương part-time:</small>${[['sun', 'Tối chủ nhật'], ['mon', 'Thứ 2 tuần sau']].map(([k, l]) => html`<button class=${`chip ${d.pay_day === k ? 'on' : ''}`} onClick=${() => d.pay_day !== k && act(() => api('PUT', '/api/settings', { part_pay_day: k }), `Đã chọn trả ${l.toLowerCase()}`)}>${l}</button>`)}</div>` : null}
+    ${d.total != null ? html`<section class="card row between wrap"><span>Tổng tuần: <b>${money(d.total)}</b></span><span>Còn phải trả: <b class=${d.unpaid ? 'warn-text' : 'ok-text'}>${money(d.unpaid)}</b></span></section>` : null}
+    ${!d.people.length ? html`<div class="empty">${d.mine ? 'Bạn không phải part-time hoặc tuần này chưa có giờ làm.' : 'Không có part-time nào tuần này.'}</div>` : null}
+    ${d.people.map((x) => html`<section class="card row between wrap" style="align-items:center">
+      <span><b>${x.name}</b> <small class="muted">${x.team_name}</small><br /><small>${hrs(x.minutes)} · ${x.shifts} ca · ${money(x.rate)}/giờ${x.open ? html` · <span class="warn-text">${x.open} lần chưa chấm ra</span>` : ''}</small></span>
+      <span class="stack tight" style="align-items:flex-end"><b class="num">${money(x.pay)}</b>
+        ${x.paid ? html`<small class="ok-text">✓ Đã trả ${money(x.paid.amount)} · ${x.paid.method === 'cash' ? 'TM' : 'CK'} · ${x.paid.by_name || ''}</small>${!d.mine ? html`<button class="link small" onClick=${() => confirm(`Huỷ ghi đã trả cho ${x.name}?`) && act(() => api('POST', '/api/payroll/week/pay', { week: d.week_start, staff_id: x.staff_id, undo: true }), 'Đã huỷ')}>huỷ</button>` : null}`
+          : !d.mine && x.pay > 0 ? html`<button class="primary small" onClick=${() => setPay({ x, method: 'cash', amount: String(x.pay) })}>💵 Trả</button>` : null}</span>
+    </section>`)}
+    ${pay ? html`<${Modal} title=${`Trả lương tuần: ${pay.x.name}`} onClose=${() => setPay(null)}><div class="stack">
+      <small>${hrs(pay.x.minutes)} × ${money(pay.x.rate)} = <b>${money(pay.x.pay)}</b></small>
+      <div class="chips">${[['cash', '💵 Tiền mặt (từ két)'], ['transfer', '🏦 Chuyển khoản']].map(([k, l]) => html`<button class=${`chip ${pay.method === k ? 'on' : ''}`} onClick=${() => setPay({ ...pay, method: k })}>${l}</button>`)}</div>
+      <${Field} label="Số tiền trả"><input inputmode="numeric" value=${pay.amount} onInput=${(e) => setPay({ ...pay, amount: e.target.value })} /><//>
+      <button class="primary" onClick=${async () => { if (await act(() => api('POST', '/api/payroll/week/pay', { week: d.week_start, staff_id: pay.x.staff_id, method: pay.method, amount: pay.amount }), 'Đã ghi trả lương')) setPay(null); }}>Xác nhận đã trả</button>
+    </div><//>` : null}
+    <p class="small muted">Giờ tính theo chấm công thật (sau khi làm tròn). Trả xong app ghi phiếu chi "Lương", báo bạn đó. Ai chưa chấm ra thì sửa ở mục Theo ngày trước khi trả.</p>
   </div>`;
 }

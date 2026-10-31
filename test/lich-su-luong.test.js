@@ -32,6 +32,7 @@ test('lương đổi theo tháng: tháng 10 23k/giờ, đặt trước từ thá
   const st = (await O('GET', '/api/staff')).data.find((x) => x.id === id);
   assert.equal(st.pay_rate, 23000); // tháng này vẫn 23k
   assert.deepEqual(st.pay_history.map((h) => [h.from_month, h.pay_rate]), [['2026-11', 20000]]);
+  { const z = db.prepare('SELECT id FROM zones ORDER BY id LIMIT 1').get()?.id ?? Number(db.prepare("INSERT INTO zones (name) VALUES ('Khu A')").run().lastInsertRowid); db.prepare("UPDATE staff SET home_zone_id = ? WHERE home_zone_id IS NULL AND team_id IN (SELECT id FROM teams WHERE name = 'Phục vụ')").run(z); } // phục vụ có khu = full-time → vào bảng lương tháng (part-time ở Lương tuần)
   const oct = (await O('GET', '/api/timesheet?month=2026-10')).data.rows.find((r) => r.staff_id === id);
   const nov = (await O('GET', '/api/timesheet?month=2026-11')).data.rows.find((r) => r.staff_id === id);
   assert.equal(oct.pay_rate, 23000);

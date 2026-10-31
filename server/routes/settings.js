@@ -9,7 +9,7 @@ import { loadPerms, ROLES_EDITABLE, PAGES, actsOf } from '../lib/perms.js';
 import { ACT_GROUPS, ACTS, loadUserActs } from '../lib/acts.js';
 
 const SECRET_KEYS = ['zalo_secret_key', 'zalo_access_token', 'zalo_refresh_token', 'anthropic_api_key', 'zalo_bot_token'];
-const OWNER_ONLY = ['ot_daily_hours', 'ot_rate', 'ot_hour_days', 'ot_hour_hours', 'month_paid_off_days', 'night_bonus_pct', 'anthropic_api_key', 'zalo_bot_token', 'zalo_bot_group_id', 'zalo_bot_group_name', 'zalo_bot_staff_group_id', 'zalo_bot_staff_group_name', 'avail_bot_on', 'avail_bot_teams']; // mã tốn tiền / điều khiển bot: chỉ chủ quán dán
+const OWNER_ONLY = ['part_pay_day', 'ot_daily_hours', 'ot_rate', 'ot_hour_days', 'ot_hour_hours', 'month_paid_off_days', 'night_bonus_pct', 'anthropic_api_key', 'zalo_bot_token', 'zalo_bot_group_id', 'zalo_bot_group_name', 'zalo_bot_staff_group_id', 'zalo_bot_staff_group_name', 'avail_bot_on', 'avail_bot_teams']; // mã tốn tiền / điều khiển bot: chỉ chủ quán dán
 const FIELDS = {
   shop_name: (x) => v.text(x, { name: 'Tên quán', required: true, max: 80 }),
   shop_address: (x) => v.text(x, { name: 'Địa chỉ quán', max: 160 }),
@@ -74,6 +74,8 @@ const FIELDS = {
   pay_period_start_day: (x) => String(v.int(x, { min: 1, max: 28, name: 'Ngày bắt đầu kỳ lương' })),
   month_paid_off_days: (x) => String(v.int(x, { min: 0, max: 15, name: 'Ngày nghỉ có lương' })),
   ot_daily_hours: (x) => String(v.int(x, { min: 0, max: 16, name: 'Giờ chuẩn / ngày' })),
+  part_pay_day: (x) => v.oneOf(String(x), ['sun', 'mon'], { name: 'Ngày trả lương part-time' }), // chủ quán 31/10: tối CN hoặc T2 tuần sau
+  pv_part_shift: (x) => { const t = String(x).trim(); if (!/^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-4]):[0-5]\d$/.test(t)) fail(400, 'Ca part-time dạng 18:00-23:00'); return t; },
   ot_hour_days: (x) => String(v.int(x === null || x === '' ? 0 : x, { min: 0, max: 31, name: 'Số ngày chia giá 1 giờ' })),
   ot_hour_hours: (x) => String(v.int(x === null || x === '' ? 0 : x, { min: 0, max: 16, name: 'Số giờ chia giá 1 giờ' })),
   ot_rate: (x) => { const n = Number(String(x).replace(',', '.')); if (!(n >= 1 && n <= 4)) fail(400, 'Hệ số vượt giờ từ 1 đến 4'); return String(n); },

@@ -51,6 +51,7 @@ test('lương trong khung ca: vào sớm không tính, về sớm trừ + báo, 
   assert.equal(d2.ot_minutes, 40);
   assert.equal(d2.ot_status, '');
   assert.equal(d2.paid_minutes, 540);
+  { const z = db.prepare('SELECT id FROM zones ORDER BY id LIMIT 1').get()?.id ?? Number(db.prepare("INSERT INTO zones (name) VALUES ('Khu A')").run().lastInsertRowid); db.prepare("UPDATE staff SET home_zone_id = ? WHERE home_zone_id IS NULL AND team_id IN (SELECT id FROM teams WHERE name = 'Phục vụ')").run(z); } // phục vụ có khu = full-time → vào bảng lương tháng (part-time ở Lương tuần)
   const pay = async () => (await o('GET', '/api/timesheet?month=2026-10')).data.rows.find((r) => r.staff_id === id);
   let p = await pay();
   assert.equal(p.minutes, 510 + 540);
