@@ -123,8 +123,11 @@ function StaffForm({ me, init, teams, positions = [], onClose }) {
       ${zones.length ? html`<${Field} label="Khu cố định" hint="Người làm full 14–23 giữ 1 khu: mọi ca từ hôm nay và tuần sau tự vào khu này. Để trống = phân khu theo tuần"><select id="st-homezone" value=${f.home_zone_id} onChange=${(e) => set('home_zone_id', e.target.value ? Number(e.target.value) : '')}>
         <option value="">(không cố định)</option>${zones.map((z) => html`<option value=${z.id}>${z.name}</option>`)}</select><//>` : null}
       <${Field} label="Giới tính" hint="Việc chỉ nữ / chỉ nam (vd kiểm tra nhà vệ sinh nữ) chỉ giao đúng người"><div class="chips">${[['', 'Chưa ghi'], ['nu', 'Nữ'], ['nam', 'Nam']].map(([k, l]) => html`<button type="button" class=${`chip ${f.gender === k ? 'on' : ''}`} onClick=${() => set('gender', k)}>${l}</button>`)}</div><//>
-      <${Field} label="Loại ca" hint="Hiện cạnh tên ở Lịch ca → Bảng tuần"><select id="st-worktype" value=${f.work_type} onChange=${(e) => set('work_type', e.target.value)}>
-        <option value="">(chưa chọn)</option><option value="full">Full ca</option><option value="gay">Ca gãy</option><option value="part">Part-time</option></select><//>
+      <${Field} label="Hình thức làm việc" hint="Full-time: lịch cố định, lương tháng, bot không ghi lịch rảnh. Part-time: báo lịch rảnh (phục vụ chỉ ca tối 18–23), lương theo giờ trả hằng tuần"><div class="chips">
+        <button type="button" class=${`chip big ${f.work_type !== 'part' ? 'on' : ''}`} onClick=${() => set('work_type', f.work_type === 'part' ? 'full' : f.work_type)}>🔒 Full-time</button>
+        <button type="button" class=${`chip big ${f.work_type === 'part' ? 'on' : ''}`} onClick=${() => set('work_type', 'part')}>⏱ Part-time</button></div><//>
+      ${f.work_type !== 'part' ? html`<${Field} label="Loại ca (full-time)" hint="Hiện cạnh tên ở Lịch ca → Bảng tuần"><select id="st-worktype" value=${f.work_type} onChange=${(e) => set('work_type', e.target.value)}>
+        <option value="">(chưa chọn)</option><option value="full">Full ca 14–23</option><option value="gay">Ca gãy</option></select><//>` : null}
       ${isOwner ? html`<${Field} label="Lương" hint="Theo khung: tự lấy mức của bộ phận × chức vụ (Cài đặt → Khung lương). Lương riêng: chỉ cho người có đặc quyền">
         <div class="chips"><button type="button" class=${`chip ${!f.pay_custom ? 'on' : ''}`} onClick=${() => set('pay_custom', false)}>Theo khung</button><button type="button" class=${`chip ${f.pay_custom ? 'on' : ''}`} onClick=${() => set('pay_custom', true)}>Lương riêng</button></div><//>` : null}
       ${!f.pay_custom ? html`<${Field} label="Lương theo khung"><div class="muted small" style="padding-top:8px">${scaleText}</div><//>`
