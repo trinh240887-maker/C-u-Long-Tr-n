@@ -27,7 +27,7 @@ test('lương part-time theo tuần: giờ chấm công × lương giờ, thu ng
   const mai = (await o('POST', '/api/staff', { name: 'Mai Part', team_id: pv, pin: '4821', pay_type: 'hour', pay_rate: 25000 })).data.id;
   const lan = (await o('POST', '/api/staff', { name: 'Lan Full', team_id: pv, pin: '5932', pay_type: 'hour', pay_rate: 25000 })).data.id;
   db.prepare('UPDATE staff SET pay_type = ?, pay_rate = ? WHERE id IN (?, ?)').run('hour', 25000, mai, lan);
-  db.prepare('UPDATE staff SET home_zone_id = ? WHERE id = ?').run(zone, lan);
+  db.prepare("UPDATE staff SET work_type = 'part' WHERE id = ?").run(mai); db.prepare("UPDATE staff SET work_type = 'full', home_zone_id = ? WHERE id = ?").run(zone, lan);
   await o('POST', '/api/staff', { name: 'Thu ngân A', team_id: tn, pin: '6043' });
   // Mai làm 3 tối 18–23 (5 giờ) trong tuần 02/11–08/11
   for (const d of ['2026-11-03', '2026-11-05', '2026-11-07']) for (const id of [mai, lan]) db.prepare('INSERT INTO attendance (staff_id, date, clock_in, clock_out) VALUES (?, ?, ?, ?)').run(id, d, clock.toEpoch(d, 18 * 60), clock.toEpoch(d, 23 * 60));

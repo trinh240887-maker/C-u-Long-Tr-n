@@ -390,7 +390,7 @@ export default function (r, ctx) {
     if (teamScope(me) && teamScope(me) !== team.id) fail(403, 'Bạn chỉ duyệt lịch bộ phận mình');
     const kind = ['full', 'part'].includes(body.kind) ? body.kind : null; // duyệt riêng 1 bảng của phục vụ
     const people = db.prepare("SELECT s.id, s.name, s.role, s.work_type, s.home_zone_id, p.name AS position_name FROM staff s LEFT JOIN positions p ON p.id = s.position_id WHERE s.active = 1 AND s.role != 'owner' AND s.team_id = ? ORDER BY s.name").all(team.id)
-      .filter((p) => !kind || (kind === 'full') === !!p.home_zone_id);
+      .filter((p) => !kind || (kind === 'part') === (p.work_type === 'part'));
     let made = 0;
     for (const p of people) made += availToShifts(p.id, start, me, { force: true }).made;
     const end = addDays(start, 6);

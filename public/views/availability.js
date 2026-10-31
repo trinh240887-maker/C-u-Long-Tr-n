@@ -89,7 +89,7 @@ function AddShift({ p, date, range, onClose, replaceId = null }) {
 // Ô đậm = đã xếp ca (bấm để bỏ) · ô xanh = rảnh (bấm để xếp) · ô trống = bận / chưa báo (vẫn bấm xếp được)
 const short = (t) => t.replace(/:00/g, '').replace(/^0/, '').replace(/–0/, '–');
 // 2 lịch riêng (chủ quán 27/10): 🔒 Ca full cố định (Full ca hoặc có khu cố định, xếp theo khu) · ⏱ Part-time (còn lại, xếp theo giờ vào)
-export const isFixedStaff = (p) => !!p.home_zone_id; // đã chọn khu = lịch cố định; chưa có khu thì ở Part-time (chủ quán 27/10)
+export const isFixedStaff = (p) => p.work_type !== 'part'; // chủ quán 31/10: chia theo Loại ca (Part-time → bảng part-time), khu chỉ để phân bàn
 const minOf = (t) => { const [h, m] = String(t || '99:99').split(':').map(Number); return h * 60 + (m || 0); };
 function firstStart(p, days, shifts, hours) {
   let best = 9999;
@@ -106,7 +106,8 @@ function FixStaff({ p, zones, teams = [], onClose }) {
   return html`<${Modal} title=${p.name} onClose=${onClose}><div class="stack">
     <b>1. Ca làm</b>
     <div class="row wrap"><button class=${`big ${full ? 'primary' : ''}`} onClick=${() => !full && save({ work_type: 'full' }, `${p.name}: Full ca 14–23`)}>Full ca 14–23</button>
-      <button class=${`big ${!full ? 'primary' : ''}`} onClick=${() => full && save({ work_type: 'gay' }, `${p.name}: Ca gãy`)}>Ca gãy</button></div>
+      <button class=${`big ${p.work_type === 'gay' || !p.work_type ? 'primary' : ''}`} onClick=${() => p.work_type !== 'gay' && save({ work_type: 'gay' }, `${p.name}: Ca gãy`)}>Ca gãy</button>
+      <button class=${`big ${p.work_type === 'part' ? 'primary' : ''}`} onClick=${() => p.work_type !== 'part' && save({ work_type: 'part' }, `${p.name}: Part-time (ca tối 18–23)`)}>Part-time 18–23</button></div>
     <b>2. Khu</b>
     <div class="row wrap">${zones.map((z) => html`<button class=${`big ${p.home_zone_id === z.id ? 'primary' : ''}`} onClick=${() => save({ home_zone_id: z.id }, `${p.name}: ${z.name}`)}>${z.name}</button>`)}
       <button class=${`big ${!p.home_zone_id ? 'primary' : ''}`} onClick=${() => p.home_zone_id && save({ home_zone_id: null }, `${p.name}: không cố định khu`)}>Không cố định</button></div>
@@ -443,9 +444,9 @@ function Overview({ me, week, onWeek }) {
     ${(() => { const pvT = d.teams.find((t) => /phục vụ/i.test(t.name)); const tOf = (p) => (d.teams.some((t) => t.id === p.team_id) ? p.team_id : p.home_zone_id && pvT ? pvT.id : null);
       const ok = (p) => p.active !== false && p.role !== 'owner' && (!team || tOf(p) === Number(team)); const all = staffD.data.filter(ok), nf = all.filter(isFixedStaff).length;
       return html`<div class="chips"><button class=${`chip ${!kind ? 'on' : ''}`} onClick=${() => setKind('')}>Tất cả (${all.length})</button>
-        <button class=${`chip ${kind === 'full' ? 'on' : ''}`} onClick=${() => setKind('full')}>🔒 Ca full cố định (${nf})</button>
+        <button class=${`chip ${kind === 'full' ? 'on' : ''}`} onClick=${() => setKind('full')}>🔒 Full-time (${nf})</button>
         <button class=${`chip ${kind === 'part' ? 'on' : ''}`} onClick=${() => setKind('part')}>⏱ Part-time (${all.length - nf})</button></div>
-        ${canManage ? html`<p class="small muted">Bấm <b>tên</b> để chọn khu và Full ca / Ca gãy. <b>Đã chọn khu</b> thì vào lịch 🔒 full-time (bot không ghi lịch), chưa chọn khu thì ở ⏱ Part-time (bot ghi lịch rảnh, phục vụ chỉ ca 18–23). Chọn 🔒 hoặc ⏱ để <b>duyệt riêng từng bảng</b>.</p>` : null}`; })()}
+        ${canManage ? html`<p class="small muted">Bấm <b>tên</b> để chọn loại ca và khu. <b>Full ca / Ca gãy</b> ở lịch 🔒 full-time (bot không ghi lịch), <b>Part-time</b> ở ⏱ (bot ghi lịch rảnh, phục vụ chỉ ca 18–23). Chọn 🔒 hoặc ⏱ để <b>duyệt riêng từng bảng</b>.</p>` : null}`; })()}
     <${WeekTable} d=${d} shifts=${shifts} staff=${staffD.data} team=${team} kind=${kind} canManage=${canManage} onAdd=${(p, x, range) => setAdd({ p, range, date: x })} />
     <details class="card"><summary><b>Chưa báo lịch rảnh (${missing.length})</b> <small class="muted">hạn ${WEEKDAY[dowOf(d.deadline.date)]} ${fmtDate(d.deadline.date)} ${d.deadline.time}</small></summary>
       <div class="stack">${missing.length ? html`<div class="chips">${missing.map((p) => html`<span class="chip">${p.name}</span>`)}</div>` : html`<p class="muted">Mọi người đã báo.</p>`}

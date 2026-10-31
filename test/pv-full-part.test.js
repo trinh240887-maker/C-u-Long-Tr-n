@@ -20,7 +20,7 @@ test('phục vụ 2 bảng: full-time (có khu cố định) bot không ghi lị
   const { ctx } = app;
   const pv = db.prepare("SELECT id FROM teams WHERE name = 'Phục vụ'").get()?.id ?? Number(db.prepare("INSERT INTO teams (name, sort, min_staff) VALUES ('Phục vụ', 1, 1)").run().lastInsertRowid);
   const zone = db.prepare('SELECT id FROM zones ORDER BY id LIMIT 1').get()?.id ?? Number(db.prepare("INSERT INTO zones (name) VALUES ('Khu A')").run().lastInsertRowid);
-  db.prepare("INSERT INTO staff (name, role, team_id, home_zone_id, created_at) VALUES ('Lan Full', 'staff', ?, ?, 0), ('Mai Part', 'staff', ?, NULL, 0)").run(pv, zone, pv);
+  db.prepare("INSERT INTO staff (name, role, team_id, home_zone_id, work_type, created_at) VALUES ('Lan Full', 'staff', ?, ?, 'full', 0), ('Mai Part', 'staff', ?, ?, 'part', 0)").run(pv, zone, pv, zone);
   const id = (n) => db.prepare('SELECT id FROM staff WHERE name = ?').get(n).id;
   ctx.setSetting('zalo_bot_staff_group_id', 'grpNV');
   const msg = (mid, text, name) => ({ id: mid, date: now, chat: { id: 'grpNV', type: 'GROUP', name: 'Nhóm' }, from: { id: `u-${name}`, name }, text });

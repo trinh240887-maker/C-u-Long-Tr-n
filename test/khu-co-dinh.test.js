@@ -59,7 +59,8 @@ test('Lịch Ca full cố định / Part-time: đưa vào (work_type full + khu)
   s = await get();
   assert.equal(s.work_type, 'part'); assert.equal(s.home_zone_id, null);
   const { isFixedStaff } = await import('../public/views/availability.js').catch(() => ({}));
-  if (isFixedStaff) { assert.equal(isFixedStaff({ work_type: 'gay', home_zone_id: 1 }), true); assert.equal(isFixedStaff({ work_type: 'full' }), false); assert.equal(isFixedStaff({ work_type: 'gay' }), false); }
+  // Chủ quán 31/10: chia theo Loại ca — Part-time ở bảng part-time, Full ca / Ca gãy / chưa chọn ở full-time (khu chỉ để phân bàn)
+  if (isFixedStaff) { assert.equal(isFixedStaff({ work_type: 'gay', home_zone_id: 1 }), true); assert.equal(isFixedStaff({ work_type: 'full' }), true); assert.equal(isFixedStaff({ work_type: 'part', home_zone_id: 1 }), false); }
 });
 
 test('Đổi bộ phận từ bảng tuần: gửi team_id + position_id null không lỗi khi vị trí thuộc bộ phận cũ', async (t) => {

@@ -633,7 +633,7 @@ export default function (r, ctx) {
   });
 
   // ================= Lương part-time theo tuần (chủ quán 31/10) =================
-  // Part-time = phục vụ chưa có khu cố định, hoặc loại ca "Part-time", lương theo giờ. Tuần T2–CN; giờ thật theo chấm công × lương giờ.
+  // Part-time = loại ca "Part-time", lương theo giờ. Tuần T2–CN; giờ thật theo chấm công × lương giờ.
   // Ngày trả: chủ quán chọn (setting part_pay_day: 'sun' = tối CN cuối tuần, 'mon' = T2 tuần sau). Trả xong bấm "Đã trả" → ghi phiếu chi lương.
   db.exec('CREATE TABLE IF NOT EXISTS payroll_week_paid (week_start TEXT NOT NULL, staff_id INTEGER NOT NULL, amount INTEGER NOT NULL, minutes INTEGER NOT NULL DEFAULT 0, method TEXT NOT NULL, by_id INTEGER, at INTEGER NOT NULL, expense_id INTEGER, PRIMARY KEY (week_start, staff_id))');
   const isPart = (x) => x.pay_type === 'hour' && (x.work_type === 'part' || ctx.pvKind?.(x.id) === 'part');

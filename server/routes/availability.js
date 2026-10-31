@@ -44,11 +44,12 @@ export default function (r, ctx) {
     const { start, end } = ctx.availRange(t);
     return end > start && end <= 1440 ? t : null;
   };
-  // Phục vụ chia 2 bảng (chủ quán 31/10): FULL-TIME = đã có khu cố định (lịch cố định, bot KHÔNG ghi lịch);
-  // PART-TIME = chưa có khu cố định (báo lịch rảnh / bot ghi, quản lý duyệt riêng, chỉ ca tối 18–23)
+  // Phục vụ chia 2 bảng (chủ quán 31/10): FULL-TIME = loại ca Full ca / Ca gãy (bot KHÔNG ghi lịch);
+  // PART-TIME = loại ca Part-time (báo lịch rảnh / bot ghi, quản lý duyệt riêng, chỉ ca tối 18–23)
   const PVTT = /phục vụ|phuc vu/i; // chỉ bộ phận Phục vụ (không áp Tiếp thực)
   const staffRow = (id) => db.prepare('SELECT s.id, s.home_zone_id, s.work_type, t.name AS team_name FROM staff s LEFT JOIN teams t ON t.id = s.team_id WHERE s.id = ?').get(id);
-  ctx.pvKind = (id) => { const x = staffRow(id); if (!x || !PVTT.test(x.team_name || '')) return null; return x.home_zone_id ? 'full' : 'part'; };
+  // Chia theo "Loại ca" của nhân viên (chủ quán 31/10): Part-time → bảng part-time; Full ca / Ca gãy / chưa chọn → full-time. Khu chỉ để phân bàn.
+  ctx.pvKind = (id) => { const x = staffRow(id); if (!x || !PVTT.test(x.team_name || '')) return null; return x.work_type === 'part' ? 'part' : 'full'; };
   const partWindow = () => { const m = /^(\d\d:\d\d)-(\d\d:\d\d)$/.exec(ctx.setting('pv_part_shift') || '18:00-23:00'); return m ? { start: toMin(m[1]), end: toMin(m[2]) } : { start: 1080, end: 1380 }; };
   // Cắt giờ rảnh của part-time về khung ca tối (rảnh 14–23 → 18–23; rảnh 8–12 → bỏ)
   const clipPart = (slots) => { const w = partWindow(); const hm = (x) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`;
