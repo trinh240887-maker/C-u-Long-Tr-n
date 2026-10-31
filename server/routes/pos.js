@@ -63,6 +63,8 @@ export default function (r, ctx) {
   }
   ctx.posLateItems = lateItems;
 
+  // Giảm giá riêng từng bill (chủ quán 31/10): chỉ quản lý / chủ; % hoặc số tiền, bắt buộc lý do; tính sau khuyến mãi
+  if (!db.prepare('PRAGMA table_info(table_sessions)').all().some((c) => c.name === 'manual_disc')) db.exec("ALTER TABLE table_sessions ADD COLUMN manual_disc TEXT NOT NULL DEFAULT ''");
   function session(id) {
     const s = db.prepare('SELECT s.*, o.name AS opened_by_name FROM table_sessions s LEFT JOIN staff o ON o.id = s.opened_by WHERE s.id = ?').get(id);
     if (!s) fail(404, 'Không tìm thấy bàn');
@@ -74,6 +76,12 @@ export default function (r, ctx) {
     if (s.bill_snapshot) {
       const snap = JSON.parse(s.bill_snapshot);
       pr = { ...snap, lines: new Map(snap.lines) };
+    } else if (s.manual_disc) {
+      try {
+        const m = JSON.parse(s.manual_disc);
+        const amt = Math.min(pr.total, m.type === 'percent' ? Math.round((pr.total * m.value) / 100) : Math.round(m.value));
+        if (amt > 0) pr = { ...pr, bill: [...(pr.bill || []), { promo_id: 'manual', name: `Giảm ${m.type === 'percent' ? `${m.value}%` : 'tay'} (${m.by_name}): ${m.reason}`, amount: amt }], discount: pr.discount + amt, total: pr.total - amt };
+      } catch { /* bỏ qua dữ liệu hỏng */ }
     }
     const items = rows.map((i) => {
       const promos = pr.lines.get(i.id) || [];
@@ -516,6 +524,25 @@ export default function (r, ctx) {
   r.get('/api/pos/late', 'staff', () => lateItems());
 
   // Tách bàn: chuyển một số món (có thể một phần số lượng) sang bàn khác để tính riêng; không in phiếu
+  r.post('/api/pos/sessions/:id/discount', 'staff', ({ me, params, body }) => {
+    if (rank(me.real_role || me.role) < rank('manager')) fail(403, 'Chỉ quản lý / chủ quán giảm giá bill');
+    const s0 = openSession(Number(params.id));
+    if (body.clear) {
+      db.prepare("UPDATE table_sessions SET manual_disc = '' WHERE id = ?").run(s0.id);
+      ctx.audit(me, 'pos.discount_clear', { session: s0.id });
+    } else {
+      const type = v.oneOf(body.type, ['percent', 'amount'], { name: 'Kiểu giảm' });
+      const value = Number(String(body.value ?? '').replace(/[.\s]/g, '').replace(',', '.'));
+      if (!(value > 0) || (type === 'percent' && value > 100)) fail(400, type === 'percent' ? 'Giảm % từ 1 đến 100' : 'Số tiền giảm không hợp lệ');
+      const reason = v.text(body.reason, { name: 'Lý do giảm', required: true, max: 120 });
+      db.prepare('UPDATE table_sessions SET manual_disc = ? WHERE id = ?').run(JSON.stringify({ type, value, reason, by: me.id, by_name: me.name, at: ctx.now() }), s0.id);
+      ctx.audit(me, 'pos.discount', { session: s0.id, type, value, reason, total_before: s0.total });
+      // Quản lý giảm → báo chủ quán
+      if ((me.real_role || me.role) !== 'owner') ctx.notify(db.prepare("SELECT id FROM staff WHERE active = 1 AND role = 'owner'").all().map((x) => x.id), { title: `Giảm giá bill ${s0.header}: ${type === 'percent' ? `${value}%` : `${Number(value).toLocaleString('vi-VN')}đ`}`, body: `${me.name}: ${reason}`, link: '/so-do' });
+    }
+    ctx.broadcast('pos');
+    return session(s0.id);
+  });
   r.post('/api/pos/sessions/:id/split', 'staff', ({ me, params, body }) => {
     const s = openSession(params.id);
     const [n] = readTables([v.int(body.table, { min: 1, name: 'Bàn' })]);
